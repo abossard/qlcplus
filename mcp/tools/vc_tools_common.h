@@ -25,6 +25,9 @@
 #include <QRegularExpression>
 #include <nlohmann/json.hpp>
 
+#include "tool_registry.h"
+
+#include <limits>
 #include <string>
 #include <vector>
 #include <set>
@@ -74,29 +77,7 @@ namespace VCType
         return (it != map.end()) ? it.value() : Unknown;
     }
 
-    /** Map VCWidget::typeToString output → enum. Used by vc_update_widgets. */
-    inline int fromDisplayString(const QString &name)
-    {
-        static const QMap<QString, int> map = {
-            {"Button",          Button},
-            {"Slider",          Slider},
-            {"XYPad",           XYPad},
-            {"XY Pad",          XYPad},
-            {"Frame",           Frame},
-            {"Solo frame",      SoloFrame},
-            {"Speed dial",      SpeedDial},
-            {"Cue list",        CueList},
-            {"Label",           Label},
-            {"Audio Triggers",  AudioTriggers},
-            {"Animation",       Animation},
-            {"Clock",           Clock},
-            {"Record Panel",    RecordPanel}
-        };
-        auto it = map.find(name);
-        return (it != map.end()) ? it.value() : Unknown;
-    }
-
-    /** Map enum → JSON type name (for error messages). */
+    /** Map enum → stable JSON machine tag (bridge type field and error messages). */
     inline std::string toString(int type)
     {
         static const QMap<int, std::string> map = {
@@ -235,8 +216,7 @@ namespace VCFields
                 "soloframeMixing", "excludeMonitoredFunctions"
             }},
             {XYPad, {
-                "displayMode", "invertedAppearance",
-                "position", "presets"
+                "displayMode", "invertedAppearance", "presets"
             }},
             {CueList, {
                 "chaserID", "chaserName",
@@ -255,7 +235,7 @@ namespace VCFields
                 "functionID", "functionName",
                 "color1", "color2", "color3", "color4", "color5",
                 "colors", "animation", "instantApply",
-                "visibilityMask", "customControls"
+                "visibilityMask"
             }},
             {Clock, {
                 "clockType",
@@ -278,6 +258,18 @@ namespace VCFields
 namespace VCValidate
 {
     using Json = nlohmann::json;
+
+    /** validateEnums accepts any letter case; return the schema spelling the
+     *  handler compares against, or the value unchanged if nothing matches. */
+    inline std::string canonicalEnum(const std::string &value, const Json &allowed)
+    {
+        const QString needle = QString::fromStdString(value);
+        for (const auto &v : allowed)
+            if (v.is_string() && needle.compare(QString::fromStdString(v.get<std::string>()),
+                                                Qt::CaseInsensitive) == 0)
+                return v.get<std::string>();
+        return value;
+    }
 
     /**
      * Build the full allowed-field set for a widget type + operation.
@@ -511,10 +503,9 @@ namespace VCValidate
         // Numeric range checks
         if (item.contains("childPageIndex"))
         {
-            if (!item["childPageIndex"].is_number_integer())
-                return mkErr("childPageIndex", "must be a non-negative integer");
-            if (item["childPageIndex"].get<int>() < 0)
-                return mkErr("childPageIndex", "must be a non-negative integer");
+            if (!mcp::jsonInteger(item["childPageIndex"], 0, std::numeric_limits<int>::max()))
+                return mkErr("childPageIndex",
+                             mcp::integerError("childPageIndex", 0, std::numeric_limits<int>::max()));
         }
 
         if (item.contains("startupIntensity"))
@@ -634,6 +625,13 @@ namespace VCValidate
         bool hasPage = item.contains("pageIndex");
         bool hasParent = item.contains("parentID");
 
+        for (const char *field : {"parentID", "pageIndex"})
+        {
+            if (item.contains(field) &&
+                !mcp::jsonInteger(item[field], 0, std::numeric_limits<int>::max()))
+                return Json({{"error", mcp::integerError(field, 0, std::numeric_limits<int>::max())}}).dump();
+        }
+
         if (widgetType == VCType::Frame || widgetType == VCType::SoloFrame)
         {
             if (hasPage && hasParent)
@@ -672,6 +670,16 @@ namespace VCValidate
 
         return "";
     }
+}
+
+class Doc;
+class VCBridge;
+
+namespace VCRefs
+{
+    /** Newly supplied function, fixture and widget references must exist and suit the
+     *  widget; -1 unbinds a single binding. Defined in vc_update_tools.cpp. */
+    std::string check(const nlohmann::json &item, int widgetType, Doc *doc, const VCBridge &bridge);
 }
 
 #endif // VC_TOOLS_COMMON_H

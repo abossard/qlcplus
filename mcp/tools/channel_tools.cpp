@@ -33,6 +33,31 @@
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
+namespace {
+
+using Json = nlohmann::json;
+
+// Resolve item.fixtureID/item.channel to an existing fixture channel, or explain why not.
+Fixture *resolveFixtureChannel(Doc *doc, const Json &item, quint32 &channel, std::string &error)
+{
+    if (!item.contains("fixtureID") || !item.contains("channel"))
+    {
+        error = "fixtureID and channel are required";
+        return nullptr;
+    }
+    auto fxID = mcp::jsonInteger(item.at("fixtureID"), 0, mcp::kMaxId);
+    if (!fxID) { error = mcp::integerError("fixtureID", 0, mcp::kMaxId); return nullptr; }
+    Fixture *fxi = doc->fixture(quint32(*fxID));
+    if (!fxi) { error = "fixtureID " + std::to_string(*fxID) + " not found"; return nullptr; }
+    const int64_t maxCh = int64_t(fxi->channels()) - 1;
+    auto ch = mcp::jsonInteger(item.at("channel"), 0, maxCh);
+    if (!ch) { error = mcp::integerError("channel", 0, maxCh); return nullptr; }
+    channel = quint32(*ch);
+    return fxi;
+}
+
+} // namespace
+
 void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 {
     using Json = nlohmann::json;
@@ -53,7 +78,12 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             QList<quint32> ids;
             if (args.contains("fixtureIDs"))
                 for (auto &fid : args.at("fixtureIDs"))
-                    ids.append(fid.get<int>());
+                {
+                    auto id = mcp::jsonInteger(fid, 0, mcp::kMaxId);
+                    if (!id)
+                        return Json({{"error", mcp::integerError("fixtureIDs[]", 0, mcp::kMaxId)}}).dump();
+                    ids.append(quint32(*id));
+                }
 
             for (Fixture *fxi : doc->fixtures())
             {
@@ -106,27 +136,32 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"precedence", {{"enum", {"auto", "htp", "ltp"}}}}
             };
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); i++)
             {
+                const Json &item = items[i];
                 auto err = validateFields(item, {"fixtureID", "channel", "precedence", "canFade"});
-                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+                if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
                 auto enumErr = validateEnums(item, kEnums);
-                if (!enumErr.empty()) { results.push_back(nlohmann::json::parse(enumErr)); continue; }
-                quint32 fxID = item.at("fixtureID").get<int>();
-                int ch = item.at("channel").get<int>();
-                Fixture *fxi = doc->fixture(fxID);
-                if (!fxi) { results.push_back({{"error", "fixture not found"}}); continue; }
+                if (!enumErr.empty()) { results.push_back(mcp::itemErrorFromDump(i, enumErr)); continue; }
+                quint32 ch = 0;
+                std::string refErr;
+                Fixture *fxi = resolveFixtureChannel(doc, item, ch, refErr);
+                if (!fxi) { results.push_back(mcp::itemError(i, refErr)); continue; }
+                quint32 fxID = fxi->id();
+                if (item.contains("canFade") && !item.at("canFade").is_boolean())
+                { results.push_back(mcp::itemError(i, "canFade must be a boolean")); continue; }
 
                 if (item.contains("precedence"))
                 {
-                    std::string prec = item.at("precedence").get<std::string>();
+                    const std::string prec = toLowerStd(item.at("precedence").get<std::string>());
                     QList<int> htpList = fxi->forcedHTPChannels();
                     QList<int> ltpList = fxi->forcedLTPChannels();
-                    htpList.removeAll(ch);
-                    ltpList.removeAll(ch);
+                    htpList.removeAll(int(ch));
+                    ltpList.removeAll(int(ch));
 
-                    if (prec == "htp") htpList.append(ch);
-                    else if (prec == "ltp") ltpList.append(ch);
+                    if (prec == "htp") htpList.append(int(ch));
+                    else if (prec == "ltp") ltpList.append(int(ch));
                     // "auto" = removed from both lists
 
                     fxi->setForcedHTPChannels(htpList);
@@ -135,8 +170,9 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 if (item.contains("canFade"))
                     fxi->setChannelCanFade(ch, item.at("canFade").get<bool>());
+                doc->setModified();
 
-                results.push_back({{"fixtureID", (int)fxID}, {"channel", ch}, {"status", "ok"}});
+                results.push_back(mcp::itemOk(i, {{"fixtureID", (int)fxID}, {"channel", (int)ch}}));
             }
             return results.dump();
             });
@@ -187,15 +223,20 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); i++)
             {
+                const Json &item = items[i];
                 auto err = validateFields(item, {"fixtureID", "channel", "modifierName"});
-                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
-                quint32 fxID = item.at("fixtureID").get<int>();
-                int ch = item.at("channel").get<int>();
+                if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
+                quint32 ch = 0;
+                std::string refErr;
+                Fixture *fxi = resolveFixtureChannel(doc, item, ch, refErr);
+                if (!fxi) { results.push_back(mcp::itemError(i, refErr)); continue; }
+                quint32 fxID = fxi->id();
+                if (!item.at("modifierName").is_string())
+                { results.push_back(mcp::itemError(i, "modifierName must be a string")); continue; }
                 QString modName = QString::fromStdString(item.at("modifierName").get<std::string>());
-                Fixture *fxi = doc->fixture(fxID);
-                if (!fxi) { results.push_back({{"error", "fixture not found"}}); continue; }
 
                 if (modName == "none" || modName.isEmpty())
                 {
@@ -209,12 +250,15 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                         fxi->setChannelModifier(ch, mod);
                     else
                     {
-                        results.push_back({{"fixtureID", (int)fxID}, {"channel", ch},
-                                           {"error", "modifier not found: " + modName.toStdString()}});
+                        Json rec = mcp::itemError(i, "modifier not found: " + modName.toStdString());
+                        rec["fixtureID"] = (int)fxID;
+                        rec["channel"] = (int)ch;
+                        results.push_back(rec);
                         continue;
                     }
                 }
-                results.push_back({{"fixtureID", (int)fxID}, {"channel", ch}, {"status", "ok"}});
+                doc->setModified();
+                results.push_back(mcp::itemOk(i, {{"fixtureID", (int)fxID}, {"channel", (int)ch}}));
             }
             return results.dump();
             });
@@ -248,9 +292,17 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 auto err = validateFields(item, {"fixtureID", "panDegrees", "tiltDegrees", "zoomDegrees"});
                 if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
 
-                quint32 fxID = item.at("fixtureID").get<int>();
+                auto fxOpt = item.is_object() && item.contains("fixtureID")
+                    ? mcp::jsonInteger(item.at("fixtureID"), 0, mcp::kMaxId) : std::nullopt;
+                if (!fxOpt) { results.push_back({{"error", mcp::integerError("fixtureID", 0, mcp::kMaxId)}}); continue; }
+                quint32 fxID = quint32(*fxOpt);
                 Fixture *fxi = doc->fixture(fxID);
                 if (!fxi) { results.push_back({{"error", "fixture not found"}, {"fixtureID", (int)fxID}}); continue; }
+                std::string degErr;
+                for (const char *key : {"panDegrees", "tiltDegrees", "zoomDegrees"})
+                    if (item.contains(key) && (!item.at(key).is_number() || !std::isfinite(item.at(key).get<double>())))
+                        degErr = std::string(key) + " must be a finite number";
+                if (!degErr.empty()) { results.push_back({{"error", degErr}, {"fixtureID", (int)fxID}}); continue; }
 
                 Json channelValues = Json::array();
 
@@ -293,7 +345,7 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 results.push_back(entry);
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
@@ -359,7 +411,10 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {
                 for (auto &fid : args.at("fixtureIDs"))
                 {
-                    quint32 id = fid.get<int>();
+                    auto idOpt = mcp::jsonInteger(fid, 0, mcp::kMaxId);
+                    if (!idOpt)
+                        return Json({{"error", mcp::integerError("fixtureIDs[]", 0, mcp::kMaxId)}}).dump();
+                    quint32 id = quint32(*idOpt);
                     if (!fixtureIDs.contains(id)) fixtureIDs.append(id);
                 }
             }

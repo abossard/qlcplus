@@ -64,6 +64,12 @@ private slots:
     void valueToBeatString_gcdReduction();
 
     void roundTrip_allCanonical();
+
+    void parseTimingFields_valid_data();
+    void parseTimingFields_valid();
+    void parseTimingFields_invalid_data();
+    void parseTimingFields_invalid();
+    void beatStringToValue_localeIndependent();
 };
 
 #endif // CONVERSIONS_TEST_H

@@ -48,6 +48,8 @@ private slots:
     void writeDmx_setsChannelOnOutput();
     void writeDmx_channelOutOfRange_rejected();
     void writeDmx_unknownFixture_rejected();
+    void writeDmx_wrappingReference_rejected_data();
+    void writeDmx_wrappingReference_rejected();
     void writeDmx_release_clearsHeldChannels();
     void writeDmx_releaseWithItems_rejected();
     void writeDmx_heldValuesClearedWhenProjectCleared();

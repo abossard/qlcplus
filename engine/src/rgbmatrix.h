@@ -199,6 +199,12 @@ public:
     /** Get the number of steps of the current algorithm */
     int stepsCount() const;
 
+    quint64 algorithmGeneration() const;
+
+    /** Bound callback observations to one controlled native operation. */
+    void beginCallbackOperation();
+    QString callbackError();
+
     /** Get the preview of the current algorithm at the given step */
     virtual void previewMap(int step, RGBMatrixStep *handler);
 
@@ -209,6 +215,8 @@ private:
     bool m_requestEngineCreation;
     RGBAlgorithm *m_runAlgorithm;
     RGBAlgorithm *m_algorithm;
+    quint64 m_algorithmGeneration = 0;
+    QString m_callbackError;
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
     QMutex m_algorithmMutex;
 #else
@@ -237,7 +245,7 @@ private:
      ************************************************************************/
 public:
     /** Set the value of the property with the given name */
-    virtual void setProperty(QString propName, QString value);
+    virtual bool setProperty(QString propName, QString value);
 
     /** Retrieve the value of the property with the given name */
     QString property(QString propName);
@@ -263,7 +271,7 @@ private:
 
     /** Apply the value of a Script property attribute to the algorithm.
      *  $attrIndex is an index of $scriptPropertyAttributes */
-    virtual void applyScriptPropertyAttribute(int attrIndex, qreal value);
+    virtual bool applyScriptPropertyAttribute(int attrIndex, qreal value);
 
 private:
     /** A map of the custom properties for this matrix */

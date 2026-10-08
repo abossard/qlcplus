@@ -23,9 +23,317 @@
 #include "vcbridge.h"
 #include "doc.h"
 #include "function.h"
+#include "fixture.h"
+#include "chaser.h"
+#include "rgbmatrix.h"
+#include "scene.h"
+#include "qlcchannel.h"
+
+#include <limits>
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
+
+namespace {
+
+using Json = nlohmann::json;
+
+enum class Kind { String, Bool, Int, Number, StringArray, Object, ObjectArray };
+using KindTable = std::vector<std::pair<const char *, Kind>>;
+
+bool hasKind(const Json &v, Kind kind)
+{
+    switch (kind)
+    {
+        case Kind::String: return v.is_string();
+        case Kind::Bool: return v.is_boolean();
+        case Kind::Int:
+            return mcp::jsonInteger(v, std::numeric_limits<int>::min(), std::numeric_limits<int>::max()).has_value();
+        case Kind::Number: return v.is_number();
+        case Kind::Object: return v.is_object();
+        case Kind::ObjectArray:
+            if (!v.is_array()) return false;
+            for (const auto &e : v) if (!e.is_object()) return false;
+            return true;
+        case Kind::StringArray:
+            if (!v.is_array()) return false;
+            for (const auto &e : v) if (!e.is_string()) return false;
+            return true;
+    }
+    return false;
+}
+
+const char *kindName(Kind kind)
+{
+    switch (kind)
+    {
+        case Kind::String: return "a string";
+        case Kind::Bool: return "a boolean";
+        case Kind::Int: return "a 32-bit integer";
+        case Kind::Number: return "a number";
+        case Kind::StringArray: return "an array of strings";
+        case Kind::Object: return "an object";
+        case Kind::ObjectArray: return "an array of objects";
+    }
+    return "valid";
+}
+
+std::string checkKinds(const Json &obj, const KindTable &table, const std::string &prefix,
+                       std::initializer_list<const char *> required = {})
+{
+    for (const char *key : required)
+        if (!obj.contains(key)) return prefix + key + " is required";
+    for (const auto &[key, kind] : table)
+        if (obj.contains(key) && !hasKind(obj.at(key), kind))
+            return prefix + key + " must be " + kindName(kind);
+    return "";
+}
+
+std::string checkEntries(const Json &item, const char *field, const KindTable &table,
+                         std::initializer_list<const char *> required = {})
+{
+    if (!item.contains(field)) return "";
+    for (const auto &entry : item.at(field))
+    {
+        for (auto it = entry.begin(); it != entry.end(); ++it)
+        {
+            bool known = false;
+            for (const auto &allowed : table) known = known || it.key() == allowed.first;
+            if (!known) return std::string(field) + "[]." + it.key() + " is not a known field";
+        }
+        auto err = checkKinds(entry, table, std::string(field) + "[].", required);
+        if (!err.empty()) return err;
+    }
+    return "";
+}
+
+// Rejects every input the apply phase could choke on, so a valid item never mutates halfway.
+std::string preflightUpdate(const Json &item, int widgetType, const VCBridge::WidgetDetails &details, Doc *doc,
+                            const VCBridge &bridge)
+{
+    static const KindTable top = {
+        {"caption", Kind::String}, {"x", Kind::Int}, {"y", Kind::Int}, {"width", Kind::Int}, {"height", Kind::Int},
+        {"functionID", Kind::Int}, {"functionName", Kind::String}, {"action", Kind::String},
+        {"iconPath", Kind::String}, {"keySequence", Kind::String}, {"startupIntensityEnabled", Kind::Bool},
+        {"startupIntensity", Kind::Number}, {"flashOverride", Kind::Bool}, {"flashForceLTP", Kind::Bool},
+        {"stopAllFadeTime", Kind::Int}, {"mode", Kind::String}, {"widgetStyle", Kind::String},
+        {"catchValues", Kind::Bool}, {"channels", Kind::ObjectArray}, {"clickAndGoType", Kind::String},
+        {"valueDisplayStyle", Kind::String}, {"invertedAppearance", Kind::Bool}, {"rangeLowLimit", Kind::Number},
+        {"rangeHighLimit", Kind::Number}, {"monitorEnabled", Kind::Bool}, {"gmValueMode", Kind::String},
+        {"gmChannelMode", Kind::String}, {"bgColor", Kind::String}, {"fgColor", Kind::String},
+        {"font", Kind::Object}, {"backgroundImage", Kind::String}, {"disabled", Kind::Bool},
+        {"displayMode", Kind::String}, {"presets", Kind::ObjectArray}, {"multipageMode", Kind::Bool},
+        {"totalPages", Kind::Int}, {"pagesLoop", Kind::Bool}, {"pageLabels", Kind::StringArray},
+        {"headerVisible", Kind::Bool}, {"enableButtonVisible", Kind::Bool}, {"collapsed", Kind::Bool},
+        {"soloframeMixing", Kind::Bool}, {"excludeMonitoredFunctions", Kind::Bool}, {"chaserID", Kind::Int},
+        {"chaserName", Kind::String}, {"nextPrevBehavior", Kind::String}, {"playbackLayout", Kind::String},
+        {"sideFaderMode", Kind::String}, {"color1", Kind::String}, {"color2", Kind::String},
+        {"color3", Kind::String}, {"color4", Kind::String}, {"color5", Kind::String},
+        {"colors", Kind::StringArray}, {"animation", Kind::String}, {"instantApply", Kind::Bool},
+        {"visibilityMask", Kind::Int}, {"clockType", Kind::String}, {"countdownHours", Kind::Int},
+        {"countdownMinutes", Kind::Int}, {"countdownSeconds", Kind::Int}, {"schedules", Kind::ObjectArray},
+        {"functions", Kind::ObjectArray}, {"absoluteValueMin", Kind::Int}, {"absoluteValueMax", Kind::Int},
+        {"resetFactorOnDialChange", Kind::Bool}, {"barsNumber", Kind::Int}, {"bars", Kind::ObjectArray},
+        {"targetFolder", Kind::String}, {"scenePrefix", Kind::String}, {"chaserPrefix", Kind::String},
+        {"defaultFadeIn", Kind::Int}, {"defaultHold", Kind::Int}, {"defaultFadeOut", Kind::Int}};
+    auto err = checkKinds(item, top, "");
+    if (!err.empty()) return err;
+
+    if (item.contains("font"))
+    {
+        err = checkKinds(item.at("font"), {{"family", Kind::String}, {"size", Kind::Int},
+                                           {"bold", Kind::Bool}, {"italic", Kind::Bool}}, "font.");
+        if (!err.empty()) return err;
+    }
+
+    if (widgetType == VCType::SpeedDial)
+        err = checkEntries(item, "presets", {{"name", Kind::String}, {"value", Kind::Int}});
+    else
+        err = checkEntries(item, "presets", {{"name", Kind::String}, {"type", Kind::String}, {"x", Kind::Number},
+                                             {"y", Kind::Number}, {"functionID", Kind::Int}});
+    if (!err.empty()) return err;
+    if (widgetType == VCType::XYPad && item.contains("presets"))
+    {
+        static const std::set<std::string> presetTypes = {"position", "efx", "scene", "fixtureGroup"};
+        for (const auto &p : item.at("presets"))
+            if (p.contains("type") && !presetTypes.count(p.at("type").get<std::string>()))
+                return "presets[].type must be one of position, efx, scene, fixtureGroup";
+    }
+
+    err = checkEntries(item, "functions", {{"functionID", Kind::Int}, {"fadeInMultiplier", Kind::String},
+                                           {"fadeOutMultiplier", Kind::String}, {"durationMultiplier", Kind::String}},
+                       {"functionID"});
+    if (!err.empty()) return err;
+
+    err = checkEntries(item, "schedules", {{"functionID", Kind::Int}, {"functionName", Kind::String},
+                                           {"hour", Kind::Int}, {"minute", Kind::Int}, {"second", Kind::Int}});
+    if (!err.empty()) return err;
+
+    err = checkEntries(item, "bars", {{"barIndex", Kind::Int}, {"type", Kind::String}, {"minThreshold", Kind::Int},
+                                      {"maxThreshold", Kind::Int}, {"divisor", Kind::Int}, {"functionID", Kind::Int},
+                                      {"targetWidgetID", Kind::Int}, {"dmxChannels", Kind::ObjectArray}},
+                       {"barIndex", "type"});
+    if (!err.empty()) return err;
+    if (item.contains("bars"))
+    {
+        static const std::set<std::string> barTypes = {"none", "dmx", "function", "widget"};
+        for (const auto &bar : item.at("bars"))
+        {
+            const int index = bar.at("barIndex").get<int>();
+            if (index < 0 || index >= details.barsNumber)
+                return "bars[].barIndex must be 0-" + std::to_string(details.barsNumber - 1);
+            if (!barTypes.count(bar.at("type").get<std::string>()))
+                return "bars[].type must be one of none, dmx, function, widget";
+            err = checkEntries(bar, "dmxChannels", {{"fixtureID", Kind::Int}, {"channel", Kind::Int}},
+                               {"fixtureID", "channel"});
+            if (!err.empty()) return "bars[]." + err;
+        }
+    }
+
+    return VCRefs::check(item, widgetType, doc, bridge);
+}
+
+} // namespace
+
+std::string VCRefs::check(const Json &item, int widgetType, Doc *doc, const VCBridge &bridge)
+{
+    auto id = [](const Json &v) { return mcp::jsonInteger(v, -1, mcp::kMaxId); };
+    auto anyFunction = [](Function *) { return true; };
+    auto function = [&](const std::string &field, const Json &v, bool canUnbind,
+                        const std::function<bool(Function *)> &fits, const char *what) -> std::string {
+        const auto fid = id(v);
+        if (canUnbind && fid == -1) return "";
+        Function *f = fid && *fid >= 0 ? doc->function(quint32(*fid)) : nullptr;
+        return f && fits(f) ? "" : field + " " + v.dump() + " is not an existing " + what;
+    };
+    auto named = [&](const std::string &field, const Json &name, Function::Type type,
+                     const std::function<bool(Function *)> &fits, const char *what) -> std::string {
+        const QString text = QString::fromStdString(name.get<std::string>());
+        const quint32 fid = type == Function::Undefined ? mcp::resolveFunctionByName(doc, text)
+                                                        : mcp::resolveFunctionByName(doc, text, type);
+        if (fid == Function::invalidId()) return field + " '" + name.get<std::string>() + "' not found";
+        return fits(doc->function(fid)) ? "" : field + " '" + name.get<std::string>() + "' is not " + what;
+    };
+    auto fixture = [&](const Json &v) -> Fixture * {
+        const auto fx = id(v);
+        return fx && *fx >= 0 ? doc->fixture(quint32(*fx)) : nullptr;
+    };
+    auto channel = [&](const std::string &field, const Json &ch) -> std::string {
+        Fixture *fxi = fixture(ch.value("fixtureID", Json()));
+        if (!fxi) return field + ".fixtureID " + ch.value("fixtureID", Json()).dump() + " is not an existing fixture";
+        const auto c = id(ch.value("channel", Json()));
+        if (!c || *c < 0 || quint32(*c) >= fxi->channels())
+            return field + ".channel " + ch.value("channel", Json()).dump() + " is not a channel of fixture "
+                   + std::to_string(fxi->id());
+        return "";
+    };
+    auto isMatrix = [](Function *f) { return qobject_cast<RGBMatrix *>(f) != nullptr; };
+    auto isChaser = [](Function *f) { return qobject_cast<Chaser *>(f) != nullptr; };
+    const bool matrix = widgetType == VCType::Animation;
+    std::string err;
+    auto failed = [&](std::string e) { err = std::move(e); return !err.empty(); };
+
+    if (item.contains("functionName")
+        && failed(named("functionName", item.at("functionName"), Function::Undefined,
+                        matrix ? std::function<bool(Function *)>(isMatrix) : anyFunction, "an RGB matrix")))
+        return err;
+    if (item.contains("functionID")
+        && (widgetType == VCType::Button || widgetType == VCType::Slider || matrix)
+        && failed(function("functionID", item.at("functionID"), true,
+                           matrix ? std::function<bool(Function *)>(isMatrix) : anyFunction,
+                           matrix ? "RGB matrix" : "function")))
+        return err;
+    if (widgetType == VCType::CueList)
+    {
+        if (item.contains("chaserName")
+            && failed(named("chaserName", item.at("chaserName"), Function::ChaserType, isChaser, "a chaser")))
+            return err;
+        if (item.contains("chaserID") && failed(function("chaserID", item.at("chaserID"), true, isChaser, "chaser")))
+            return err;
+    }
+    if (widgetType == VCType::Slider && item.contains("channels"))
+        for (const auto &ch : item.at("channels"))
+            if (failed(channel("channels[]", ch))) return err;
+    if (widgetType == VCType::XYPad)
+    {
+        for (const auto &fx : item.value("fixtureIDs", Json::array()))
+            if (!fixture(fx)) return "fixtureIDs[] " + fx.dump() + " is not an existing fixture";
+        for (const auto &fx : item.value("fixtures", Json::array()))
+        {
+            Fixture *fxi = fixture(fx.value("fixtureID", Json()));
+            if (!fxi) return "fixtures[].fixtureID " + fx.value("fixtureID", Json()).dump() + " is not an existing fixture";
+            const auto head = id(fx.value("head", Json(0)));
+            if (!head || *head < 0 || *head >= fxi->heads())
+                return "fixtures[].head " + fx.value("head", Json(0)).dump() + " is not a head of fixture "
+                       + std::to_string(fxi->id());
+        }
+        for (const auto &p : item.value("presets", Json::array()))
+        {
+            const std::string type = p.value("type", "");
+            if (type != "efx" && type != "scene") continue;
+            // Mirrors VCXYPad::sceneHasPanTilt: addFunctionPreset silently drops other scenes.
+            auto panTiltScene = [doc](Function *f) {
+                Scene *scene = qobject_cast<Scene *>(f);
+                if (!scene) return false;
+                for (const SceneValue &scv : scene->values())
+                {
+                    Fixture *fxi = doc->fixture(scv.fxi);
+                    const QLCChannel *ch = fxi ? fxi->channel(scv.channel) : nullptr;
+                    if (ch && (ch->group() == QLCChannel::Pan || ch->group() == QLCChannel::Tilt)) return true;
+                }
+                return false;
+            };
+            if (failed(type == "efx"
+                           ? function("presets[].functionID", p.value("functionID", Json()), false,
+                                      [](Function *f) { return f->type() == Function::EFXType; }, "EFX")
+                           : function("presets[].functionID", p.value("functionID", Json()), false,
+                                      panTiltScene, "scene with pan/tilt values")))
+                return err;
+        }
+    }
+    if (widgetType == VCType::SpeedDial)
+    {
+        for (const auto &fid : item.value("functionIDs", Json::array()))
+            if (failed(function("functionIDs[]", fid, false, anyFunction, "function"))) return err;
+        for (const auto &f : item.value("functions", Json::array()))
+            if (failed(function("functions[].functionID", f.value("functionID", Json()), false, anyFunction, "function")))
+                return err;
+    }
+    if (widgetType == VCType::Clock)
+        for (const auto &s : item.value("schedules", Json::array()))
+        {
+            if (s.contains("functionID"))
+            {
+                if (failed(function("schedules[].functionID", s.at("functionID"), false, anyFunction, "function")))
+                    return err;
+            }
+            else if (s.contains("functionName")
+                     && failed(named("schedules[].functionName", s.at("functionName"), Function::Undefined,
+                                     anyFunction, "")))
+                return err;
+        }
+    if (widgetType == VCType::AudioTriggers)
+        for (const auto &bar : item.value("bars", Json::array()))
+        {
+            const std::string type = bar.value("type", "");
+            if (type == "function" && bar.contains("functionID")
+                && failed(function("bars[].functionID", bar.at("functionID"), true, anyFunction, "function")))
+                return err;
+            if (type == "widget" && bar.contains("targetWidgetID"))
+            {
+                const auto target = id(bar.at("targetWidgetID"));
+                if (target == -1) continue;
+                const QString kind = target ? bridge.getWidgetDetails(int(*target)).machineType : QString();
+                if (kind != "button" && kind != "slider" && kind != "speedDial")
+                    return "bars[].targetWidgetID " + bar.at("targetWidgetID").dump()
+                           + " is not an existing button, slider or speedDial";
+            }
+            if (type == "dmx")
+                for (const auto &ch : bar.value("dmxChannels", Json::array()))
+                    if (failed(channel("bars[].dmxChannels[]", ch))) return err;
+        }
+    return "";
+}
 
 void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge)
 {
@@ -46,7 +354,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"y", {{"type", "integer"}, {"description", "New Y position"}}},
                 {"width", {{"type", "integer"}, {"description", "New width"}}},
                 {"height", {{"type", "integer"}, {"description", "New height"}}},
-                {"functionID", {{"type", "integer"}, {"description", "New function ID (buttons: controlled function, sliders: playback function)"}}},
+                {"functionID", {{"type", "integer"}, {"description", "New function ID (buttons: controlled function, sliders: playback function, matrix: RGB matrix). -1 unbinds."}}},
                 {"functionName", {{"type", "string"}, {"description", "Function name. Alternative to functionID."}}},
                 {"action", {{"type", "string"}, {"enum", {"toggle", "flash", "blackout", "stopall", "freeze", "freezehold"}},
                     {"description", "Button action type. freeze toggles the workspace-global freeze latch; freezehold holds freeze while pressed."}}},
@@ -90,8 +398,9 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {"name", {{"type", "string"}}},
                     {"type", {{"type", "string"}, {"enum", {"position", "efx", "scene", "fixtureGroup"}}}},
                     {"x", {{"type", "number"}}}, {"y", {{"type", "number"}}},
-                    {"functionID", {{"type", "integer"}}}
-                }}}}, {"description", "XY Pad: position/EFX/scene presets"}}},
+                    {"functionID", {{"type", "integer"}}},
+                    {"value", {{"type", "integer"}, {"description", "SpeedDial: preset time value (ms)"}}}
+                }}}}, {"description", "XY Pad: position/EFX/scene presets (name, type, x, y, functionID). SpeedDial: presets (name, value)"}}},
                 {"multipageMode", {{"type", "boolean"}, {"description", "Frame: enable multipage mode"}}},
                 {"totalPages", {{"type", "integer"}, {"description", "Frame: total number of pages"}}},
                 {"pagesLoop", {{"type", "boolean"}, {"description", "Frame: loop pages"}}},
@@ -101,7 +410,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {"collapsed", {{"type", "boolean"}, {"description", "Frame: collapsed state"}}},
                 {"soloframeMixing", {{"type", "boolean"}, {"description", "SoloFrame: allow mixing"}}},
                 {"excludeMonitoredFunctions", {{"type", "boolean"}, {"description", "SoloFrame: exclude monitored functions"}}},
-                {"chaserID", {{"type", "integer"}, {"description", "CueList: chaser function ID"}}},
+                {"chaserID", {{"type", "integer"}, {"description", "CueList: chaser function ID. -1 unbinds."}}},
                 {"chaserName", {{"type", "string"}, {"description", "CueList: chaser name"}}},
                 {"nextPrevBehavior", {{"type", "string"}, {"enum", {"defaultRunFirst", "runNext", "select", "nothing"}}}},
                 {"playbackLayout", {{"type", "string"}, {"enum", {"playPauseStop", "playStopPause"}}}},
@@ -143,8 +452,8 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {"minThreshold", {{"type", "integer"}, {"description", "Min trigger threshold 0-100"}}},
                     {"maxThreshold", {{"type", "integer"}, {"description", "Max trigger threshold 0-100"}}},
                     {"divisor", {{"type", "integer"}, {"description", "Beat divisor for trigger skipping"}}},
-                    {"functionID", {{"type", "integer"}, {"description", "Function ID (for type=function)"}}},
-                    {"targetWidgetID", {{"type", "integer"}, {"description", "Widget ID to control (for type=widget)"}}},
+                    {"functionID", {{"type", "integer"}, {"description", "Function ID (for type=function). -1 unbinds."}}},
+                    {"targetWidgetID", {{"type", "integer"}, {"description", "Widget ID to control (for type=widget): button, slider or speedDial. -1 unbinds."}}},
                     {"dmxChannels", {{"type", "array"}, {"description", "DMX channels (for type=dmx)"},
                         {"items", {{"type", "object"}, {"properties", {
                             {"fixtureID", {{"type", "integer"}}},
@@ -160,26 +469,61 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
-                int wid = item.at("widgetID").get<int>();
+                const Json &item = items[i];
+                auto widgetIDValue = item.contains("widgetID")
+                    ? mcp::jsonInteger(item.at("widgetID"), 0, std::numeric_limits<int>::max()) : std::nullopt;
+                if (!widgetIDValue)
+                {
+                    results.push_back(mcp::itemError(i, mcp::integerError("widgetID", 0, std::numeric_limits<int>::max())));
+                    continue;
+                }
+                const int wid = int(*widgetIDValue);
+                auto itemError = [&](const std::string &msg) {
+                    Json rec = mcp::itemError(i, msg);
+                    rec["widgetID"] = wid;
+                    results.push_back(rec);
+                };
 
                 // 1. Look up widget type
                 auto details = vcBridge->getWidgetDetails(wid);
-                if (details.id < 0)
+                if (details.id < 0) { itemError("widget not found"); continue; }
+
+                int widgetType = VCType::fromString(details.machineType.toStdString());
+
+                // 2. Validate the whole item before any mutation
+                auto preflightErr = preflightUpdate(item, widgetType, details, doc, *vcBridge);
+                if (!preflightErr.empty()) { itemError(preflightErr); continue; }
+                auto validationErr = VCValidate::validate(item, widgetType, false);
+                if (!validationErr.empty())
                 {
-                    results.push_back({{"widgetID", wid}, {"error", "widget not found"}});
+                    itemError(nlohmann::json::parse(validationErr).value("error", validationErr));
                     continue;
                 }
-
-                int widgetType = VCType::fromDisplayString(details.type);
-
-                // 2. Validate fields for this widget type
-                auto validationErr = VCValidate::validate(item, widgetType, false);
-                if (!validationErr.empty()) { results.push_back(nlohmann::json::parse(validationErr)); continue; }
+                QList<QPair<quint32, quint32>> channels;
+                std::string channelsErr;
+                if (item.contains("channels"))
+                {
+                    for (const auto &ch : item.at("channels"))
+                    {
+                        auto fieldErr = validateFields(ch, {"fixtureID", "channel"});
+                        auto fixtureID = ch.contains("fixtureID") ? mcp::jsonInteger(ch.at("fixtureID"), 0, mcp::kMaxId) : std::nullopt;
+                        auto channel = ch.contains("channel") ? mcp::jsonInteger(ch.at("channel"), 0, mcp::kMaxId) : std::nullopt;
+                        if (!fieldErr.empty())
+                            channelsErr = nlohmann::json::parse(fieldErr).value("error", fieldErr);
+                        else if (!fixtureID || !channel)
+                            channelsErr = mcp::integerError(!fixtureID ? "channels[].fixtureID" : "channels[].channel", 0, mcp::kMaxId);
+                        if (!channelsErr.empty()) break;
+                        channels.append(qMakePair(quint32(*fixtureID), quint32(*channel)));
+                    }
+                }
+                if (!channelsErr.empty()) { itemError(channelsErr); continue; }
 
                 // 3. Apply changes only after validation passes
                 Json changes = Json::array();
+                try {
 
                 if (item.contains("caption"))
                 {
@@ -193,15 +537,15 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     item.contains("width") || item.contains("height"))
                 {
                     QRect geo = details.geometry;
-                    if (item.contains("x")) geo.setX(item.at("x").get<int>());
-                    if (item.contains("y")) geo.setY(item.at("y").get<int>());
+                    if (item.contains("x")) geo.moveLeft(item.at("x").get<int>());
+                    if (item.contains("y")) geo.moveTop(item.at("y").get<int>());
                     if (item.contains("width")) geo.setWidth(item.at("width").get<int>());
                     if (item.contains("height")) geo.setHeight(item.at("height").get<int>());
                     vcBridge->setWidgetGeometry(wid, geo);
                     changes.push_back({{"property", "geometry"}, {"status", "ok"}});
                 }
 
-                if (item.contains("functionID"))
+                if (item.contains("functionID") && (widgetType == VCType::Button || widgetType == VCType::Slider))
                 {
                     int fid = item.at("functionID").get<int>();
                     bool ok = vcBridge->setButtonFunction(wid, fid);
@@ -225,15 +569,6 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
 
                 if (item.contains("channels"))
                 {
-                    QList<QPair<quint32, quint32>> channels;
-                    for (auto &ch : item.at("channels"))
-                    {
-                        auto chErr = validateFields(ch, {"fixtureID", "channel"});
-                        if (!chErr.empty()) { results.push_back(nlohmann::json::parse(chErr)); continue; }
-                        channels.append(qMakePair(
-                            (quint32)ch.at("fixtureID").get<int>(),
-                            (quint32)ch.at("channel").get<int>()));
-                    }
                     bool ok = vcBridge->setSliderChannels(wid, channels);
                     changes.push_back({{"property", "channels"}, {"status", ok ? "ok" : "failed"}});
                 }
@@ -258,7 +593,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     changes.push_back({{"property", "displayMode"}, {"status", ok ? "ok" : "failed"}});
                 }
 
-                if (item.contains("invertedAppearance"))
+                if (widgetType == VCType::XYPad && item.contains("invertedAppearance"))
                 {
                     bool ok = vcBridge->setXYPadInvertedAppearance(wid,
                         item.at("invertedAppearance").get<bool>());
@@ -371,6 +706,30 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {
                         bool ok = vcBridge->setSliderCatchValues(wid, item["catchValues"].get<bool>());
                         changes.push_back({{"property", "catchValues"}, {"status", ok ? "ok" : "failed"}});
+                    }
+                    if (item.contains("functionName"))
+                    {
+                        quint32 fid = mcp::resolveFunctionByName(doc, QString::fromStdString(item["functionName"].get<std::string>()));
+                        bool ok = fid != Function::invalidId() && vcBridge->setSliderFunction(wid, fid);
+                        changes.push_back({{"property", "functionName"}, {"status", ok ? "ok" : "failed"}});
+                    }
+                    VCBridge::SliderConfig sliderCfg;
+                    bool hasSliderCfg = false;
+                    auto str = [&](const char *key, std::optional<QString> &out) {
+                        if (item.contains(key)) { out = QString::fromStdString(item[key].get<std::string>()); hasSliderCfg = true; }
+                    };
+                    str("clickAndGoType", sliderCfg.clickAndGoType);
+                    str("valueDisplayStyle", sliderCfg.valueDisplayStyle);
+                    str("gmValueMode", sliderCfg.gmValueMode);
+                    str("gmChannelMode", sliderCfg.gmChannelMode);
+                    if (item.contains("invertedAppearance")) { sliderCfg.invertedAppearance = item["invertedAppearance"].get<bool>(); hasSliderCfg = true; }
+                    if (item.contains("monitorEnabled")) { sliderCfg.monitorEnabled = item["monitorEnabled"].get<bool>(); hasSliderCfg = true; }
+                    if (item.contains("rangeLowLimit")) { sliderCfg.rangeLowLimit = item["rangeLowLimit"].get<double>(); hasSliderCfg = true; }
+                    if (item.contains("rangeHighLimit")) { sliderCfg.rangeHighLimit = item["rangeHighLimit"].get<double>(); hasSliderCfg = true; }
+                    if (hasSliderCfg)
+                    {
+                        bool ok = vcBridge->configureSlider(wid, sliderCfg);
+                        changes.push_back({{"property", "sliderConfig"}, {"status", ok ? "ok" : "failed"}});
                     }
                 }
 
@@ -572,7 +931,22 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     }
                 }
 
-                results.push_back({{"widgetID", wid}, {"changes", changes}});
+                } catch (const std::exception &e) {
+                    changes.push_back({{"property", "item"}, {"status", "failed"}, {"error", e.what()}});
+                }
+
+                bool failed = false;
+                for (const auto &change : changes)
+                    failed = failed || change.value("status", "") != "ok";
+                Json rec = mcp::itemOk(i, {{"widgetID", wid}, {"outcome", "updated"}, {"changes", changes}});
+                if (failed)
+                {
+                    // Unreachable after preflight; surfaced as an error, never as a partial edit.
+                    rec["status"] = "error";
+                    rec["error"] = "bridge rejected a change that passed preflight";
+                    rec.erase("outcome");
+                }
+                results.push_back(rec);
             }
             return results.dump();
             });

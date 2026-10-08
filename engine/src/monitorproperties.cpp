@@ -95,6 +95,7 @@ MonitorProperties::MonitorProperties()
 
 void MonitorProperties::reset()
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     m_gridSize = QVector3D(GRID_DEFAULT_WIDTH, GRID_DEFAULT_HEIGHT, GRID_DEFAULT_DEPTH);
     m_gridUnits = Meters;
     m_pointOfView = Undefined;
@@ -104,6 +105,31 @@ void MonitorProperties::reset()
     m_lightItems.clear();
     m_genericItems.clear();
     m_commonBackgroundImage = QString();
+    ++m_environmentProjectionRevision;
+    locker.unlock();
+    emit floorProjectionChanged();
+}
+
+void MonitorProperties::setGridSize(QVector3D size)
+{
+    QMutexLocker locker(&m_floorProjectionMutex);
+    if (m_gridSize == size)
+        return;
+    m_gridSize = size;
+    ++m_environmentProjectionRevision;
+    locker.unlock();
+    emit floorProjectionChanged();
+}
+
+void MonitorProperties::setGridUnits(GridUnits units)
+{
+    QMutexLocker locker(&m_floorProjectionMutex);
+    if (m_gridUnits == units)
+        return;
+    m_gridUnits = units;
+    ++m_environmentProjectionRevision;
+    locker.unlock();
+    emit floorProjectionChanged();
 }
 
 /********************************************************************
@@ -178,12 +204,17 @@ void MonitorProperties::setPointOfView(MonitorProperties::PointOfView pov)
 
 void MonitorProperties::removeFixture(quint32 fid)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     if (m_fixtureItems.contains(fid))
         m_fixtureItems.take(fid);
+    ++m_fixtureProjectionRevisions[fid];
+    locker.unlock();
+    emit floorProjectionChanged();
 }
 
 void MonitorProperties::removeFixture(quint32 fid, quint16 head, quint16 linked)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     if (m_fixtureItems.contains(fid) == false)
         return;
 
@@ -192,11 +223,17 @@ void MonitorProperties::removeFixture(quint32 fid, quint16 head, quint16 linked)
     if (m_fixtureItems[fid].m_subItems.count() == 0)
     {
         m_fixtureItems.take(fid);
+        ++m_fixtureProjectionRevisions[fid];
+        locker.unlock();
+        emit floorProjectionChanged();
         return;
     }
 
     quint32 subID = fixtureSubID(head, linked);
     m_fixtureItems[fid].m_subItems.remove(subID);
+    ++m_fixtureProjectionRevisions[fid];
+    locker.unlock();
+    emit floorProjectionChanged();
 }
 
 quint32 MonitorProperties::fixtureSubID(quint32 headIndex, quint32 linkedIndex) const
@@ -228,6 +265,8 @@ bool MonitorProperties::containsItem(quint32 fid, quint16 head, quint16 linked)
 
 void MonitorProperties::setFixturePosition(quint32 fid, quint16 head, quint16 linked, QVector3D pos)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
+    const bool changed = fixturePosition(fid, head, linked) != pos;
     //qDebug() << Q_FUNC_INFO << "X:" << pos.x() << "Y:" << pos.y();
     if (head == 0 && linked == 0)
     {
@@ -237,6 +276,12 @@ void MonitorProperties::setFixturePosition(quint32 fid, quint16 head, quint16 li
     {
         quint32 subID = fixtureSubID(head, linked);
         m_fixtureItems[fid].m_subItems[subID].m_position = pos;
+    }
+    if (changed)
+    {
+        ++m_fixtureProjectionRevisions[fid];
+        locker.unlock();
+        emit floorProjectionChanged();
     }
 }
 
@@ -255,6 +300,8 @@ QVector3D MonitorProperties::fixturePosition(quint32 fid, quint16 head, quint16 
 
 void MonitorProperties::setFixtureRotation(quint32 fid, quint16 head, quint16 linked, QVector3D degrees)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
+    const bool changed = fixtureRotation(fid, head, linked) != degrees;
     if (head == 0 && linked == 0)
     {
         m_fixtureItems[fid].m_baseItem.m_rotation = degrees;
@@ -263,6 +310,12 @@ void MonitorProperties::setFixtureRotation(quint32 fid, quint16 head, quint16 li
     {
         quint32 subID = fixtureSubID(head, linked);
         m_fixtureItems[fid].m_subItems[subID].m_rotation = degrees;
+    }
+    if (changed)
+    {
+        ++m_fixtureProjectionRevisions[fid];
+        locker.unlock();
+        emit floorProjectionChanged();
     }
 }
 
@@ -281,6 +334,7 @@ QVector3D MonitorProperties::fixtureRotation(quint32 fid, quint16 head, quint16 
 
 void MonitorProperties::setFixtureGelColor(quint32 fid, quint16 head, quint16 linked, QColor col)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     //qDebug() << Q_FUNC_INFO << "Gel color:" << col;
     if (head == 0 && linked == 0)
     {
@@ -308,6 +362,7 @@ QColor MonitorProperties::fixtureGelColor(quint32 fid, quint16 head, quint16 lin
 
 void MonitorProperties::setFixtureFixedZoom(quint32 fid, quint16 head, quint16 linked, int degrees)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     if (head == 0 && linked == 0)
     {
         m_fixtureItems[fid].m_baseItem.m_zoom = degrees;
@@ -334,6 +389,7 @@ int MonitorProperties::fixtureFixedZoom(quint32 fid, quint16 head, quint16 linke
 
 void MonitorProperties::setFixtureName(quint32 fid, quint16 head, quint16 linked, QString name)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     if (head == 0 && linked == 0)
     {
         m_fixtureItems[fid].m_baseItem.m_name = name;
@@ -360,6 +416,9 @@ QString MonitorProperties::fixtureName(quint32 fid, quint16 head, quint16 linked
 
 void MonitorProperties::setFixtureFlags(quint32 fid, quint16 head, quint16 linked, quint32 flags)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
+    const bool changed = ((fixtureFlags(fid, head, linked) ^ flags) &
+                          (InvertedPanFlag | InvertedTiltFlag)) != 0;
     if (head == 0 && linked == 0)
     {
         m_fixtureItems[fid].m_baseItem.m_flags = flags;
@@ -368,6 +427,12 @@ void MonitorProperties::setFixtureFlags(quint32 fid, quint16 head, quint16 linke
     {
         quint32 subID = fixtureSubID(head, linked);
         m_fixtureItems[fid].m_subItems[subID].m_flags = flags;
+    }
+    if (changed)
+    {
+        ++m_fixtureProjectionRevisions[fid];
+        locker.unlock();
+        emit floorProjectionChanged();
     }
 }
 
@@ -399,6 +464,8 @@ PreviewItem MonitorProperties::fixtureItem(quint32 fid, quint16 head, quint16 li
 
 void MonitorProperties::setFixtureItem(quint32 fid, quint16 head, quint16 linked, PreviewItem props)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
+    const PreviewItem before = fixtureItem(fid, head, linked);
     if (head == 0 && linked == 0)
     {
         m_fixtureItems[fid].m_baseItem = props;
@@ -407,6 +474,29 @@ void MonitorProperties::setFixtureItem(quint32 fid, quint16 head, quint16 linked
     {
         quint32 subID = fixtureSubID(head, linked);
         m_fixtureItems[fid].m_subItems[subID] = props;
+    }
+    if (before.m_position != props.m_position || before.m_rotation != props.m_rotation ||
+        ((before.m_flags ^ props.m_flags) & (InvertedPanFlag | InvertedTiltFlag)) != 0)
+    {
+        ++m_fixtureProjectionRevisions[fid];
+        locker.unlock();
+        emit floorProjectionChanged();
+    }
+}
+
+void MonitorProperties::setFixtureProperties(quint32 fid, FixturePreviewItem props)
+{
+    QMutexLocker locker(&m_floorProjectionMutex);
+    const FixturePreviewItem before = m_fixtureItems.value(fid);
+    m_fixtureItems[fid] = props;
+    if (before.m_baseItem.m_position != props.m_baseItem.m_position ||
+        before.m_baseItem.m_rotation != props.m_baseItem.m_rotation ||
+        ((before.m_baseItem.m_flags ^ props.m_baseItem.m_flags) &
+         (InvertedPanFlag | InvertedTiltFlag)) != 0)
+    {
+        ++m_fixtureProjectionRevisions[fid];
+        locker.unlock();
+        emit floorProjectionChanged();
     }
 }
 
@@ -432,12 +522,18 @@ QList<quint32> MonitorProperties::fixtureIDList(quint32 fid) const
 
 void MonitorProperties::removeLight(QString resource)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     if (m_lightItems.contains(resource))
         m_lightItems.take(resource);
+    if (resource == QLatin1String("moving_head.dae"))
+        ++m_beamProjectionRevision;
+    locker.unlock();
+    emit floorProjectionChanged();
 }
 
 void MonitorProperties::removeLight(QString resource, quint16 head)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
     if (m_lightItems.contains(resource) == false)
         return;
 
@@ -446,6 +542,10 @@ void MonitorProperties::removeLight(QString resource, quint16 head)
     {
         m_lightItems.take(resource);
     }
+    if (resource == QLatin1String("moving_head.dae") && head == 0)
+        ++m_beamProjectionRevision;
+    locker.unlock();
+    emit floorProjectionChanged();
 }
 
 bool MonitorProperties::containsLightEmitter(QString resource, quint16 head) const
@@ -458,7 +558,16 @@ bool MonitorProperties::containsLightEmitter(QString resource, quint16 head) con
 
 void MonitorProperties::setLightPosition(QString resource, quint16 head, QVector3D position)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
+    const bool changed = !containsLightEmitter(resource, head) || lightPosition(resource, head) != position;
     m_lightItems[resource][head].m_position = position;
+    if (changed)
+    {
+        if (resource == QLatin1String("moving_head.dae") && head == 0)
+            ++m_beamProjectionRevision;
+        locker.unlock();
+        emit floorProjectionChanged();
+    }
 }
 
 QVector3D MonitorProperties::lightPosition(QString resource, quint16 head) const
@@ -473,7 +582,16 @@ LightEmitter MonitorProperties::lightEmitter(QString resource, quint16 head) con
 
 void MonitorProperties::setLightEmitter(QString resource, quint16 head, LightEmitter props)
 {
+    QMutexLocker locker(&m_floorProjectionMutex);
+    const bool changed = !containsLightEmitter(resource, head) || lightPosition(resource, head) != props.m_position;
     m_lightItems[resource][head] = props;
+    if (changed)
+    {
+        if (resource == QLatin1String("moving_head.dae") && head == 0)
+            ++m_beamProjectionRevision;
+        locker.unlock();
+        emit floorProjectionChanged();
+    }
 }
 
 QList<quint32> MonitorProperties::lightHeadList(QString resource) const

@@ -46,6 +46,8 @@ private slots:
     void createProfile_updateReplacesInMemoryProfile();
     void createProfile_distinctPairsDoNotCollide();
     void createProfile_badMovement_isPerItemError();
+    void createProfile_invalidNumber_rejected_data();
+    void createProfile_invalidNumber_rejected();
     void createProfile_registeredForSetInputProfile();
     void queryProfileChannels_reportsMap();
     void queryProfileChannels_unknownProfile_error();

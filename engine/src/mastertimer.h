@@ -115,6 +115,41 @@ public:
     /** Thread-safe: function waits in the start queue for its next preRun */
     bool isStartQueued(const Function *function) const;
 
+    /** Admit a configuration edit of the given functions. Refused while any
+     *  of them is running, starting or start-queued. Pair with endFunctionEdit(). */
+    bool beginFunctionEdit(const QList<Function*> &functions);
+
+    /** Admit an edit of one Doc function together with every Doc function
+     *  that lists it in components(). Refused also while it is flashing. */
+    bool beginFunctionEdit(Function *function);
+
+    /** Admit adding/removing functions to/from Doc. Refused while any function
+     *  is running, starting or start-queued, or another edit is admitted;
+     *  defers every start until endFunctionEdit(). */
+    bool beginRegistryEdit();
+    void endFunctionEdit();
+
+    /** Scoped release of an admitted edit: ends it on scope exit, including
+     *  unwinding. A refused admission is held as nothing and releases nothing. */
+    class EditAdmission
+    {
+    public:
+        EditAdmission(MasterTimer *timer, bool admitted) : m_timer(admitted ? timer : nullptr) {}
+        ~EditAdmission() { end(); }
+        EditAdmission(const EditAdmission &) = delete;
+        EditAdmission &operator=(const EditAdmission &) = delete;
+        explicit operator bool() const { return m_timer != nullptr; }
+        void end()
+        {
+            if (m_timer != nullptr)
+                m_timer->endFunctionEdit();
+            m_timer = nullptr;
+        }
+
+    private:
+        MasterTimer *m_timer;
+    };
+
 signals:
     /** Tells that the list of running functions has changed */
     void functionListChanged();
@@ -133,8 +168,13 @@ private:
     /** List of currently running functions */
     QList <Function*> m_functionList;
     QList <Function*> m_startQueue;
+    /** Drained from m_startQueue, preRun not yet finished */
+    QList <Function*> m_startingFunctions;
+    QList <Function*> m_editFunctions;
+    bool m_registryEdit = false;
 
-    /** Mutex that guards access to m_startQueue */
+    /** Guards m_startQueue, m_startingFunctions, m_editFunctions and writes
+     *  to m_functionList (only the timer thread writes m_functionList) */
     QMutex m_functionListMutex;
 
     /** Flag for stopping all functions */

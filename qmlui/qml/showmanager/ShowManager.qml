@@ -485,6 +485,17 @@ Rectangle
         xViewOffset = plan.fit.xViewOffset
         showContents.contentY = plan.fit.contentY
         selectionNavigationStatus = TimeUtils.selectionNavigationFitResult(selectionNavigationSnapshot(true)).reason
+        playheadRevealRequested = showManager.isPlaying && !showManager.isPaused
+    }
+
+    // Keep an explicit reveal pending while a recording gesture owns the view.
+    property bool playheadRevealRequested: false
+
+    function requestPlayheadReveal()
+    {
+        if (showManager.readOnly || (showManager.isPlaying && !showManager.isPaused))
+            playheadRevealRequested = true
+        Qt.callLater(showMgrContainer.followPlayhead)
     }
 
     function followPlayhead()
@@ -496,21 +507,22 @@ Rectangle
             return
 
         var cursorX = hdrItem.cursorPosition
-        if (showManager.readOnly && cursorX < xViewOffset)
+        if ((showManager.readOnly || playheadRevealRequested) && cursorX < xViewOffset)
             xViewOffset = Math.max(0, cursorX - (timelineViewportWidth / 2))
         else if (cursorX >= xViewOffset + timelineViewportWidth * 0.99)
         {
             var maxOffset = Math.max(0, timelineHeader.contentWidth - timelineViewportWidth)
             xViewOffset = Math.min(maxOffset, Math.max(0, cursorX - timelineViewportWidth * 0.01))
         }
+        playheadRevealRequested = false
     }
 
     Connections
     {
         target: showManager
         function onReadOnlyChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
-        function onIsPlayingChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
-        function onIsPausedChanged() { Qt.callLater(showMgrContainer.followPlayhead) }
+        function onIsPlayingChanged() { showMgrContainer.requestPlayheadReveal() }
+        function onIsPausedChanged() { showMgrContainer.requestPlayheadReveal() }
         function onSelectedItemsCountChanged(count)
         {
             showMgrContainer.selectionNavigationStatus = ""

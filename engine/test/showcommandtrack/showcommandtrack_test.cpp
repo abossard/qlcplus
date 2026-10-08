@@ -25,6 +25,7 @@
 Q_DECLARE_METATYPE(ShowCommand)
 Q_DECLARE_METATYPE(ShowCommandOrigin)
 Q_DECLARE_METATYPE(ShowCommandAction)
+Q_DECLARE_METATYPE(ShowCommandPayload)
 Q_DECLARE_METATYPE(ShowCommandFsm::ShowButtonNative)
 Q_DECLARE_METATYPE(ShowCommandFsm::ShowButtonOp)
 Q_DECLARE_METATYPE(ShowControlStatus)
@@ -71,6 +72,692 @@ static bool fromXml(const QString &xml, ShowCommandTrack *track, QString *error 
     if (!reader.readNextStartElement())
         return false;
     return track->loadXML(reader, error);
+}
+
+void ShowCommandTrack_Test::incompatiblePairIsTransactional_data()
+{
+    QTest::addColumn<ShowCommand>("command");
+    QTest::addColumn<QString>("boundary");
+    QTest::addColumn<QString>("pair");
+    QVector<ShowCommand> commands = {
+        ShowCommand::setSliderColors(24, 1500, kControlA, ShowControlRole::LevelSlider,
+                                     "10,20,30;40,50,60", .5),
+        ShowCommand::setXYPadPosition(24, 1500, kControlA, "64.1,192.2"),
+        ShowCommand::setAnimationFader(24, 1500, kControlA, .75),
+        ShowCommand::setSliderReset(24, 1500, kControlA, ShowControlRole::AdjustSlider, "Intensity"),
+        ShowCommand::setSliderPosition(24, 1500, kControlA, ShowControlRole::LevelSlider, {}, .3),
+        ShowCommand::start(24, 1500, 42),
+        ShowCommand::setIntensity(24, 1500, 42, .5)
+    };
+    ShowCommand floor = ShowCommand::setXYPadPosition(24, 1500, kControlA, {});
+    floor.action = ShowCommandAction::SetXYPadFloor;
+    floor.payload.value = ShowCommandFloor{1.1, 2.2, 3.3};
+    commands.append(floor);
+    for (const auto &command : commands)
+    {
+        for (const QString &boundary : {QStringLiteral("insert"), QStringLiteral("replace"),
+                                        QStringLiteral("load")})
+        {
+            const QString name = ShowCommand::actionToString(command.action) + '-' + boundary;
+            QTest::newRow(qPrintable(name)) << command << boundary << QStringLiteral("7");
+        }
+        const QString name = ShowCommand::actionToString(command.action) + "-load-malformed";
+        QTest::newRow(qPrintable(name)) << command << QStringLiteral("load") << QStringLiteral("invalid");
+    }
+}
+
+void ShowCommandTrack_Test::incompatiblePairIsTransactional()
+{
+    QFETCH(ShowCommand, command);
+    QFETCH(QString, boundary);
+    QFETCH(QString, pair);
+    ShowCommandTrack track = fixtureTrack();
+    QVERIFY(track.retime(7, 1500));
+    track.reserve(100, 200);
+    const ShowCommandTrack before = track;
+    const QString xmlBefore = toXml(track);
+    QString reason;
+    bool accepted;
+    if (boundary == "load")
+    {
+        ShowCommandTrack candidate;
+        QVERIFY(candidate.insert(command));
+        QString xml = toXml(candidate);
+        xml.replace(" Action=", " Pair=\"" + pair + "\" Action=");
+        accepted = fromXml(xml, &track, &reason);
+    }
+    else
+    {
+        command.pairId = 7;
+        if (boundary == "replace")
+            command.id = 9;
+        accepted = boundary == "insert" ? track.insert(command, &reason) : track.replace(command, &reason);
+    }
+    QVERIFY(!accepted);
+    QVERIFY2(reason.contains("pair", Qt::CaseInsensitive), qPrintable(reason));
+    QCOMPARE(track.commands(), before.commands());
+    QCOMPARE(toXml(track), xmlBefore);
+    QCOMPARE(track.extent(), before.extent());
+    QCOMPARE(track.nextEventId(), before.nextEventId());
+    QCOMPARE(track.nextOrder(), before.nextOrder());
+    for (int i = 0; i < track.count(); ++i)
+        QCOMPARE(track.commands()[i].order, before.commands()[i].order);
+}
+
+void ShowCommandTrack_Test::explicitButtonPairIsTransactional_data()
+{
+    QTest::addColumn<QString>("pair");
+    QTest::newRow("explicit unset sentinel") << QStringLiteral("4294967295");
+    QTest::newRow("negative") << QStringLiteral("-1");
+    QTest::newRow("malformed") << QStringLiteral("invalid");
+}
+
+void ShowCommandTrack_Test::explicitButtonPairIsTransactional()
+{
+    QFETCH(QString, pair);
+    ShowCommandTrack track = fixtureTrack();
+    QVERIFY(track.retime(7, 1500));
+    track.reserve(100, 200);
+    const ShowCommandTrack before = track;
+    const QString xmlBefore = toXml(track);
+    const QString xml = QStringLiteral(
+        "<CommandTrack Version=\"3\" Extent=\"4000\"><Command ID=\"24\" Time=\"1500\" "
+        "Action=\"SetButtonState\" Control=\"%1\" Role=\"FlashButton\" State=\"On\" "
+        "Pair=\"%2\"/></CommandTrack>").arg(kControlA.toString(), pair);
+    QString reason;
+    QVERIFY(!fromXml(xml, &track, &reason));
+    QCOMPARE(reason, QStringLiteral("invalid pair id '%1'").arg(pair));
+    QCOMPARE(track.commands(), before.commands());
+    QCOMPARE(toXml(track), xmlBefore);
+    QCOMPARE(track.extent(), before.extent());
+    QCOMPARE(track.nextEventId(), before.nextEventId());
+    QCOMPARE(track.nextOrder(), before.nextOrder());
+    for (int i = 0; i < track.count(); ++i)
+        QCOMPARE(track.commands()[i].order, before.commands()[i].order);
+}
+
+void ShowCommandTrack_Test::typedPayloadEquality_data()
+{
+    QTest::addColumn<ShowCommandPayload>("left");
+    QTest::addColumn<ShowCommandPayload>("right");
+    const auto row = [](const char *name, ShowCommandPayload::Value left,
+                        ShowCommandPayload::Value right) {
+        QTest::newRow(name) << ShowCommandPayload{left} << ShowCommandPayload{right};
+    };
+    row("variant", ShowCommandColors{}, ShowCommandPanTilt{});
+    row("pan precision", ShowCommandPanTilt{64.12345678901234, 192.2},
+        ShowCommandPanTilt{64.12345678901235, 192.2});
+    row("tilt", ShowCommandPanTilt{64.1, 192.2}, ShowCommandPanTilt{64.1, 192.3});
+    row("floor x", ShowCommandFloor{1.123456789012345, 2.2, 3.3},
+        ShowCommandFloor{1.123456789012346, 2.2, 3.3});
+    row("floor y", ShowCommandFloor{1.1, 2.2, 3.3}, ShowCommandFloor{1.1, 2.3, 3.3});
+    row("floor z", ShowCommandFloor{1.1, 2.2, 3.3}, ShowCommandFloor{1.1, 2.2, 3.4});
+    for (int i = 0; i < 6; ++i)
+    {
+        ShowCommandColors changed;
+        switch (i)
+        {
+            case 0: changed.red = 1; break;
+            case 1: changed.green = 1; break;
+            case 2: changed.blue = 1; break;
+            case 3: changed.white = 1; break;
+            case 4: changed.amber = 1; break;
+            case 5: changed.ultraviolet = 1; break;
+        }
+        row(qPrintable(QString("color-%1").arg(i)), ShowCommandColors{}, changed);
+    }
+    for (int i = 0; i < 4; ++i)
+    {
+        ShowCommandRanges changed;
+        switch (i)
+        {
+            case 0: changed.horizontal.pan = 1; break;
+            case 1: changed.horizontal.tilt = 1; break;
+            case 2: changed.vertical.pan = 1; break;
+            case 3: changed.vertical.tilt = 1; break;
+        }
+        row(qPrintable(QString("range-%1").arg(i)), ShowCommandRanges{}, changed);
+    }
+    row("choice locator", ShowCommandChoice{2, true, {40.1, 180.2}},
+        ShowCommandChoice{3, true, {40.1, 180.2}});
+    row("choice active", ShowCommandChoice{2, true, {40.1, 180.2}},
+        ShowCommandChoice{2, false, {40.1, 180.2}});
+    row("choice point", ShowCommandChoice{2, true, {40.1, 180.2}},
+        ShowCommandChoice{2, true, {40.1, 180.3}});
+    const ShowCommandMatrixColor black{2, ShowCommandMatrixColor::Operation::Replace, {}, -1, 0, -1};
+    for (int i = 0; i < 8; ++i)
+    {
+        auto changed = black;
+        switch (i)
+        {
+            case 0: changed.index = 3; break;
+            case 1: changed.operation = ShowCommandMatrixColor::Operation::Reset; break;
+            case 2: changed.color.red = 1; break;
+            case 3: changed.color.white = 1; break;
+            case 4: changed.component = 0; break;
+            case 5: changed.value = 1; break;
+            case 6: changed.choice = 3; break;
+            case 7: changed.choice = -2; break;
+        }
+        row(qPrintable(QString("matrix-all-fields-%1").arg(i)), black, changed);
+    }
+    ShowCommandContent content{"RGBText", "line <one>\nline two", {
+        {"list", {ShowCommandProperty::Type::List, "Left", 0}},
+        {"range", {ShowCommandProperty::Type::Range, {}, 3}},
+        {"float", {ShowCommandProperty::Type::Float, {}, .123456789012345}},
+        {"string", {ShowCommandProperty::Type::String, "literal", 0}}
+    }, 2};
+    for (int i = 0; i < 9; ++i)
+    {
+        auto changed = content;
+        switch (i)
+        {
+            case 0: changed.algorithm = "Other"; break;
+            case 1: changed.text += '!'; break;
+            case 2: changed.choice = 3; break;
+            case 3: changed.properties["list"].type = ShowCommandProperty::Type::String; break;
+            case 4: changed.properties["list"].text = "Right"; break;
+            case 5: changed.properties["range"].number = 4; break;
+            case 6: changed.properties["float"].number = .123456789012346; break;
+            case 7: changed.properties["string"].number = 1; break;
+            case 8: changed.properties["float"].text = "unused"; break;
+        }
+        row(qPrintable(QString("content-all-fields-%1").arg(i)), content, changed);
+    }
+    row("channel byte", ShowCommandChannel{64, "Intensity"}, ShowCommandChannel{65, "Intensity"});
+    row("channel binding", ShowCommandChannel{64, "Intensity"}, ShowCommandChannel{64, "Width"});
+}
+
+void ShowCommandTrack_Test::typedPayloadEquality()
+{
+    QFETCH(ShowCommandPayload, left);
+    QFETCH(ShowCommandPayload, right);
+    QVERIFY(left == left);
+    QVERIFY(right == right);
+    QVERIFY(!(left == right));
+    QVERIFY(!(right == left));
+    ShowCommand command = ShowCommand::setXYPadPosition(24, 1500, kControlA, "64,192");
+    command.attribute.clear();
+    command.payload = left;
+    ShowCommand changed = command;
+    changed.payload = right;
+    QVERIFY(command != changed);
+    changed = command;
+    changed.order = 42;
+    QCOMPARE(changed, command);
+}
+
+void ShowCommandTrack_Test::typedPayloadRejection_data()
+{
+    QTest::addColumn<ShowCommand>("command");
+    QTest::addColumn<QString>("reasonPart");
+    const auto row = [](const char *name, ShowCommandAction action, ShowCommandPayload::Value value,
+                        const QString &reasonPart = QString()) {
+        ShowCommand command;
+        command.id = 24;
+        command.time = 1500;
+        command.controlId = kControlA;
+        command.action = action;
+        command.role = action == ShowCommandAction::SetSliderChannel || action == ShowCommandAction::SetSliderColors
+            ? ShowControlRole::LevelSlider
+            : action == ShowCommandAction::SetAnimationColor || action == ShowCommandAction::SetAnimationContent
+                ? ShowControlRole::AnimationFader : ShowControlRole::XYPad;
+        command.payload.value = value;
+        QTest::newRow(name) << command << reasonPart;
+    };
+    for (const auto action : {ShowCommandAction::SetSliderColors, ShowCommandAction::SetXYPadPosition,
+                              ShowCommandAction::SetXYPadFloor, ShowCommandAction::SetXYPadRanges,
+                              ShowCommandAction::SetXYPadPositionPreset, ShowCommandAction::SetXYPadFunctionPreset,
+                              ShowCommandAction::SetXYPadGroupPreset, ShowCommandAction::SetAnimationColor,
+                              ShowCommandAction::SetAnimationContent, ShowCommandAction::SetSliderChannel})
+        row(qPrintable(ShowCommand::actionToString(action) + "-wrong-variant"), action, std::monostate{});
+    row("position nan", ShowCommandAction::SetXYPadPosition, ShowCommandPanTilt{qQNaN(), 1});
+    row("position infinite", ShowCommandAction::SetXYPadPosition, ShowCommandPanTilt{1, qInf()});
+    row("position negative", ShowCommandAction::SetXYPadPosition, ShowCommandPanTilt{-1, 1});
+    row("position overflow", ShowCommandAction::SetXYPadPosition, ShowCommandPanTilt{1, 255.0001});
+    row("floor nan", ShowCommandAction::SetXYPadFloor, ShowCommandFloor{1, qQNaN(), 1});
+    row("floor infinity", ShowCommandAction::SetXYPadFloor, ShowCommandFloor{1, 1, qInf()});
+    row("floor negative", ShowCommandAction::SetXYPadFloor, ShowCommandFloor{-1, 1, 1});
+    for (int i = 0; i < 4; ++i)
+    {
+        ShowCommandRanges ranges{{10, 200}, {20, 240}};
+        switch (i)
+        {
+            case 0: ranges.horizontal.pan = qQNaN(); break;
+            case 1: ranges.horizontal.tilt = -1; break;
+            case 2: ranges.vertical.pan = qInf(); break;
+            case 3: ranges.vertical.tilt = 256; break;
+        }
+        row(qPrintable(QString("range invalid endpoint-%1").arg(i)),
+            ShowCommandAction::SetXYPadRanges, ranges);
+    }
+    row("choice negative", ShowCommandAction::SetXYPadPositionPreset, ShowCommandChoice{-1, true, {1, 2}});
+    row("choice overflow", ShowCommandAction::SetXYPadGroupPreset, ShowCommandChoice{256, true, {}});
+    row("choice invalid point", ShowCommandAction::SetXYPadPositionPreset, ShowCommandChoice{1, true, {qInf(), 2}});
+    row("function unused point", ShowCommandAction::SetXYPadFunctionPreset, ShowCommandChoice{1, false, {1, 0}});
+    row("group unused point", ShowCommandAction::SetXYPadGroupPreset, ShowCommandChoice{1, false, {0, 1}});
+    const ShowCommandMatrixColor black{2, ShowCommandMatrixColor::Operation::Replace, {}, -1, 0, -1};
+    for (int i = 0; i < 12; ++i)
+    {
+        auto color = black;
+        switch (i)
+        {
+            case 0: color.index = -1; break;
+            case 1: color.index = 5; break;
+            case 2: color.operation = static_cast<ShowCommandMatrixColor::Operation>(255); break;
+            case 3: color.component = 0; break;
+            case 4: color.value = 1; break;
+            case 5: color.choice = -2; break;
+            case 6: color.choice = 256; break;
+            case 7: color.color.white = 1; break;
+            case 8: color.operation = ShowCommandMatrixColor::Operation::Reset; color.color.red = 1; break;
+            case 9: color.operation = ShowCommandMatrixColor::Operation::Reset; color.choice = 1; break;
+            case 10: color.operation = ShowCommandMatrixColor::Operation::Component; color.component = 3; break;
+            case 11: color.operation = ShowCommandMatrixColor::Operation::Component;
+                     color.component = 1; color.value = 256; break;
+        }
+        row(qPrintable(QString("matrix-invalid-%1").arg(i)), ShowCommandAction::SetAnimationColor, color);
+    }
+    ShowCommandContent content{"RGBText", "literal", {}, -1};
+    for (int i = 0; i < 9; ++i)
+    {
+        auto changed = content;
+        switch (i)
+        {
+            case 0: changed.algorithm.clear(); break;
+            case 1: changed.choice = 256; break;
+            case 2: changed.properties[""] = {}; break;
+            case 3: changed.properties["bad"].type = static_cast<ShowCommandProperty::Type>(255); break;
+            case 4: changed.properties["bad"] = {ShowCommandProperty::Type::Range, {}, 1.5}; break;
+            case 5: changed.properties["bad"] = {ShowCommandProperty::Type::Float, {}, qQNaN()}; break;
+            case 6: changed.properties["bad"] = {ShowCommandProperty::Type::Float, {}, qInf()}; break;
+            case 7: changed.properties["bad"] = {ShowCommandProperty::Type::String, "literal", 1}; break;
+            case 8: changed.properties["bad"] = {ShowCommandProperty::Type::Float, "unused", 1}; break;
+        }
+        row(qPrintable(QString("content-invalid-%1").arg(i)), ShowCommandAction::SetAnimationContent, changed);
+    }
+    row("channel negative", ShowCommandAction::SetSliderChannel, ShowCommandChannel{-1, {}});
+    row("channel overflow", ShowCommandAction::SetSliderChannel, ShowCommandChannel{256, {}});
+    for (const qreal position : {qQNaN(), qInf(), qreal(-.1), qreal(1.1)})
+    {
+        ShowCommand fader = ShowCommand::setAnimationFader(24, 1500, kControlA, position);
+        QTest::newRow(qPrintable("fader invalid " + QString::number(position))) << fader << QStringLiteral("position");
+    }
+    ShowCommand fader = ShowCommand::setAnimationFader(24, 1500, kControlA, .5);
+    fader.role = ShowControlRole::XYPad;
+    QTest::newRow("fader wrong role") << fader << QStringLiteral("role");
+    fader = ShowCommand::setAnimationFader(24, 1500, kControlA, .5);
+    fader.payload.value = ShowCommandColors{};
+    QTest::newRow("fader unrelated payload") << fader << QStringLiteral("unrelated");
+    ShowCommand reset = ShowCommand::setSliderReset(24, 1500, kControlA, ShowControlRole::LevelSlider, {});
+    reset.position = .5;
+    QTest::newRow("reset unused position") << reset << QStringLiteral("carries no");
+    reset.position = 0;
+    reset.role = ShowControlRole::AnimationFader;
+    QTest::newRow("reset wrong role") << reset << QStringLiteral("role");
+    ShowCommand invalid = ShowCommand::setXYPadPosition(24, 1500, kControlA, "64,192");
+    invalid.payload.value = ShowCommandPanTilt{64, 192};
+    invalid.attribute = "64,192";
+    QTest::newRow("duplicate native state") << invalid << QStringLiteral("duplicate");
+    invalid.attribute.clear();
+    invalid.role = ShowControlRole::LevelSlider;
+    QTest::newRow("wrong legacy native role") << invalid << QStringLiteral("role");
+    invalid.action = ShowCommandAction::SetXYPadRanges;
+    invalid.payload.value = ShowCommandRanges{{10, 200}, {20, 240}};
+    QTest::newRow("wrong schema9 role") << invalid << QStringLiteral("role");
+    invalid.role = ShowControlRole::XYPad;
+    invalid.position = .5;
+    QTest::newRow("schema9 unrelated position") << invalid << QStringLiteral("unrelated");
+    invalid.position = 0;
+    invalid.action = static_cast<ShowCommandAction>(255);
+    QTest::newRow("true unknown action") << invalid << QStringLiteral("unknown action 255");
+}
+
+void ShowCommandTrack_Test::typedPayloadRejection()
+{
+    QFETCH(ShowCommand, command);
+    QFETCH(QString, reasonPart);
+    ShowCommandTrack track = fixtureTrack();
+    QVERIFY(track.retime(7, 1500));
+    track.reserve(100, 200);
+    const ShowCommandTrack before = track;
+    const QString xmlBefore = toXml(track);
+    for (const bool replace : {false, true})
+    {
+        command.id = replace ? 9 : 24;
+        QString reason;
+        QVERIFY(!(replace ? track.replace(command, &reason) : track.insert(command, &reason)));
+        QVERIFY(!reason.isEmpty());
+        QVERIFY2(reason.contains(reasonPart), qPrintable(reason));
+        QCOMPARE(track.commands(), before.commands());
+        QCOMPARE(toXml(track), xmlBefore);
+        QCOMPARE(track.extent(), before.extent());
+        QCOMPARE(track.nextEventId(), before.nextEventId());
+        QCOMPARE(track.nextOrder(), before.nextOrder());
+        for (int i = 0; i < track.count(); ++i)
+            QCOMPARE(track.commands()[i].order, before.commands()[i].order);
+    }
+}
+
+void ShowCommandTrack_Test::nativeSchemaRejection_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("role");
+    QTest::addColumn<QString>("arguments");
+    QTest::addColumn<int>("version");
+    const auto row = [](const char *name, const char *action, const char *role,
+                        const char *arguments, int version = 9) {
+        QTest::newRow(name) << QString(action) << QString(role) << QString(arguments) << version;
+    };
+    row("ranges missing", "SetXYPadRanges", "XYPad", R"({"horizontal":[1,2]})");
+    row("ranges extra", "SetXYPadRanges", "XYPad", R"({"horizontal":[1,2],"vertical":[3,4],"extra":0})");
+    row("ranges cardinality", "SetXYPadRanges", "XYPad", R"({"horizontal":[1,2,3],"vertical":[3,4]})");
+    row("ranges string", "SetXYPadRanges", "XYPad", R"({"horizontal":["1",2],"vertical":[3,4]})");
+    row("ranges nonfinite", "SetXYPadRanges", "XYPad", R"({"horizontal":[1e999,2],"vertical":[3,4]})");
+    row("ranges negative", "SetXYPadRanges", "XYPad", R"({"horizontal":[-1,2],"vertical":[3,4]})");
+    row("ranges overflow", "SetXYPadRanges", "XYPad", R"({"horizontal":[1,2],"vertical":[3,256]})");
+    row("ranges wrong role", "SetXYPadRanges", "AnimationFader", R"({"horizontal":[1,2],"vertical":[3,4]})");
+    row("choice active type", "SetXYPadPositionPreset", "XYPad", R"({"choice":1,"active":1,"point":[1,2]})");
+    row("choice fractional", "SetXYPadFunctionPreset", "XYPad", R"({"choice":1.5,"active":true})");
+    row("choice negative", "SetXYPadGroupPreset", "XYPad", R"({"choice":-1,"active":true})");
+    row("choice overflow", "SetXYPadGroupPreset", "XYPad", R"({"choice":256,"active":true})");
+    row("choice missing point", "SetXYPadPositionPreset", "XYPad", R"({"choice":1,"active":true})");
+    row("choice point overflow", "SetXYPadPositionPreset", "XYPad", R"({"choice":1,"active":true,"point":[1,256]})");
+    row("choice unrelated point", "SetXYPadFunctionPreset", "XYPad", R"({"choice":1,"active":false,"point":[0,0]})");
+    row("color slot negative", "SetAnimationColor", "AnimationFader", R"({"index":-1,"operation":"reset"})");
+    row("color slot overflow", "SetAnimationColor", "AnimationFader", R"({"index":5,"operation":"reset"})");
+    row("color unknown operation", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"unknown"})");
+    row("color missing rgb", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"replace"})");
+    row("color rgb cardinality", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"replace","rgb":[1,2]})");
+    row("color rgb fractional", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"replace","rgb":[1,2.5,3]})");
+    row("color rgb overflow", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"replace","rgb":[256,2,3]})");
+    row("color extra wauv", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"replace","rgb":[1,2,3],"wauv":[0,0,0]})");
+    row("reset extra rgb", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"reset","rgb":[0,0,0]})");
+    row("reset extra choice", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"reset","choice":1})");
+    row("component missing value", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"component","component":1})");
+    row("component overflow", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"component","component":3,"value":1})");
+    row("component value overflow", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"component","component":1,"value":256})");
+    row("component bool value", "SetAnimationColor", "AnimationFader", R"({"index":1,"operation":"component","component":1,"value":true})");
+    row("content blank algorithm", "SetAnimationContent", "AnimationFader", R"({"algorithm":"","text":"","properties":[]})");
+    row("content malformed properties", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":{}})");
+    row("content unnamed property", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"","type":"String","value":"x"}]})");
+    row("content duplicate property", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"String","value":"x"},{"name":"a","type":"String","value":"y"}]})");
+    row("content unknown type", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"Boolean","value":true}]})");
+    row("content List number", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"List","value":1}]})");
+    row("content String bool", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"String","value":false}]})");
+    row("content Range fractional", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"Range","value":1.5}]})");
+    row("content Float nonfinite", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"Float","value":1e999}]})");
+    row("content property extra", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"Float","value":1,"extra":0}]})");
+    row("content property missing", "SetAnimationContent", "AnimationFader", R"({"algorithm":"RGBText","text":"","properties":[{"name":"a","type":"String"}]})");
+    row("channel string byte", "SetSliderChannel", "LevelSlider", R"({"binding":"","value":"64"})");
+    row("channel negative", "SetSliderChannel", "LevelSlider", R"({"binding":"","value":-1})");
+    row("channel overflow", "SetSliderChannel", "LevelSlider", R"({"binding":"","value":256})");
+    row("channel binding type", "SetSliderChannel", "LevelSlider", R"({"binding":1,"value":64})");
+    row("unknown true action", "FutureAction255", "XYPad", "{}");
+    row("future version", "SetXYPadRanges", "XYPad", R"({"horizontal":[1,2],"vertical":[3,4]})", 10);
+    row("below literal floor8", "SetXYPadFloor", "XYPad", "1.1,2.2,3.3", 7);
+    row("below literal hold3", "SetButtonState", "FlashButton", "", 2);
+}
+
+void ShowCommandTrack_Test::nativeSchemaRejection()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, role);
+    QFETCH(QString, arguments);
+    QFETCH(int, version);
+    ShowCommandTrack track = fixtureTrack();
+    QVERIFY(track.retime(7, 1500));
+    track.reserve(100, 200);
+    const ShowCommandTrack before = track;
+    const QString xmlBefore = toXml(track);
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartElement("CommandTrack");
+    writer.writeAttribute("Version", QString::number(version));
+    writer.writeStartElement("Command");
+    writer.writeAttribute("ID", "24");
+    writer.writeAttribute("Time", "1500");
+    writer.writeAttribute("Action", action);
+    writer.writeAttribute("Control", kControlA.toString());
+    writer.writeAttribute("Role", role);
+    writer.writeAttribute(action == "SetXYPadFloor" ? "Attribute" : "Arguments", arguments);
+    if (action == "SetButtonState")
+    {
+        writer.writeAttribute("State", "On");
+        writer.writeAttribute("Pair", "7");
+    }
+    writer.writeEndElement();
+    writer.writeEndElement();
+    QString reason;
+    QVERIFY(!fromXml(xml, &track, &reason));
+    QVERIFY(!reason.isEmpty());
+    if (action == "FutureAction255")
+        QVERIFY2(reason.startsWith("unknown action"), qPrintable(reason));
+    if (version == 7 || version == 2)
+        QVERIFY2(reason.contains(version == 7 ? "version 8" : "version 3"), qPrintable(reason));
+    QCOMPARE(track.commands(), before.commands());
+    QCOMPARE(toXml(track), xmlBefore);
+    QCOMPARE(track.extent(), before.extent());
+    QCOMPARE(track.nextEventId(), before.nextEventId());
+    QCOMPARE(track.nextOrder(), before.nextOrder());
+    for (int i = 0; i < track.count(); ++i)
+        QCOMPARE(track.commands()[i].order, before.commands()[i].order);
+}
+
+void ShowCommandTrack_Test::allSelectedValuesRoundTrip_data()
+{
+    QTest::addColumn<bool>("reversePlacement");
+    QTest::newRow("forward restore") << false;
+    QTest::newRow("reverse restore") << true;
+}
+
+void ShowCommandTrack_Test::allSelectedValuesRoundTrip()
+{
+    QFETCH(bool, reversePlacement);
+    QVector<ShowCommand> commands = {
+        ShowCommand::setSliderReset(10, 1500, kControlA, ShowControlRole::LevelSlider, {}),
+        ShowCommand::setSliderColors(11, 1500, kControlA, ShowControlRole::LevelSlider,
+                                     "0,255,64;128,192,1", .123456789012345),
+        ShowCommand::setXYPadPosition(12, 1500, kControlB, "64.12345678901234,192.1234567890123"),
+        ShowCommand::setAnimationFader(13, 1500, kControlA, .876543210987654),
+        ShowCommand::setSliderPosition(14, 1500, kControlA, ShowControlRole::LevelSlider, {}, .75)
+    };
+    const QVector<QPair<ShowCommandAction, ShowCommandPayload::Value>> values = {
+        {ShowCommandAction::SetXYPadFloor, ShowCommandFloor{25.12345678901234, 2.123456789012345, 3.987654321098765}},
+        {ShowCommandAction::SetSliderChannel, ShowCommandChannel{0, {}}},
+        {ShowCommandAction::SetSliderChannel, ShowCommandChannel{255, "Intensity"}},
+        {ShowCommandAction::SetSliderChannel, ShowCommandChannel{64, "Intensity"}},
+        {ShowCommandAction::SetXYPadRanges, ShowCommandRanges{{200.1234567890123, 12.12345678901234},
+                                                            {40.12345678901234, 240.1234567890123}}},
+        {ShowCommandAction::SetXYPadPositionPreset, ShowCommandChoice{255, true, {40.12345678901234, 180.1234567890123}}},
+        {ShowCommandAction::SetXYPadPositionPreset, ShowCommandChoice{0, false, {0, 255}}},
+        {ShowCommandAction::SetXYPadFunctionPreset, ShowCommandChoice{3, true, {}}},
+        {ShowCommandAction::SetXYPadFunctionPreset, ShowCommandChoice{3, false, {}}},
+        {ShowCommandAction::SetXYPadGroupPreset, ShowCommandChoice{4, true, {}}},
+        {ShowCommandAction::SetXYPadGroupPreset, ShowCommandChoice{4, false, {}}},
+        {ShowCommandAction::SetAnimationColor, ShowCommandMatrixColor{4, ShowCommandMatrixColor::Operation::Replace,
+                                                                     {0, 0, 0, 0, 0, 0}, -1, 0, 2}},
+        {ShowCommandAction::SetAnimationColor, ShowCommandMatrixColor{0, ShowCommandMatrixColor::Operation::Reset,
+                                                                     {}, -1, 0, -1}},
+        {ShowCommandAction::SetAnimationColor, ShowCommandMatrixColor{2, ShowCommandMatrixColor::Operation::Component,
+                                                                     {}, 2, 255, 3}},
+        {ShowCommandAction::SetAnimationContent, ShowCommandContent{"RGBText", "line <one>\nline &two", {
+            {"list", {ShowCommandProperty::Type::List, "Left", 0}},
+            {"range", {ShowCommandProperty::Type::Range, {}, -3}},
+            {"float", {ShowCommandProperty::Type::Float, {}, .123456789012345}},
+            {"string", {ShowCommandProperty::Type::String, "literal \"text\"", 0}}
+        }, 2}}
+    };
+    for (const auto &value : values)
+    {
+        ShowCommand command;
+        command.id = quint32(10 + commands.count());
+        command.time = 1500;
+        command.controlId = kControlB;
+        command.action = value.first;
+        command.role = value.first == ShowCommandAction::SetSliderChannel ? ShowControlRole::LevelSlider
+            : value.first == ShowCommandAction::SetAnimationColor || value.first == ShowCommandAction::SetAnimationContent
+                ? ShowControlRole::AnimationFader : ShowControlRole::XYPad;
+        command.payload.value = value.second;
+        commands.append(command);
+    }
+    ShowCommand hold = ShowCommand::setButtonState(90, 1000, kControlA, true);
+    hold.role = ShowControlRole::FlashButton;
+    hold.pairId = 71;
+    commands.append(hold);
+    hold.id = 91;
+    hold.time = 2000;
+    hold.on = false;
+    commands.append(hold);
+    for (int i = 0; i < commands.count(); ++i)
+        commands[i].order = quint32(100 - 3 * i);
+    if (reversePlacement)
+        std::reverse(commands.begin(), commands.end());
+    ShowCommandTrack track;
+    QString reason;
+    for (const auto &command : commands)
+        QVERIFY2(track.restore(command, &reason), qPrintable(reason));
+    QVERIFY(track.setExtent(9000));
+    const QString xml = toXml(track);
+    QVERIFY(xml.startsWith("<CommandTrack Version=\"9\""));
+    QVERIFY(xml.contains("Order="));
+    ShowCommandTrack loaded;
+    QVERIFY2(fromXml(xml, &loaded, &reason), qPrintable(reason));
+    QCOMPARE(loaded.commands(), track.commands());
+    QCOMPARE(toXml(loaded), xml);
+    QCOMPARE(loaded.extent(), 9000u);
+    QCOMPARE(loaded.nextEventId(), track.nextEventId());
+    QCOMPARE(loaded.nextOrder(), track.nextOrder());
+    for (const auto &expected : commands)
+    {
+        const auto &actual = loaded.commands()[loaded.indexOfId(expected.id)];
+        QCOMPARE(actual, expected);
+        QCOMPARE(actual.order, expected.order);
+        QCOMPARE(actual.pairId, expected.pairId);
+        QCOMPARE(actual.payload, expected.payload);
+    }
+    const auto &point = std::get<ShowCommandPanTilt>(loaded.commands()[loaded.indexOfId(12)].payload.value);
+    QCOMPARE(point.pan, qreal(64.12345678901234));
+    QCOMPARE(point.tilt, qreal(192.1234567890123));
+    const auto &floor = std::get<ShowCommandFloor>(loaded.commands()[loaded.indexOfId(15)].payload.value);
+    QCOMPARE(floor.x, qreal(25.12345678901234));
+    QCOMPARE(floor.y, qreal(2.123456789012345));
+    QCOMPARE(floor.z, qreal(3.987654321098765));
+}
+
+void ShowCommandTrack_Test::selectedNativePayloads_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("role");
+    QTest::addColumn<QString>("payload");
+    QTest::newRow("range endpoints") << QStringLiteral("SetXYPadRanges") << QStringLiteral("XYPad")
+        << QStringLiteral("{\"horizontal\":[12.25,200.5],\"vertical\":[40.75,240.125]}");
+    QTest::newRow("reversed native endpoints") << QStringLiteral("SetXYPadRanges") << QStringLiteral("XYPad")
+        << QStringLiteral("{\"horizontal\":[200.5,12.25],\"vertical\":[240.125,40.75]}");
+    QTest::newRow("static choice") << QStringLiteral("SetXYPadPositionPreset") << QStringLiteral("XYPad")
+        << QStringLiteral("{\"choice\":2,\"active\":true,\"point\":[40.25,180.75]}");
+    QTest::newRow("function choice") << QStringLiteral("SetXYPadFunctionPreset") << QStringLiteral("XYPad")
+        << QStringLiteral("{\"choice\":3,\"active\":false}");
+    QTest::newRow("group choice") << QStringLiteral("SetXYPadGroupPreset") << QStringLiteral("XYPad")
+        << QStringLiteral("{\"choice\":4,\"active\":true}");
+    QTest::newRow("matrix black") << QStringLiteral("SetAnimationColor") << QStringLiteral("AnimationFader")
+        << QStringLiteral("{\"index\":2,\"operation\":\"replace\",\"rgb\":[0,0,0]}");
+    QTest::newRow("matrix reset") << QStringLiteral("SetAnimationColor") << QStringLiteral("AnimationFader")
+        << QStringLiteral("{\"index\":1,\"operation\":\"reset\"}");
+    QTest::newRow("matrix component") << QStringLiteral("SetAnimationColor") << QStringLiteral("AnimationFader")
+        << QStringLiteral("{\"index\":0,\"operation\":\"component\",\"component\":1,\"value\":128,\"choice\":3}");
+    QTest::newRow("named content") << QStringLiteral("SetAnimationContent") << QStringLiteral("AnimationFader")
+        << QStringLiteral("{\"algorithm\":\"RGBText\",\"text\":\"line <one>\\nline two\",\"properties\":[]}");
+    QTest::newRow("explicit channel value") << QStringLiteral("SetSliderChannel") << QStringLiteral("AdjustSlider")
+        << QStringLiteral("{\"binding\":\"Intensity\",\"value\":64}");
+}
+
+void ShowCommandTrack_Test::selectedNativePayloads()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, role);
+    QFETCH(QString, payload);
+    QString source;
+    QXmlStreamWriter writer(&source);
+    writer.writeStartElement("CommandTrack");
+    writer.writeAttribute("Version", "9");
+    writer.writeAttribute("Extent", "3000");
+    writer.writeStartElement("Command");
+    writer.writeAttribute("ID", "7");
+    writer.writeAttribute("Time", "1200");
+    writer.writeAttribute("Action", action);
+    writer.writeAttribute("Control", "{01234567-89ab-cdef-0123-456789abcdef}");
+    writer.writeAttribute("Role", role);
+    writer.writeAttribute("Arguments", payload);
+    writer.writeEndElement();
+    writer.writeEndElement();
+    ShowCommandTrack track;
+    QXmlStreamReader reader(source);
+    QVERIFY(reader.readNextStartElement());
+    QString reason;
+    QVERIFY2(track.loadXML(reader, &reason), qPrintable(reason));
+    QCOMPARE(track.count(), 1);
+    QCOMPARE(track.commands().first().id, quint32(7));
+    QString persisted;
+    QXmlStreamWriter output(&persisted);
+    QVERIFY(track.saveXML(&output));
+    ShowCommandTrack loaded;
+    QXmlStreamReader reload(persisted);
+    QVERIFY(reload.readNextStartElement());
+    QVERIFY2(loaded.loadXML(reload, &reason), qPrintable(reason));
+    QCOMPARE(loaded.commands().first(), track.commands().first());
+    source.replace("Version=\"9\"", "Version=\"8\"");
+    QXmlStreamReader old(source);
+    QVERIFY(old.readNextStartElement());
+    QVERIFY(!loaded.loadXML(old, &reason));
+    QVERIFY(!reason.isEmpty());
+    QCOMPARE(loaded.commands().first(), track.commands().first());
+}
+
+void ShowCommandTrack_Test::floorPayloadRoundTrip_data()
+{
+    QTest::addColumn<QString>("payload");
+    QTest::addColumn<bool>("valid");
+    QTest::newRow("metres fractional height") << QStringLiteral("1.25,0.75,3.125") << true;
+    QTest::newRow("zero") << QStringLiteral("0,0,0") << true;
+    QTest::newRow("missing axis") << QStringLiteral("1,2") << false;
+    QTest::newRow("nonfinite") << QStringLiteral("1,nan,2") << false;
+    QTest::newRow("negative height") << QStringLiteral("1,-1,2") << false;
+}
+
+void ShowCommandTrack_Test::floorPayloadRoundTrip()
+{
+    QFETCH(QString, payload);
+    QFETCH(bool, valid);
+    ShowCommandTrack track = fixtureTrack();
+    const QString before = toXml(track);
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartElement(QStringLiteral("CommandTrack"));
+    writer.writeAttribute(QStringLiteral("Version"), QStringLiteral("8"));
+    writer.writeStartElement(QStringLiteral("Command"));
+    writer.writeAttribute(QStringLiteral("ID"), QStringLiteral("24"));
+    writer.writeAttribute(QStringLiteral("Time"), QStringLiteral("250"));
+    writer.writeAttribute(QStringLiteral("Action"), QStringLiteral("SetXYPadFloor"));
+    writer.writeAttribute(QStringLiteral("Control"), kControlA.toString());
+    writer.writeAttribute(QStringLiteral("Role"), QStringLiteral("XYPad"));
+    writer.writeAttribute(QStringLiteral("Attribute"), payload);
+    writer.writeEndElement();
+    writer.writeEndElement();
+    QString error;
+    QCOMPARE(fromXml(xml, &track, &error), valid);
+    if (!valid)
+    {
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(toXml(track), before);
+        return;
+    }
+    QCOMPARE(track.count(), 1);
+    QVERIFY(track.commands().first().attribute.isEmpty());
+    QCOMPARE(track.commands().first().nativeArgument(), payload);
+    ShowCommandTrack loaded;
+    QVERIFY2(fromXml(toXml(track), &loaded, &error), qPrintable(error));
+    QCOMPARE(loaded.commands(), track.commands());
 }
 
 /** Two targets, interleaved values and a Stop that is not the last event */
@@ -163,6 +850,37 @@ void ShowCommandTrack_Test::groupsPartitionAndRegroup()
     QCOMPARE(toXml(track), original);
 }
 
+void ShowCommandTrack_Test::groupsKeepInterleavedHoldPairsDistinct()
+{
+    ShowCommandTrack track;
+    ShowCommand aOn = ShowCommand::setButtonState(1, 10, kControlA, true);
+    aOn.role = ShowControlRole::FlashButton;
+    aOn.pairId = 100;
+    ShowCommand bOn = ShowCommand::setButtonState(2, 11, kControlB, true);
+    bOn.role = ShowControlRole::FlashButton;
+    bOn.pairId = 101;
+    ShowCommand aOff = ShowCommand::setButtonState(3, 20, kControlA, false);
+    aOff.role = ShowControlRole::FlashButton;
+    aOff.pairId = 100;
+    ShowCommand bOff = ShowCommand::setButtonState(4, 21, kControlB, false);
+    bOff.role = ShowControlRole::FlashButton;
+    bOff.pairId = 101;
+
+    QVERIFY(track.insert(aOn));
+    QVERIFY(track.insert(bOn));
+    QVERIFY(track.insert(aOff));
+    QVERIFY(track.insert(bOff));
+
+    const QVector<ShowCommandGroup> groups = track.groups();
+    QCOMPARE(groups.count(), 2);
+    QCOMPARE(groups.at(0).eventIds, (QVector<quint32>{1, 3}));
+    QCOMPARE(groups.at(0).startTime, 10u);
+    QCOMPARE(groups.at(0).endTime, 20u);
+    QCOMPARE(groups.at(1).eventIds, (QVector<quint32>{2, 4}));
+    QCOMPARE(groups.at(1).startTime, 11u);
+    QCOMPARE(groups.at(1).endTime, 21u);
+}
+
 void ShowCommandTrack_Test::commandValidation_data()
 {
     QTest::addColumn<ShowCommand>("command");
@@ -195,7 +913,7 @@ void ShowCommandTrack_Test::commandValidation_data()
     QTest::newRow("trigger carrying a value") << loadedTrigger << false;
 
     ShowCommand unknownAction = ShowCommand::start(16, 700, 42);
-    unknownAction.action = static_cast<ShowCommandAction>(9);
+    unknownAction.action = static_cast<ShowCommandAction>(255);
     QTest::newRow("action outside the enum") << unknownAction << false;
 
     // VC state records name a control, never a Function
@@ -213,51 +931,82 @@ void ShowCommandTrack_Test::commandValidation_data()
     QTest::newRow("grand master at full")
         << ShowCommand::setSliderPosition(25, 900, kControlB, ShowControlRole::GrandMasterSlider,
                                           QString(), 1.0) << true;
+    QTest::newRow("slider reset")
+        << ShowCommand::setSliderReset(26, 900, kControlB, ShowControlRole::LevelSlider,
+                                       QString()) << true;
+    QTest::newRow("adjust slider reset")
+        << ShowCommand::setSliderReset(27, 900, kControlB, ShowControlRole::AdjustSlider,
+                                       QStringLiteral("Intensity")) << true;
+    QTest::newRow("slider colors")
+        << ShowCommand::setSliderColors(28, 900, kControlB, ShowControlRole::LevelSlider,
+                                        QStringLiteral("10,20,30;40,50,60"), 0.5) << true;
+    QTest::newRow("xy pad position")
+        << ShowCommand::setXYPadPosition(29, 900, kControlB, QStringLiteral("64.5,192.25")) << true;
 
     QTest::newRow("button without control")
-        << ShowCommand::setButtonState(26, 800, QUuid(), true) << false;
-    ShowCommand buttonWithFunction = ShowCommand::setButtonState(27, 800, kControlA, true);
+        << ShowCommand::setButtonState(30, 800, QUuid(), true) << false;
+    ShowCommand buttonWithFunction = ShowCommand::setButtonState(31, 800, kControlA, true);
     buttonWithFunction.functionId = 42;
     QTest::newRow("button with function") << buttonWithFunction << false;
-    ShowCommand buttonAsSlider = ShowCommand::setButtonState(28, 800, kControlA, true);
+    ShowCommand buttonAsSlider = ShowCommand::setButtonState(32, 800, kControlA, true);
     buttonAsSlider.role = ShowControlRole::LevelSlider;
-    QTest::newRow("button with slider role") << buttonAsSlider << false;
-    ShowCommand buttonWithPosition = ShowCommand::setButtonState(29, 800, kControlA, false);
+    QTest::newRow("button with slider role") << buttonAsSlider << true;
+    ShowCommand buttonWithPosition = ShowCommand::setButtonState(33, 800, kControlA, false);
     buttonWithPosition.position = 0.5;
     QTest::newRow("button carrying a position") << buttonWithPosition << false;
     QTest::newRow("slider with button role")
-        << ShowCommand::setSliderPosition(30, 900, kControlB, ShowControlRole::ToggleButton,
+        << ShowCommand::setSliderPosition(34, 900, kControlB, ShowControlRole::ToggleButton,
                                           QString(), 0.5) << false;
     QTest::newRow("slider without role")
-        << ShowCommand::setSliderPosition(31, 900, kControlB, ShowControlRole::None,
+        << ShowCommand::setSliderPosition(35, 900, kControlB, ShowControlRole::None,
                                           QString(), 0.5) << false;
     QTest::newRow("level slider with attribute")
-        << ShowCommand::setSliderPosition(32, 900, kControlB, ShowControlRole::LevelSlider,
+        << ShowCommand::setSliderPosition(36, 900, kControlB, ShowControlRole::LevelSlider,
                                           QStringLiteral("Intensity"), 0.5) << false;
     QTest::newRow("adjust slider without attribute")
-        << ShowCommand::setSliderPosition(33, 900, kControlB, ShowControlRole::AdjustSlider,
+        << ShowCommand::setSliderPosition(37, 900, kControlB, ShowControlRole::AdjustSlider,
                                           QString(), 0.5) << false;
     QTest::newRow("slider above one")
-        << ShowCommand::setSliderPosition(34, 900, kControlB, ShowControlRole::LevelSlider,
+        << ShowCommand::setSliderPosition(38, 900, kControlB, ShowControlRole::LevelSlider,
                                           QString(), 1.5) << false;
     QTest::newRow("slider nan")
-        << ShowCommand::setSliderPosition(35, 900, kControlB, ShowControlRole::LevelSlider,
+        << ShowCommand::setSliderPosition(39, 900, kControlB, ShowControlRole::LevelSlider,
                                           QString(), qQNaN()) << false;
-    ShowCommand sliderOn = ShowCommand::setSliderPosition(36, 900, kControlB,
+    ShowCommand sliderOn = ShowCommand::setSliderPosition(40, 900, kControlB,
                                                           ShowControlRole::LevelSlider, QString(), 0.5);
     sliderOn.on = true;
     QTest::newRow("slider carrying a button state") << sliderOn << false;
+    QTest::newRow("slider reset with button role")
+        << ShowCommand::setSliderReset(41, 900, kControlB, ShowControlRole::ToggleButton,
+                                       QString()) << false;
+    QTest::newRow("slider reset missing adjust attribute")
+        << ShowCommand::setSliderReset(42, 900, kControlB, ShowControlRole::AdjustSlider,
+                                       QString()) << false;
+    ShowCommand sliderResetWithValue = ShowCommand::setSliderReset(43, 900, kControlB,
+                                                                    ShowControlRole::LevelSlider, QString());
+    sliderResetWithValue.position = 0.5;
+    QTest::newRow("slider reset carrying value") << sliderResetWithValue << false;
+    ShowCommand sliderColorsNoPayload = ShowCommand::setSliderColors(44, 900, kControlB,
+                                                                      ShowControlRole::LevelSlider,
+                                                                      QString(), 0.5);
+    QTest::newRow("slider colors missing payload") << sliderColorsNoPayload << false;
+    ShowCommand xyPadWithSliderRole = ShowCommand::setXYPadPosition(45, 900, kControlB,
+                                                                     QStringLiteral("10,20"));
+    xyPadWithSliderRole.role = ShowControlRole::LevelSlider;
+    QTest::newRow("xy pad position with slider role") << xyPadWithSliderRole << false;
+    ShowCommand xyPadNoPayload = ShowCommand::setXYPadPosition(46, 900, kControlB, QString());
+    QTest::newRow("xy pad position missing payload") << xyPadNoPayload << false;
 
-    ShowCommand legacyWithControl = ShowCommand::start(37, 700, 42);
+    ShowCommand legacyWithControl = ShowCommand::start(50, 700, 42);
     legacyWithControl.controlId = kControlA;
     QTest::newRow("function command with control") << legacyWithControl << false;
-    ShowCommand legacyWithRole = ShowCommand::stop(38, 700, 42);
+    ShowCommand legacyWithRole = ShowCommand::stop(51, 700, 42);
     legacyWithRole.role = ShowControlRole::ToggleButton;
     QTest::newRow("function command with role") << legacyWithRole << false;
-    ShowCommand legacyWithAttribute = ShowCommand::setIntensity(39, 700, 42, 0.5);
+    ShowCommand legacyWithAttribute = ShowCommand::setIntensity(52, 700, 42, 0.5);
     legacyWithAttribute.attribute = QStringLiteral("Intensity");
     QTest::newRow("function command with attribute") << legacyWithAttribute << false;
-    ShowCommand legacyWithState = ShowCommand::start(40, 700, 42);
+    ShowCommand legacyWithState = ShowCommand::start(53, 700, 42);
     legacyWithState.on = true;
     QTest::newRow("function command with button state") << legacyWithState << false;
 }
@@ -269,6 +1018,8 @@ void ShowCommandTrack_Test::commandValidation()
 
     const QString error = ShowCommand::validate(command);
     QCOMPARE(error.isEmpty(), valid);
+    if (command.action == static_cast<ShowCommandAction>(255))
+        QCOMPARE(error, QStringLiteral("unknown action 255"));
 
     ShowCommandTrack track;
     QCOMPARE(track.insert(command), valid);
@@ -647,12 +1398,57 @@ void ShowCommandTrack_Test::controlStatesSaveAsVersionTwoAndRoundTrip()
 
     ShowCommandTrack loaded;
     QString error = QStringLiteral("untouched");
-    QVERIFY(fromXml(xml, &loaded, &error));
+    QVERIFY2(fromXml(xml, &loaded, &error), qPrintable(error));
     QVERIFY2(error.isEmpty(), qPrintable(error));
     QCOMPARE(idsOf(loaded), QVector<quint32>({0, 1, 2, 3, 4, 5}));
     for (int i = 0; i < saved.count(); i++)
         QVERIFY(loaded.commands().at(i) == saved.commands().at(i));
     QCOMPARE(toXml(loaded), xml);
+}
+
+void ShowCommandTrack_Test::controlStatesWithSliderColorsSaveAsVersionFiveAndRoundTrip()
+{
+    ShowCommandTrack saved;
+    QVERIFY(saved.insert(ShowCommand::setSliderColors(0, 500, kControlB, ShowControlRole::LevelSlider,
+                                                      QStringLiteral("10,20,30;40,50,60"), 0.5019607843137255)));
+    saved.setExtent(9000);
+
+    const QString xml = toXml(saved);
+    QCOMPARE(xml,
+             QStringLiteral("<CommandTrack Version=\"5\" Extent=\"9000\">"
+                            "<Command ID=\"0\" Time=\"500\" Action=\"SetSliderColors\" "
+                            "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"LevelSlider\" "
+                            "Value=\"0.5019607843137255\" Attribute=\"10,20,30;40,50,60\"/>"
+                            "</CommandTrack>"));
+
+    ShowCommandTrack loaded;
+    QString error = QStringLiteral("untouched");
+    QVERIFY(fromXml(xml, &loaded, &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.commands().first(), saved.commands().first());
+}
+
+void ShowCommandTrack_Test::controlStatesWithAnimationFaderSaveAsVersionSevenAndRoundTrip()
+{
+    ShowCommandTrack saved;
+    QVERIFY(saved.insert(ShowCommand::setAnimationFader(0, 500, kControlB, 0.5)));
+    saved.setExtent(9000);
+
+    const QString xml = toXml(saved);
+    QCOMPARE(xml,
+             QStringLiteral("<CommandTrack Version=\"7\" Extent=\"9000\">"
+                            "<Command ID=\"0\" Time=\"500\" Action=\"SetAnimationFader\" "
+                            "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"AnimationFader\" "
+                            "Value=\"0.5\"/>"
+                            "</CommandTrack>"));
+
+    ShowCommandTrack loaded;
+    QString error = QStringLiteral("untouched");
+    QVERIFY(fromXml(xml, &loaded, &error));
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.commands().first(), saved.commands().first());
 }
 
 void ShowCommandTrack_Test::loadReplacesPreviousContents()
@@ -670,6 +1466,53 @@ void ShowCommandTrack_Test::loadReplacesPreviousContents()
     QVERIFY(fromXml(toXml(fixtureTrack()), &track));
     QCOMPARE(track.count(), 5);
     QCOMPARE(track.extent(), 9000u);
+}
+
+void ShowCommandTrack_Test::complexPayloadRejection_data()
+{
+    QTest::addColumn<ShowCommandAction>("action");
+    QTest::addColumn<QString>("payload");
+    QTest::newRow("color garbage") << ShowCommandAction::SetSliderColors << QString("invalid");
+    QTest::newRow("color missing component") << ShowCommandAction::SetSliderColors << QString("1,2;3,4,5");
+    QTest::newRow("color overflow") << ShowCommandAction::SetSliderColors << QString("256,2,3;4,5,6");
+    QTest::newRow("color fractional") << ShowCommandAction::SetSliderColors << QString("1.5,2,3;4,5,6");
+    QTest::newRow("color negative") << ShowCommandAction::SetSliderColors << QString("1,2,3;-1,5,6");
+    QTest::newRow("xy garbage") << ShowCommandAction::SetXYPadPosition << QString("invalid");
+    QTest::newRow("xy missing axis") << ShowCommandAction::SetXYPadPosition << QString("64.5");
+    QTest::newRow("xy extra axis") << ShowCommandAction::SetXYPadPosition << QString("1,2,3");
+    QTest::newRow("xy nonfinite") << ShowCommandAction::SetXYPadPosition << QString("nan,192");
+    QTest::newRow("xy negative") << ShowCommandAction::SetXYPadPosition << QString("-1,192");
+    QTest::newRow("xy overflow") << ShowCommandAction::SetXYPadPosition << QString("64,256");
+}
+
+void ShowCommandTrack_Test::complexPayloadRejection()
+{
+    QFETCH(ShowCommandAction, action);
+    QFETCH(QString, payload);
+    ShowCommandTrack track = fixtureTrack();
+    const QString before = toXml(track);
+    ShowCommand command = action == ShowCommandAction::SetSliderColors
+        ? ShowCommand::setSliderColors(50, 1200, kControlA, ShowControlRole::LevelSlider, payload, .5)
+        : ShowCommand::setXYPadPosition(50, 1200, kControlA, payload);
+    QString reason;
+    QVERIFY(!track.insert(command, &reason));
+    QVERIFY(!reason.isEmpty());
+    QCOMPARE(toXml(track), before);
+    command.id = 9;
+    QVERIFY(!track.replace(command, &reason));
+    QVERIFY(!reason.isEmpty());
+    QCOMPARE(toXml(track), before);
+
+    const QString xml = QString(
+        "<CommandTrack Version=\"%1\"><Command ID=\"50\" Time=\"1200\" Action=\"%2\" "
+        "Control=\"%3\" Role=\"%4\" Attribute=\"%5\" %6/></CommandTrack>")
+        .arg(action == ShowCommandAction::SetSliderColors ? 5 : 6)
+        .arg(ShowCommand::actionToString(action), kControlA.toString(),
+             ShowCommand::roleToString(command.role), payload,
+             action == ShowCommandAction::SetSliderColors ? "Value=\"0.5\"" : "");
+    QVERIFY(!fromXml(xml, &track, &reason));
+    QVERIFY(!reason.isEmpty());
+    QCOMPARE(toXml(track), before);
 }
 
 void ShowCommandTrack_Test::loadIsTransactional_data()
@@ -692,7 +1535,8 @@ void ShowCommandTrack_Test::loadIsTransactional_data()
         << track("Version=\"1\" Comment=\"hand edited\"", start) << true << 1;
 
     QTest::newRow("missing version") << track("Extent=\"30000\"", start) << false << 5;
-    QTest::newRow("future version") << track("Version=\"3\"", start) << false << 5;
+    QTest::newRow("future version")
+        << track(QStringLiteral("Version=\"%1\"").arg(ShowCommandTrack::Version + 1), start) << false << 5;
 
     const QString button = QStringLiteral(
         "<Command ID=\"2\" Time=\"1200\" Action=\"SetButtonState\" "
@@ -706,6 +1550,89 @@ void ShowCommandTrack_Test::loadIsTransactional_data()
         << track("Version=\"2\"", start + button + vc(QStringLiteral(
                "Action=\"SetSliderPosition\" %1 Role=\"AdjustSlider\" Value=\"0.25\" Attribute=\"Intensity\"").arg(control)))
         << true << 3;
+    QTest::newRow("v3 flash hold pair")
+        << track("Version=\"3\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
+               "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"
+               "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
+               "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"Off\" Pair=\"7\"/>"))
+        << true << 2;
+    QTest::newRow("v3 orphan hold pair")
+        << track("Version=\"3\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
+               "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"))
+        << false << 5;
+    QTest::newRow("v3 pair with same edge state")
+        << track("Version=\"3\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
+               "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"
+               "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
+               "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"))
+        << false << 5;
+    QTest::newRow("v3 pair with mixed controls")
+        << track("Version=\"3\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
+               "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"
+               "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"FlashButton\" State=\"Off\" Pair=\"7\"/>"))
+        << false << 5;
+    QTest::newRow("v4 slider reset")
+        << track("Version=\"4\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetSliderReset\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"LevelSlider\"/>"))
+        << true << 1;
+    QTest::newRow("v3 slider reset rejected")
+        << track("Version=\"3\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetSliderReset\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"LevelSlider\"/>"))
+        << false << 5;
+    QTest::newRow("v5 slider colors")
+        << track("Version=\"5\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetSliderColors\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"LevelSlider\" "
+               "Value=\"0.5\" Attribute=\"10,20,30;40,50,60\"/>"))
+        << true << 1;
+    QTest::newRow("v6 xy pad position")
+        << track("Version=\"6\"", QStringLiteral(
+               "<Command ID=\"11\" Time=\"1300\" Action=\"SetXYPadPosition\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"XYPad\" "
+               "Attribute=\"64.5,192.25\"/>"))
+        << true << 1;
+    QTest::newRow("v5 xy pad position rejected")
+        << track("Version=\"5\"", QStringLiteral(
+               "<Command ID=\"11\" Time=\"1300\" Action=\"SetXYPadPosition\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"XYPad\" "
+               "Attribute=\"64.5,192.25\"/>"))
+        << false << 5;
+    QTest::newRow("v6 xy pad position missing payload")
+        << track("Version=\"6\"", QStringLiteral(
+               "<Command ID=\"11\" Time=\"1300\" Action=\"SetXYPadPosition\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"XYPad\"/>"))
+        << false << 5;
+    QTest::newRow("v6 xy pad position carrying value")
+        << track("Version=\"6\"", QStringLiteral(
+               "<Command ID=\"11\" Time=\"1300\" Action=\"SetXYPadPosition\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"XYPad\" "
+               "Value=\"0.5\" Attribute=\"64.5,192.25\"/>"))
+        << false << 5;
+    QTest::newRow("v7 animation fader")
+        << track("Version=\"7\"", QStringLiteral(
+               "<Command ID=\"12\" Time=\"1300\" Action=\"SetAnimationFader\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"AnimationFader\" "
+               "Value=\"0.5\"/>"))
+        << true << 1;
+    QTest::newRow("v6 animation fader rejected")
+        << track("Version=\"6\"", QStringLiteral(
+               "<Command ID=\"12\" Time=\"1300\" Action=\"SetAnimationFader\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"AnimationFader\" "
+               "Value=\"0.5\"/>"))
+        << false << 5;
+    QTest::newRow("v4 slider colors rejected")
+        << track("Version=\"4\"", QStringLiteral(
+               "<Command ID=\"10\" Time=\"1200\" Action=\"SetSliderColors\" "
+               "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"LevelSlider\" "
+               "Value=\"0.5\" Attribute=\"10,20,30;40,50,60\"/>"))
+        << false << 5;
     QTest::newRow("v1 with control state") << track("Version=\"1\"", start + button) << false << 5;
     QTest::newRow("unknown role")
         << track("Version=\"2\"", vc(QStringLiteral(
@@ -1646,12 +2573,12 @@ void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
     QCOMPARE(step.state.consumedLiveEventIds, ShowLiveMarks({ { 5, { 2750 } } }));
     QVERIFY(step.effects.isEmpty());
 
-    // a button state offered with a slider role is explained, not authored
+    // a button state offered without a control role is explained, not authored
     ShowCommandInput malformed;
     malformed.origin = ShowCommandOrigin::Pointer;
     malformed.action = ShowCommandAction::SetButtonState;
     malformed.controlId = kControlA;
-    malformed.role = ShowControlRole::LevelSlider;
+    malformed.role = ShowControlRole::None;
     malformed.on = true;
 
     const ShowCommandTransition rejected = ShowCommandFsm::userInput(track, state, malformed);
@@ -1737,6 +2664,8 @@ void ShowCommandTrack_Test::resolveControlReportsSuitability_data()
     using Role = ShowControlRole;
     const QString intensity = QStringLiteral("Intensity");
     const ShowCommand button = ShowCommand::setButtonState(1, 100, kControlA, true);
+    ShowCommand sliderFlash = ShowCommand::setButtonState(10, 150, kControlB, true);
+    sliderFlash.role = Role::AdjustSlider;
     const ShowCommand adjust = ShowCommand::setSliderPosition(2, 200, kControlB, Role::AdjustSlider, intensity, 0.5);
     const ShowCommand level = ShowCommand::setSliderPosition(3, 300, kControlB, Role::LevelSlider, QString(), 0.5);
     const ShowCommand master = ShowCommand::setSliderPosition(4, 400, kControlB, Role::GrandMasterSlider,
@@ -1752,6 +2681,9 @@ void ShowCommandTrack_Test::resolveControlReportsSuitability_data()
         << QVector<ShowControlSnapshot>({{Role::ToggleButton, QString(), true, true}}) << ShowControlStatus::Ready;
     QTest::newRow("adjust ready") << adjust
         << QVector<ShowControlSnapshot>({{Role::AdjustSlider, intensity, true, true}}) << ShowControlStatus::Ready;
+    QTest::newRow("slider flash ready") << sliderFlash
+        << QVector<ShowControlSnapshot>({{Role::AdjustSlider, intensity, true, true}})
+        << ShowControlStatus::Ready;
     QTest::newRow("level ready without function") << level
         << QVector<ShowControlSnapshot>({{Role::LevelSlider, QString(), true, false}}) << ShowControlStatus::Ready;
     QTest::newRow("grand master ready without function") << master
@@ -1794,3 +2726,28 @@ void ShowCommandTrack_Test::resolveControlReportsSuitability()
 }
 
 QTEST_APPLESS_MAIN(ShowCommandTrack_Test)
+void ShowCommandTrack_Test::legacyComplexValues_areClosedInTrack_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("arguments");
+    QTest::newRow("six component color") << QStringLiteral("SetSliderColors") << QStringLiteral("12,34,56;78,90,123");
+    QTest::newRow("fractional Pan/Tilt") << QStringLiteral("SetXYPadPosition") << QStringLiteral("64.5,192.25");
+    QTest::newRow("metre floor target") << QStringLiteral("SetXYPadFloor") << QStringLiteral("7.25,1.75,4.125");
+}
+
+void ShowCommandTrack_Test::legacyComplexValues_areClosedInTrack()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, arguments);
+    ShowCommand command;
+    command.id = 1;
+    command.controlId = QUuid::createUuid();
+    QVERIFY(ShowCommand::actionFromString(action, &command.action));
+    command.role = action == QStringLiteral("SetSliderColors") ? ShowControlRole::LevelSlider : ShowControlRole::XYPad;
+    command.attribute = arguments;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    const ShowCommand stored = track.commands().first();
+    QVERIFY(stored.attribute.isEmpty());
+    QVERIFY(stored.payload.value.index() != 0);
+}

@@ -45,6 +45,7 @@
 #include "inputoutputmap.h"
 #include "qlcinputsource.h"
 #include "qlcinputfeedback.h"
+#include "tools/vc_tools_common.h"
 
 #include <QQmlEngine>
 #include <QDebug>
@@ -233,6 +234,7 @@ QList<VCBridge::PageInfo> VCBridgeV5::pages() const
             WidgetInfo wi;
             wi.id = w->id();
             wi.type = VCWidget::typeToString(w->type());
+            wi.machineType = QString::fromStdString(VCType::toString(w->type()));
             wi.caption = w->caption();
             wi.geometry = w->geometry().toRect();
             wi.functionID = Function::invalidId();
@@ -426,7 +428,7 @@ int VCBridgeV5::addCueList(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "CueList",
+    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Cue list",
                                         QPoint(geometry.x(), geometry.y()));
     if (!widget) return -1;
 
@@ -760,18 +762,7 @@ int VCBridgeV5::findWidgetByCaption(int parentID, const QString &widgetType,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    int targetType = VCWidget::UnknownWidget;
-    if (widgetType == "Button") targetType = VCWidget::ButtonWidget;
-    else if (widgetType == "Slider") targetType = VCWidget::SliderWidget;
-    else if (widgetType == "XYPad") targetType = VCWidget::XYPadWidget;
-    else if (widgetType == "Frame") targetType = VCWidget::FrameWidget;
-    else if (widgetType == "Solo frame") targetType = VCWidget::SoloFrameWidget;
-    else if (widgetType == "Speed") targetType = VCWidget::SpeedWidget;
-    else if (widgetType == "CueList") targetType = VCWidget::CueListWidget;
-    else if (widgetType == "Label") targetType = VCWidget::LabelWidget;
-    else if (widgetType == "Audio Triggers") targetType = VCWidget::AudioTriggersWidget;
-    else if (widgetType == "Clock") targetType = VCWidget::ClockWidget;
-    else if (widgetType == "Record Panel") targetType = VCWidget::RecordPanelWidget;
+    const int targetType = VCType::fromString(widgetType.toStdString());
 
     for (VCWidget *w : frame->children())
     {
@@ -857,6 +848,7 @@ VCBridge::WidgetDetails VCBridgeV5::getWidgetDetails(int widgetID) const
     WidgetDetails d;
     d.id = widgetID;
     d.type = VCWidget::typeToString(widget->type());
+    d.machineType = QString::fromStdString(VCType::toString(widget->type()));
     d.caption = widget->caption();
     d.geometry = widget->geometry().toRect();
     d.bgColor = widget->backgroundColor();

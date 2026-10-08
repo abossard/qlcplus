@@ -52,6 +52,8 @@ private slots:
     void syntax_errorReportsLineNumber();
     void syntax_rejectedScriptNotCreated();
     void syntax_rejectedUpdateRestoresOriginal();
+    void syntax_nativeCompileOnly_data();
+    void syntax_nativeCompileOnly();
 
     // ── Engine API coverage (all methods pass syntax check) ────────────
     void engineApi_startStopFunction();

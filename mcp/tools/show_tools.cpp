@@ -24,6 +24,7 @@
 #include "show.h"
 #include "showfunction.h"
 #include "track.h"
+#include "mastertimer.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -32,6 +33,13 @@
 namespace {
 
 using Json = nlohmann::json;
+
+// Q8 error record with a machine-readable refusal code.
+Json coded(Json record, const char *code)
+{
+    record["code"] = code;
+    return record;
+}
 
 double millisecondsPerUnit(const Function *function, const Show *show)
 {
@@ -128,35 +136,66 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             static const Json kEnums = {{"tempoType", {{"enum", {"time", "4/4", "3/4", "2/4"}}}}};
 
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t index = 0; index < items.size(); ++index)
             {
+                const Json &item = items[index];
                 auto err = validateFields(item, {"name", "path", "tempoType", "bpm", "tracks"});
-                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
-                auto enumErr = validateEnums(item, kEnums);
-                if (!enumErr.empty()) { results.push_back(Json::parse(enumErr)); continue; }
+                if (err.empty())
+                    err = validateEnums(item, kEnums);
+                if (!err.empty()) { results.push_back(coded(mcp::itemErrorFromDump(index, err), "invalid")); continue; }
 
+                // Validate everything, tracks included, before the first mutation:
+                // a rejected item must leave the show and the dirty flag untouched.
+                std::string itemErr;
                 if (!item.contains("name") || !item.at("name").is_string())
-                { results.push_back({{"error", "name is required and must be a string"}}); continue; }
+                    itemErr = "name is required and must be a string";
+                else if (item.at("name").get<std::string>().empty())
+                    itemErr = "name must not be empty";
+                else if (item.contains("path") && !item.at("path").is_string())
+                    itemErr = "path must be a string";
+                else if (item.contains("bpm") && !mcp::jsonInteger(item.at("bpm"), 1, std::numeric_limits<int>::max()))
+                    itemErr = "bpm must be an integer of at least 1";
+                else if (item.contains("tracks") && !item.at("tracks").is_array())
+                    itemErr = "tracks must be an array";
+                if (itemErr.empty() && item.contains("tracks"))
+                {
+                    for (auto &entry : item.at("tracks"))
+                    {
+                        auto trackErr = validateFields(entry, {"name", "mute"});
+                        if (!trackErr.empty())
+                            itemErr = Json::parse(trackErr).value("error", trackErr);
+                        else if (!entry.contains("name") || !entry.at("name").is_string())
+                            itemErr = "track name must be a string";
+                        else if (entry.contains("mute") && !entry.at("mute").is_boolean())
+                            itemErr = "track mute must be a boolean";
+                        if (!itemErr.empty())
+                            break;
+                    }
+                }
+                if (!itemErr.empty())
+                {
+                    Json record = coded(mcp::itemError(index, itemErr), "invalid");
+                    if (item.contains("name") && item.at("name").is_string())
+                        record["name"] = item.at("name");
+                    results.push_back(record);
+                    continue;
+                }
                 const QString name = QString::fromStdString(item.at("name").get<std::string>());
-                if (name.isEmpty())
-                { results.push_back({{"error", "name must not be empty"}}); continue; }
 
-                // Validate everything before the first mutation: a rejected item
-                // must leave no half-applied show behind.
-                if (item.contains("path") && !item.at("path").is_string())
-                { results.push_back({{"name", name.toStdString()},
-                                     {"error", "path must be a string"}}); continue; }
-                if (item.contains("bpm") &&
-                    (!item.at("bpm").is_number_integer() || item.at("bpm").get<int>() < 1))
-                { results.push_back({{"name", name.toStdString()},
-                                     {"error", "bpm must be an integer of at least 1"}}); continue; }
-                if (item.contains("tracks") && !item.at("tracks").is_array())
-                { results.push_back({{"name", name.toStdString()},
-                                     {"error", "tracks must be an array"}}); continue; }
-
-                Function *existing = mcp::findFunction(doc, name, Function::ShowType);
-                Show *show = qobject_cast<Show*>(existing);
+                MasterTimer *timer = doc->masterTimer();
+                Show *show = qobject_cast<Show*>(mcp::findFunction(doc, name, Function::ShowType));
                 const bool isNew = show == NULL;
+                MasterTimer::EditAdmission admission(timer, isNew ? timer->beginRegistryEdit() : timer->beginFunctionEdit(show));
+                if (!admission)
+                {
+                    results.push_back(isNew
+                        ? coded(mcp::itemError(index, "Functions cannot be created or deleted while any "
+                                                      "function is running, starting or queued"), "functions_running")
+                        : coded(mcp::itemError(index, "Show " + std::to_string(show->id()) +
+                                                      " or a function using it is running, starting or flashing"), "running"));
+                    continue;
+                }
                 if (isNew)
                 {
                     show = new Show(doc);
@@ -180,9 +219,9 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 if (isNew && !doc->addFunction(show))
                 {
+                    admission.end();
                     delete show;
-                    results.push_back({{"name", name.toStdString()},
-                                       {"error", "could not add show to the project"}});
+                    results.push_back(coded(mcp::itemError(index, "could not add show to the project"), "invalid"));
                     continue;
                 }
 
@@ -192,11 +231,6 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {
                     for (auto &entry : item.at("tracks"))
                     {
-                        auto trackErr = validateFields(entry, {"name", "mute"});
-                        if (!trackErr.empty()) { tracks.push_back(Json::parse(trackErr)); continue; }
-                        if (!entry.contains("name") || !entry.at("name").is_string())
-                        { tracks.push_back({{"error", "track name must be a string"}}); continue; }
-
                         const QString trackName =
                             QString::fromStdString(entry.at("name").get<std::string>());
 
@@ -222,27 +256,23 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                             }
                         }
                         if (entry.contains("mute"))
-                        {
-                            if (!entry.at("mute").is_boolean())
-                            { tracks.push_back({{"name", trackName.toStdString()},
-                                                {"error", "mute must be a boolean"}}); continue; }
                             track->setMute(entry.at("mute").get<bool>());
-                        }
 
                         tracks.push_back({{"id", (int)track->id()},
                                           {"name", trackName.toStdString()},
-                                          {"status", trackIsNew ? "created" : "updated"}});
+                                          {"outcome", trackIsNew ? "created" : "updated"}});
                     }
                 }
+                admission.end();
 
                 // Show::setPath/setTimeDivision/addTrack and Track::setMute emit
                 // nothing Doc listens to, so the dirty flag has to be set here or
                 // load_workspace would discard these edits without warning.
                 doc->setModified();
 
-                results.push_back({{"id", (int)show->id()}, {"name", name.toStdString()},
-                                   {"tracks", tracks},
-                                   {"status", isNew ? "created" : "updated"}});
+                results.push_back(mcp::itemOk(index, {{"id", (int)show->id()}, {"name", name.toStdString()},
+                                                      {"tracks", tracks},
+                                                      {"outcome", isNew ? "created" : "updated"}}));
             }
             return results.dump();
             });
@@ -410,6 +440,13 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                                        {"error", "a show cannot be placed on a show timeline"}});
                     continue;
                 }
+                const std::string cycle = mcp::functionCycleError(doc, show->id(), {function->id()});
+                if (!cycle.empty())
+                {
+                    results.push_back({{"functionID", (int)function->id()}, {"code", "invalid"},
+                                       {"error", cycle}});
+                    continue;
+                }
 
                 if (!item.contains("startTime") || !item.at("startTime").is_number_integer() ||
                     item.at("startTime").get<int>() < 0)
@@ -473,15 +510,27 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
 
+                MasterTimer *timer = doc->masterTimer();
+                MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(show));
+                if (!admission)
+                {
+                    results.push_back({{"functionID", (int)function->id()}, {"code", "running"},
+                                       {"error", "Show " + std::to_string(show->id()) +
+                                                 " or a function using it is running, starting or flashing"}});
+                    continue;
+                }
                 if (track == NULL)
                 {
                     track = new Track(Function::invalidId(), show);
                     track->setName(trackName);
                     if (!show->addTrack(track))
                     {
+                        admission.end();
                         delete track;
-                        return Json({{"error", "could not create track"},
-                                     {"trackName", trackName.toStdString()}}).dump();
+                        track = NULL;
+                        results.push_back({{"trackName", trackName.toStdString()},
+                                           {"error", "could not create track"}});
+                        continue;
                     }
                 }
 
@@ -489,6 +538,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 sf->setStartTime(itemStart);
                 sf->setDuration(itemDuration);
                 sf->setColor(ShowFunction::defaultColor(function->type()));
+                admission.end();
                 doc->setModified();
 
                 results.push_back({{"id", (int)sf->id()},
@@ -496,9 +546,9 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                                    {"functionName", function->name().toStdString()},
                                    {"startTime", (int)startTime},
                                    {"duration", (int)duration},
-                                   {"status", "added"}});
+                                   {"outcome", "added"}, {"status", "ok"}});
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
@@ -533,76 +583,112 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             if (show == NULL)
                 return Json({{"error", "show not found"}}).dump();
 
-            Json results = Json::array();
-
+            // Preflight the whole request before touching the timeline
+            QList<quint32> itemIDs;
             if (args.contains("itemIDs"))
             {
                 if (!args.at("itemIDs").is_array())
                     return Json({{"error", "itemIDs must be an array of integers"}}).dump();
-                for (auto &v : args.at("itemIDs"))
+                for (const auto &v : args.at("itemIDs"))
                 {
-                    if (!v.is_number_integer())
-                    { results.push_back({{"error", "itemIDs must be an array of integers"}}); continue; }
-                    const quint32 id = v.get<quint32>();
-
-                    ShowFunction *target = NULL;
-                    Track *owner = NULL;
-                    for (Track *track : show->tracks())
-                    {
-                        if (track == NULL)
-                            continue;
-                        for (ShowFunction *sf : track->showFunctions())
-                            if (sf != NULL && sf->id() == id)
-                            { target = sf; owner = track; break; }
-                        if (target != NULL)
-                            break;
-                    }
-                    if (target == NULL)
-                    { results.push_back({{"itemID", (int)id}, {"status", "not found"}}); continue; }
-
-                    owner->removeShowFunction(target);
-                    doc->setModified();
-                    results.push_back({{"itemID", (int)id}, {"status", "deleted"}});
+                    auto id = mcp::jsonInteger(v, 0, mcp::kMaxId);
+                    if (!id)
+                        return Json({{"error", mcp::integerError("itemIDs entry", 0, mcp::kMaxId)}}).dump();
+                    itemIDs.append(quint32(*id));
                 }
             }
-
+            QStringList trackNames;
             if (args.contains("trackNames"))
             {
                 if (!args.at("trackNames").is_array())
                     return Json({{"error", "trackNames must be an array of strings"}}).dump();
-                for (auto &v : args.at("trackNames"))
+                for (const auto &v : args.at("trackNames"))
                 {
                     if (!v.is_string())
-                    { results.push_back({{"error", "trackNames must be an array of strings"}}); continue; }
-                    const QString name = QString::fromStdString(v.get<std::string>());
-
-                    Track *track = NULL;
-                    for (Track *candidate : show->tracks())
-                        if (candidate != NULL && candidate->name() == name)
-                        { track = candidate; break; }
-                    if (track == NULL)
-                    { results.push_back({{"trackName", name.toStdString()}, {"status", "not found"}}); continue; }
-
-                    const quint32 id = track->id();
-                    if (show->removeTrack(id))
-                    {
-                        doc->setModified();
-                        results.push_back({{"trackName", name.toStdString()}, {"status", "deleted"}});
-                    }
-                    else
-                    {
-                        results.push_back({{"trackName", name.toStdString()},
-                                           {"error", "could not remove track"}});
-                    }
+                        return Json({{"error", "trackNames must be an array of strings"}}).dump();
+                    trackNames.append(QString::fromStdString(v.get<std::string>()));
                 }
             }
 
-            return results.dump();
+            Json results = Json::array();
+            MasterTimer *timer = doc->masterTimer();
+            MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(show));
+            if (!admission)
+            {
+                const Json refused = {{"code", "running"},
+                                      {"error", "Show " + std::to_string(show->id()) +
+                                                " or a function using it is running, starting or flashing"}};
+                for (quint32 id : itemIDs)
+                {
+                    Json rec = refused;
+                    rec["itemID"] = id;
+                    results.push_back(rec);
+                }
+                for (const QString &name : trackNames)
+                {
+                    Json rec = refused;
+                    rec["trackName"] = name.toStdString();
+                    results.push_back(rec);
+                }
+                return mcp::indexedRecords(results).dump();
+            }
+
+            for (quint32 id : itemIDs)
+            {
+                ShowFunction *target = NULL;
+                Track *owner = NULL;
+                for (Track *track : show->tracks())
+                {
+                    if (track == NULL)
+                        continue;
+                    for (ShowFunction *sf : track->showFunctions())
+                        if (sf != NULL && sf->id() == id)
+                        { target = sf; owner = track; break; }
+                    if (target != NULL)
+                        break;
+                }
+                if (target == NULL)
+                {
+                    results.push_back({{"itemID", id}, {"code", "not_found"}, {"error", "no timeline item " + std::to_string(id)}});
+                    continue;
+                }
+                owner->removeShowFunction(target);
+                doc->setModified();
+                results.push_back({{"itemID", id}, {"status", "ok"}, {"outcome", "deleted"}});
+            }
+
+            for (const QString &name : trackNames)
+            {
+                Track *track = NULL;
+                for (Track *candidate : show->tracks())
+                    if (candidate != NULL && candidate->name() == name)
+                    { track = candidate; break; }
+                if (track == NULL)
+                {
+                    results.push_back({{"trackName", name.toStdString()}, {"code", "not_found"},
+                                       {"error", "no track named " + name.toStdString()}});
+                    continue;
+                }
+                if (show->removeTrack(track->id()))
+                {
+                    doc->setModified();
+                    results.push_back({{"trackName", name.toStdString()}, {"status", "ok"}, {"outcome", "deleted"}});
+                }
+                else
+                {
+                    results.push_back({{"trackName", name.toStdString()}, {"error", "could not remove track"}});
+                }
+            }
+            admission.end();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
         std::string("Remove items from a Show timeline by ShowFunction ID, and/or remove whole "
-                     "tracks by name. The referenced Functions themselves are not deleted."),
+                     "tracks by name. The referenced Functions themselves are not deleted. The whole "
+                     "request is validated before anything is removed; nothing is removed while the "
+                     "Show is running or queued. One indexed record per itemIDs entry, then per "
+                     "trackNames entry."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotDestructive));

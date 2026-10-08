@@ -52,47 +52,62 @@ namespace mcp {
 
 using Json = nlohmann::json;
 
+// Parses a non-empty run of ASCII digits (at most maxDigits) starting at pos.
+inline bool parseDigits(const std::string &str, size_t &pos, size_t maxDigits, uint64_t &value, size_t &count)
+{
+    value = 0;
+    count = 0;
+    while (pos < str.size() && str[pos] >= '0' && str[pos] <= '9')
+    {
+        if (++count > maxDigits) return false;
+        value = value * 10 + uint64_t(str[pos++] - '0');
+    }
+    return count > 0;
+}
+
 // Beat string to internal value conversion.
 // QLC+ encodes beats as: 1 beat = 1000, with 1/16 grid quantization.
+// Strict, locale-independent grammar: "N/D" or "I" or "I.F" with ASCII digits only.
 // Accepts: "1/16"=63, "1/8"=125, "1/4"=250, "3/8"=375, "1/2"=500, "1"=1000, "2"=2000, etc.
 // Returns 0 on parse failure.
 inline uint beatStringToValue(const std::string &str)
 {
-    if (str.empty()) return 0;
+    size_t pos = 0;
+    uint64_t whole = 0;
+    size_t digits = 0;
+    if (!parseDigits(str, pos, 9, whole, digits)) return 0;
 
-    try
+    if (pos < str.size() && str[pos] == '/')
     {
-        // Try fraction format "N/D"
-        size_t slash = str.find('/');
-        if (slash != std::string::npos)
-        {
-            int num = std::stoi(str.substr(0, slash));
-            int den = std::stoi(str.substr(slash + 1));
-            if (den == 0 || num <= 0) return 0;
-            if (num > 100000) return 0;
+        uint64_t den = 0;
+        ++pos;
+        if (!parseDigits(str, pos, 9, den, digits) || pos != str.size()) return 0;
+        if (den == 0 || whole == 0 || whole > 100000) return 0;
+        const int num = int(whole);
 
-            // If denominator is a supported subdivision, use the engine helper directly.
-            if (den == 1 || den == 2 || den == 4 || den == 8 || den == 16)
-                return Function::musicalBeatValue(num, den);
+        // If denominator is a supported subdivision, use the engine helper directly.
+        if (den == 1 || den == 2 || den == 4 || den == 8 || den == 16)
+            return Function::musicalBeatValue(num, int(den));
 
-            // Generic fallback: convert to beats then quantize via timeToBeats with 1000ms beat.
-            double beats = (double)num / (double)den;
-            uint raw = static_cast<uint>(std::round(beats * 1000.0));
-            return Function::timeToBeats(raw, 1000);
-        }
-
-        // Plain number (integer or decimal beats)
-        double beats = std::stod(str);
-        if (beats <= 0) return 0;
-        if (beats > 100000) return 0;
+        // Generic fallback: convert to beats then quantize via timeToBeats with 1000ms beat.
+        double beats = double(num) / double(den);
         uint raw = static_cast<uint>(std::round(beats * 1000.0));
-        // Quantize via the engine's 1/16 table (1000ms-per-beat reference frame).
         return Function::timeToBeats(raw, 1000);
     }
-    catch (...)
+
+    double beats = double(whole);
+    if (pos < str.size() && str[pos] == '.')
     {
-        return 0;
+        uint64_t frac = 0;
+        ++pos;
+        if (!parseDigits(str, pos, 9, frac, digits)) return 0;
+        beats += double(frac) / std::pow(10.0, double(digits));
     }
+    if (pos != str.size()) return 0;
+    if (beats <= 0 || beats > 100000) return 0;
+    uint raw = static_cast<uint>(std::round(beats * 1000.0));
+    // Quantize via the engine's 1/16 table (1000ms-per-beat reference frame).
+    return Function::timeToBeats(raw, 1000);
 }
 
 // Internal beat value to human-readable string. Uses Function::beatValueToMusical
@@ -143,8 +158,8 @@ inline std::string valueToBeatString(uint val)
 
 // Parse a duration field that can be either integer (ms) or string (beat fraction).
 // Sets isBeat to true if a beat string was parsed.
-// Sets parseError to true if a beat string was provided but resulted in 0
-// (and the string was not literally "0" or "0.0").
+// Sets parseError when the value is not a valid beat string (other than "0"/"0.0")
+// or not an integer number of milliseconds in [0, UINT32_MAX-1].
 inline uint parseDurationField(const Json &val, bool &isBeat, bool &parseError)
 {
     parseError = false;
@@ -157,7 +172,31 @@ inline uint parseDurationField(const Json &val, bool &isBeat, bool &parseError)
             parseError = true;
         return result;
     }
-    return val.get<uint>();
+    if (!val.is_number())
+    {
+        parseError = true;
+        return 0;
+    }
+    uint64_t ms = 0;
+    if (val.is_number_unsigned())
+        ms = val.get<uint64_t>();
+    else if (val.is_number_integer() && val.get<int64_t>() >= 0)
+        ms = uint64_t(val.get<int64_t>());
+    else if (val.is_number_float() && std::isfinite(val.get<double>()) &&
+             val.get<double>() >= 0 && std::trunc(val.get<double>()) == val.get<double>() &&
+             val.get<double>() <= double(UINT32_MAX))
+        ms = uint64_t(val.get<double>());
+    else
+    {
+        parseError = true;
+        return 0;
+    }
+    if (ms >= UINT32_MAX)
+    {
+        parseError = true;
+        return 0;
+    }
+    return uint(ms);
 }
 
 // Result of parsing timing fields from a JSON item.
@@ -183,6 +222,11 @@ inline TimingParseResult parseTimingFields(const Json &item,
     // Check explicit tempoType parameter
     if (item.contains("tempoType"))
     {
+        if (!item.at("tempoType").is_string())
+        {
+            result.error = "tempoType must be a string";
+            return result;
+        }
         std::string tt = item.at("tempoType").get<std::string>();
         if (tt == "Beats" || tt == "beats" || tt == "BEATS")
             result.useBeatMode = true;
@@ -198,8 +242,10 @@ inline TimingParseResult parseTimingFields(const Json &item,
         uint val = parseDurationField(item.at(key), isBeat, parseErr);
         if (parseErr)
         {
-            result.error = "Invalid beat string for '" + key + "': "
-                         + item.at(key).get<std::string>();
+            result.error = item.at(key).is_string()
+                ? "Invalid beat string for '" + key + "': " + item.at(key).get<std::string>()
+                : "'" + key + "' must be integer milliseconds in [0, 4294967294] or a beat string; got "
+                  + item.at(key).dump();
             return result;
         }
         if (isBeat) result.useBeatMode = true;

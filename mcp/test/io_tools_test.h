@@ -39,6 +39,9 @@ private slots:
     void configureUniverses_existingId_doesNotGrow();
     void configureUniverses_invalidId_rejected_data();
     void configureUniverses_invalidId_rejected();
+    void configureUniverses_feedbackDisabled();
+    void ioTools_invalidNumber_rejected_data();
+    void ioTools_invalidNumber_rejected();
 
     // configure_universes — input patch
     void configureUniverses_inputPatch_data();
@@ -53,6 +56,8 @@ private slots:
     void deleteUniverses_withPatchedFixtures_rejected();
     void deleteUniverses_lastRemaining_rejected();
     void deleteUniverses_unknownId_notFound();
+    void deleteUniverses_perInputRecords_data();
+    void deleteUniverses_perInputRecords();
 
     // persistence
     void createdUniverses_surviveXmlRoundTrip();

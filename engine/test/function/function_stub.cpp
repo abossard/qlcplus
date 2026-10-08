@@ -73,6 +73,8 @@ void Function_Stub::preRun(MasterTimer* timer)
 {
     Q_UNUSED(timer);
     m_preRunCalls++;
+    if (m_preRunHook)
+        m_preRunHook();
     Function::preRun(timer);
 }
 
@@ -94,6 +96,8 @@ void Function_Stub::postRun(MasterTimer* timer, QList<Universe *> universes)
     Q_UNUSED(universes);
     m_postRunCalls++;
     Function::postRun(timer, universes);
+    if (m_postRunHook)
+        m_postRunHook();
 }
 
 void Function_Stub::slotFixtureRemoved(quint32 id)

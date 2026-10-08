@@ -58,6 +58,12 @@ Rectangle
     property string editText: ""
     // what the open draft holds; a recreated row editor starts from it, not from editText
     property string draftText: ""
+    property bool editingTyped: false
+    property var typedValue: ({})
+    property string typedReason: ""
+    readonly property var typedInfo: editingTyped && showCommandRecorder
+        ? showCommandRecorder.typedEditorInfo(editingId, typedValue.algorithm || "") : ({})
+    readonly property var typedFields: makeTypedFields()
     // why the last cell edit ended because another recording edit started
     property string draftEndReason: ""
     // the event a draft was opened on: Up and Down go on from it while the list has no current row
@@ -333,6 +339,12 @@ Rectangle
         draftText = editText
         editingField = field
         editingId = row.id
+        editingTyped = field !== "time" && row.typed === true
+        if (editingTyped) {
+            typedValue = showCommandRecorder.typedDraft(row.showId, row.id)
+            typedReason = ""
+            typedEditor.open()
+        }
     }
 
     function closeDraft()
@@ -341,6 +353,8 @@ Rectangle
         var keys = commandView.activeFocus
         editingId = noId
         editingField = ""
+        editingTyped = false
+        typedEditor.close()
         if (keys)
             commandView.forceActiveFocus()
     }
@@ -379,6 +393,142 @@ Rectangle
         draftCommitting = false
         // text that is no value keeps the editor open; an event changed meanwhile ends the
         // draft without writing over it. Either way the recorder states the reason
+        if (committed || !showCommandRecorder.editSessionActive)
+            closeDraft()
+    }
+
+    function typedArgument(path)
+    {
+        var value = typedValue
+        for (var i = 0; i < path.length; ++i) {
+            if (value === undefined || value === null)
+                return undefined
+            value = value[path[i]]
+        }
+        return value
+    }
+
+    function setTypedArgument(path, value)
+    {
+        if (typedArgument(path) === undefined)
+            return
+        if (JSON.stringify(typedArgument(path)) === JSON.stringify(value))
+            return
+        var draft = JSON.parse(JSON.stringify(typedValue))
+        var parent = draft
+        for (var i = 0; i < path.length - 1; ++i)
+            parent = parent[path[i]]
+        parent[path[path.length - 1]] = value
+        if (path[0] === "algorithm") {
+            var metadata = showCommandRecorder.typedEditorInfo(editingId, value)
+            draft.properties = (metadata.properties || []).map(function(property) {
+                return {name: property.name, type: property.type,
+                        value: property.type === "Range" || property.type === "Float"
+                            ? Number(property.value) : String(property.value)}
+            })
+            if (value !== "Text")
+                draft.text = ""
+        }
+        if (path[0] === "operation") {
+            delete draft.rgb
+            delete draft.component
+            delete draft.value
+            if (value === "replace")
+                draft.rgb = [0, 0, 0]
+            else if (value === "component") {
+                draft.component = 0
+                draft.value = 0
+            } else
+                delete draft.choice
+        }
+        previewTypedDraft(draft)
+    }
+
+    function previewTypedDraft(draft)
+    {
+        typedValue = draft
+        var drafts = {}
+        drafts[String(editingId)] = draft
+        typedReason = showCommandRecorder.previewTypedEdit(drafts).reason || ""
+    }
+
+    function makeTypedFields()
+    {
+        var fields = []
+        var draft = typedValue
+        function add(label, path, kind, options, scale, minimum, maximum) {
+            fields.push({label: label, path: path, kind: kind || "number",
+                         options: options || [], scale: scale || 1,
+                         minimum: minimum === undefined ? -1000000 : minimum,
+                         maximum: maximum === undefined ? 1000000 : maximum})
+        }
+        if (draft.pan !== undefined) {
+            add(qsTr("Pan (0..255)"), ["pan"])
+            add(qsTr("Tilt (0..255)"), ["tilt"])
+        }
+        if (draft.x !== undefined) {
+            var area = typedInfo.floorRangeArea
+            add(qsTr("X (m)"), ["x"], "number", [], 1,
+                area ? area.x : 0, area ? area.x + area.width : undefined)
+            add(qsTr("Y height (m)"), ["y"], "number", [], 1, 0, typedInfo.floorHeightMax)
+            add(qsTr("Z (m)"), ["z"], "number", [], 1,
+                area ? area.y : 0, area ? area.y + area.height : undefined)
+        }
+        ["horizontal", "vertical", "point"].forEach(function(key) {
+            if (draft[key] !== undefined) {
+                add(key === "point" ? qsTr("Pan (0..255)") : key + " " + qsTr("first endpoint (0..255)"), [key, 0])
+                add(key === "point" ? qsTr("Tilt (0..255)") : key + " " + qsTr("second endpoint (0..255)"), [key, 1])
+            }
+        })
+        if (draft.choice !== undefined)
+            add(qsTr("Native choice ID"), ["choice"])
+        if (draft.active !== undefined)
+            add(qsTr("Desired active state"), ["active"], "boolean")
+        if (draft.index !== undefined)
+            add(qsTr("Color slot (0..4)"), ["index"])
+        if (draft.operation !== undefined)
+            add(qsTr("Color operation"), ["operation"], "list", ["replace", "reset", "component"])
+        if (draft.component !== undefined) {
+            add(qsTr("RGB component (0=R, 1=G, 2=B)"), ["component"])
+            add(qsTr("Component value (0..255)"), ["value"])
+        }
+        if (draft.binding !== undefined) {
+            add(qsTr("Channel value (0..255)"), ["value"])
+            add(qsTr("Function attribute"), ["binding"], "string")
+        }
+        var names = {rgb: [qsTr("Red"), qsTr("Green"), qsTr("Blue")],
+                     wauv: [qsTr("White"), qsTr("Amber"), qsTr("UV")]}
+        ;["rgb", "wauv"].forEach(function(key) {
+            if (draft[key] !== undefined)
+                for (var i = 0; i < 3; ++i)
+                    add(names[key][i] + " (0..255)", [key, i])
+        })
+        if (draft.brightness !== undefined)
+            add(qsTr("Brightness (%)"), ["brightness"], "number", [], 100)
+        if (draft.algorithm !== undefined) {
+            add(qsTr("Named algorithm"), ["algorithm"], typedInfo.algorithms && typedInfo.algorithms.length ? "list" : "string",
+                typedInfo.algorithms)
+            add(qsTr("Text content"), ["text"], "text")
+            ;(draft.properties || []).forEach(function(property, i) {
+                var metadata = (typedInfo.properties || []).filter(function(item) { return item.name === property.name })[0]
+                add(property.name + " (" + property.type + ")", ["properties", i, "value"],
+                    property.type === "List" && metadata ? "list" :
+                    property.type === "Range" || property.type === "Float" ? "number" : "string",
+                    metadata ? metadata.listValues : [], 1,
+                    metadata ? metadata.min : undefined, metadata ? metadata.max : undefined)
+            })
+        }
+        return fields
+    }
+
+    function commitTyped()
+    {
+        var drafts = {}
+        drafts[String(editingId)] = typedValue
+        draftCommitting = true
+        var committed = showCommandRecorder.commitTypedEdit(drafts)
+        draftCommitting = false
+        typedReason = committed ? "" : showCommandRecorder.lastError
         if (committed || !showCommandRecorder.editSessionActive)
             closeDraft()
     }
@@ -1028,7 +1178,7 @@ Rectangle
                             id: valueEditor
                             anchors.fill: parent
                             active: recordingsRoot.editingId === rowItem.commandId && recordingsRoot.editingField !== ""
-                                    && recordingsRoot.editingField !== "time"
+                                    && recordingsRoot.editingField !== "time" && !recordingsRoot.editingTyped
                             sourceComponent: cellEditor
                         }
                     }
@@ -1059,4 +1209,183 @@ Rectangle
             Keys.onEscapePressed: recordingsRoot.cancelEdit()
         }
     }
+
+        Popup
+        {
+            id: typedEditor
+            objectName: "typedRecordingEditor"
+            anchors.centerIn: parent
+            width: Math.min(recordingsRoot.width, 600)
+            height: Math.min(recordingsRoot.height, typedColumn.implicitHeight + 36)
+            modal: true
+            focus: true
+            closePolicy: Popup.NoAutoClose
+            background: Rectangle { color: UISettings.bgMedium; border.color: "#f1c40f" }
+            contentItem: ScrollView
+            {
+                clip: true
+                Keys.onEscapePressed: recordingsRoot.cancelEdit()
+                ColumnLayout
+                {
+                    id: typedColumn
+                    width: typedEditor.availableWidth
+                    spacing: 8
+                    Repeater
+                    {
+                        model: recordingsRoot.typedValue.horizontal !== undefined ? ["horizontal", "vertical"] : []
+                        delegate: ColumnLayout
+                        {
+                            required property string modelData
+                            Layout.fillWidth: true
+                            Label { text: modelData + " " + qsTr("endpoints (0..255)"); color: "#ffffff" }
+                            CustomRangeSlider
+                            {
+                                objectName: "typedDraftRange"
+                                Layout.fillWidth: true
+                                property string argumentAxis: modelData
+                                readonly property var endpoints: recordingsRoot.typedValue[argumentAxis]
+                                readonly property bool reversed: endpoints[0] > endpoints[1]
+                                from: 0
+                                to: 255
+                                first.value: Math.min(endpoints[0], endpoints[1])
+                                second.value: Math.max(endpoints[0], endpoints[1])
+                                first.onMoved: recordingsRoot.setTypedArgument([argumentAxis, reversed ? 1 : 0], first.value)
+                                second.onMoved: recordingsRoot.setTypedArgument([argumentAxis, reversed ? 0 : 1], second.value)
+                            }
+                        }
+                    }
+                    Loader
+                    {
+                        Layout.fillWidth: true
+                        active: recordingsRoot.typedValue.rgb !== undefined
+                        sourceComponent: typedColors
+                    }
+                    Repeater
+                    {
+                        model: recordingsRoot.typedFields
+                        delegate: RowLayout
+                        {
+                            required property var modelData
+                            readonly property var field: modelData
+                            Layout.fillWidth: true
+                            Label { text: field.label; Layout.preferredWidth: 220; color: "#ffffff" }
+                            Loader
+                            {
+                                Layout.fillWidth: true
+                                property var field: parent.field
+                                active: recordingsRoot.typedArgument(field.path) !== undefined
+                                sourceComponent: field.kind === "boolean" ? typedBoolean
+                                    : field.kind === "list" ? typedList : field.kind === "text" ? typedText : typedNumber
+                            }
+                        }
+                    }
+                    Label { text: recordingsRoot.typedReason; color: "#ff8888"; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                    RowLayout
+                    {
+                        Button { text: qsTr("Cancel"); onClicked: recordingsRoot.cancelEdit() }
+                        Button { objectName: "typedCommit"; text: qsTr("Commit"); onClicked: recordingsRoot.commitTyped() }
+                    }
+                }
+            }
+        }
+
+        Component
+        {
+            id: typedColors
+            ColorTool
+            {
+                objectName: "typedDraftColors"
+                width: parent.width
+                implicitHeight: UISettings.listItemHeight + UISettings.bigItemHeight * 3.3
+                followContextColors: false
+                showPalette: false
+                showCloseButton: false
+                colorToolQML: "qrc:/ColorToolFull.qml"
+                colorsMask: recordingsRoot.typedValue.wauv !== undefined ? App.White | App.Amber | App.UV : 0
+                currentRGB: Qt.rgba(recordingsRoot.typedValue.rgb[0] / 255,
+                                   recordingsRoot.typedValue.rgb[1] / 255,
+                                   recordingsRoot.typedValue.rgb[2] / 255, 1)
+                currentWAUV: recordingsRoot.typedValue.wauv !== undefined
+                    ? Qt.rgba(recordingsRoot.typedValue.wauv[0] / 255,
+                              recordingsRoot.typedValue.wauv[1] / 255,
+                              recordingsRoot.typedValue.wauv[2] / 255, 1) : Qt.rgba(0, 0, 0, 1)
+                onToolColorChanged: function(r, g, b, w, a, uv)
+                {
+                    if (recordingsRoot.typedValue.rgb === undefined)
+                        return
+                    var draft = JSON.parse(JSON.stringify(recordingsRoot.typedValue))
+                    draft.rgb = [r, g, b].map(function(value) { return Math.round(value * 255) })
+                    if (draft.wauv !== undefined)
+                        draft.wauv = [w, a, uv].map(function(value) { return Math.round(value * 255) })
+                    recordingsRoot.previewTypedDraft(draft)
+                }
+            }
+        }
+
+        Component
+        {
+            id: typedNumber
+            RowLayout
+            {
+                property var field: parent.field
+                readonly property var argument: recordingsRoot.typedArgument(field.path)
+                enabled: argument !== undefined
+                TextField
+                {
+                    Layout.fillWidth: true
+                    objectName: "typedArgumentField"
+                    property string argumentPath: parent.field.path.join(".")
+                    text: parent.argument === undefined ? "" : String(parent.field.kind === "number"
+                        ? parent.argument * parent.field.scale : parent.argument)
+                    onTextEdited: recordingsRoot.setTypedArgument(parent.field.path,
+                        parent.field.kind === "number" ? (text.trim() === "" ? null : Number(text) / parent.field.scale) : text)
+                    onAccepted: recordingsRoot.commitTyped()
+                }
+                CustomDoubleSpinBox
+                {
+                    objectName: "typedArgumentStepper"
+                    visible: parent.field.kind === "number"
+                    realFrom: parent.field.minimum
+                    realTo: parent.field.maximum
+                    decimals: 3
+                    boundedControl: true
+                    suffix: ""
+                    realValue: parent.argument === undefined ? NaN : Number(parent.argument) * parent.field.scale
+                    onValueModified: recordingsRoot.setTypedArgument(parent.field.path, value / scale / parent.field.scale)
+                }
+            }
+        }
+        Component
+        {
+            id: typedBoolean
+            CheckBox
+            {
+                property string argumentPath: parent.field.path.join(".")
+                checked: recordingsRoot.typedArgument(parent.field.path)
+                onToggled: recordingsRoot.setTypedArgument(parent.field.path, checked)
+            }
+        }
+        Component
+        {
+            id: typedList
+            ComboBox
+            {
+                property string argumentPath: parent.field.path.join(".")
+                model: parent.field.options
+                currentIndex: model.indexOf(String(recordingsRoot.typedArgument(parent.field.path)))
+                onActivated: recordingsRoot.setTypedArgument(parent.field.path, currentText)
+            }
+        }
+        Component
+        {
+            id: typedText
+            TextArea
+            {
+                objectName: "typedContentText"
+                property string argumentPath: parent.field.path.join(".")
+                text: recordingsRoot.typedArgument(parent.field.path)
+                wrapMode: TextEdit.Wrap
+                onTextChanged: if (activeFocus) recordingsRoot.setTypedArgument(parent.field.path, text)
+            }
+        }
 }

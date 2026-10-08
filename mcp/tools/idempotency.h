@@ -24,10 +24,15 @@
 #include "function.h"
 #include "fixture.h"
 #include "fixturegroup.h"
+#include "show.h"
+#include "track.h"
 
 #include <QString>
 #include <QRegularExpression>
 #include <QList>
+#include <QHash>
+#include <QVector>
+#include <string>
 
 namespace mcp {
 
@@ -125,6 +130,81 @@ inline FixtureGroup* findFixtureGroup(Doc *doc, const QString &name)
             return group;
     }
     return nullptr;
+}
+
+/**
+ * Functions that native Function::contains() recurses into: Chaser and
+ * Sequence steps, Collection members and Show track items. Scene and EFX
+ * components are fixtures, not functions.
+ */
+inline QList<quint32> containedFunctions(Function *fn)
+{
+    switch (fn->type())
+    {
+        case Function::ChaserType:
+        case Function::SequenceType:
+        case Function::CollectionType:
+            return fn->components();
+        case Function::ShowType:
+        {
+            QList<quint32> ids;
+            for (Track *track : qobject_cast<Show*>(fn)->tracks())
+                ids.append(track->components());
+            return ids;
+        }
+        default:
+            return {};
+    }
+}
+
+/**
+ * Error text if giving function `target` the references `refs` would leave a
+ * containment cycle, empty if not. Native contains() and postLoad recurse
+ * without a visited set, so a cycle overflows the stack when the project is
+ * loaded. A reference is refused when it is the target, reaches the target, or
+ * reaches a cycle that already exists. Each function is visited at most once,
+ * so an already cyclic project cannot make this loop. Pass Function::invalidId()
+ * as target for a function that is not in the Doc yet.
+ */
+inline std::string functionCycleError(Doc *doc, quint32 target, const QList<quint32> &refs)
+{
+    enum Mark { OnPath, Done };
+    struct Frame { quint32 id; QList<quint32> next; int at; };
+    QHash<quint32, Mark> marks;
+    for (quint32 root : refs)
+    {
+        if (root == target)
+            return "function " + std::to_string(root) + " cannot contain itself";
+        if (marks.contains(root))
+            continue;
+        QVector<Frame> path;
+        auto enter = [&](quint32 id) {
+            marks.insert(id, OnPath);
+            Function *fn = doc->function(id);
+            path.append({ id, fn ? containedFunctions(fn) : QList<quint32>(), 0 });
+        };
+        enter(root);
+        while (!path.isEmpty())
+        {
+            if (path.last().at == path.last().next.size())
+            {
+                marks.insert(path.last().id, Done);
+                path.removeLast();
+                continue;
+            }
+            const quint32 child = path.last().next.at(path.last().at++);
+            if (child == target)
+                return "function " + std::to_string(root) + " already contains this function; "
+                       "the reference would create a containment cycle";
+            const auto mark = marks.constFind(child);
+            if (mark == marks.constEnd())
+                enter(child);
+            else if (mark.value() == OnPath)
+                return "function " + std::to_string(root) + " leads into an existing containment cycle "
+                       "through function " + std::to_string(child);
+        }
+    }
+    return std::string();
 }
 
 } // namespace mcp

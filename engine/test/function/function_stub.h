@@ -20,6 +20,8 @@
 #ifndef FUNCTION_STUB_H
 #define FUNCTION_STUB_H
 
+#include <functional>
+
 #include "function.h"
 
 class Doc;
@@ -53,6 +55,14 @@ public:
      *  stub instantaneous, so existing tests are unchanged. Used by the
      *  MasterTimer timing-diagnostics test to inject unequal callback costs. */
     int m_writeSleepUs = 0;
+
+    /** Optional callback run inside preRun(), i.e. while the MasterTimer is
+     *  starting this function. */
+    std::function<void()> m_preRunHook;
+
+    /** Optional callback run at the end of postRun(), after Function::postRun
+     *  cleanup, while the MasterTimer is still stopping this function. */
+    std::function<void()> m_postRunHook;
 
     quint32 m_slotFixtureRemovedId;
 };

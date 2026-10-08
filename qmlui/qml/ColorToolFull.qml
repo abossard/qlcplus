@@ -67,6 +67,7 @@ Rectangle
     Canvas
     {
         id: colorBox
+        objectName: "colorToolCanvas"
         x: 5
         y: 5
         width: 256
@@ -77,29 +78,30 @@ Rectangle
         scale: (rootBox.width / 1.75) / 256
         contextType: "2d"
 
-        function fillWithGradient(r, g, b, xPos)
+        function fillWithGradient(ctx, r, g, b, xPos)
         {
-            context.beginPath()
-            var grad = context.createLinearGradient(xPos, 0, xPos, 255)
+            ctx.beginPath()
+            var grad = ctx.createLinearGradient(xPos, 0, xPos, 255)
             grad.addColorStop(0, 'black')
             grad.addColorStop(0.5, Helpers.getHTMLColor(r,g,b))
             grad.addColorStop(1, 'white')
-            context.strokeStyle = grad
-            context.moveTo(xPos, 0)
-            context.lineTo(xPos, 255)
-            context.closePath()
-            context.stroke()
+            ctx.strokeStyle = grad
+            ctx.moveTo(xPos, 0)
+            ctx.lineTo(xPos, 255)
+            ctx.closePath()
+            ctx.stroke()
         }
 
         onPaint:
         {
-            context.globalAlpha = 1.0
+            var ctx = getContext("2d")
+            ctx.globalAlpha = 1.0
             var i = 0
             var x = 0
             var r = 0xFF
             var g = 0
             var b = 0
-            context.lineWidth = 1
+            ctx.lineWidth = 1
 
             var baseColors = [ 0xFF0000, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0xFF00FF, 0xFF0000 ]
 
@@ -117,7 +119,7 @@ Rectangle
 
                 for (i = x; i < x + 42; i++)
                 {
-                    fillWithGradient(r, g, b, i)
+                    fillWithGradient(ctx, r, g, b, i)
                     r += rD
                     g += gD
                     b += bD
@@ -136,7 +138,7 @@ Rectangle
             {
                 var scaledX = mouse.x / colorBox.scale
                 var scaledY = mouse.y / colorBox.scale
-                var imgData = colorBox.context.getImageData(scaledX, scaledY, 1, 1).data
+                var imgData = colorBox.getContext("2d").getImageData(scaledX, scaledY, 1, 1).data
                 var r = imgData[0]
                 var g = imgData[1]
                 var b = imgData[2]

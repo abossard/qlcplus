@@ -240,6 +240,9 @@ bool Sequence::loadXML(QXmlStreamReader &root)
     {
         sceneValues = scene->values();
         std::sort(sceneValues.begin(), sceneValues.end());
+        // Steps save non-zero values only, so missing channels are zero
+        for (SceneValue &scv : sceneValues)
+            scv.value = 0;
         m_needFixup = false;
     }
 
@@ -326,6 +329,8 @@ void Sequence::postLoad()
         }
 
         std::sort(sceneValues.begin(), sceneValues.end());
+        for (SceneValue &scv : sceneValues)
+            scv.value = 0;
     }
 
     int stepIndex = 0;

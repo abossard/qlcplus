@@ -31,6 +31,7 @@
 #include "grandmaster.h"
 
 #include <fastmcpp/tools/manager.hpp>
+#include <map>
 #include <fastmcpp/tools/tool.hpp>
 
 void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
@@ -60,37 +61,73 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             if (itemsErr) return *itemsErr;
             Json results = Json::array();
             InputOutputMap *ioMap = doc->inputOutputMap();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
+                const Json &item = items[i];
+                if (!item.is_object()) { results.push_back(mcp::itemError(i, "item must be an object")); continue; }
                 auto err = validateFields(item, {"universeID", "name", "inputPlugin", "inputLine", "outputPlugin", "outputLine", "passthrough", "feedbackEnabled"});
-                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+                if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
 
-                if (!item.at("universeID").is_number_integer())
+                // Preflight every field before any model or device change.
+                auto uidOpt = item.contains("universeID") ? mcp::jsonInteger(item.at("universeID"), 0, 127) : std::nullopt;
+                if (!uidOpt)
                 {
-                    results.push_back({{"error", "universeID must be an integer"}});
+                    results.push_back(mcp::itemError(i, "universeID must be an integer from 0 to 127"));
                     continue;
                 }
+                const int uid = int(*uidOpt);
+                auto fail = [&](const std::string &msg) {
+                    Json e = mcp::itemError(i, msg);
+                    e["universeID"] = uid;
+                    results.push_back(e);
+                };
 
-                int uid = item.at("universeID").get<int>();
-                if (uid < 0 || uid > 127)
+                std::string typeErr;
+                for (const char *key : {"name", "inputPlugin", "outputPlugin"})
+                    if (item.contains(key) && !item.at(key).is_string())
+                        typeErr = std::string(key) + " must be a string";
+                for (const char *key : {"passthrough", "feedbackEnabled"})
+                    if (item.contains(key) && !item.at(key).is_boolean())
+                        typeErr = std::string(key) + " must be a boolean";
+                std::optional<int64_t> inputLine, outputLine;
+                if (item.contains("inputLine") && !(inputLine = mcp::jsonInteger(item.at("inputLine"), -1, INT32_MAX)))
+                    typeErr = mcp::integerError("inputLine", -1, INT32_MAX);
+                if (item.contains("outputLine") && !(outputLine = mcp::jsonInteger(item.at("outputLine"), -1, INT32_MAX)))
+                    typeErr = mcp::integerError("outputLine", -1, INT32_MAX);
+                if (!typeErr.empty()) { fail(typeErr); continue; }
+
+                if (item.contains("outputPlugin") != item.contains("outputLine"))
                 {
-                    results.push_back({{"universeID", uid}, {"error", "universeID must be from 0 to 127"}});
+                    fail("outputPlugin and outputLine must be given together");
+                    continue;
+                }
+                if (item.contains("inputLine") && !item.contains("inputPlugin"))
+                {
+                    fail("inputLine requires inputPlugin");
                     continue;
                 }
 
                 QString inputPlugin;
                 bool removeInput = false;
-                if (item.contains("inputPlugin") && item.contains("inputLine"))
+                if (item.contains("inputPlugin"))
                 {
                     inputPlugin = QString::fromStdString(item.at("inputPlugin").get<std::string>());
                     removeInput = (inputPlugin == "None" || inputPlugin == KInputNone);
                     if (!removeInput && doc->ioPluginCache()->plugin(inputPlugin) == nullptr)
                     {
-                        results.push_back({{"universeID", uid},
-                                           {"error", "unknown input plugin: " + inputPlugin.toStdString()}});
+                        fail("unknown input plugin: " + inputPlugin.toStdString());
+                        continue;
+                    }
+                    if (!removeInput && !inputLine)
+                    {
+                        fail("inputLine is required with inputPlugin");
                         continue;
                     }
                 }
+                auto toLine = [](int64_t line) {
+                    return line < 0 ? QLCIOPlugin::invalidLine() : quint32(line);
+                };
 
                 bool ok = true;
 
@@ -103,7 +140,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     int before = (int)ioMap->universesCount();
                     if (ioMap->addUniverse((quint32)uid) == false)
                     {
-                        results.push_back({{"universeID", uid}, {"error", "could not create universe"}});
+                        fail("could not create universe");
                         continue;
                     }
                     created = (int)ioMap->universesCount() - before;
@@ -113,7 +150,6 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     // until the project is reloaded. start() on an already
                     // running Universe is a no-op.
                     ioMap->startUniverses();
-                    doc->setModified();
                 }
 
                 if (item.contains("name"))
@@ -126,32 +162,44 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     ok &= ioMap->setInputPatch(uid, KInputNone, QString(), QString(),
                                                QLCIOPlugin::invalidLine());
                 }
-                else if (item.contains("inputPlugin") && item.contains("inputLine"))
+                else if (item.contains("inputPlugin"))
                 {
-                    ok &= ioMap->setInputPatch(uid, inputPlugin, QString(), QString(),
-                                               item.at("inputLine").get<int>());
+                    ok &= ioMap->setInputPatch(uid, inputPlugin, QString(), QString(), toLine(*inputLine));
                 }
-                if (item.contains("outputPlugin") && item.contains("outputLine"))
+                if (item.contains("outputPlugin"))
                 {
                     ok &= ioMap->setOutputPatch(uid,
                         QString::fromStdString(item.at("outputPlugin").get<std::string>()),
-                        QString(), QString(), item.at("outputLine").get<int>());
+                        QString(), QString(), toLine(*outputLine));
                 }
                 if (item.contains("passthrough"))
                 {
                     Universe *uni = ioMap->universe(uid);
                     if (uni) uni->setPassthrough(item.at("passthrough").get<bool>());
                 }
-                if (item.contains("feedbackEnabled") && item.at("feedbackEnabled").get<bool>())
+                if (item.contains("feedbackEnabled"))
                 {
-                    InputPatch *inPatch = ioMap->inputPatch(uid);
-                    if (inPatch && inPatch->isPatched())
+                    if (item.at("feedbackEnabled").get<bool>())
                     {
-                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", "", inPatch->input(), true);
+                        InputPatch *inPatch = ioMap->inputPatch(uid);
+                        if (inPatch && inPatch->isPatched())
+                            ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", "", inPatch->input(), true);
+                        else
+                            ok = false;
+                    }
+                    else if (ioMap->feedbackPatch(uid) != nullptr)
+                    {
+                        ok &= ioMap->setOutputPatch(uid, KOutputNone, "", "", QLCIOPlugin::invalidLine(), true);
                     }
                 }
+                doc->setModified();
 
-                Json entry = {{"universeID", uid}, {"status", ok ? "ok" : "failed"}};
+                // Patch setters talk to plugins/devices; a false return means at
+                // least one requested patch was not confirmed. Model edits above
+                // (universe creation, name, passthrough) are not rolled back.
+                Json entry = ok ? mcp::itemOk(i)
+                                : mcp::itemError(i, "one or more patch operations were not confirmed by the plugin");
+                entry["universeID"] = uid;
                 if (created > 0)
                     entry["universesCreated"] = created;
                 results.push_back(entry);
@@ -186,30 +234,36 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             InputOutputMap *ioMap = doc->inputOutputMap();
 
+                        // Parse per input index; a malformed id fails only its own item.
+            const Json &input = args.at("ids");
+            std::vector<std::optional<int>> parsedIds;
+            std::map<int, size_t> firstIndex;
+            for (size_t i = 0; i < input.size(); ++i)
+            {
+                auto id = mcp::jsonInteger(input[i], 0, mcp::kMaxId);
+                parsedIds.push_back(id ? std::optional<int>(int(std::min<std::int64_t>(
+                                              *id, std::numeric_limits<int>::max())))
+                                       : std::nullopt);
+                if (parsedIds.back())
+                    firstIndex.emplace(*parsedIds.back(), i);
+            }
+
             // Highest id first: removing the tail one at a time is the only order
             // the engine accepts, and it lets a batch like [2,3] succeed.
-            std::vector<int> ids;
-            for (auto &v : args.at("ids"))
+            std::map<int, Json> outcomes;
+            for (auto it = firstIndex.rbegin(); it != firstIndex.rend(); ++it)
             {
-                if (!v.is_number_integer())
-                    return Json({{"error", "ids must be an array of integers"}}).dump();
-                ids.push_back(v.get<int>());
-            }
-            std::sort(ids.begin(), ids.end(), [](int a, int b) { return a > b; });
-            ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-
-            Json results = Json::array();
-            for (int uid : ids)
-            {
-                if (uid < 0 || uid >= (int)ioMap->universesCount())
+                const int uid = it->first;
+                Json &out = outcomes[uid];
+                if (uid >= (int)ioMap->universesCount())
                 {
-                    results.push_back({{"universeID", uid}, {"status", "not found"}});
+                    out = {{"universeID", uid}, {"error", "universe not found"}};
                     continue;
                 }
                 if (ioMap->universesCount() == 1)
                 {
-                    results.push_back({{"universeID", uid},
-                                       {"error", "cannot delete the last remaining universe"}});
+                    out = {{"universeID", uid},
+                           {"error", "cannot delete the last remaining universe"}};
                     continue;
                 }
 
@@ -233,29 +287,56 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {
                     Json ids_ = Json::array();
                     for (quint32 fid : patched) ids_.push_back((int)fid);
-                    results.push_back({{"universeID", uid},
-                                       {"error", "universe has patched fixtures — delete them first"},
-                                       {"fixtureIDs", ids_}});
+                    out = {{"universeID", uid},
+                           {"error", "universe has patched fixtures — delete them first"},
+                           {"fixtureIDs", ids_}};
                     continue;
                 }
 
                 if (uid != (int)ioMap->universesCount() - 1)
                 {
-                    results.push_back({{"universeID", uid},
-                                       {"error", "only the last universe can be deleted — "
-                                                 "removing this one would leave a gap"}});
+                    out = {{"universeID", uid},
+                           {"error", "only the last universe can be deleted — "
+                                     "removing this one would leave a gap"}};
                     continue;
                 }
 
                 if (ioMap->removeUniverse(uid))
                 {
                     doc->setModified();
-                    results.push_back({{"universeID", uid}, {"status", "deleted"}});
+                    out = {{"universeID", uid}, {"outcome", "deleted"}};
                 }
                 else
                 {
-                    results.push_back({{"universeID", uid}, {"error", "could not delete universe"}});
+                    out = {{"universeID", uid}, {"error", "could not delete universe"}};
                 }
+            }
+
+            Json results = Json::array();
+            for (size_t i = 0; i < parsedIds.size(); ++i)
+            {
+                if (!parsedIds[i])
+                {
+                    results.push_back(mcp::itemError(i, mcp::integerError("ids[]", 0, mcp::kMaxId)));
+                    continue;
+                }
+                Json out = outcomes.at(*parsedIds[i]);
+                const size_t first = firstIndex.at(*parsedIds[i]);
+                if (first != i)
+                {
+                    // Repeats never claim a second physical deletion.
+                    out["duplicateOf"] = first;
+                    if (!out.contains("error"))
+                        out["outcome"] = "duplicate";
+                }
+                if (out.contains("error"))
+                {
+                    out["index"] = i;
+                    out["status"] = "error";
+                    results.push_back(out);
+                }
+                else
+                    results.push_back(mcp::itemOk(i, out));
             }
             return results.dump();
             });
@@ -263,7 +344,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         std::nullopt,
         std::string("Delete universes by ID. Batch: {\"ids\": [...]}. Only trailing universes can be "
                      "removed and a universe holding patched fixtures is refused. The last remaining "
-                     "universe cannot be deleted."),
+                     "universe cannot be deleted. Returns one record per input id, in input order; "
+                     "deletion runs highest id first, and a repeated id reports outcome \"duplicate\" "
+                     "with duplicateOf instead of a second deletion."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotDestructive));
@@ -288,8 +371,19 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {
                 auto err = validateFields(item, {"universeID", "plugin", "params"});
                 if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+                auto uidOpt = item.contains("universeID")
+                    ? mcp::jsonInteger(item.at("universeID"), 0, 127) : std::nullopt;
+                if (!uidOpt) { results.push_back({{"error", mcp::integerError("universeID", 0, 127)}}); continue; }
+                if (!item.contains("plugin") || !item.at("plugin").is_string())
+                { results.push_back({{"error", "plugin must be a string"}}); continue; }
+                bool stringParams = item.contains("params") && item.at("params").is_object();
+                if (stringParams)
+                    for (auto &[key, value] : item.at("params").items())
+                        stringParams = stringParams && value.is_string();
+                if (!stringParams)
+                { results.push_back({{"error", "params must be an object of string values"}}); continue; }
 
-                int uid = item.at("universeID").get<int>();
+                int uid = int(*uidOpt);
                 QString pluginName = QString::fromStdString(item.at("plugin").get<std::string>());
 
                 // Find the plugin
@@ -342,9 +436,10 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     plugin->setParameter(uid, line, QLCIOPlugin::Output, qKey, qValue);
                 }
 
-                results.push_back({{"universeID", uid}, {"status", "ok"}});
+                // setParameter returns void: the device write is attempted, not confirmed.
+                results.push_back({{"universeID", uid}, {"status", "ok"}, {"effect", "attempted"}});
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
@@ -439,12 +534,29 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 auto err = validateFields(item, {"universeID", "profileName"});
                 if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
 
-                int uid = item.at("universeID").get<int>();
+                auto uidOpt = item.contains("universeID")
+                    ? mcp::jsonInteger(item.at("universeID"), 0, 127) : std::nullopt;
+                if (!uidOpt) { results.push_back({{"error", mcp::integerError("universeID", 0, 127)}}); continue; }
+                if (!item.contains("profileName") || !item.at("profileName").is_string())
+                { results.push_back({{"error", "profileName must be a string"}}); continue; }
+                int uid = int(*uidOpt);
                 QString profName = QString::fromStdString(item.at("profileName").get<std::string>());
-                bool ok = doc->inputOutputMap()->setInputProfile(uid, profName);
-                results.push_back({{"universeID", uid}, {"status", ok ? "ok" : "failed"}});
+                InputOutputMap *ioMap = doc->inputOutputMap();
+                if (profName != KInputNone && !ioMap->profile(profName))
+                {
+                    results.push_back({{"universeID", uid}, {"error", "input profile not found: " + profName.toStdString()}});
+                    continue;
+                }
+                if (!ioMap->setInputProfile(uid, profName))
+                {
+                    results.push_back({{"universeID", uid}, {"error", "universe not found"}});
+                    continue;
+                }
+                // The engine only stores a profile on an existing input patch.
+                results.push_back({{"universeID", uid}, {"status", "ok"},
+                                   {"applied", ioMap->inputPatch(uid) != nullptr}});
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
@@ -479,7 +591,10 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             else if (args.contains("universeID"))
             {
-                int uid = args.at("universeID").get<int>();
+                auto uidOpt = mcp::jsonInteger(args.at("universeID"), 0, 127);
+                if (!uidOpt)
+                    return Json({{"error", mcp::integerError("universeID", 0, 127)}}).dump();
+                int uid = int(*uidOpt);
                 InputPatch *inPatch = ioMap->inputPatch(uid);
                 if (!inPatch || !inPatch->profile())
                     return Json({{"error", "no input profile set on universe " + std::to_string(uid)}}).dump();
@@ -562,8 +677,51 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             try {
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
-            Json results = Json::array();
+            const Json &items = args.at("items");
             InputOutputMap *ioMap = doc->inputOutputMap();
+
+            // Preflight every item before any patch or plugin effect.
+            struct OscItem { int uid; QVariantMap input, output; bool in, out, fb; };
+            std::vector<std::optional<OscItem>> parsedItems;
+            Json results = Json::array();
+            for (size_t i = 0; i < items.size(); ++i)
+            {
+                const Json &item = items[i];
+                parsedItems.push_back(std::nullopt);
+                results.push_back(nullptr);
+                auto err = validateFields(item, {"universeID", "inputEnabled", "inputPort", "outputEnabled", "outputIP", "outputPort", "feedbackEnabled", "feedbackIP", "feedbackPort"});
+                if (!err.empty()) { results[i] = mcp::itemErrorFromDump(i, err); continue; }
+
+                const int universes = int(ioMap->universesCount());
+                auto uid = item.contains("universeID")
+                    ? mcp::jsonInteger(item.at("universeID"), 0, universes - 1) : std::nullopt;
+                if (!uid) { results[i] = mcp::itemError(i, mcp::integerError("universeID", 0, universes - 1)); continue; }
+
+                OscItem parsed{int(*uid), {}, {}, true, false, false};
+                std::string error;
+                for (auto [key, target] : {std::pair<const char *, bool *>{"inputEnabled", &parsed.in},
+                                           {"outputEnabled", &parsed.out}, {"feedbackEnabled", &parsed.fb}})
+                {
+                    if (!item.contains(key)) continue;
+                    if (!item.at(key).is_boolean()) { error = std::string(key) + " must be a boolean"; break; }
+                    *target = item.at(key).get<bool>();
+                }
+                for (const char *key : {"inputPort", "outputPort", "feedbackPort"})
+                {
+                    if (!error.empty() || !item.contains(key)) continue;
+                    auto port = mcp::jsonInteger(item.at(key), 0, 65535);
+                    if (!port) { error = mcp::integerError(key, 0, 65535); break; }
+                    (std::string(key) == "inputPort" ? parsed.input : parsed.output)[key] = int(*port);
+                }
+                for (const char *key : {"outputIP", "feedbackIP"})
+                {
+                    if (!error.empty() || !item.contains(key)) continue;
+                    if (!item.at(key).is_string()) { error = std::string(key) + " must be a string"; break; }
+                    parsed.output[key] = QString::fromStdString(item.at(key).get<std::string>());
+                }
+                if (!error.empty()) { results[i] = mcp::itemError(i, error); continue; }
+                parsedItems.back() = parsed;
+            }
 
             // Find the OSC plugin
             QLCIOPlugin *oscPlugin = nullptr;
@@ -575,70 +733,58 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     break;
                 }
             }
-            if (!oscPlugin)
-                return Json({{"error", "OSC plugin not found"}}).dump();
 
-            for (auto &item : args.at("items"))
+            for (size_t i = 0; i < parsedItems.size(); ++i)
             {
-                auto err = validateFields(item, {"universeID", "inputEnabled", "inputPort", "outputEnabled", "outputIP", "outputPort", "feedbackEnabled", "feedbackIP", "feedbackPort"});
-                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
-
-                int uid = item.at("universeID").get<int>();
-                Json result;
-                result["universeID"] = uid;
+                if (!parsedItems[i]) continue;
+                if (!oscPlugin) { results[i] = mcp::itemError(i, "OSC plugin not found"); continue; }
+                const OscItem &item = *parsedItems[i];
+                const int uid = item.uid;
+                Json confirmed = Json::array();
                 bool ok = true;
+                auto patched = [&](bool applied, const char *what) {
+                    ok &= applied;
+                    if (applied) confirmed.push_back(what);
+                };
 
                 // Patch OSC as input
-                bool inputEnabled = item.value("inputEnabled", true);
-                if (inputEnabled)
-                {
-                    quint32 line = 0;
-                    QStringList inputs = oscPlugin->inputs();
-                    if (!inputs.isEmpty())
-                        ok &= ioMap->setInputPatch(uid, "OSC", "", "", line);
-                }
+                if (item.in && !oscPlugin->inputs().isEmpty())
+                    patched(ioMap->setInputPatch(uid, "OSC", "", "", 0), "inputPatch");
 
                 // Patch OSC as output
-                bool outputEnabled = item.value("outputEnabled", false);
-                if (outputEnabled)
-                {
-                    quint32 line = 0;
-                    QStringList outputs = oscPlugin->outputs();
-                    if (!outputs.isEmpty())
-                        ok &= ioMap->setOutputPatch(uid, "OSC", "", "", line, false);
-                }
+                if (item.out && !oscPlugin->outputs().isEmpty())
+                    patched(ioMap->setOutputPatch(uid, "OSC", "", "", 0, false), "outputPatch");
 
                 // Enable feedback
-                if (item.value("feedbackEnabled", false))
+                if (item.fb)
                 {
                     InputPatch *inPatch = ioMap->inputPatch(uid);
                     if (inPatch && inPatch->isPatched())
-                        ok &= ioMap->setOutputPatch(uid, inPatch->pluginName(), "", "", inPatch->input(), true);
+                        patched(ioMap->setOutputPatch(uid, inPatch->pluginName(), "", "", inPatch->input(), true),
+                                "feedbackPatch");
                 }
 
-                // Set plugin parameters
+                // Set plugin parameters; setParameter returns void, so these are
+                // reported as attempted, never as confirmed.
                 InputPatch *inPatch = ioMap->inputPatch(uid);
                 OutputPatch *outPatch = ioMap->outputPatch(uid);
                 quint32 line = inPatch ? inPatch->input() : (outPatch ? outPatch->output() : 0);
+                Json attempted = Json::array();
+                for (auto it = item.input.cbegin(); it != item.input.cend(); ++it)
+                {
+                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Input, it.key(), it.value());
+                    attempted.push_back(it.key().toStdString());
+                }
+                for (auto it = item.output.cbegin(); it != item.output.cend(); ++it)
+                {
+                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output, it.key(), it.value());
+                    attempted.push_back(it.key().toStdString());
+                }
 
-                if (item.contains("inputPort"))
-                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Input,
-                        "inputPort", QVariant(item.at("inputPort").get<int>()));
-                if (item.contains("outputIP"))
-                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "outputIP", QVariant(QString::fromStdString(item.at("outputIP").get<std::string>())));
-                if (item.contains("outputPort"))
-                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "outputPort", QVariant(item.at("outputPort").get<int>()));
-                if (item.contains("feedbackIP"))
-                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "feedbackIP", QVariant(QString::fromStdString(item.at("feedbackIP").get<std::string>())));
-                if (item.contains("feedbackPort"))
-                    oscPlugin->setParameter(uid, line, QLCIOPlugin::Output,
-                        "feedbackPort", QVariant(item.at("feedbackPort").get<int>()));
-
-                result["status"] = ok ? "ok" : "failed";
-                results.push_back(result);
+                results[i] = {{"index", i}, {"universeID", uid}, {"status", ok ? "ok" : "partial"},
+                              {"confirmed", confirmed}, {"attempted", attempted}};
+                if (!ok)
+                    results[i]["error"] = "one or more OSC patches could not be applied";
             }
             return results.dump();
             } catch (const std::exception &e) {
@@ -648,7 +794,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         },
         std::nullopt,
         std::string("Configure OSC plugin for a universe in one call. Sets input/output/feedback ports and addresses. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently. "
+                     "Each record lists confirmed patches and attempted plugin parameters (the plugin does not "
+                     "confirm those); status is partial when a patch fails."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotOpenWorld));
@@ -766,13 +914,16 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             else
                 return Json({{"error", "Invalid type. Use: disabled, internal, plugin, audio"}}).dump();
 
+            auto bpm = args.contains("bpm")
+                ? mcp::jsonInteger(args.at("bpm"), 1, std::numeric_limits<int>::max())
+                : std::optional<std::int64_t>(120);
+            if (!bpm)
+                return Json({{"error", mcp::integerError("bpm", 1, std::numeric_limits<int>::max())}}).dump();
+
             ioMap->setBeatGeneratorType(beatType);
 
             if (beatType == InputOutputMap::Internal)
-            {
-                int bpm = args.value("bpm", 120);
-                ioMap->setBpmNumber(bpm);
-            }
+                ioMap->setBpmNumber(int(*bpm));
 
             Json result;
             result["beatSource"] = typeStr;

@@ -1,6 +1,6 @@
 # VC performance recording: requirements
 
-Status: implemented and verified through native/offscreen integration tests. Legacy function commands remain supported alongside VC commands; see [Show command tracks](../show-command-recording.md).
+Status: baseline recording verified through native/offscreen integration tests; Flash/global recording covered by offscreen tests. No live-app acceptance run for the extension. Legacy function commands remain supported alongside VC commands; see [Show command tracks](../show-command-recording.md).
 
 [Engineering principles](core-principles.md) · [Architecture decision](../adr/0001-vc-performance-recording.md) · [Implementation plan](implementation-plan.md) · [Test strategy](test-strategy.md)
 
@@ -8,7 +8,7 @@ Status: implemented and verified through native/offscreen integration tests. Leg
 
 Record accepted commands from VC user interaction or external control input, then apply them through the controls' current compatible bindings. Slider/property changes are results, not recording sources.
 
-Support ordinary Toggle buttons, including SoloFrames, and the main values of Level, Adjust, Submaster and GrandMaster sliders. Report unsupported recording for Flash, global-action buttons, slider flash/reset inputs and other VC types; keep their live operation available.
+Support Toggle and Flash buttons, including SoloFrames, slider flash, Blackout, Freeze latch, FreezeHold, and the main values of Level, Adjust, Submaster and GrandMaster sliders. Stop All and slider reset remain live-only with their existing recording warnings. Other excluded VC families keep their existing behavior and warning hooks. Momentary press/release pairs form one editable hold block; the [recording guide](../show-command-recording.md) describes their editing, ownership and save rules.
 
 Keep one editable event list. The recording-timeline extension also presents its samples in one Recordings lane, using chronological groups of adjacent same-UUID/role/attribute slider commands. Every other saved command breaks a run; time gaps and unrecorded gestures do not. Edits recompute groups without widening exact event-ID selection. Group movement preserves intervals, values and ordering through the same delta history. The October 2026 live-editing contract (C5 below) supersedes the earlier stopped/REC-off edit gate. Support explicit QLC+ timeline seeks first; defer VirtualDJ seek-intent handling. Raw MIDI/OS2L capture, initial console snapshots and automatic conversion of old recordings remain outside this change.
 
@@ -25,7 +25,7 @@ Keep one editable event list. The recording-timeline extension also presents its
 | C0-7 | Cursor movement while Paused or Stopped applies nothing. ~~On Play at a new position, execute the recording's commands from the start through that position once~~ (superseded by C1 below: Play from T dispatches nothing before T). Resume without repositioning does not repeat earlier commands. Do not reduce, interpolate or infer missing commands. |
 | C0-8 | Suspend ordinary dispatch during seeking and cancel stale work on stop, seek, unload or target removal. Complete already-crossed commands in order before Pause completes. Queue conflicting manual requests behind that work, preserving their accepted target, time and desired value; unrelated controls stay usable. Complete the final event before ending a pass. Do not repeat destination events or block the GUI/lighting thread. |
 
-### Button state application
+### Toggle button state application
 
 | Current VC state | Recorded ON | Recorded OFF |
 |---|---|---|
@@ -35,7 +35,7 @@ Keep one editable event list. The recording-timeline extension also presents its
 
 Monitoring is neither satisfied ON nor satisfied OFF. Apply the requested outcome without replaying two synthetic clicks.
 
-Pause halts new ordinary dispatch after settling crossed work. Pause and Stop do not halt VC-started effects. Leave live busking alone between recorded commands.
+Pause halts new ordinary dispatch after settling crossed work. Pause and Stop leave Toggle-started effects alone. Pause keeps recorded momentary holds active; Stop releases only playback-owned holds. Leave live busking alone between recorded commands.
 
 ### Serial jump (was: serial catch-up)
 

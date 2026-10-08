@@ -36,7 +36,8 @@ using Json = nlohmann::json;
 
 inline const std::set<std::string> kValidWidgetTypes = {
     "button", "slider", "xypad", "frame", "soloframe",
-    "speedDial", "cuelist", "label", "audioTrigger", "matrix", "clock"
+    "speedDial", "cuelist", "label", "audioTrigger", "matrix", "clock",
+    "recordPanel"
 };
 
 // ── Known property names for field selection ─────────────────────────────────
@@ -44,7 +45,7 @@ inline const std::set<std::string> kValidWidgetTypes = {
 
 inline const std::set<std::string> kValidProperties = {
     // Core
-    "type", "caption", "pageIndex", "parentID", "childPageIndex", "geometry",
+    "type", "machineType", "caption", "pageIndex", "parentID", "childPageIndex", "geometry",
     // Function binding
     "functionID", "action",
     // Slider
@@ -327,7 +328,7 @@ inline bool filterWidget(const VCBridge::WidgetDetails &d, const Json &args)
     if (args.contains("typeFilter"))
     {
         const auto &tf = args["typeFilter"];
-        std::string wtype = d.type.toLower().toStdString();
+        const std::string wtype = d.machineType.toStdString();
         bool match = false;
         if (tf.is_string())
         {
@@ -402,6 +403,8 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
     w["id"] = d.id;  // always included
 
     if (has("type"))      w["type"]     = d.type.toStdString();
+    if (has("machineType") && !d.machineType.isEmpty())
+        w["machineType"] = d.machineType.toStdString();
     if (has("caption"))   w["caption"]  = d.caption.toStdString();
     if (has("parentID"))  w["parentID"] = d.parentID;
     if (has("childPageIndex") && d.parentID >= 0)
@@ -415,7 +418,7 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
     }
 
     // Function binding
-    if (has("functionID") && d.functionID != 0 && d.functionID != (quint32)-1)
+    if (has("functionID") && d.functionID != (quint32)-1)
         w["functionID"] = (int)d.functionID;
     if (has("action") && !d.action.isEmpty())
         w["action"] = d.action.toStdString();
@@ -557,7 +560,7 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
         w["excludeMonitoredFunctions"] = true;
 
     // Frame grid layout (only for frame/soloframe)
-    if (has("grid") && (d.type == "frame" || d.type == "soloframe"))
+    if (has("grid") && (d.machineType == "frame" || d.machineType == "soloframe"))
     {
         Json g;
         g["layoutMode"] = d.gridLayoutMode.isEmpty()
@@ -614,6 +617,13 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
         for (auto &p : d.speedDialPresets)
             presetArr.push_back({{"name", p.name.toStdString()}, {"value", p.value}});
         w["speedDialPresets"] = presetArr;
+    }
+    if (d.machineType == "speedDial")
+    {
+        if (has("absoluteValueMin"))        w["absoluteValueMin"] = (int)d.absoluteValueMin;
+        if (has("absoluteValueMax"))        w["absoluteValueMax"] = (int)d.absoluteValueMax;
+        if (has("speedDialVisibilityMask")) w["speedDialVisibilityMask"] = (int)d.speedDialVisibilityMask;
+        if (has("resetFactorOnDialChange")) w["resetFactorOnDialChange"] = d.resetFactorOnDialChange;
     }
 
     // Matrix extended

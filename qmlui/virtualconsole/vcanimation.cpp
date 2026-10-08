@@ -29,6 +29,8 @@
 #include "rgbtext.h"
 #include "rgbscriptscache.h"
 #include "vcanimation.h"
+#include "showcommandrecorder.h"
+#include "showcontrolaction.h"
 #include "tardis.h"
 
 #define INPUT_FADER_ID          0
@@ -214,6 +216,9 @@ void VCAnimation::setFunctionID(quint32 newFunctionID)
     }
 
     RGBMatrix *matrix = qobject_cast<RGBMatrix*>(m_doc->function(newFunctionID));
+    m_localContent = false;
+    m_localText.clear();
+    m_localProperties.clear();
     if (matrix == nullptr)
     {
         m_functionID = Function::invalidId();
@@ -258,20 +263,65 @@ void VCAnimation::setFaderLevel(int level)
     if (m_faderLevel == level)
         return;
 
+    Tardis::instance()->enqueueAction(Tardis::VCAnimationSetFaderLevel, id(), m_faderLevel, level);
+    applyRecordedFaderLevel(level, functionParent());
+}
+
+void VCAnimation::requestUserFaderLevel(int level)
+{
+    requestUserFaderLevel(level, ShowCommandOrigin::Pointer);
+}
+
+void VCAnimation::requestUserFaderLevel(int level, ShowCommandOrigin origin)
+{
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    if (recorder == nullptr)
+    {
+        setFaderLevel(level);
+        return;
+    }
+
+    ShowControlRequest request;
+    request.control = this;
+    request.role = ShowControlRole::AnimationFader;
+    request.animationFader = true;
+    request.value = qBound(0, level, 255);
+    request.origin = origin;
+    recorder->requestUserControl(request);
+}
+
+void VCAnimation::applyRecordedFaderLevel(int level, const FunctionParent &owner, bool strictOwnerRelease)
+{
     RGBMatrix *matrix = currentMatrix();
     if (matrix == nullptr)
         return;
 
-    Tardis::instance()->enqueueAction(Tardis::VCAnimationSetFaderLevel, id(), m_faderLevel, level);
-
+    level = qBound(0, level, 255);
     if (level == 0)
     {
-        // Make sure we ignore the fade out time
-        adjustFunctionIntensity(matrix, 0);
-        releaseIntensityOverride(matrix);
-        releaseStyleOverrides(matrix);
-        matrix->stop(functionParent());
-        matrix->applyStyleAttributes();
+        if (strictOwnerRelease)
+        {
+            adjustFunctionIntensity(matrix, 0);
+            releaseIntensityOverride(matrix);
+            releaseStyleOverrides(matrix);
+            if (matrix->hasSource(owner))
+            {
+                if (owner.type() == FunctionParent::ManualVCWidget)
+                    matrix->stopSource(owner);
+                else
+                    matrix->stop(owner);
+            }
+            matrix->applyStyleAttributes();
+        }
+        else
+        {
+            // Make sure we ignore the fade out time
+            adjustFunctionIntensity(matrix, 0);
+            releaseIntensityOverride(matrix);
+            releaseStyleOverrides(matrix);
+            matrix->stop(owner);
+            matrix->applyStyleAttributes();
+        }
     }
     else
     {
@@ -279,8 +329,8 @@ void VCAnimation::setFaderLevel(int level)
         emit functionStarting(this, m_functionID, pIntensity);
         applyStyleOverrides(matrix);
         adjustFunctionIntensity(matrix, pIntensity * intensity());
-        if (matrix->stopped() == true)
-            matrix->start(m_doc->masterTimer(), functionParent());
+        if (matrix->stopped() == true || !matrix->hasSource(owner))
+            matrix->start(m_doc->masterTimer(), owner);
     }
 
     m_faderLevel = level;
@@ -521,15 +571,33 @@ void VCAnimation::setAlgorithmIndex(int index)
     setRuntimeAlgorithmIndex(runtimeAlgorithms().indexOf(algoList.at(index)));
 }
 
-void VCAnimation::setRuntimeAlgorithmIndex(int index)
+void VCAnimation::requestUserAlgorithm(int index, bool keyboard)
+{
+    const QStringList names = algorithms();
+    if (index < 0 || index >= names.count())
+        return;
+    ShowCommandInput input;
+    input.action = ShowCommandAction::SetAnimationContent;
+    input.role = ShowControlRole::AnimationFader;
+    input.origin = keyboard ? ShowCommandOrigin::Keyboard : ShowCommandOrigin::Pointer;
+    ShowCommandContent content;
+    content.algorithm = names.at(index);
+    input.payload.value = content;
+    ShowControlAction::submit(m_doc, this, input);
+}
+
+void VCAnimation::setRuntimeAlgorithmIndex(int index, bool apply)
 {
     if (index < -1 || index >= runtimeAlgorithms().count() || m_localAlgorithmIndex == index)
         return;
 
     Tardis::instance()->enqueueAction(Tardis::VCAnimationSetAlgorithmIndex, id(), m_localAlgorithmIndex, index);
     m_localAlgorithmIndex = index;
+    m_localContent = false;
+    m_localText.clear();
+    m_localProperties.clear();
 
-    if (m_faderLevel > 0)
+    if (apply && m_faderLevel > 0)
     {
         RGBMatrix *matrix = currentMatrix();
         if (matrix != nullptr)
@@ -726,13 +794,32 @@ QStringList VCAnimation::scriptAlgorithms() const
 
 QVariantList VCAnimation::algorithmProperties(QString algoName) const
 {
-    QVariantList list;
+    return algorithmProperties(algoName, nullptr);
+}
 
-    RGBScript *script = qobject_cast<HUEMatrix *>(currentMatrix()) != nullptr ?
-                m_doc->hueScriptsCache()->script(algoName) :
-                m_doc->rgbScriptsCache()->script(algoName);
-    if (script == nullptr)
+QVariantList VCAnimation::algorithmProperties(QString algoName, bool *available) const
+{
+    QVariantList list;
+    if (available != nullptr)
+        *available = runtimeAlgorithms().contains(algoName);
+    const bool hue = qobject_cast<HUEMatrix *>(currentMatrix()) != nullptr;
+    const QStringList names = hue ? m_doc->hueScriptsCache()->names() : m_doc->rgbScriptsCache()->names();
+    if (!names.contains(algoName))
         return list;
+    RGBScript *script = hue ? m_doc->hueScriptsCache()->script(algoName) : m_doc->rgbScriptsCache()->script(algoName);
+    if (script == nullptr)
+    {
+        if (available != nullptr)
+            *available = false;
+        return list;
+    }
+    if (script->name() != algoName)
+    {
+        if (available != nullptr)
+            *available = false;
+        delete script;
+        return list;
+    }
 
     for (const RGBScriptProperty &prop : script->properties())
     {
@@ -894,10 +981,8 @@ void VCAnimation::applyPreset(quint8 presetId)
         const int algoIndex = runtimeAlgorithms().indexOf(resource);
         if (algoIndex < 0)
             return;
-        setRuntimeAlgorithmIndex(algoIndex);
-
-        if (m_faderLevel > 0)
-            applyAlgorithmContent(currentMatrix(), control);
+        setRuntimeContent(resource, control->m_type == VCAnimationPreset::Text
+                          ? control->m_resource : QString(), control->m_properties, presetId);
         break;
     }
 
@@ -907,6 +992,46 @@ void VCAnimation::applyPreset(quint8 presetId)
     }
 
     setActivePresetId(presetId);
+}
+
+void VCAnimation::requestUserColor(int index, QColor color)
+{
+    ShowCommandInput input;
+    input.action = ShowCommandAction::SetAnimationColor;
+    input.role = ShowControlRole::AnimationFader;
+    input.origin = ShowCommandOrigin::Pointer;
+    ShowCommandMatrixColor value;
+    value.index = index;
+    if (color.isValid())
+        value.color = {quint8(color.red()), quint8(color.green()), quint8(color.blue()), 0, 0, 0};
+    else
+        value.operation = ShowCommandMatrixColor::Operation::Reset;
+    input.payload.value = value;
+    ShowControlAction::submit(m_doc, this, input);
+}
+
+void VCAnimation::requestUserPreset(int choice)
+{
+    requestUserPreset(choice, ShowCommandOrigin::Pointer);
+}
+
+void VCAnimation::requestUserPreset(int choice, ShowCommandOrigin origin)
+{
+    ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice);
+    input.origin = origin;
+    ShowControlAction::submit(m_doc, this, input);
+}
+
+void VCAnimation::requestUserKnobValue(int choice, int value)
+{
+    requestUserKnobValue(choice, value, ShowCommandOrigin::Pointer);
+}
+
+void VCAnimation::requestUserKnobValue(int choice, int value, ShowCommandOrigin origin)
+{
+    ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice, value);
+    input.origin = origin;
+    ShowControlAction::submit(m_doc, this, input);
 }
 
 void VCAnimation::setPresetKnobValue(quint8 presetId, int value)
@@ -954,7 +1079,7 @@ void VCAnimation::slotInputValueChanged(quint8 id, uchar value)
 {
     if (id == INPUT_FADER_ID)
     {
-        setFaderLevel(value);
+        requestUserFaderLevel(value, inputOrigin());
         return;
     }
 
@@ -963,9 +1088,9 @@ void VCAnimation::slotInputValueChanged(quint8 id, uchar value)
         return;
 
     if (control->widgetType() == VCAnimationPreset::Knob)
-        setPresetKnobValue(id, value);
+        requestUserKnobValue(id, value, inputOrigin());
     else if (value > 0)
-        applyPreset(id);
+        requestUserPreset(id, inputOrigin());
 }
 
 RGBMatrix *VCAnimation::currentMatrix() const
@@ -976,11 +1101,12 @@ RGBMatrix *VCAnimation::currentMatrix() const
     return qobject_cast<RGBMatrix *>(m_doc->function(m_functionID));
 }
 
-void VCAnimation::applyStyleOverrides(RGBMatrix *matrix)
+bool VCAnimation::applyStyleOverrides(RGBMatrix *matrix)
 {
     if (matrix == nullptr)
-        return;
+        return false;
 
+    bool applied = true;
     for (int i = 0; i < RGBAlgorithmColorDisplayCount; ++i)
     {
         int attrIndex = RGBMatrix::Color1Attr + i;
@@ -995,39 +1121,33 @@ void VCAnimation::applyStyleOverrides(RGBMatrix *matrix)
         m_algorithmOverrideID = matrix->requestAttributeOverride(RGBMatrix::PatternAttr, m_localAlgorithmIndex);
     else
         matrix->adjustAttribute(m_localAlgorithmIndex, m_algorithmOverrideID);
+    if (m_localContent)
+    {
+        if (auto *text = dynamic_cast<RGBText *>(matrix->algorithm()))
+            text->setText(m_localText);
+        for (auto it = m_localProperties.cbegin(); it != m_localProperties.cend(); ++it)
+        {
+            const bool written = matrix->setProperty(it.key(), it.value());
+            applied = written && applied;
+        }
+        matrix->updateColorDelta();
+    }
+    return matrix->callbackError().isEmpty() && applied;
 }
 
-void VCAnimation::applyAlgorithmContent(RGBMatrix *matrix, VCAnimationPreset *control)
+bool VCAnimation::setRuntimeContent(const QString &algorithm, const QString &text,
+                                   const QMap<QString, QString> &properties, int choice)
 {
-    if (matrix == nullptr || control == nullptr)
-        return;
-
-    /* The attribute-override channel can only carry the algorithm index and
-     * colors. Text content and Script properties must be pushed onto the
-     * matrix algorithm directly. setAlgorithmIndex() already selected the
-     * right algorithm through the PatternAttr override. */
-    RGBAlgorithm *algorithm = matrix->algorithm();
-    if (algorithm == nullptr)
-        return;
-
-    if (control->m_type == VCAnimationPreset::Text && algorithm->type() == RGBAlgorithm::Text)
-    {
-        RGBText *textAlgo = static_cast<RGBText *>(algorithm);
-        textAlgo->setText(control->m_resource);
-    }
-    else if (control->m_type == VCAnimationPreset::Animation
-             && algorithm->type() == RGBAlgorithm::Script
-             && !control->m_properties.isEmpty())
-    {
-        QMapIterator<QString, QString> it(control->m_properties);
-        while (it.hasNext())
-        {
-            it.next();
-            matrix->setProperty(it.key(), it.value());
-        }
-    }
-
-    matrix->updateColorDelta();
+    const int index = runtimeAlgorithms().indexOf(algorithm);
+    if (index < 0)
+        return false;
+    setRuntimeAlgorithmIndex(index, false);
+    m_localContent = true;
+    m_localText = text;
+    m_localProperties = properties;
+    const bool applied = m_faderLevel <= 0 || applyStyleOverrides(currentMatrix());
+    setActivePresetId(choice);
+    return applied;
 }
 
 void VCAnimation::releaseStyleOverrides(RGBMatrix *matrix)

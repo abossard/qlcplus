@@ -1,0 +1,1420 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE Workspace>
+<Workspace xmlns="http://www.qlcplus.org/Workspace" CurrentWindow="VC">
+ <Creator>
+  <Name>Q Light Controller Plus</Name>
+  <Version>5.3.0 GIT</Version>
+  <Author>Andre Bossard</Author>
+ </Creator>
+ <Engine>
+  <InputOutputMap>
+   <BeatGenerator BeatType="Audio" BPM="120"/>
+   <NetworkServer Type="Web" AutoStart="False"/>
+   <Universe Name="Universe 1" ID="0">
+    <Input Plugin="MIDI" Name="None" UID="None" Line="1" Profile="Akai APC Mini mk2">
+     <PluginParameters initmessage="APC mini mk2 Ableton mode 2"/>
+    </Input>
+    <Output Plugin="DDP" Name="172.20.10.2" UID="" Line="2">
+     <PluginParameters UniverseChannels="63" ddpComponents="RGB" ddpDestId="1" ddpIP="172.20.10.3" ddpKeepAliveMs="1000" ddpMaxFps="0" ddpOffset="0" ddpPort="4048" ddpSkipUnchanged="false" ddpTransmitMode="Full"/>
+    </Output>
+    <Feedback Plugin="MIDI" Name="None" UID="None" Line="1">
+     <PluginParameters midichannel="16"/>
+    </Feedback>
+   </Universe>
+   <Universe Name="Universe 2" ID="1"/>
+   <Universe Name="Universe 3" ID="2"/>
+   <Universe Name="Universe 4" ID="3">
+    <Input Plugin="VDJ Bridge" Name="1: VDJ Telemetry" UID="" Line="0"/>
+   </Universe>
+   <Universe Name="Universe 5" ID="4"/>
+  </InputOutputMap>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGB</Mode>
+   <Width>1000</Width>
+   <Height>333</Height>
+   <ID>0</ID>
+   <Name>LITTLE - Row 1</Name>
+   <Universe>0</Universe>
+   <Address>0</Address>
+   <Channels>21</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGB</Mode>
+   <Width>1000</Width>
+   <Height>333</Height>
+   <ID>1</ID>
+   <Name>LITTLE - Row 2</Name>
+   <Universe>0</Universe>
+   <Address>21</Address>
+   <Channels>21</Channels>
+  </Fixture>
+  <Fixture>
+   <Manufacturer>Generic</Manufacturer>
+   <Model>RGBPanel</Model>
+   <Mode>RGB</Mode>
+   <Width>1000</Width>
+   <Height>333</Height>
+   <ID>2</ID>
+   <Name>LITTLE - Row 3</Name>
+   <Universe>0</Universe>
+   <Address>42</Address>
+   <Channels>21</Channels>
+  </Fixture>
+  <FixtureGroup ID="0">
+   <Name>LITTLE</Name>
+   <Size X="7" Y="3"/>
+   <Head X="0" Y="0" Fixture="0">0</Head>
+   <Head X="1" Y="0" Fixture="0">1</Head>
+   <Head X="2" Y="0" Fixture="0">2</Head>
+   <Head X="3" Y="0" Fixture="0">3</Head>
+   <Head X="4" Y="0" Fixture="0">4</Head>
+   <Head X="5" Y="0" Fixture="0">5</Head>
+   <Head X="6" Y="0" Fixture="0">6</Head>
+   <Head X="0" Y="1" Fixture="1">0</Head>
+   <Head X="1" Y="1" Fixture="1">1</Head>
+   <Head X="2" Y="1" Fixture="1">2</Head>
+   <Head X="3" Y="1" Fixture="1">3</Head>
+   <Head X="4" Y="1" Fixture="1">4</Head>
+   <Head X="5" Y="1" Fixture="1">5</Head>
+   <Head X="6" Y="1" Fixture="1">6</Head>
+   <Head X="0" Y="2" Fixture="2">0</Head>
+   <Head X="1" Y="2" Fixture="2">1</Head>
+   <Head X="2" Y="2" Fixture="2">2</Head>
+   <Head X="3" Y="2" Fixture="2">3</Head>
+   <Head X="4" Y="2" Fixture="2">4</Head>
+   <Head X="5" Y="2" Fixture="2">5</Head>
+   <Head X="6" Y="2" Fixture="2">6</Head>
+  </FixtureGroup>
+  <AudioProfile ID="0" Name="Default Audio" IsDefault="True" Version="2" AnalysisContractRevision="3">
+   <Envelope Attack="15" Release="150"/>
+   <Triggers>
+    <Band Name="low" High="0.45000000000000001" Low="0.25" Hold="150" Cooldown="200"/>
+    <Band Name="mid" High="0.65000000000000002" Low="0.45000000000000001" Hold="80" Cooldown="120"/>
+    <Band Name="high" High="0.69999999999999996" Low="0.5" Hold="60" Cooldown="100"/>
+   </Triggers>
+   <NoiseGate Threshold="-80" Hold="0"/>
+   <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.10000000000000001" BeatHistoryLen="12"/>
+   <MelPost Enabled="1" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999"/>
+   <FreqPower>
+    <Band Name="beat" MaxHz="100" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+    <Band Name="bass" MaxHz="250" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+    <Band Name="mids" MaxHz="3000" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+    <Band Name="high" MaxHz="10000" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+   </FreqPower>
+   <Volume Smoothing="100" BrightnessFloor="0"/>
+   <Aubio PitchMethod="yinfft" PitchUnit="midi" DiagnosticsEnabled="0" PitchSilenceDb="-50" PitchTolerance="0.80000000000000004" FilterbankNorm="1" FilterbankPower="1" TempoSilenceDb="-90" TempoThreshold="0.29999999999999999" TempoMethod="default" CoastBeats="4" TempoDecayHalfLifeBeats="0.5" TempoDecayTargetBpm="1" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="010000000" OnsetMethodIndex="1" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+    <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999" Enabled="1" Preset="EDM"/>
+    <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999" Enabled="1" Preset="EDM"/>
+    <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999" Enabled="1" Preset="EDM"/>
+   </Aubio>
+  </AudioProfile>
+  <AudioProfile ID="1" Name="Low Latency" IsDefault="False" Version="2" AnalysisContractRevision="4" BuiltInKey="low-latency" VisualIntervalMs="16" CaptureBufferMs="20">
+   <Envelope Attack="15" Release="150"/>
+   <Triggers>
+    <Band Name="low" High="0.45000000000000001" Low="0.25" Hold="150" Cooldown="200"/>
+    <Band Name="mid" High="0.65000000000000002" Low="0.45000000000000001" Hold="80" Cooldown="120"/>
+    <Band Name="high" High="0.69999999999999996" Low="0.5" Hold="60" Cooldown="100"/>
+   </Triggers>
+   <NoiseGate Threshold="-80" Hold="0"/>
+   <Kick Enabled="1" BeatMaxHz="100" BeatMinPercentDiff="0.5" BeatMinAmplitude="0.5" BeatRefractorySec="0.10000000000000001" BeatHistoryLen="12"/>
+   <MelPost Enabled="1" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999"/>
+   <FreqPower>
+    <Band Name="beat" MaxHz="100" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+    <Band Name="bass" MaxHz="250" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+    <Band Name="mids" MaxHz="3000" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+    <Band Name="high" MaxHz="10000" Decay="0.20000000000000001" Rise="0.96999999999999997"/>
+   </FreqPower>
+   <Volume Smoothing="100" BrightnessFloor="0"/>
+   <Aubio PowerWindowSize="2048" PitchMethod="yinfft" PitchUnit="midi" DiagnosticsEnabled="0" PitchSilenceDb="-50" PitchTolerance="0.80000000000000004" FilterbankNorm="1" FilterbankPower="1" TempoSilenceDb="-90" TempoThreshold="0.29999999999999999" TempoMethod="default" CoastBeats="4" TempoDecayHalfLifeBeats="0.5" TempoDecayTargetBpm="1" TatumSubdivision="4" BeatsPerBar="4" PreEmphasisEnabled="1" TssAlpha="3" TssBeta="3" TssThreshold="0.25" WindowType="default" MelScale="matt_mel" OnsetMethodsEnabled="010000000" OnsetMethodIndex="1" TempoDelayMs="0" NoteSilenceDb="-70" NoteMinIntervalMs="30" NoteReleaseDropDb="10" MfccPower="1" MfccScale="1">
+    <MelBank Role="low" MinHz="20" MaxHz="350" Bands="24" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999" Enabled="1" Preset="EDM"/>
+    <MelBank Role="mid" MinHz="20" MaxHz="2000" Bands="24" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999" Enabled="1" Preset="EDM"/>
+    <MelBank Role="high" MinHz="20" MaxHz="15000" Bands="24" PowerFactor="1.9626105055051506" GaussianSigma="1" SmoothDecay="0.69999999999999996" SmoothRise="0.98999999999999999" CommonDecay="0.98999999999999999" CommonRise="0.01" DiffDecay="0.14999999999999999" DiffRise="0.98999999999999999" AgcDecay="0.01" AgcRise="0.98999999999999999" Enabled="1" Preset="EDM"/>
+   </Aubio>
+  </AudioProfile>
+  <Function ID="0" Type="RGBMatrix" Name="BLUEFLASH">
+   <Speed FadeIn="0" FadeOut="200" Duration="20"/>
+   <Direction>Forward</Direction>
+   <RunOrder>PingPong</RunOrder>
+   <Algorithm Type="Script">Stripes</Algorithm>
+   <Color Index="0">4278190335</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="orientation" Value="Horizontal"/>
+  </Function>
+  <Function ID="1" Type="HUEMatrix" Name="PURPLERED">
+   <Speed FadeIn="100" FadeOut="0" Duration="110"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Reaction-Diffusion</Algorithm>
+   <Color Index="0">4294901760</Color>
+   <Color Index="1">4288282778</Color>
+   <Color Index="2">4285399150</Color>
+   <Color Index="3">4278190335</Color>
+   <Color Index="4">4278190166</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+  </Function>
+  <Function ID="2" Type="HUEMatrix" Name="BASSLASER">
+   <Speed FadeIn="0" FadeOut="0" Duration="500"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Bass Laser</Algorithm>
+   <Color Index="0">4294901760</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="presetDirection" Value="Both"/>
+   <Property Name="presetSpeed" Value="0.4"/>
+  </Function>
+  <Function ID="3" Type="HUEMatrix" Name="STROBE">
+   <Speed FadeIn="0" FadeOut="0" Duration="500"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Strobe</Algorithm>
+   <Color Index="0">4281532502</Color>
+   <Color Index="1">4285399150</Color>
+   <Color Index="2">4294915071</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="bass_strobe_decay_rate" Value="0.5"/>
+   <Property Name="bass_trigger" Value="Volume Beat"/>
+   <Property Name="color_shift_delay" Value="1"/>
+   <Property Name="color_step" Value="0.0625"/>
+   <Property Name="mode" Value="Artistic"/>
+   <Property Name="referenceBackgroundBrightness" Value="1"/>
+   <Property Name="referenceBackgroundMode" Value="Off"/>
+   <Property Name="referenceBeatDecay" Value="2"/>
+   <Property Name="referenceBlur" Value="1.5"/>
+   <Property Name="referenceBrightness" Value="0.7"/>
+   <Property Name="referenceClock" Value="Detected"/>
+   <Property Name="referenceFlip" Value="Off"/>
+   <Property Name="referenceMirror" Value="On"/>
+   <Property Name="referencePattern" Value="****"/>
+   <Property Name="referencePulseCount" Value="2"/>
+   <Property Name="referenceStrobeDecay" Value="1.5"/>
+   <Property Name="strobe_decay_rate" Value="0.5"/>
+  </Function>
+  <Function ID="4" Type="Audio" Name="Afrojack, Eva Simons - Take Over Control (feat. Eva Simons) [Matt Sassari Remix] (feat. Eva Simons) 2025 [130 C Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="324923"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-09/Afrojack, Eva Simons - Take Over Control (feat. Eva Simons) [Matt Sassari Remix] (feat. Eva Simons) 2025 [130 C Minor].mp3</Source>
+  </Function>
+  <Function ID="5" Type="Show" Name="Afrojack, Eva Simons - Take Over Control  [Matt Sassari Remix]" Path="Songs">
+   <TimeDivision Type="VDJBeat" BPM="130"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="4" StartTime="0" Duration="324923" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="6" Type="HUEMatrix" Name="BLUESOAP">
+   <Speed FadeIn="0" FadeOut="0" Duration="500"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Audio Soap</Algorithm>
+   <Color Index="0">4278190190</Color>
+   <Color Index="1">4281545727</Color>
+   <Color Index="2">4284219546</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="density" Value="0.5"/>
+   <Property Name="frequency_range" Value="Lows (beat+bass)"/>
+   <Property Name="intensity" Value="1"/>
+   <Property Name="mode" Value="Artistic"/>
+   <Property Name="speed" Value="0.5"/>
+  </Function>
+  <Function ID="7" Type="RGBMatrix" Name="BLUEPAT">
+   <Tempo>Beats</Tempo>
+   <Speed FadeIn="0" FadeOut="0" Duration="313"/>
+   <Direction>Forward</Direction>
+   <RunOrder>Loop</RunOrder>
+   <Algorithm Type="Script">Fill Unfill From Center</Algorithm>
+   <Color Index="0">4278190234</Color>
+   <Color Index="1">4278190080</Color>
+   <ControlMode>RGB</ControlMode>
+   <FixtureGroup>0</FixtureGroup>
+   <Property Name="orientation" Value="Horizontal"/>
+  </Function>
+  <Function ID="8" Type="Audio" Name="Sofi Tukker - Purple Hat (Adam Sellouk &amp; Doriann Extended Remix) 2025 [125 A Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="330700"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-09/Sofi Tukker - Purple Hat (Adam Sellouk &amp; Doriann Extended Remix) 2025 [125 A Major].mp3</Source>
+  </Function>
+  <Function ID="9" Type="Show" Name="Sofi Tukker - Purple Hat (Adam Sellouk &amp; Doriann Extended Remix)" Path="Songs">
+   <TimeDivision Type="VDJBeat" BPM="125"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="8" StartTime="0" Duration="330700" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="10" Type="Audio" Name="TH;EN - My Head (Original Mix) 2025 [125 G Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="344640"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-09/TH;EN - My Head (Original Mix) 2025 [125 G Major].mp3</Source>
+  </Function>
+  <Function ID="11" Type="Show" Name="Th;en - My Head (Original Mix)" Path="Songs">
+   <TimeDivision Type="VDJBeat" BPM="125"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="10" StartTime="0" Duration="344640" Color="#608053"/>
+   </Track>
+   <CommandTrack Version="2" Extent="316548">
+    <Command ID="0" Time="314690" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3686274509803922"/>
+    <Command ID="1" Time="314937" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.36470588235294116"/>
+    <Command ID="2" Time="314969" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3607843137254902"/>
+    <Command ID="3" Time="314969" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3568627450980392"/>
+    <Command ID="4" Time="314969" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.35294117647058826"/>
+    <Command ID="5" Time="314969" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.34509803921568627"/>
+    <Command ID="6" Time="314969" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3411764705882353"/>
+    <Command ID="7" Time="315023" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.33725490196078434"/>
+    <Command ID="8" Time="315023" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3333333333333333"/>
+    <Command ID="9" Time="315055" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.32941176470588235"/>
+    <Command ID="10" Time="315055" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3254901960784314"/>
+    <Command ID="11" Time="315055" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3215686274509804"/>
+    <Command ID="12" Time="315087" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3176470588235294"/>
+    <Command ID="13" Time="315087" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3137254901960784"/>
+    <Command ID="14" Time="315116" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30980392156862746"/>
+    <Command ID="15" Time="315173" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3058823529411765"/>
+    <Command ID="16" Time="315205" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30196078431372547"/>
+    <Command ID="17" Time="315237" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2980392156862745"/>
+    <Command ID="18" Time="315237" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.29411764705882354"/>
+    <Command ID="19" Time="315237" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2901960784313726"/>
+    <Command ID="20" Time="315237" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2823529411764706"/>
+    <Command ID="21" Time="315270" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2784313725490196"/>
+    <Command ID="22" Time="315291" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27450980392156865"/>
+    <Command ID="23" Time="315502" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27058823529411763"/>
+    <Command ID="24" Time="315502" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.26666666666666666"/>
+    <Command ID="25" Time="315502" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25882352941176473"/>
+    <Command ID="26" Time="315527" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2549019607843137"/>
+    <Command ID="27" Time="315527" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24705882352941178"/>
+    <Command ID="28" Time="315527" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24313725490196078"/>
+    <Command ID="29" Time="315559" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23921568627450981"/>
+    <Command ID="30" Time="315559" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23137254901960785"/>
+    <Command ID="31" Time="315559" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.22745098039215686"/>
+    <Command ID="32" Time="315592" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2235294117647059"/>
+    <Command ID="33" Time="315592" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2196078431372549"/>
+    <Command ID="34" Time="315592" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21568627450980393"/>
+    <Command ID="35" Time="315592" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21176470588235294"/>
+    <Command ID="36" Time="315624" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20784313725490197"/>
+    <Command ID="37" Time="315624" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20392156862745098"/>
+    <Command ID="38" Time="315624" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2"/>
+    <Command ID="39" Time="315656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19607843137254902"/>
+    <Command ID="40" Time="315656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="41" Time="315656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.18823529411764706"/>
+    <Command ID="42" Time="315860" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1843137254901961"/>
+    <Command ID="43" Time="315860" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1803921568627451"/>
+    <Command ID="44" Time="315860" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.17647058823529413"/>
+    <Command ID="45" Time="315892" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.17254901960784313"/>
+    <Command ID="46" Time="315892" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.16862745098039217"/>
+    <Command ID="47" Time="315925" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.16470588235294117"/>
+    <Command ID="48" Time="315925" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1607843137254902"/>
+    <Command ID="49" Time="315925" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1568627450980392"/>
+    <Command ID="50" Time="315946" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.15294117647058825"/>
+    <Command ID="51" Time="316011" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.14901960784313725"/>
+    <Command ID="52" Time="316193" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1450980392156863"/>
+    <Command ID="53" Time="316226" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1411764705882353"/>
+    <Command ID="54" Time="316226" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.13725490196078433"/>
+    <Command ID="55" Time="316226" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.12941176470588237"/>
+    <Command ID="56" Time="316250" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.12549019607843137"/>
+    <Command ID="57" Time="316250" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.12156862745098039"/>
+    <Command ID="58" Time="316279" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.11764705882352941"/>
+    <Command ID="59" Time="316279" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.11372549019607843"/>
+    <Command ID="60" Time="316312" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.10980392156862745"/>
+    <Command ID="61" Time="316495" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.10588235294117647"/>
+    <Command ID="62" Time="316495" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.10196078431372549"/>
+    <Command ID="63" Time="316527" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.09803921568627451"/>
+    <Command ID="64" Time="316527" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.09019607843137255"/>
+    <Command ID="65" Time="316548" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.08627450980392157"/>
+    <Command ID="66" Time="316548" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.08235294117647059"/>
+    <Command ID="67" Time="316548" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.0784313725490196"/>
+   </CommandTrack>
+  </Function>
+  <Function ID="12" Type="Audio" Name="Adapter, FRANCO BA - Malfunktion (Original Mix) 2025 [128 D Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="253124"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-09/Adapter, FRANCO BA - Malfunktion (Original Mix) 2025 [128 D Major].mp3</Source>
+  </Function>
+  <Function ID="13" Type="Show" Name="Adapter, FRANCO BA - Malfunktion (Original Mix)" Path="Songs" LastPlayed="2026-10-03T23:36:51">
+   <TimeDivision Type="VDJBeat" BPM="128"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="12" StartTime="0" Duration="253124" Color="#608053"/>
+   </Track>
+   <CommandTrack Version="2" Extent="219431">
+    <Command ID="0" Time="21323" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.13725490196078433"/>
+    <Command ID="1" Time="21909" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1411764705882353"/>
+    <Command ID="2" Time="21941" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1450980392156863"/>
+    <Command ID="3" Time="21973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.14901960784313725"/>
+    <Command ID="4" Time="22005" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.15294117647058825"/>
+    <Command ID="5" Time="22005" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1568627450980392"/>
+    <Command ID="6" Time="22005" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1607843137254902"/>
+    <Command ID="7" Time="22208" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.16470588235294117"/>
+    <Command ID="8" Time="22240" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.16862745098039217"/>
+    <Command ID="9" Time="22261" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.17254901960784313"/>
+    <Command ID="10" Time="22261" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.17647058823529413"/>
+    <Command ID="11" Time="22379" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1803921568627451"/>
+    <Command ID="12" Time="22411" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1843137254901961"/>
+    <Command ID="13" Time="22443" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.18823529411764706"/>
+    <Command ID="14" Time="22613" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="15" Time="22645" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19607843137254902"/>
+    <Command ID="16" Time="22645" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21176470588235294"/>
+    <Command ID="17" Time="22677" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23137254901960785"/>
+    <Command ID="18" Time="22677" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24313725490196078"/>
+    <Command ID="19" Time="22709" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24705882352941178"/>
+    <Command ID="20" Time="22731" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25098039215686274"/>
+    <Command ID="21" Time="22731" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2549019607843137"/>
+    <Command ID="22" Time="23061" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25882352941176473"/>
+    <Command ID="23" Time="23061" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.26666666666666666"/>
+    <Command ID="24" Time="23061" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27058823529411763"/>
+    <Command ID="25" Time="23083" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2784313725490196"/>
+    <Command ID="26" Time="23083" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.28627450980392155"/>
+    <Command ID="27" Time="23083" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.29411764705882354"/>
+    <Command ID="28" Time="23115" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2980392156862745"/>
+    <Command ID="29" Time="23115" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30196078431372547"/>
+    <Command ID="30" Time="23115" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30980392156862746"/>
+    <Command ID="31" Time="23146" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3137254901960784"/>
+    <Command ID="32" Time="23146" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3176470588235294"/>
+    <Command ID="33" Time="23499" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3215686274509804"/>
+    <Command ID="34" Time="23819" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3254901960784314"/>
+    <Command ID="35" Time="23840" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.32941176470588235"/>
+    <Command ID="36" Time="23840" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.33725490196078434"/>
+    <Command ID="37" Time="23840" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.35294117647058826"/>
+    <Command ID="38" Time="23872" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3607843137254902"/>
+    <Command ID="39" Time="23872" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3686274509803922"/>
+    <Command ID="40" Time="23872" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3843137254901961"/>
+    <Command ID="41" Time="23904" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.39215686274509803"/>
+    <Command ID="42" Time="23904" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.403921568627451"/>
+    <Command ID="43" Time="23968" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.40784313725490196"/>
+    <Command ID="44" Time="24352" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.41568627450980394"/>
+    <Command ID="45" Time="24352" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4196078431372549"/>
+    <Command ID="46" Time="24373" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.42745098039215684"/>
+    <Command ID="47" Time="24373" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.44313725490196076"/>
+    <Command ID="48" Time="24405" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4666666666666667"/>
+    <Command ID="49" Time="24405" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4745098039215686"/>
+    <Command ID="50" Time="24437" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.47843137254901963"/>
+    <Command ID="51" Time="24437" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4823529411764706"/>
+    <Command ID="52" Time="24896" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.48627450980392156"/>
+    <Command ID="53" Time="24928" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5058823529411764"/>
+    <Command ID="54" Time="24928" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5137254901960784"/>
+    <Command ID="55" Time="24949" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5372549019607843"/>
+    <Command ID="56" Time="24949" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5411764705882353"/>
+    <Command ID="57" Time="24981" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5490196078431373"/>
+    <Command ID="58" Time="24981" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5529411764705883"/>
+    <Command ID="59" Time="24981" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5607843137254902"/>
+    <Command ID="60" Time="25003" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5647058823529412"/>
+    <Command ID="61" Time="25355" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="62" Time="25387" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5764705882352941"/>
+    <Command ID="63" Time="25419" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5803921568627451"/>
+    <Command ID="64" Time="25419" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5843137254901961"/>
+    <Command ID="65" Time="25451" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.615686274509804"/>
+    <Command ID="66" Time="25451" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6235294117647059"/>
+    <Command ID="67" Time="25451" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6274509803921569"/>
+    <Command ID="68" Time="25479" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6313725490196078"/>
+    <Command ID="69" Time="25803" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6352941176470588"/>
+    <Command ID="70" Time="25803" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6470588235294118"/>
+    <Command ID="71" Time="25835" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6705882352941176"/>
+    <Command ID="72" Time="25835" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6823529411764706"/>
+    <Command ID="73" Time="25835" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6901960784313725"/>
+    <Command ID="74" Time="25867" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7098039215686275"/>
+    <Command ID="75" Time="25899" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7137254901960784"/>
+    <Command ID="76" Time="25899" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7176470588235294"/>
+    <Command ID="77" Time="26219" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7215686274509804"/>
+    <Command ID="78" Time="26219" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7254901960784313"/>
+    <Command ID="79" Time="26219" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7294117647058823"/>
+    <Command ID="80" Time="26219" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7372549019607844"/>
+    <Command ID="81" Time="26272" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7450980392156863"/>
+    <Command ID="82" Time="26304" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7686274509803922"/>
+    <Command ID="83" Time="26336" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7803921568627451"/>
+    <Command ID="84" Time="26336" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7843137254901961"/>
+    <Command ID="85" Time="26357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.788235294117647"/>
+    <Command ID="86" Time="26688" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.796078431372549"/>
+    <Command ID="87" Time="26688" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8"/>
+    <Command ID="88" Time="26688" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8117647058823529"/>
+    <Command ID="89" Time="26688" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8196078431372549"/>
+    <Command ID="90" Time="26688" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8352941176470589"/>
+    <Command ID="91" Time="26741" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8392156862745098"/>
+    <Command ID="92" Time="26741" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8470588235294118"/>
+    <Command ID="93" Time="26773" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8509803921568627"/>
+    <Command ID="94" Time="26773" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8549019607843137"/>
+    <Command ID="95" Time="27179" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8588235294117647"/>
+    <Command ID="96" Time="27179" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8627450980392157"/>
+    <Command ID="97" Time="27211" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8666666666666667"/>
+    <Command ID="98" Time="27211" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8705882352941177"/>
+    <Command ID="99" Time="27211" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8745098039215686"/>
+    <Command ID="100" Time="27243" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8823529411764706"/>
+    <Command ID="101" Time="27243" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8862745098039215"/>
+    <Command ID="102" Time="27243" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8941176470588236"/>
+    <Command ID="103" Time="27275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8980392156862745"/>
+    <Command ID="104" Time="27275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9019607843137255"/>
+    <Command ID="105" Time="27275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9058823529411765"/>
+    <Command ID="106" Time="27584" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9098039215686274"/>
+    <Command ID="107" Time="27605" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9137254901960784"/>
+    <Command ID="108" Time="27637" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9254901960784314"/>
+    <Command ID="109" Time="27637" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9294117647058824"/>
+    <Command ID="110" Time="27637" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9372549019607843"/>
+    <Command ID="111" Time="27637" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9450980392156862"/>
+    <Command ID="112" Time="27680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9529411764705882"/>
+    <Command ID="113" Time="27680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9568627450980393"/>
+    <Command ID="114" Time="27680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9647058823529412"/>
+    <Command ID="115" Time="27680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9686274509803922"/>
+    <Command ID="116" Time="27712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9764705882352941"/>
+    <Command ID="117" Time="27712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9803921568627451"/>
+    <Command ID="118" Time="27712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.984313725490196"/>
+    <Command ID="119" Time="28064" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9882352941176471"/>
+    <Command ID="120" Time="28096" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="1"/>
+    <Command ID="121" Time="28715" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.996078431372549"/>
+    <Command ID="122" Time="28747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9882352941176471"/>
+    <Command ID="123" Time="28747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9725490196078431"/>
+    <Command ID="124" Time="28747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9647058823529412"/>
+    <Command ID="125" Time="28747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9607843137254902"/>
+    <Command ID="126" Time="28779" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9529411764705882"/>
+    <Command ID="127" Time="28832" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9490196078431372"/>
+    <Command ID="128" Time="28928" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9450980392156862"/>
+    <Command ID="129" Time="28949" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9411764705882353"/>
+    <Command ID="130" Time="28949" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9372549019607843"/>
+    <Command ID="131" Time="28981" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9333333333333333"/>
+    <Command ID="132" Time="28981" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9294117647058824"/>
+    <Command ID="133" Time="29013" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9254901960784314"/>
+    <Command ID="134" Time="29013" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9215686274509803"/>
+    <Command ID="135" Time="29045" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9176470588235294"/>
+    <Command ID="136" Time="29045" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9137254901960784"/>
+    <Command ID="137" Time="29045" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9098039215686274"/>
+    <Command ID="138" Time="29045" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9058823529411765"/>
+    <Command ID="139" Time="29088" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9019607843137255"/>
+    <Command ID="140" Time="29088" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8980392156862745"/>
+    <Command ID="141" Time="29088" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8941176470588236"/>
+    <Command ID="142" Time="29120" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8901960784313725"/>
+    <Command ID="143" Time="29120" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8862745098039215"/>
+    <Command ID="144" Time="29120" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8823529411764706"/>
+    <Command ID="145" Time="29141" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8784313725490196"/>
+    <Command ID="146" Time="29205" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8745098039215686"/>
+    <Command ID="147" Time="29205" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8705882352941177"/>
+    <Command ID="148" Time="29237" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8666666666666667"/>
+    <Command ID="149" Time="29237" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8627450980392157"/>
+    <Command ID="150" Time="29269" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8588235294117647"/>
+    <Command ID="151" Time="29269" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8549019607843137"/>
+    <Command ID="152" Time="29355" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8509803921568627"/>
+    <Command ID="153" Time="29408" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8470588235294118"/>
+    <Command ID="154" Time="29440" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8392156862745098"/>
+    <Command ID="155" Time="29440" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8352941176470589"/>
+    <Command ID="156" Time="29440" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8313725490196079"/>
+    <Command ID="157" Time="29472" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8274509803921568"/>
+    <Command ID="158" Time="29472" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8235294117647058"/>
+    <Command ID="159" Time="29504" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8196078431372549"/>
+    <Command ID="160" Time="29504" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8156862745098039"/>
+    <Command ID="161" Time="29525" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8117647058823529"/>
+    <Command ID="162" Time="29525" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.807843137254902"/>
+    <Command ID="163" Time="29557" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.803921568627451"/>
+    <Command ID="164" Time="29557" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.796078431372549"/>
+    <Command ID="165" Time="29557" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.792156862745098"/>
+    <Command ID="166" Time="29557" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.788235294117647"/>
+    <Command ID="167" Time="29589" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7843137254901961"/>
+    <Command ID="168" Time="29589" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7803921568627451"/>
+    <Command ID="169" Time="29589" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7725490196078432"/>
+    <Command ID="170" Time="29621" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7686274509803922"/>
+    <Command ID="171" Time="29621" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7647058823529411"/>
+    <Command ID="172" Time="29621" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7607843137254902"/>
+    <Command ID="173" Time="29653" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7568627450980392"/>
+    <Command ID="174" Time="29653" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7529411764705882"/>
+    <Command ID="175" Time="29653" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7490196078431373"/>
+    <Command ID="176" Time="29653" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7450980392156863"/>
+    <Command ID="177" Time="29675" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7411764705882353"/>
+    <Command ID="178" Time="29675" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7372549019607844"/>
+    <Command ID="179" Time="29707" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7333333333333333"/>
+    <Command ID="180" Time="29707" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7294117647058823"/>
+    <Command ID="181" Time="29739" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7254901960784313"/>
+    <Command ID="182" Time="29909" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7215686274509804"/>
+    <Command ID="183" Time="29941" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7137254901960784"/>
+    <Command ID="184" Time="29973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7098039215686275"/>
+    <Command ID="185" Time="29973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6980392156862745"/>
+    <Command ID="186" Time="29973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6901960784313725"/>
+    <Command ID="187" Time="29973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6862745098039216"/>
+    <Command ID="188" Time="29973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6784313725490196"/>
+    <Command ID="189" Time="30037" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6745098039215687"/>
+    <Command ID="190" Time="30037" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6705882352941176"/>
+    <Command ID="191" Time="30069" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6627450980392157"/>
+    <Command ID="192" Time="30069" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6588235294117647"/>
+    <Command ID="193" Time="30069" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6549019607843137"/>
+    <Command ID="194" Time="30091" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6509803921568628"/>
+    <Command ID="195" Time="30421" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6470588235294118"/>
+    <Command ID="196" Time="30453" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6392156862745098"/>
+    <Command ID="197" Time="30453" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6313725490196078"/>
+    <Command ID="198" Time="30453" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6274509803921569"/>
+    <Command ID="199" Time="30496" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6235294117647059"/>
+    <Command ID="200" Time="30496" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6196078431372549"/>
+    <Command ID="201" Time="30496" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.615686274509804"/>
+    <Command ID="202" Time="30528" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.611764705882353"/>
+    <Command ID="203" Time="30592" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6078431372549019"/>
+    <Command ID="204" Time="30622" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6039215686274509"/>
+    <Command ID="205" Time="30622" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6"/>
+    <Command ID="206" Time="30645" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.596078431372549"/>
+    <Command ID="207" Time="30645" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.592156862745098"/>
+    <Command ID="208" Time="30677" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5882352941176471"/>
+    <Command ID="209" Time="30677" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5843137254901961"/>
+    <Command ID="210" Time="31339" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5803921568627451"/>
+    <Command ID="211" Time="31339" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5764705882352941"/>
+    <Command ID="212" Time="31360" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5725490196078431"/>
+    <Command ID="213" Time="31360" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="214" Time="31392" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5647058823529412"/>
+    <Command ID="215" Time="31616" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="216" Time="31648" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5725490196078431"/>
+    <Command ID="217" Time="31680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5764705882352941"/>
+    <Command ID="218" Time="31680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5803921568627451"/>
+    <Command ID="219" Time="31680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5843137254901961"/>
+    <Command ID="220" Time="31680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5882352941176471"/>
+    <Command ID="221" Time="31712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.592156862745098"/>
+    <Command ID="222" Time="31712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6"/>
+    <Command ID="223" Time="31712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6039215686274509"/>
+    <Command ID="224" Time="31744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6078431372549019"/>
+    <Command ID="225" Time="31744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.611764705882353"/>
+    <Command ID="226" Time="31765" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.615686274509804"/>
+    <Command ID="227" Time="31765" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6196078431372549"/>
+    <Command ID="228" Time="31787" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6235294117647059"/>
+    <Command ID="229" Time="31819" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6274509803921569"/>
+    <Command ID="230" Time="31851" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6313725490196078"/>
+    <Command ID="231" Time="31872" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6352941176470588"/>
+    <Command ID="232" Time="31904" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6392156862745098"/>
+    <Command ID="233" Time="32021" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6431372549019608"/>
+    <Command ID="234" Time="32309" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6392156862745098"/>
+    <Command ID="235" Time="32341" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6352941176470588"/>
+    <Command ID="236" Time="32341" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6313725490196078"/>
+    <Command ID="237" Time="32373" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6235294117647059"/>
+    <Command ID="238" Time="32405" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6196078431372549"/>
+    <Command ID="239" Time="32405" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.615686274509804"/>
+    <Command ID="240" Time="32405" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.611764705882353"/>
+    <Command ID="241" Time="32437" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6078431372549019"/>
+    <Command ID="242" Time="32437" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6"/>
+    <Command ID="243" Time="32437" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.592156862745098"/>
+    <Command ID="244" Time="32469" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5882352941176471"/>
+    <Command ID="245" Time="32469" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5803921568627451"/>
+    <Command ID="246" Time="32469" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5764705882352941"/>
+    <Command ID="247" Time="32469" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5725490196078431"/>
+    <Command ID="248" Time="32491" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="249" Time="32491" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5647058823529412"/>
+    <Command ID="250" Time="32491" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5607843137254902"/>
+    <Command ID="251" Time="32523" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5568627450980392"/>
+    <Command ID="252" Time="32640" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5529411764705883"/>
+    <Command ID="253" Time="32661" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5490196078431373"/>
+    <Command ID="254" Time="32661" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5450980392156862"/>
+    <Command ID="255" Time="32661" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5333333333333333"/>
+    <Command ID="256" Time="32693" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5294117647058824"/>
+    <Command ID="257" Time="32693" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5215686274509804"/>
+    <Command ID="258" Time="32725" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5137254901960784"/>
+    <Command ID="259" Time="32757" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5058823529411764"/>
+    <Command ID="260" Time="32811" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5019607843137255"/>
+    <Command ID="261" Time="32875" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4980392156862745"/>
+    <Command ID="262" Time="32875" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.49411764705882355"/>
+    <Command ID="263" Time="32875" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.49019607843137253"/>
+    <Command ID="264" Time="32907" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.48627450980392156"/>
+    <Command ID="265" Time="32907" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4823529411764706"/>
+    <Command ID="266" Time="32907" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4745098039215686"/>
+    <Command ID="267" Time="32928" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.47058823529411764"/>
+    <Command ID="268" Time="48811" Action="SetButtonState" Control="{f0e2b89b-2dc6-4a97-942c-8767890cb702}" Role="ToggleButton" State="On"/>
+    <Command ID="269" Time="59019" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="270" Time="59019" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="271" Time="59051" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="272" Time="59051" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="273" Time="59147" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="274" Time="59200" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="275" Time="59285" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="276" Time="59339" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="277" Time="59371" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="278" Time="59371" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="279" Time="59403" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="280" Time="59424" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="281" Time="59424" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="282" Time="59488" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="283" Time="59509" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="284" Time="59605" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="285" Time="59637" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="286" Time="59669" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="287" Time="59669" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="288" Time="59701" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="289" Time="59701" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="290" Time="59893" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="291" Time="59925" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="292" Time="59957" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="293" Time="59979" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="294" Time="60021" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="295" Time="61024" Action="SetButtonState" Control="{75f632d9-9515-4527-9bc0-343d8b2ad0b2}" Role="ToggleButton" State="Off"/>
+    <Command ID="296" Time="83029" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="On"/>
+    <Command ID="297" Time="83627" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="Off"/>
+    <Command ID="298" Time="85269" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="On"/>
+    <Command ID="299" Time="85888" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="Off"/>
+    <Command ID="300" Time="87211" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="On"/>
+    <Command ID="301" Time="87733" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="Off"/>
+    <Command ID="302" Time="88971" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="On"/>
+    <Command ID="303" Time="89653" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="Off"/>
+    <Command ID="304" Time="93483" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.43529411764705883"/>
+    <Command ID="305" Time="93856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.43137254901960786"/>
+    <Command ID="306" Time="93888" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4235294117647059"/>
+    <Command ID="307" Time="93888" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.41568627450980394"/>
+    <Command ID="308" Time="93888" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4117647058823529"/>
+    <Command ID="309" Time="93888" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.40784313725490196"/>
+    <Command ID="310" Time="93920" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.403921568627451"/>
+    <Command ID="311" Time="93973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4"/>
+    <Command ID="312" Time="94155" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.396078431372549"/>
+    <Command ID="313" Time="94155" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.38823529411764707"/>
+    <Command ID="314" Time="94187" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3843137254901961"/>
+    <Command ID="315" Time="94208" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3803921568627451"/>
+    <Command ID="316" Time="94208" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3764705882352941"/>
+    <Command ID="317" Time="94240" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.37254901960784315"/>
+    <Command ID="318" Time="94240" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3686274509803922"/>
+    <Command ID="319" Time="94272" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.36470588235294116"/>
+    <Command ID="320" Time="94272" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3607843137254902"/>
+    <Command ID="321" Time="94293" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3568627450980392"/>
+    <Command ID="322" Time="94325" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.35294117647058826"/>
+    <Command ID="323" Time="94357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.34901960784313724"/>
+    <Command ID="324" Time="94357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3411764705882353"/>
+    <Command ID="325" Time="94357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3333333333333333"/>
+    <Command ID="326" Time="94389" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3176470588235294"/>
+    <Command ID="327" Time="94389" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30980392156862746"/>
+    <Command ID="328" Time="94421" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30196078431372547"/>
+    <Command ID="329" Time="94421" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2980392156862745"/>
+    <Command ID="330" Time="94475" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.29411764705882354"/>
+    <Command ID="331" Time="94656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.28627450980392155"/>
+    <Command ID="332" Time="94656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2823529411764706"/>
+    <Command ID="333" Time="94656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27450980392156865"/>
+    <Command ID="334" Time="94720" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27058823529411763"/>
+    <Command ID="335" Time="94720" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.26666666666666666"/>
+    <Command ID="336" Time="94891" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2627450980392157"/>
+    <Command ID="337" Time="94923" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25882352941176473"/>
+    <Command ID="338" Time="94923" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2549019607843137"/>
+    <Command ID="339" Time="94955" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25098039215686274"/>
+    <Command ID="340" Time="94955" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24705882352941178"/>
+    <Command ID="341" Time="94987" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24313725490196078"/>
+    <Command ID="342" Time="94987" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23921568627450981"/>
+    <Command ID="343" Time="94987" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23529411764705882"/>
+    <Command ID="344" Time="95104" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23137254901960785"/>
+    <Command ID="345" Time="95136" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.22745098039215686"/>
+    <Command ID="346" Time="95136" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2235294117647059"/>
+    <Command ID="347" Time="95136" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2196078431372549"/>
+    <Command ID="348" Time="95179" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21568627450980393"/>
+    <Command ID="349" Time="95275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21176470588235294"/>
+    <Command ID="350" Time="95275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20784313725490197"/>
+    <Command ID="351" Time="95296" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20392156862745098"/>
+    <Command ID="352" Time="95296" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2"/>
+    <Command ID="353" Time="95328" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19607843137254902"/>
+    <Command ID="354" Time="95349" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="355" Time="95349" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.18823529411764706"/>
+    <Command ID="356" Time="95680" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="357" Time="95712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19607843137254902"/>
+    <Command ID="358" Time="95744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2"/>
+    <Command ID="359" Time="95744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20392156862745098"/>
+    <Command ID="360" Time="95744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20784313725490197"/>
+    <Command ID="361" Time="95744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21568627450980393"/>
+    <Command ID="362" Time="95776" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2235294117647059"/>
+    <Command ID="363" Time="95776" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23137254901960785"/>
+    <Command ID="364" Time="95776" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23921568627450981"/>
+    <Command ID="365" Time="95797" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25098039215686274"/>
+    <Command ID="366" Time="95797" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25882352941176473"/>
+    <Command ID="367" Time="95797" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.26666666666666666"/>
+    <Command ID="368" Time="95829" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27450980392156865"/>
+    <Command ID="369" Time="95829" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2784313725490196"/>
+    <Command ID="370" Time="95829" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2823529411764706"/>
+    <Command ID="371" Time="95829" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.28627450980392155"/>
+    <Command ID="372" Time="95851" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2901960784313726"/>
+    <Command ID="373" Time="95851" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.29411764705882354"/>
+    <Command ID="374" Time="103104" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="375" Time="103296" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="376" Time="103499" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="377" Time="103701" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="378" Time="103872" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="379" Time="104043" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="380" Time="104203" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="381" Time="104640" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="382" Time="113120" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="383" Time="120992" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="On"/>
+    <Command ID="384" Time="121771" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30980392156862746"/>
+    <Command ID="385" Time="121856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3215686274509804"/>
+    <Command ID="386" Time="121856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4470588235294118"/>
+    <Command ID="387" Time="121856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5529411764705883"/>
+    <Command ID="388" Time="121856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="1"/>
+    <Command ID="389" Time="125771" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="390" Time="129355" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="391" Time="133184" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="392" Time="136981" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="393" Time="137419" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="394" Time="137899" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="395" Time="138421" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="396" Time="138869" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="397" Time="139360" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="398" Time="139829" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="399" Time="140320" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="400" Time="140800" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="401" Time="141237" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="402" Time="141685" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="403" Time="142187" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="404" Time="142645" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="405" Time="143115" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="406" Time="143563" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="407" Time="143787" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="408" Time="144053" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="409" Time="144523" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="410" Time="145003" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="411" Time="145472" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="412" Time="145920" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="413" Time="146400" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="414" Time="146880" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="415" Time="147328" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="416" Time="147797" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="417" Time="148245" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="418" Time="148683" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="419" Time="148864" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="420" Time="149045" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="421" Time="149237" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="422" Time="149451" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="423" Time="149675" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="424" Time="149877" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="425" Time="150123" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="426" Time="150560" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="427" Time="151051" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="428" Time="151520" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="429" Time="152000" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="430" Time="155819" Action="SetButtonState" Control="{f0e2b89b-2dc6-4a97-942c-8767890cb702}" Role="ToggleButton" State="Off"/>
+    <Command ID="431" Time="156885" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9529411764705882"/>
+    <Command ID="432" Time="157173" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9490196078431372"/>
+    <Command ID="433" Time="157237" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9450980392156862"/>
+    <Command ID="434" Time="157291" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9411764705882353"/>
+    <Command ID="435" Time="157408" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9372549019607843"/>
+    <Command ID="436" Time="157429" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9333333333333333"/>
+    <Command ID="437" Time="157429" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9294117647058824"/>
+    <Command ID="438" Time="157429" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9254901960784314"/>
+    <Command ID="439" Time="157461" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9176470588235294"/>
+    <Command ID="440" Time="157461" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9098039215686274"/>
+    <Command ID="441" Time="157461" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9058823529411765"/>
+    <Command ID="442" Time="157493" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8980392156862745"/>
+    <Command ID="443" Time="157493" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8941176470588236"/>
+    <Command ID="444" Time="157493" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8862745098039215"/>
+    <Command ID="445" Time="157493" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8823529411764706"/>
+    <Command ID="446" Time="157493" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8784313725490196"/>
+    <Command ID="447" Time="157525" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8745098039215686"/>
+    <Command ID="448" Time="157557" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8705882352941177"/>
+    <Command ID="449" Time="157582" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8666666666666667"/>
+    <Command ID="450" Time="157760" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8627450980392157"/>
+    <Command ID="451" Time="157792" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8588235294117647"/>
+    <Command ID="452" Time="157813" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8549019607843137"/>
+    <Command ID="453" Time="157877" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8509803921568627"/>
+    <Command ID="454" Time="157899" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8470588235294118"/>
+    <Command ID="455" Time="157931" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8431372549019608"/>
+    <Command ID="456" Time="157931" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8392156862745098"/>
+    <Command ID="457" Time="157931" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8313725490196079"/>
+    <Command ID="458" Time="157963" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8274509803921568"/>
+    <Command ID="459" Time="157963" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8196078431372549"/>
+    <Command ID="460" Time="157963" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8156862745098039"/>
+    <Command ID="461" Time="157995" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.807843137254902"/>
+    <Command ID="462" Time="158080" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.803921568627451"/>
+    <Command ID="463" Time="158112" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8"/>
+    <Command ID="464" Time="158315" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.796078431372549"/>
+    <Command ID="465" Time="158315" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.792156862745098"/>
+    <Command ID="466" Time="158315" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.788235294117647"/>
+    <Command ID="467" Time="158347" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7803921568627451"/>
+    <Command ID="468" Time="158379" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7764705882352941"/>
+    <Command ID="469" Time="158379" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7725490196078432"/>
+    <Command ID="470" Time="158400" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7686274509803922"/>
+    <Command ID="471" Time="158432" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7647058823529411"/>
+    <Command ID="472" Time="158432" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7607843137254902"/>
+    <Command ID="473" Time="158432" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7568627450980392"/>
+    <Command ID="474" Time="158464" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7529411764705882"/>
+    <Command ID="475" Time="158464" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7490196078431373"/>
+    <Command ID="476" Time="158699" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7450980392156863"/>
+    <Command ID="477" Time="158699" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7254901960784313"/>
+    <Command ID="478" Time="158731" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7176470588235294"/>
+    <Command ID="479" Time="158763" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7137254901960784"/>
+    <Command ID="480" Time="158784" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7098039215686275"/>
+    <Command ID="481" Time="158784" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7058823529411765"/>
+    <Command ID="482" Time="158816" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7019607843137254"/>
+    <Command ID="483" Time="158816" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6980392156862745"/>
+    <Command ID="484" Time="158848" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6941176470588235"/>
+    <Command ID="485" Time="158848" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6862745098039216"/>
+    <Command ID="486" Time="158848" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6823529411764706"/>
+    <Command ID="487" Time="158880" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6784313725490196"/>
+    <Command ID="488" Time="158880" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6745098039215687"/>
+    <Command ID="489" Time="158880" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6705882352941176"/>
+    <Command ID="490" Time="158880" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6666666666666666"/>
+    <Command ID="491" Time="158901" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6627450980392157"/>
+    <Command ID="492" Time="158901" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6588235294117647"/>
+    <Command ID="493" Time="158901" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6549019607843137"/>
+    <Command ID="494" Time="158901" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6509803921568628"/>
+    <Command ID="495" Time="158933" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6431372549019608"/>
+    <Command ID="496" Time="158965" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6392156862745098"/>
+    <Command ID="497" Time="158965" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6352941176470588"/>
+    <Command ID="498" Time="158965" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6313725490196078"/>
+    <Command ID="499" Time="158997" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6274509803921569"/>
+    <Command ID="500" Time="158997" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6196078431372549"/>
+    <Command ID="501" Time="158997" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.615686274509804"/>
+    <Command ID="502" Time="159029" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.611764705882353"/>
+    <Command ID="503" Time="159029" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6078431372549019"/>
+    <Command ID="504" Time="159029" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6039215686274509"/>
+    <Command ID="505" Time="159051" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6"/>
+    <Command ID="506" Time="159051" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.596078431372549"/>
+    <Command ID="507" Time="159083" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.592156862745098"/>
+    <Command ID="508" Time="159104" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5882352941176471"/>
+    <Command ID="509" Time="159136" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5803921568627451"/>
+    <Command ID="510" Time="159168" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="511" Time="159168" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5647058823529412"/>
+    <Command ID="512" Time="159200" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5607843137254902"/>
+    <Command ID="513" Time="159317" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5568627450980392"/>
+    <Command ID="514" Time="159339" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5529411764705883"/>
+    <Command ID="515" Time="159339" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5490196078431373"/>
+    <Command ID="516" Time="159339" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5450980392156862"/>
+    <Command ID="517" Time="159371" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5411764705882353"/>
+    <Command ID="518" Time="159371" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5372549019607843"/>
+    <Command ID="519" Time="159371" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5333333333333333"/>
+    <Command ID="520" Time="159371" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5294117647058824"/>
+    <Command ID="521" Time="159403" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5254901960784314"/>
+    <Command ID="522" Time="159403" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5215686274509804"/>
+    <Command ID="523" Time="159403" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5176470588235295"/>
+    <Command ID="524" Time="159435" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5137254901960784"/>
+    <Command ID="525" Time="159467" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5098039215686274"/>
+    <Command ID="526" Time="159467" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5058823529411764"/>
+    <Command ID="527" Time="159499" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4980392156862745"/>
+    <Command ID="528" Time="159520" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.49411764705882355"/>
+    <Command ID="529" Time="159787" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.49019607843137253"/>
+    <Command ID="530" Time="159787" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.48627450980392156"/>
+    <Command ID="531" Time="159819" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4823529411764706"/>
+    <Command ID="532" Time="159819" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.47058823529411764"/>
+    <Command ID="533" Time="159819" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4666666666666667"/>
+    <Command ID="534" Time="159872" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4588235294117647"/>
+    <Command ID="535" Time="159957" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4549019607843137"/>
+    <Command ID="536" Time="159957" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.45098039215686275"/>
+    <Command ID="537" Time="159989" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4470588235294118"/>
+    <Command ID="538" Time="159989" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.44313725490196076"/>
+    <Command ID="539" Time="160021" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4392156862745098"/>
+    <Command ID="540" Time="160235" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.43529411764705883"/>
+    <Command ID="541" Time="160235" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.43137254901960786"/>
+    <Command ID="542" Time="160267" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.42745098039215684"/>
+    <Command ID="543" Time="160267" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4196078431372549"/>
+    <Command ID="544" Time="160267" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.41568627450980394"/>
+    <Command ID="545" Time="160299" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4117647058823529"/>
+    <Command ID="546" Time="160299" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.403921568627451"/>
+    <Command ID="547" Time="160299" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4"/>
+    <Command ID="548" Time="160299" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.396078431372549"/>
+    <Command ID="549" Time="160299" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.39215686274509803"/>
+    <Command ID="550" Time="160341" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.38823529411764707"/>
+    <Command ID="551" Time="160341" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3843137254901961"/>
+    <Command ID="552" Time="160373" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3803921568627451"/>
+    <Command ID="553" Time="160405" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3764705882352941"/>
+    <Command ID="554" Time="160405" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.37254901960784315"/>
+    <Command ID="555" Time="160427" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3686274509803922"/>
+    <Command ID="556" Time="160427" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.36470588235294116"/>
+    <Command ID="557" Time="160715" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3568627450980392"/>
+    <Command ID="558" Time="160747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.34509803921568627"/>
+    <Command ID="559" Time="160747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3411764705882353"/>
+    <Command ID="560" Time="160747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.33725490196078434"/>
+    <Command ID="561" Time="160768" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.32941176470588235"/>
+    <Command ID="562" Time="160768" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3215686274509804"/>
+    <Command ID="563" Time="160768" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3176470588235294"/>
+    <Command ID="564" Time="160811" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3137254901960784"/>
+    <Command ID="565" Time="160843" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3058823529411765"/>
+    <Command ID="566" Time="161163" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30196078431372547"/>
+    <Command ID="567" Time="161195" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2980392156862745"/>
+    <Command ID="568" Time="161195" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.29411764705882354"/>
+    <Command ID="569" Time="161216" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2823529411764706"/>
+    <Command ID="570" Time="161216" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2784313725490196"/>
+    <Command ID="571" Time="161216" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27450980392156865"/>
+    <Command ID="572" Time="161248" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27058823529411763"/>
+    <Command ID="573" Time="171445" Action="SetButtonState" Control="{f0e2b89b-2dc6-4a97-942c-8767890cb702}" Role="ToggleButton" State="On"/>
+    <Command ID="574" Time="171936" Action="SetButtonState" Control="{3d9373ff-050b-4fe2-8a75-046fe7070bad}" Role="ToggleButton" State="Off"/>
+    <Command ID="575" Time="176277" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20392156862745098"/>
+    <Command ID="576" Time="176277" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20784313725490197"/>
+    <Command ID="577" Time="176373" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21176470588235294"/>
+    <Command ID="578" Time="176373" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2196078431372549"/>
+    <Command ID="579" Time="176395" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23529411764705882"/>
+    <Command ID="580" Time="176395" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24313725490196078"/>
+    <Command ID="581" Time="176427" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25098039215686274"/>
+    <Command ID="582" Time="176427" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27450980392156865"/>
+    <Command ID="583" Time="176459" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2901960784313726"/>
+    <Command ID="584" Time="176544" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.28627450980392155"/>
+    <Command ID="585" Time="176544" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27450980392156865"/>
+    <Command ID="586" Time="176576" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2549019607843137"/>
+    <Command ID="587" Time="176576" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23137254901960785"/>
+    <Command ID="588" Time="176576" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20784313725490197"/>
+    <Command ID="589" Time="176576" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="590" Time="176608" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.16470588235294117"/>
+    <Command ID="591" Time="176608" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1450980392156863"/>
+    <Command ID="592" Time="176608" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.13333333333333333"/>
+    <Command ID="593" Time="176640" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.12549019607843137"/>
+    <Command ID="594" Time="176640" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.11764705882352941"/>
+    <Command ID="595" Time="176640" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.10980392156862745"/>
+    <Command ID="596" Time="176640" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.10588235294117647"/>
+    <Command ID="597" Time="176672" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.10980392156862745"/>
+    <Command ID="598" Time="176672" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.12156862745098039"/>
+    <Command ID="599" Time="176693" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.13725490196078433"/>
+    <Command ID="600" Time="176693" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1607843137254902"/>
+    <Command ID="601" Time="176693" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.18823529411764706"/>
+    <Command ID="602" Time="176693" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21568627450980393"/>
+    <Command ID="603" Time="176693" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24705882352941178"/>
+    <Command ID="604" Time="176747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2784313725490196"/>
+    <Command ID="605" Time="176747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3137254901960784"/>
+    <Command ID="606" Time="176747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3411764705882353"/>
+    <Command ID="607" Time="176747" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.37254901960784315"/>
+    <Command ID="608" Time="176779" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.396078431372549"/>
+    <Command ID="609" Time="176779" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4235294117647059"/>
+    <Command ID="610" Time="176779" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.45098039215686275"/>
+    <Command ID="611" Time="176800" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.47058823529411764"/>
+    <Command ID="612" Time="176800" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.49019607843137253"/>
+    <Command ID="613" Time="176800" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5215686274509804"/>
+    <Command ID="614" Time="176832" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5450980392156862"/>
+    <Command ID="615" Time="176832" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5529411764705883"/>
+    <Command ID="616" Time="176832" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5607843137254902"/>
+    <Command ID="617" Time="176864" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="618" Time="176864" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5725490196078431"/>
+    <Command ID="619" Time="176864" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5764705882352941"/>
+    <Command ID="620" Time="176864" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5803921568627451"/>
+    <Command ID="621" Time="176885" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5843137254901961"/>
+    <Command ID="622" Time="176949" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5764705882352941"/>
+    <Command ID="623" Time="176949" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="624" Time="176949" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5607843137254902"/>
+    <Command ID="625" Time="176971" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5490196078431373"/>
+    <Command ID="626" Time="176971" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5372549019607843"/>
+    <Command ID="627" Time="176971" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5215686274509804"/>
+    <Command ID="628" Time="176971" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5098039215686274"/>
+    <Command ID="629" Time="177003" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5019607843137255"/>
+    <Command ID="630" Time="177003" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.49411764705882355"/>
+    <Command ID="631" Time="177003" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.48627450980392156"/>
+    <Command ID="632" Time="177035" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.47843137254901963"/>
+    <Command ID="633" Time="177120" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.48627450980392156"/>
+    <Command ID="634" Time="177120" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5019607843137255"/>
+    <Command ID="635" Time="177120" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5215686274509804"/>
+    <Command ID="636" Time="177152" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5450980392156862"/>
+    <Command ID="637" Time="177152" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="638" Time="177152" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.596078431372549"/>
+    <Command ID="639" Time="177152" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6274509803921569"/>
+    <Command ID="640" Time="177173" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6549019607843137"/>
+    <Command ID="641" Time="177173" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6823529411764706"/>
+    <Command ID="642" Time="177173" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7137254901960784"/>
+    <Command ID="643" Time="177173" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7372549019607844"/>
+    <Command ID="644" Time="177173" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7529411764705882"/>
+    <Command ID="645" Time="177216" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7803921568627451"/>
+    <Command ID="646" Time="177216" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.803921568627451"/>
+    <Command ID="647" Time="177216" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8313725490196079"/>
+    <Command ID="648" Time="177216" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8392156862745098"/>
+    <Command ID="649" Time="177248" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8470588235294118"/>
+    <Command ID="650" Time="177248" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8509803921568627"/>
+    <Command ID="651" Time="177301" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8470588235294118"/>
+    <Command ID="652" Time="177301" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8352941176470589"/>
+    <Command ID="653" Time="177333" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8156862745098039"/>
+    <Command ID="654" Time="177333" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.796078431372549"/>
+    <Command ID="655" Time="177333" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7647058823529411"/>
+    <Command ID="656" Time="177365" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7333333333333333"/>
+    <Command ID="657" Time="177365" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6980392156862745"/>
+    <Command ID="658" Time="177365" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6588235294117647"/>
+    <Command ID="659" Time="177365" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.615686274509804"/>
+    <Command ID="660" Time="177387" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5686274509803921"/>
+    <Command ID="661" Time="177387" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5215686274509804"/>
+    <Command ID="662" Time="177387" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4745098039215686"/>
+    <Command ID="663" Time="177419" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.42745098039215684"/>
+    <Command ID="664" Time="177419" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.39215686274509803"/>
+    <Command ID="665" Time="177419" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3607843137254902"/>
+    <Command ID="666" Time="177419" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.32941176470588235"/>
+    <Command ID="667" Time="177451" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.30196078431372547"/>
+    <Command ID="668" Time="177451" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27058823529411763"/>
+    <Command ID="669" Time="177451" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24313725490196078"/>
+    <Command ID="670" Time="177483" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.22745098039215686"/>
+    <Command ID="671" Time="177483" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21176470588235294"/>
+    <Command ID="672" Time="177483" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2"/>
+    <Command ID="673" Time="177483" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="674" Time="177504" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.18823529411764706"/>
+    <Command ID="675" Time="177536" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="676" Time="177536" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2235294117647059"/>
+    <Command ID="677" Time="177568" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.28627450980392155"/>
+    <Command ID="678" Time="177600" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4549019607843137"/>
+    <Command ID="679" Time="177600" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5137254901960784"/>
+    <Command ID="680" Time="177621" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5568627450980392"/>
+    <Command ID="681" Time="177621" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6823529411764706"/>
+    <Command ID="682" Time="177653" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7137254901960784"/>
+    <Command ID="683" Time="177653" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7725490196078432"/>
+    <Command ID="684" Time="177685" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.788235294117647"/>
+    <Command ID="685" Time="177685" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.792156862745098"/>
+    <Command ID="686" Time="177739" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.788235294117647"/>
+    <Command ID="687" Time="177771" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7803921568627451"/>
+    <Command ID="688" Time="177771" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7607843137254902"/>
+    <Command ID="689" Time="177771" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7372549019607844"/>
+    <Command ID="690" Time="177792" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7019607843137254"/>
+    <Command ID="691" Time="177792" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6509803921568628"/>
+    <Command ID="692" Time="177792" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6039215686274509"/>
+    <Command ID="693" Time="177792" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5568627450980392"/>
+    <Command ID="694" Time="177824" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5058823529411764"/>
+    <Command ID="695" Time="177824" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4549019607843137"/>
+    <Command ID="696" Time="177824" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.396078431372549"/>
+    <Command ID="697" Time="177856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2784313725490196"/>
+    <Command ID="698" Time="177856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2235294117647059"/>
+    <Command ID="699" Time="177856" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.18823529411764706"/>
+    <Command ID="700" Time="177888" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1568627450980392"/>
+    <Command ID="701" Time="177888" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.10196078431372549"/>
+    <Command ID="702" Time="177888" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.0784313725490196"/>
+    <Command ID="703" Time="177920" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.047058823529411764"/>
+    <Command ID="704" Time="177920" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.043137254901960784"/>
+    <Command ID="705" Time="177941" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.0392156862745098"/>
+    <Command ID="706" Time="177973" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.043137254901960784"/>
+    <Command ID="707" Time="178005" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.06666666666666667"/>
+    <Command ID="708" Time="178005" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.09411764705882353"/>
+    <Command ID="709" Time="178005" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1411764705882353"/>
+    <Command ID="710" Time="178037" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3803921568627451"/>
+    <Command ID="711" Time="178059" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5137254901960784"/>
+    <Command ID="712" Time="178059" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6392156862745098"/>
+    <Command ID="713" Time="178059" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6941176470588235"/>
+    <Command ID="714" Time="178059" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7647058823529411"/>
+    <Command ID="715" Time="178123" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8509803921568627"/>
+    <Command ID="716" Time="178123" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8705882352941177"/>
+    <Command ID="717" Time="178123" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8784313725490196"/>
+    <Command ID="718" Time="178123" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8941176470588236"/>
+    <Command ID="719" Time="178155" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8980392156862745"/>
+    <Command ID="720" Time="178219" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8784313725490196"/>
+    <Command ID="721" Time="178240" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8509803921568627"/>
+    <Command ID="722" Time="178240" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8274509803921568"/>
+    <Command ID="723" Time="178272" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7686274509803922"/>
+    <Command ID="724" Time="178272" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7294117647058823"/>
+    <Command ID="725" Time="178272" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6862745098039216"/>
+    <Command ID="726" Time="178304" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6392156862745098"/>
+    <Command ID="727" Time="178304" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.592156862745098"/>
+    <Command ID="728" Time="178304" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5372549019607843"/>
+    <Command ID="729" Time="178304" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4823529411764706"/>
+    <Command ID="730" Time="178336" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.43137254901960786"/>
+    <Command ID="731" Time="178336" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3803921568627451"/>
+    <Command ID="732" Time="178336" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.32941176470588235"/>
+    <Command ID="733" Time="178357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2980392156862745"/>
+    <Command ID="734" Time="178357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.27058823529411763"/>
+    <Command ID="735" Time="178357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.24313725490196078"/>
+    <Command ID="736" Time="178357" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2196078431372549"/>
+    <Command ID="737" Time="178389" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.20392156862745098"/>
+    <Command ID="738" Time="178389" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="739" Time="178389" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1843137254901961"/>
+    <Command ID="740" Time="178421" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1803921568627451"/>
+    <Command ID="741" Time="178421" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.17647058823529413"/>
+    <Command ID="742" Time="178453" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1843137254901961"/>
+    <Command ID="743" Time="178453" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2"/>
+    <Command ID="744" Time="178453" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.23529411764705882"/>
+    <Command ID="745" Time="178485" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2784313725490196"/>
+    <Command ID="746" Time="178485" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.32941176470588235"/>
+    <Command ID="747" Time="178485" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.39215686274509803"/>
+    <Command ID="748" Time="178507" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.47058823529411764"/>
+    <Command ID="749" Time="178507" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5333333333333333"/>
+    <Command ID="750" Time="178507" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6"/>
+    <Command ID="751" Time="178507" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6784313725490196"/>
+    <Command ID="752" Time="178539" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7490196078431373"/>
+    <Command ID="753" Time="178539" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8117647058823529"/>
+    <Command ID="754" Time="178539" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8470588235294118"/>
+    <Command ID="755" Time="178539" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8784313725490196"/>
+    <Command ID="756" Time="178571" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9137254901960784"/>
+    <Command ID="757" Time="178571" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9411764705882353"/>
+    <Command ID="758" Time="178571" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9568627450980393"/>
+    <Command ID="759" Time="178571" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9647058823529412"/>
+    <Command ID="760" Time="178571" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9686274509803922"/>
+    <Command ID="761" Time="178571" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9725490196078431"/>
+    <Command ID="762" Time="178624" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9764705882352941"/>
+    <Command ID="763" Time="178656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9725490196078431"/>
+    <Command ID="764" Time="178656" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9607843137254902"/>
+    <Command ID="765" Time="178688" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8823529411764706"/>
+    <Command ID="766" Time="178688" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8274509803921568"/>
+    <Command ID="767" Time="178709" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6941176470588235"/>
+    <Command ID="768" Time="178741" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.615686274509804"/>
+    <Command ID="769" Time="178741" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4"/>
+    <Command ID="770" Time="178741" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3215686274509804"/>
+    <Command ID="771" Time="178773" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1843137254901961"/>
+    <Command ID="772" Time="178773" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.12549019607843137"/>
+    <Command ID="773" Time="178827" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0"/>
+    <Command ID="774" Time="178965" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.054901960784313725"/>
+    <Command ID="775" Time="178965" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.11764705882352941"/>
+    <Command ID="776" Time="178965" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.19215686274509805"/>
+    <Command ID="777" Time="178965" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.25098039215686274"/>
+    <Command ID="778" Time="178997" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3137254901960784"/>
+    <Command ID="779" Time="178997" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.38823529411764707"/>
+    <Command ID="780" Time="178997" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4627450980392157"/>
+    <Command ID="781" Time="178997" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5372549019607843"/>
+    <Command ID="782" Time="179029" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6"/>
+    <Command ID="783" Time="179029" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6470588235294118"/>
+    <Command ID="784" Time="179029" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6901960784313725"/>
+    <Command ID="785" Time="179061" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7411764705882353"/>
+    <Command ID="786" Time="179061" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.796078431372549"/>
+    <Command ID="787" Time="179061" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8313725490196079"/>
+    <Command ID="788" Time="179061" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8509803921568627"/>
+    <Command ID="789" Time="179093" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8745098039215686"/>
+    <Command ID="790" Time="179093" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8941176470588236"/>
+    <Command ID="791" Time="179093" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9137254901960784"/>
+    <Command ID="792" Time="179093" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9215686274509803"/>
+    <Command ID="793" Time="179125" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9294117647058824"/>
+    <Command ID="794" Time="179125" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9333333333333333"/>
+    <Command ID="795" Time="179125" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9372549019607843"/>
+    <Command ID="796" Time="179189" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9294117647058824"/>
+    <Command ID="797" Time="179189" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9137254901960784"/>
+    <Command ID="798" Time="179211" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8862745098039215"/>
+    <Command ID="799" Time="179211" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8549019607843137"/>
+    <Command ID="800" Time="179211" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.803921568627451"/>
+    <Command ID="801" Time="179243" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6941176470588235"/>
+    <Command ID="802" Time="179243" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6549019607843137"/>
+    <Command ID="803" Time="179243" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.596078431372549"/>
+    <Command ID="804" Time="179243" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5333333333333333"/>
+    <Command ID="805" Time="179275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.47058823529411764"/>
+    <Command ID="806" Time="179275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.40784313725490196"/>
+    <Command ID="807" Time="179275" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.34901960784313724"/>
+    <Command ID="808" Time="179307" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.29411764705882354"/>
+    <Command ID="809" Time="179307" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21176470588235294"/>
+    <Command ID="810" Time="179307" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.13333333333333333"/>
+    <Command ID="811" Time="179360" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.06666666666666667"/>
+    <Command ID="812" Time="179360" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.054901960784313725"/>
+    <Command ID="813" Time="179360" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.03529411764705882"/>
+    <Command ID="814" Time="179392" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.03137254901960784"/>
+    <Command ID="815" Time="179424" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.0392156862745098"/>
+    <Command ID="816" Time="179424" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.09411764705882353"/>
+    <Command ID="817" Time="179424" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.13333333333333333"/>
+    <Command ID="818" Time="179477" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4196078431372549"/>
+    <Command ID="819" Time="179477" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5137254901960784"/>
+    <Command ID="820" Time="179477" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5882352941176471"/>
+    <Command ID="821" Time="179499" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7490196078431373"/>
+    <Command ID="822" Time="179499" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8235294117647058"/>
+    <Command ID="823" Time="179531" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9058823529411765"/>
+    <Command ID="824" Time="179531" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9686274509803922"/>
+    <Command ID="825" Time="179531" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="1"/>
+    <Command ID="826" Time="179691" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.9294117647058824"/>
+    <Command ID="827" Time="179691" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.8470588235294118"/>
+    <Command ID="828" Time="179712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7647058823529411"/>
+    <Command ID="829" Time="179712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6745098039215687"/>
+    <Command ID="830" Time="179712" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5803921568627451"/>
+    <Command ID="831" Time="179744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5098039215686274"/>
+    <Command ID="832" Time="179744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4392156862745098"/>
+    <Command ID="833" Time="179744" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.3568627450980392"/>
+    <Command ID="834" Time="179776" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.28627450980392155"/>
+    <Command ID="835" Time="179776" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.21568627450980393"/>
+    <Command ID="836" Time="179776" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1607843137254902"/>
+    <Command ID="837" Time="179776" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.11372549019607843"/>
+    <Command ID="838" Time="179797" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.07058823529411765"/>
+    <Command ID="839" Time="179797" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.0392156862745098"/>
+    <Command ID="840" Time="179797" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.00784313725490196"/>
+    <Command ID="841" Time="179829" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0"/>
+    <Command ID="842" Time="179936" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.011764705882352941"/>
+    <Command ID="843" Time="179936" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.08627450980392157"/>
+    <Command ID="844" Time="179968" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.1843137254901961"/>
+    <Command ID="845" Time="179968" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.2901960784313726"/>
+    <Command ID="846" Time="179968" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.4117647058823529"/>
+    <Command ID="847" Time="179968" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.5372549019607843"/>
+    <Command ID="848" Time="179968" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.6588235294117647"/>
+    <Command ID="849" Time="179968" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="0.7764705882352941"/>
+    <Command ID="850" Time="180021" Action="SetSliderPosition" Control="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" Role="SubmasterSlider" Value="1"/>
+    <Command ID="851" Time="186123" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="852" Time="186539" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="853" Time="187797" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="854" Time="188992" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="855" Time="189515" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="856" Time="192779" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="857" Time="193259" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="858" Time="195819" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="859" Time="196053" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="860" Time="196235" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="861" Time="196405" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="862" Time="196587" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="863" Time="197013" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="On"/>
+    <Command ID="864" Time="197429" Action="SetButtonState" Control="{f0fe8e02-1721-4b78-93d4-081ad49e0189}" Role="ToggleButton" State="Off"/>
+    <Command ID="865" Time="202624" Action="SetSliderPosition" Control="{b0105785-e09c-45fb-a2d0-632f614a6a29}" Role="AdjustSlider" Value="1" Attribute="RGBMatrix:7"/>
+    <Command ID="866" Time="216618" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="867" Time="217062" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="868" Time="217642" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="869" Time="218089" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="870" Time="218462" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="871" Time="218675" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="872" Time="218856" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+    <Command ID="873" Time="219090" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="Off"/>
+    <Command ID="874" Time="219431" Action="SetButtonState" Control="{454bdaa8-7185-417b-a768-fdb30b4074ac}" Role="ToggleButton" State="On"/>
+   </CommandTrack>
+  </Function>
+  <Function ID="14" Type="Audio" Name="Ugo Banchi - Deep Control (Original Mix) 2025 [127 D Major].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="319396"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-09/Ugo Banchi - Deep Control (Original Mix) 2025 [127 D Major].mp3</Source>
+  </Function>
+  <Function ID="15" Type="Show" Name="Ugo Banchi - Deep Control (Original Mix)" Path="Songs">
+   <TimeDivision Type="VDJBeat" BPM="127"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="14" StartTime="0" Duration="319396" Color="#608053"/>
+   </Track>
+  </Function>
+  <Function ID="16" Type="Audio" Name="CamelPhat, Elderbrook, ARTBAT - Cola (ARTBAT Extended Remix) 2025 [125 F Minor].mp3" Path="Songs">
+   <Speed FadeIn="0" FadeOut="0" Duration="305280"/>
+   <RunOrder>SingleShot</RunOrder>
+   <Source>/Users/abossard/Library/CloudStorage/OneDrive-Personal/Music/ZZ_INCOMING/2026-09/CamelPhat, Elderbrook, ARTBAT - Cola (ARTBAT Extended Remix) 2025 [125 F Minor].mp3</Source>
+  </Function>
+  <Function ID="17" Type="Show" Name="CamelPhat, Elderbrook, ARTBAT - Cola (ARTBAT Extended Remix)" Path="Songs" LastPlayed="2026-10-03T23:36:41">
+   <TimeDivision Type="VDJBeat" BPM="125"/>
+   <Track ID="0" Name="Audio" isMute="0">
+    <ShowFunction ID="16" StartTime="0" Duration="305280" Color="#608053"/>
+   </Track>
+  </Function>
+  <Monitor DisplayMode="0" ShowLabels="0">
+   <Font>.AppleSystemUIFont,13,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+   <ChannelStyle>0</ChannelStyle>
+   <ValueStyle>0</ValueStyle>
+   <Grid Width="5" Height="3" Depth="5" Units="0" POV="2"/>
+   <StageItem>0</StageItem>
+   <FxItem ID="0" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="1" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+   <FxItem ID="2" XPos="0" YPos="0" ZPos="0" XRot="-90"/>
+  </Monitor>
+ </Engine>
+ <VirtualConsole>
+  <Frame Caption="SONG" ID="3">
+   <Appearance>
+    <Font>Roboto Condensed,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+   </Appearance>
+   <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1080"/>
+   <AllowResize>False</AllowResize>
+   <ShowHeader>False</ShowHeader>
+   <ShowEnableButton>True</ShowEnableButton>
+   <Collapsed>False</Collapsed>
+   <Disabled>False</Disabled>
+   <Frame Caption="FX" ID="10">
+    <WindowState Visible="True" X="15" Y="456" Width="594" Height="258"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Multipage PagesNum="2" CurrentPage="1" PagesLoop="True"/>
+    <Shortcut Page="0" Name="STROBE">
+     <Input ID="20" Universe="0" Channel="228" LowerValue="1" UpperValue="6"/>
+    </Shortcut>
+    <Shortcut Page="1" Name="BLINK">
+     <Input ID="21" Universe="0" Channel="229" LowerValue="1" UpperValue="3"/>
+    </Shortcut>
+    <Button Caption="BASSLASER" ID="16" Page="1">
+     <WindowState Visible="True" X="15" Y="45" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="2"/>
+     <Action>Toggle</Action>
+     <Input ID="0" Universe="0" Channel="65720" LowerValue="1" UpperValue="10" MonitorValue="16" LowerParams="6" UpperParams="15" MonitorParams="14"/>
+    </Button>
+    <Button Caption="STROBE" ID="12" RecordingID="{f0fe8e02-1721-4b78-93d4-081ad49e0189}">
+     <WindowState Visible="False" X="106" Y="45" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="3"/>
+     <Action>Toggle</Action>
+     <Input ID="0" Universe="0" Channel="184" LowerValue="1" UpperValue="66" MonitorValue="68" LowerParams="6" UpperParams="6" MonitorParams="6"/>
+    </Button>
+   </Frame>
+   <Frame Caption="MASTER" ID="7">
+    <Appearance>
+     <BackgroundColor>4278190080</BackgroundColor>
+    </Appearance>
+    <WindowState Visible="True" X="700" Y="15" Width="350" Height="274"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Button Caption="BLACKOUT" ID="8">
+     <WindowState Visible="True" X="15" Y="167" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4294901760</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action>Blackout</Action>
+    </Button>
+    <Button Caption="FREEZE" ID="9">
+     <WindowState Visible="True" X="121" Y="167" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4278190234</BackgroundColor>
+     </Appearance>
+     <Function ID="4294967295"/>
+     <Action>FreezeHold</Action>
+     <Input ID="0" Universe="0" Channel="235"/>
+    </Button>
+    <Slider Caption="Slider 16" ID="15" WidgetStyle="Slider" InvertedAppearance="false">
+     <WindowState Visible="True" X="258" Y="45" Width="76" Height="203"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Input ID="0" Universe="0" Channel="56"/>
+     <SliderMode ValueDisplayStyle="Percentage">GrandMaster</SliderMode>
+     <Level LowLimit="0" HighLimit="255" Value="0"/>
+    </Slider>
+   </Frame>
+   <Frame Caption="BACKGROUND" ID="1">
+    <WindowState Visible="True" X="15" Y="15" Width="594" Height="426"/>
+    <AllowResize>True</AllowResize>
+    <ShowHeader>True</ShowHeader>
+    <ShowEnableButton>True</ShowEnableButton>
+    <Collapsed>False</Collapsed>
+    <Disabled>False</Disabled>
+    <Button Caption="BLUEFLASH" ID="5" RecordingID="{3d9373ff-050b-4fe2-8a75-046fe7070bad}">
+     <WindowState Visible="True" X="198" Y="45" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="0"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="BLUESOAP" ID="4" RecordingID="{75f632d9-9515-4527-9bc0-343d8b2ad0b2}">
+     <WindowState Visible="True" X="106" Y="45" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="6"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Button Caption="PURPLERED" ID="3">
+     <WindowState Visible="True" X="15" Y="45" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="1"/>
+     <Action>Toggle</Action>
+    </Button>
+    <SpeedDial Caption="Speed 15" ID="14">
+     <WindowState Visible="True" X="30" Y="152" Width="406" Height="253"/>
+     <Visibility>644</Visibility>
+     <Time>164</Time>
+     <AbsoluteValue Minimum="0" Maximum="10000"/>
+     <Function FadeIn="0" FadeOut="0" Duration="6">7</Function>
+    </SpeedDial>
+    <Button Caption="BLUEPAT" ID="6" RecordingID="{f0e2b89b-2dc6-4a97-942c-8767890cb702}">
+     <WindowState Visible="True" X="289" Y="45" Width="86" Height="86"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <Function ID="7"/>
+     <Action>Toggle</Action>
+    </Button>
+    <Slider Caption="Slider 3" ID="2" RecordingID="{87737fae-eef3-4c8c-b37c-6a5f2aa22dea}" WidgetStyle="Slider" InvertedAppearance="false">
+     <WindowState Visible="True" X="472" Y="30" Width="60" Height="213"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <SliderMode ValueDisplayStyle="Percentage">Submaster</SliderMode>
+     <Level LowLimit="0" HighLimit="255" Value="178"/>
+    </Slider>
+    <Slider Caption="BLUEPAT" ID="13" RecordingID="{b0105785-e09c-45fb-a2d0-632f614a6a29}" WidgetStyle="Slider" InvertedAppearance="false">
+     <WindowState Visible="True" X="396" Y="30" Width="76" Height="203"/>
+     <Appearance>
+      <BackgroundColor>4282664004</BackgroundColor>
+     </Appearance>
+     <SliderMode ValueDisplayStyle="Exact">Adjust</SliderMode>
+     <Level LowLimit="0" HighLimit="1" Value="0"/>
+     <Adjust Attribute="7" Function="7"/>
+     <Flash/>
+    </Slider>
+   </Frame>
+  </Frame>
+  <Frame Caption="AUDIO" ID="1">
+   <Appearance>
+    <Font>Roboto Condensed,16,-1,5,400,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+   </Appearance>
+   <WindowState Visible="True" X="0" Y="0" Width="1920" Height="1080"/>
+   <AllowResize>False</AllowResize>
+   <ShowHeader>False</ShowHeader>
+   <ShowEnableButton>True</ShowEnableButton>
+   <Collapsed>False</Collapsed>
+   <Disabled>False</Disabled>
+   <AudioTriggers AudioProfileID="4294967295" Caption="Audio Trigger 1" ID="0">
+    <WindowState Visible="True" X="301" Y="275" Width="695" Height="474"/>
+    <Appearance>
+     <Font>Roboto Condensed,25,-1,5,700,0,0,0,0,0,0,0,0,0,0,1,,0,0</Font>
+    </Appearance>
+   </AudioTriggers>
+  </Frame>
+ </VirtualConsole>
+ <FlowConsole>
+  <FlowPage Name="Page 1"/>
+ </FlowConsole>
+</Workspace>

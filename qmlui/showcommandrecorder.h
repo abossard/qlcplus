@@ -26,10 +26,12 @@
 #include <QHash>
 #include <QSet>
 #include <QVector>
+#include <QPointF>
 #include <climits>
 #include <functional>
 
 #include "showcommandtrack.h"
+#include "showcontrolaction.h"
 #include "showeventlog.h"
 #include "scenevalue.h"
 #include "show.h"
@@ -48,12 +50,21 @@ struct ShowControlConfiguration
     ShowControlSnapshot snapshot;
     quint32 functionId = ShowCommand::InvalidId;
     QList<SceneValue> levelChannels;
+    int sliderClickAndGoType = -1;
+    QVariantMap nativeBinding;
+    QPointer<Function> functionLifetime;
+    QVector<QPointer<QObject>> nativeLifetimes;
+    qreal sliderLow = 0.0;
+    qreal sliderHigh = 255.0;
 
     bool operator==(const ShowControlConfiguration &other) const
     {
         return snapshot.role == other.snapshot.role && snapshot.attribute == other.snapshot.attribute &&
                snapshot.enabled == other.snapshot.enabled && snapshot.bound == other.snapshot.bound &&
-               functionId == other.functionId && levelChannels == other.levelChannels;
+               functionId == other.functionId && levelChannels == other.levelChannels &&
+               sliderClickAndGoType == other.sliderClickAndGoType &&
+               nativeBinding == other.nativeBinding && functionLifetime == other.functionLifetime &&
+               nativeLifetimes == other.nativeLifetimes;
     }
     bool operator!=(const ShowControlConfiguration &other) const { return !(*this == other); }
 };
@@ -101,8 +112,19 @@ struct ShowControlRequest
 {
     QPointer<VCWidget> control;
     ShowControlRole role = ShowControlRole::None;
+    bool buttonState = false;  //!< true for SetButtonState, false for SetSliderPosition
+    bool sliderColors = false; //!< true for SetSliderColors
+    bool sliderChannel = false;
+    bool sliderReset = false;  //!< true for SetSliderReset
+    bool xyPadPosition = false; //!< true for SetXYPadPosition
+    bool xyPadFloor = false;
+    bool animationFader = false; //!< true for SetAnimationFader
     bool on = false;            //!< ToggleButton: the desired state, normalized at acceptance
     int value = 0;              //!< sliders: the accepted value
+    QString attribute;          //!< SetSliderColors payload
+    QPointF xyPosition;         //!< SetXYPadPosition payload
+    ShowCommandFloor floorPosition;
+    ShowCommandInput nativeInput;
     bool updateFeedback = true; //!< sliders
     ShowCommandOrigin origin = ShowCommandOrigin::Pointer;
     quint32 acceptedTimeMs = 0;
@@ -173,7 +195,7 @@ public:
     /** Save boundary: publish the accepted input no Show has taken yet, and
      *  end those Shows and the take's Show at their content. Waits for no queued request; recording and
      *  playback go on. False, keeping every candidate, when a Show rejects it. */
-    bool checkpoint();
+    bool checkpoint(bool disarming = false);
 
     /** Drop the accepted input no Show has taken */
     void discardUnpublished();
@@ -343,6 +365,10 @@ public:
     /** editCommandText() of the session's single event. Text that is no valid
      *  value is refused and keeps the session, so the draft can be corrected. */
     Q_INVOKABLE bool commitCellText(const QString &field, const QString &text);
+    Q_INVOKABLE QVariantMap typedDraft(quint32 showId, quint32 id) const;
+    Q_INVOKABLE QVariantMap typedEditorInfo(quint32 id, const QString &algorithm) const;
+    Q_INVOKABLE QVariantMap previewTypedEdit(const QVariantMap &drafts) const;
+    Q_INVOKABLE bool commitTypedEdit(const QVariantMap &drafts);
     /** Ends the session, committing nothing; a reason (a deliberate selection
      *  change, a deleted target) is shown as lastError */
     Q_INVOKABLE void cancelEditSession(const QString &reason = QString());
@@ -402,13 +428,17 @@ private slots:
     /** Replay executor: a Show published crossed VC batches */
     void slotControlBatchesReady();
     void slotFunctionReceiptReady(quint64 traversal, quint64 opId);
-    void slotRecordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect);
+    void slotRecordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect,
+                                  const QString &reason);
+    void slotObservedControlDestroyed(QObject *object);
     void slotCommandTraversalCancelled();
     /** A Show stopped or changed its time source: its timeline facts end */
     void slotTimelineReset();
     void slotFunctionAdded(quint32 id);
     /** A Show's playback began or ended: the edit gate follows it */
     void slotShowPlayback();
+    /** A Show stopped: release replay-owned holds before timeline facts reset */
+    void slotShowStopped(quint32 sourceId);
     /** Follow the controls and functions the current rows show */
     void observeRowSources();
 
@@ -452,6 +482,9 @@ private:
     /** Editor publication of the candidate: the delta of the affected ids
      *  becomes one undo step. No live ids, errors are the user's to see. */
     bool publishEdit(Show *show, ShowCommandTrack candidate, const QVector<quint32> &affected);
+    /** After a live edit, align replay-owned hold effects with the authored
+     *  state at the current playhead so moved/deleted holds release at once. */
+    void reconcileReplayOwnedHoldsAtCursor(Show *show);
     /** Replace one command, for the value and state edits */
     bool replaceCommand(quint32 showId, quint32 id, const std::function<QString(ShowCommand &)> &change);
     /** Move the events by delta ms, keeping their order among themselves */
@@ -460,10 +493,14 @@ private:
 
     /** Hand a Show the accepted input it has not taken yet, if any, ending at
      *  its last command. A change it publishes is unsaved work. The Show keeps running while recording, never a saved tail. */
-    bool publishUnpublished(Show *show, QString *error);
+    bool publishUnpublished(Show *show, bool disarming, QString *error);
+    /** Save-only projection: checkpoint while REC stays on closes open holds
+     *  in the saved snapshot without mutating the live track. */
+    ShowCommandTrack projectedCheckpointTrack(Show *show, bool *projected) const;
+    void armCheckpointSaveProjection();
 
     /** checkpoint() without reporting: error names the last rejection */
-    bool publishAccepted(QString *error);
+    bool publishAccepted(bool disarming, QString *error);
 
     void setError(const QString &error);
 
@@ -492,7 +529,7 @@ private:
     /** The cause of the input or operation being handled now */
     ShowTraceCause currentCause() const;
     /** checkpoint() as one observed operation of its own */
-    bool publishCheckpoint(QString *error);
+    bool publishCheckpoint(bool disarming, QString *error);
     /** The explicit operation (checkpoint, handover) being handled now */
     const ShowTraceCause *m_operation = nullptr;
     void traceTransport(ShowEventLog::Outcome outcome, const QString &action, const QString &value,
@@ -525,6 +562,9 @@ private:
         QVector<QPair<ShowControlCoupling, ShowCommandFsm::ShowButtonOp>> unsettled;
         /** A rollback batch already applied its delta */
         bool rolledBack = false;
+        quint32 claimedCommand = ShowCommand::InvalidId;
+        QPointer<VCWidget> claimedControl;
+        ShowControlConfiguration claimedConfiguration;
     };
 
     /** One control around one timeline operation (a replayed op, or an
@@ -537,6 +577,15 @@ private:
         QPointer<VCWidget> control;
         int before;
         int after;
+        bool xyState = false;
+        QPointF xyBefore;
+        QPointF xyAfter;
+        ShowControlAction::State nativeBefore, nativeAfter;
+        bool conditionalOnStart = false;
+        bool superseded = false;
+        FunctionParent owner = FunctionParent::master();
+        bool ownerRecorded = false;
+        bool ownerBefore = false;
     };
     /** Every Show's timeline facts in the order they happened. Dropped after
      *  a rollback's time, and when the Show stops or switches its source. */
@@ -544,22 +593,22 @@ private:
     /** A control's affected closure, read before an operation: the control,
      *  the buttons of the Solo Frames its start reaches, or a Submaster's
      *  frame sliders. after is what a native start leaves a sibling in. */
-    QVector<TimelineFact> closureOf(VCWidget *control) const;
+    QVector<TimelineFact> closureOf(VCWidget *control, const FunctionParent &owner) const;
     /** Journal a closure once its operation applied: the control is read
      *  again, a button sibling takes the Solo effect only if started */
-    void journal(QVector<TimelineFact> closure, quint32 showId, quint32 time, bool started);
+    void journal(QVector<TimelineFact> closure, quint32 showId, quint32 time, bool started,
+                 const FunctionParent &owner, const ShowControlAction::Receipt &receipt);
     /** Return what this Show's timeline changed after the run's rollback time
      *  to its state before the first of those changes, as one delta */
     void rollBackTimeline(ControlRun &run);
     /** A replayed slider write the run waits for, then a start it may cause */
-    void awaitRecordedWrite(ControlRun &run, VCSlider *slider, quint64 generation);
-    void expectSliderStart(ControlRun &run, VCSlider *slider);
+    void awaitRecordedWrite(ControlRun &run, VCWidget *control, quint64 generation);
 
     /** Replay executor: every Show hands its batches here, selected or not */
     void attachShow(Show *show);
     /** Re-resolved by identity at every step, nullptr unless Ready */
     VCWidget *resolveControl(const ShowCommand &cmd) const;
-    ShowControlConfiguration configurationOf(VCWidget *widget) const;
+    ShowControlConfiguration configurationOf(VCWidget *widget, const ShowCommandInput *input = nullptr) const;
     /** What the control's native operation acts on now, for display */
     QString bindingText(VCWidget *widget) const;
     /** control may be nullptr for a start that no control made */
@@ -618,6 +667,21 @@ private:
      *  deletion) keeps them unissued, since the editor's undo history may
      *  still name them */
     QHash<quint32, QPair<quint32, quint32>> m_eventIdFloors;
+    /** Replay-owned FreezeHold controls currently active per show. */
+    QHash<quint32, QSet<QUuid>> m_replayFreezeHolds;
+    /** Replay-owned Flash button controls currently active per show. */
+    QHash<quint32, QSet<QUuid>> m_replayFlashButtons;
+    /** Replay-owned slider flash controls currently active per show. */
+    QHash<quint32, QSet<QUuid>> m_replaySliderFlashes;
+    /** User-owned FreezeHold controls currently active. */
+    QSet<quint32> m_userFreezeHolds;
+    /** User-owned Flash button holds currently active. */
+    QSet<quint32> m_userFlashHolds;
+    /** User-owned slider flash holds currently active. */
+    QSet<quint32> m_userSliderFlashHolds;
+    /** User-owned global latch intent that stays authoritative until next recorded change. */
+    QHash<quint32, bool> m_userFreezeIntent;
+    QHash<quint32, bool> m_userBlackoutIntent;
     void rememberEventIds(const Show *show);
     int m_editSerial = 0;
 
@@ -627,6 +691,8 @@ private:
         QPointer<Show> show;
         QVector<quint32> ids;
         QVector<ShowCommand> basis;
+        QHash<quint32, QVariantMap> floorMetadata;
+        QHash<quint32, ShowControlConfiguration> nativeMetadata;
     };
     EditSession m_session;
     QString m_sessionEndReason;

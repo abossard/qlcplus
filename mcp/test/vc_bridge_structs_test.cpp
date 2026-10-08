@@ -32,7 +32,7 @@ void VCBridgeStructs_Test::widgetDetails_defaultValues()
     QVERIFY(d.type.isEmpty());
     QVERIFY(d.caption.isEmpty());
     QCOMPARE(d.geometry, QRect());
-    QCOMPARE(d.functionID, (quint32)0);
+    QCOMPARE(d.functionID, (quint32)-1);
     QVERIFY(d.action.isEmpty());
     QVERIFY(d.sliderMode.isEmpty());
     QVERIFY(d.channels.isEmpty());

@@ -105,7 +105,7 @@ void ScriptTool_Test::create_simpleScript()
 {
     auto result = callCreateScript("Hello", "Engine.setBlackout(true);");
     QVERIFY(result.contains("id"));
-    QCOMPARE(result["status"].get<std::string>(), std::string("created"));
+    QCOMPARE(result["outcome"].get<std::string>(), std::string("created"));
 
     Function *fn = mcp::findFunction(m_doc, "Hello", Function::ScriptType);
     QVERIFY(fn != nullptr);
@@ -117,11 +117,11 @@ void ScriptTool_Test::create_simpleScript()
 void ScriptTool_Test::create_upsertReplaces()
 {
     auto r1 = callCreateScript("Upsert", "Engine.setBPM(120);");
-    QCOMPARE(r1["status"].get<std::string>(), std::string("created"));
+    QCOMPARE(r1["outcome"].get<std::string>(), std::string("created"));
     int id1 = r1["id"].get<int>();
 
     auto r2 = callCreateScript("Upsert", "Engine.setBPM(140);");
-    QCOMPARE(r2["status"].get<std::string>(), std::string("updated"));
+    QCOMPARE(r2["outcome"].get<std::string>(), std::string("updated"));
     QCOMPARE(r2["id"].get<int>(), id1);
 
     Script *s = qobject_cast<Script*>(m_doc->function(id1));
@@ -146,7 +146,7 @@ void ScriptTool_Test::create_missingContentRejected()
 void ScriptTool_Test::create_withPath()
 {
     auto result = callCreateScript("Pathed", "Engine.setBlackout(false);", "Utilities/Scripts");
-    QCOMPARE(result["status"].get<std::string>(), std::string("created"));
+    QCOMPARE(result["outcome"].get<std::string>(), std::string("created"));
 
     Script *s = qobject_cast<Script*>(mcp::findFunction(m_doc, "Pathed", Function::ScriptType));
     QVERIFY(s != nullptr);
@@ -211,7 +211,7 @@ void ScriptTool_Test::syntax_rejectedUpdateRestoresOriginal()
     QVERIFY(r1.contains("id"));
 
     // Try to update with invalid JS — should fail and restore
-    auto r2 = callCreateScript("Restore", "{{{{invalid}}}}");
+    auto r2 = callCreateScript("Restore", "{{{{invalid");
     QVERIFY(r2.contains("error"));
 
     // Original content should be preserved
@@ -872,6 +872,40 @@ void ScriptTool_Test::edge_whiteSpaceOnly()
     // Whitespace-only is technically valid JS (empty statements)
     auto r = callCreateScript("Whitespace", "   \n  \n  ");
     QVERIFY2(!r.contains("error"), r.dump().c_str());
+}
+
+void ScriptTool_Test::syntax_nativeCompileOnly_data()
+{
+    QTest::addColumn<QString>("content");
+    QTest::addColumn<QString>("error");
+
+    QTest::newRow("valid") << "var x = 1;\nEngine.waitTime(x);" << "";
+    QTest::newRow("runtime throw is not a syntax error") << "throw new Error('boom');" << "";
+    QTest::newRow("runtime reference error") << "undefinedThing();" << "";
+    QTest::newRow("top-level return is a valid body") << "return;" << "";
+    QTest::newRow("nonterminating body is not run") << "while (true) {}" << "";
+    QTest::newRow("syntax error on line 1") << "var x = {;" << "Uncaught exception at line 1. SyntaxError";
+    QTest::newRow("syntax error on line 3") << "var a = 1;\nvar b = 2;\nvar x = {;" << "Uncaught exception at line 3. SyntaxError";
+    QTest::newRow("body cannot close the wrapper") << "}); Engine.setBPM(1); (function() {" << "Uncaught exception at line 1. SyntaxError";
+    QTest::newRow("trailing line comment breaks the runtime wrapper") << "var x = 1; // done" << "Uncaught exception at line 1. SyntaxError";
+}
+
+// Script::syntaxErrorsLines() must compile the body without running it
+void ScriptTool_Test::syntax_nativeCompileOnly()
+{
+    QFETCH(QString, content);
+    QFETCH(QString, error);
+
+    Script scr(m_doc);
+    scr.setData(content);
+    const QStringList errors = scr.syntaxErrorsLines();
+    if (error.isEmpty())
+    {
+        QVERIFY2(errors.isEmpty(), qPrintable(errors.join("; ")));
+        return;
+    }
+    QCOMPARE(errors.size(), 1);
+    QVERIFY2(errors.first().startsWith(error), qPrintable(errors.first()));
 }
 
 QTEST_MAIN(ScriptTool_Test)

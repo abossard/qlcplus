@@ -40,6 +40,8 @@ using Json = nlohmann::json;
 
 namespace {
 
+constexpr int kOmitLine = -1000;
+
 Json parsed(const Json &value)
 {
     if (value.is_string())
@@ -73,6 +75,64 @@ Fixture *patchFixture(Doc *doc, const QString &name, quint32 universe, quint32 a
     return fxi;
 }
 
+}
+
+void McpIoTools_Test::ioTools_invalidNumber_rejected_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("argsJson");
+    QTest::addColumn<QString>("field");
+
+    QTest::newRow("delete wrapping id") << "delete_universes" << QByteArray(R"({"ids":[4294967296]})") << "ids";
+    QTest::newRow("delete fractional id") << "delete_universes" << QByteArray(R"({"ids":[0.5]})") << "ids";
+    QTest::newRow("osc wrapping universe") << "configure_osc"
+        << QByteArray(R"({"items":[{"universeID":4294967296}]})") << "universeID";
+    QTest::newRow("osc oversized port") << "configure_osc"
+        << QByteArray(R"({"items":[{"universeID":0,"inputPort":70000}]})") << "inputPort";
+    QTest::newRow("osc fractional port") << "configure_osc"
+        << QByteArray(R"({"items":[{"universeID":0,"outputPort":9000.5}]})") << "outputPort";
+    QTest::newRow("osc string flag") << "configure_osc"
+        << QByteArray(R"({"items":[{"universeID":0,"inputEnabled":"yes"}]})") << "inputEnabled";
+    QTest::newRow("osc numeric ip") << "configure_osc"
+        << QByteArray(R"({"items":[{"universeID":0,"outputIP":5}]})") << "outputIP";
+    QTest::newRow("plugin params wrapping universe") << "configure_plugin_params"
+        << QByteArray(R"({"items":[{"universeID":4294967296,"plugin":"None","params":{}}]})") << "universeID";
+    QTest::newRow("plugin params non-string plugin") << "configure_plugin_params"
+        << QByteArray(R"({"items":[{"universeID":0,"plugin":5,"params":{}}]})") << "plugin";
+    QTest::newRow("input profile fractional universe") << "set_input_profile"
+        << QByteArray(R"({"items":[{"universeID":0.5,"profileName":"x"}]})") << "universeID";
+    QTest::newRow("input profile unknown name") << "set_input_profile"
+        << QByteArray(R"({"items":[{"universeID":0,"profileName":"Missing Profile"}]})") << "profile";
+    QTest::newRow("feedback profile wrapping universe") << "query_feedback_profile"
+        << QByteArray(R"({"universeID":4294967296})") << "universeID";
+    QTest::newRow("beat fractional bpm") << "configure_beat_source"
+        << QByteArray(R"({"type":"internal","bpm":120.5})") << "bpm";
+    QTest::newRow("beat string bpm") << "configure_beat_source"
+        << QByteArray(R"({"type":"internal","bpm":"120"})") << "bpm";
+}
+
+void McpIoTools_Test::ioTools_invalidNumber_rejected()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, argsJson);
+    QFETCH(QString, field);
+    Doc doc(this);
+    const int universes = doc.inputOutputMap()->universesCount();
+    const auto beatType = doc.inputOutputMap()->beatGeneratorType();
+    fastmcpp::tools::ToolManager tm;
+    registerIOTools(tm, &doc);
+
+    const Json result = parsed(tm.invoke(tool.toStdString(), Json::parse(argsJson.constData())));
+    const Json &record = result.is_array() && result.size() == 1 ? result[0] : result;
+    QVERIFY2(record.is_object() && record.contains("error"), result.dump().c_str());
+    QVERIFY2(QString::fromStdString(record["error"].get<std::string>()).contains(field), result.dump().c_str());
+    if (result.is_array())
+    {
+        QCOMPARE(record.value("index", -1), 0);
+        QCOMPARE(record.value("status", std::string()), std::string("error"));
+    }
+    QCOMPARE(int(doc.inputOutputMap()->universesCount()), universes);
+    QCOMPARE(doc.inputOutputMap()->beatGeneratorType(), beatType);
 }
 
 void McpIoTools_Test::cleanup()
@@ -171,6 +231,13 @@ void McpIoTools_Test::configureUniverses_invalidId_rejected_data()
     QTest::newRow("above 127")  << QStringLiteral(R"({"universeID": 128})");
     QTest::newRow("not an int") << QStringLiteral(R"({"universeID": "two"})");
     QTest::newRow("fractional") << QStringLiteral(R"({"universeID": 1.5})");
+    QTest::newRow("name not string") << QStringLiteral(R"({"universeID": 5, "name": 5})");
+    QTest::newRow("passthrough not bool") << QStringLiteral(R"({"universeID": 5, "passthrough": "yes"})");
+    QTest::newRow("feedback not bool") << QStringLiteral(R"({"universeID": 5, "feedbackEnabled": 1})");
+    QTest::newRow("fractional inputLine") << QStringLiteral(R"({"universeID": 5, "inputPlugin": "None", "inputLine": 1.5})");
+    QTest::newRow("inputPlugin not string") << QStringLiteral(R"({"universeID": 5, "inputPlugin": 1, "inputLine": 0})");
+    QTest::newRow("string outputLine") << QStringLiteral(R"({"universeID": 5, "outputPlugin": "x", "outputLine": "1"})");
+    QTest::newRow("outputLine without plugin") << QStringLiteral(R"({"universeID": 5, "outputLine": 1})");
 }
 
 void McpIoTools_Test::configureUniverses_invalidId_rejected()
@@ -180,8 +247,29 @@ void McpIoTools_Test::configureUniverses_invalidId_rejected()
     m_doc = new Doc(this, 4);
     Json result = configureUniverses(m_doc, Json::array({Json::parse(item.toStdString())}));
 
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
     QVERIFY2(result[0].contains("error"), result[0].dump().c_str());
+    QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+    QCOMPARE(result[0].value("index", -1), 0);
     QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), 4);
+}
+
+void McpIoTools_Test::configureUniverses_feedbackDisabled()
+{
+    m_doc = new Doc(this, 4);
+    QDir pluginDir(IOPLUGINSTUB_DIR);
+    pluginDir.setFilter(QDir::Files);
+    pluginDir.setNameFilters(QStringList() << QString("*%1").arg(KExtPlugin));
+    m_doc->ioPluginCache()->load(pluginDir);
+    QLCIOPlugin *stub = m_doc->ioPluginCache()->plugins().at(0);
+    InputOutputMap *ioMap = m_doc->inputOutputMap();
+    QVERIFY(ioMap->setInputPatch(0, stub->name(), "", "", 0));
+    QVERIFY(ioMap->setOutputPatch(0, stub->name(), "", "", 0, true));
+    QVERIFY(ioMap->feedbackPatch(0) != nullptr);
+
+    Json result = configureUniverses(m_doc, Json::array({{{"universeID", 0}, {"feedbackEnabled", false}}}));
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QVERIFY2(ioMap->feedbackPatch(0) == nullptr, "feedbackEnabled:false must remove the feedback patch");
 }
 
 // ─── configure_universes: input patch ──────────────────────────────────────
@@ -201,6 +289,8 @@ void McpIoTools_Test::configureUniverses_inputPatch_data()
     QTest::newRow("unknown invalidLine keeps patch") << true << "NoSuchPlugin" << -1 << "unknown input plugin: NoSuchPlugin" << 0;
     QTest::newRow("unknown when unpatched")      << false << "NoSuchPlugin" << 0  << "unknown input plugin: NoSuchPlugin" << -1;
     QTest::newRow("valid repatch")               << true  << "<stub>"       << 2  << QString() << 2;
+    QTest::newRow("None without line removes")   << true  << "None"         << kOmitLine << QString() << -1;
+    QTest::newRow("plugin without line rejected") << true << "<stub>"       << kOmitLine << "inputLine is required with inputPlugin" << 0;
 }
 
 void McpIoTools_Test::configureUniverses_inputPatch()
@@ -228,10 +318,10 @@ void McpIoTools_Test::configureUniverses_inputPatch()
     InputPatch *before = ioMap->inputPatch(0);
     InputPatch *other = ioMap->inputPatch(1);
 
-    Json result = configureUniverses(m_doc, Json::array({
-        {{"universeID", 0}, {"name", "Renamed"},
-         {"inputPlugin", inputPlugin.toStdString()}, {"inputLine", inputLine}}
-    }));
+    Json item = {{"universeID", 0}, {"name", "Renamed"}, {"inputPlugin", inputPlugin.toStdString()}};
+    if (inputLine != kOmitLine)
+        item["inputLine"] = inputLine;
+    Json result = configureUniverses(m_doc, Json::array({item}));
 
     QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
     QCOMPARE(result[0].value("universeID", -1), 0);
@@ -244,7 +334,7 @@ void McpIoTools_Test::configureUniverses_inputPatch()
     else
     {
         QCOMPARE(result[0].value("error", std::string()), expectedError.toStdString());
-        QVERIFY2(!result[0].contains("status"), result[0].dump().c_str());
+        QCOMPARE(result[0].value("status", std::string()), std::string("error"));
         QVERIFY(ioMap->universe(0)->name() != QString("Renamed"));
         QCOMPARE(ioMap->inputPatch(0), before);
     }
@@ -273,7 +363,8 @@ void McpIoTools_Test::deleteUniverses_trailing_removesAndReports()
     Json result = deleteUniverses(m_doc, Json::array({3}));
 
     QCOMPARE(result.size(), (size_t)1);
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), 3);
 }
 
@@ -287,7 +378,7 @@ void McpIoTools_Test::deleteUniverses_batchOutOfOrder_removesBoth()
 
     QCOMPARE(result.size(), (size_t)2);
     for (auto &entry : result)
-        QVERIFY2(entry.value("status", std::string()) == "deleted", entry.dump().c_str());
+        QVERIFY2(entry.value("outcome", std::string()) == "deleted", entry.dump().c_str());
     QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), 2);
 }
 
@@ -311,8 +402,11 @@ void McpIoTools_Test::deleteUniverses_duplicateIds_deletedOnce()
 
     Json result = deleteUniverses(m_doc, Json::array({3, 3}));
 
-    QCOMPARE(result.size(), (size_t)1);
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    // One record per input; only the first claims the physical deletion.
+    QCOMPARE(result.size(), (size_t)2);
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
+    QCOMPARE(result[1].value("outcome", std::string()), std::string("duplicate"));
+    QCOMPARE(result[1].value("duplicateOf", -1), 0);
     QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), 3);
 }
 
@@ -389,13 +483,50 @@ void McpIoTools_Test::createdUniverses_surviveXmlRoundTrip()
     QCOMPARE(reloaded.inputOutputMap()->universe(3)->passthrough(), true);
 }
 
+void McpIoTools_Test::deleteUniverses_perInputRecords_data()
+{
+    QTest::addColumn<QByteArray>("idsJson");
+    QTest::addColumn<QStringList>("expected"); // "ok:<outcome>" or "error:<substring>"
+    QTest::addColumn<int>("remaining");
+
+    QTest::newRow("ascending") << QByteArray("[2,3]") << QStringList{"ok:deleted", "ok:deleted"} << 2;
+    QTest::newRow("duplicate") << QByteArray("[3,3]") << QStringList{"ok:deleted", "ok:duplicate"} << 3;
+    QTest::newRow("mixed") << QByteArray("[3,9,1]")
+        << QStringList{"ok:deleted", "error:not found", "error:only the last"} << 3;
+    QTest::newRow("invalid kind continues") << QByteArray("[3,0.5]")
+        << QStringList{"ok:deleted", "error:integer"} << 3;
+    QTest::newRow("duplicate of failure") << QByteArray("[1,1]")
+        << QStringList{"error:only the last", "error:only the last"} << 4;
+}
+
+void McpIoTools_Test::deleteUniverses_perInputRecords()
+{
+    QFETCH(QByteArray, idsJson);
+    QFETCH(QStringList, expected);
+    QFETCH(int, remaining);
+    m_doc = new Doc(this, 4);
+
+    const Json result = deleteUniverses(m_doc, Json::parse(idsJson.constData()));
+    QVERIFY2(result.is_array() && result.size() == size_t(expected.size()), result.dump().c_str());
+    for (int i = 0; i < expected.size(); i++)
+    {
+        const QStringList want = expected[i].split(':');
+        QCOMPARE(result[i].value("index", -1), i);
+        QCOMPARE(QString::fromStdString(result[i].value("status", std::string())), want[0]);
+        const QString got = QString::fromStdString(result[i].value(want[0] == "ok" ? "outcome" : "error", std::string()));
+        QVERIFY2(got.contains(want[1]), result.dump().c_str());
+    }
+    QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), remaining);
+}
+
 void McpIoTools_Test::deleteUniverses_unknownId_notFound()
 {
     m_doc = new Doc(this, 4);
 
     Json result = deleteUniverses(m_doc, Json::array({9}));
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("not found"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+    QVERIFY2(result[0].value("error", std::string()).find("not found") != std::string::npos, result.dump().c_str());
     QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), 4);
 }
 

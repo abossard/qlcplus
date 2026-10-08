@@ -27,6 +27,7 @@
 #include <QFont>
 #include <QSize>
 #include <QMap>
+#include <QMutex>
 
 class Fixture;
 class QXmlStreamReader;
@@ -115,11 +116,11 @@ public:
     enum StageType { StageSimple, StageBox, StageRock, StageTheatre };
 
     /** Get/Set the size of the grid in 2D display mode */
-    inline void setGridSize(QVector3D size) { m_gridSize = size; }
+    void setGridSize(QVector3D size);
     inline QVector3D gridSize() const { return m_gridSize; }
 
     /** Get/Set the grid measurement units to use in 2D display mode */
-    inline void setGridUnits(GridUnits units) { m_gridUnits = units; }
+    void setGridUnits(GridUnits units);
     inline GridUnits gridUnits() const { return m_gridUnits; }
 
     /** Get/Set the point of view to render the 2D preview */
@@ -202,7 +203,7 @@ public:
 
     /** Get/Set all the Fixture item properties of a Fixture with ID $fid */
     inline FixturePreviewItem fixtureProperties(quint32 fid) const { return m_fixtureItems[fid]; }
-    inline void setFixtureProperties(quint32 fid, FixturePreviewItem props) { m_fixtureItems[fid] = props; }
+    void setFixtureProperties(quint32 fid, FixturePreviewItem props);
 
     /** Get/Set a single Fixture item property with the given $fid, $head and $linked index */
     PreviewItem fixtureItem(quint32 fid, quint16 head, quint16 linked) const;
@@ -214,7 +215,16 @@ public:
     /** Return a list of the base ID and sub IDs for a fixture with the given $fid */
     QList<quint32> fixtureIDList(quint32 fid) const;
 
+signals:
+    void floorProjectionChanged();
+
 private:
+    friend class VCXYPad;
+    // The native floor writer holds this from identity validation through output.
+    mutable QMutex m_floorProjectionMutex;
+    QMap<quint32, quint64> m_fixtureProjectionRevisions;
+    quint64 m_environmentProjectionRevision = 0;
+    quint64 m_beamProjectionRevision = 0;
     bool m_showLabels;
     QMap <quint32, FixturePreviewItem> m_fixtureItems;
 

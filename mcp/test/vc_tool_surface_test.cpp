@@ -22,6 +22,7 @@ public:
         WidgetDetails frame;
         frame.id = 42;
         frame.type = "Frame";
+        frame.machineType = "frame";
         frame.multipageMode = true;
         frame.currentPage = 0;
         frame.totalPages = 3;
@@ -39,6 +40,7 @@ public:
         WidgetDetails button;
         button.id = 100;
         button.type = "Button";
+        button.machineType = "button";
         button.parentID = parentID;
         button.geometry = geometry;
         button.functionID = functionID;
@@ -66,9 +68,9 @@ public:
             return details.value(widgetID);
         WidgetDetails details;
         details.id = widgetID;
-        if (widgetID == 1) details.type = "XY Pad";
-        else if (widgetID == 2) details.type = "Frame";
-        else if (widgetID == 3) details.type = "Audio Triggers";
+        if (widgetID == 1) { details.type = "XY Pad"; details.machineType = "xypad"; }
+        else if (widgetID == 2) { details.type = "Frame"; details.machineType = "frame"; }
+        else if (widgetID == 3) { details.type = "Audio Triggers"; details.machineType = "audioTrigger"; }
         else details.id = -1;
         return details;
     }
@@ -80,7 +82,7 @@ public:
                             const QString &caption) const override
     {
         for (const WidgetDetails &entry : details)
-            if (entry.parentID == parentID && entry.type == type && entry.caption == caption)
+            if (entry.parentID == parentID && entry.machineType == type && entry.caption == caption)
                 return entry.id;
         return -1;
     }
@@ -113,6 +115,12 @@ public:
         ++configurationCalls;
         details[widgetID].action = action;
         return true;
+    }
+    bool configureButton(int widgetID, const ButtonConfig &config) override
+    {
+        if (!config.action.has_value())
+            return details.contains(widgetID);
+        return setButtonAction(widgetID, *config.action);
     }
 
     int actuationCalls = 0;
@@ -226,7 +234,7 @@ void VCToolSurface_Test::childPageIndex_createAndUpsert_preservesCurrentPage()
     }})}};
 
     const Json created = parsedToolResult(tm.invoke("vc_create_widgets", args));
-    QCOMPARE(created[0]["status"].get<std::string>(), std::string("created"));
+    QCOMPARE(created[0]["outcome"].get<std::string>(), std::string("created"));
     const int widgetID = created[0]["widgetID"].get<int>();
     Json queried = parsedToolResult(
         tm.invoke("vc_query_widgets", {{"widgetIDs", Json::array({widgetID, 42})}}));
@@ -234,7 +242,7 @@ void VCToolSurface_Test::childPageIndex_createAndUpsert_preservesCurrentPage()
     QCOMPARE(queried[1]["currentPage"].get<int>(), 0);
 
     const Json repeated = parsedToolResult(tm.invoke("vc_create_widgets", args));
-    QCOMPARE(repeated[0]["status"].get<std::string>(), std::string("existing"));
+    QCOMPARE(repeated[0]["outcome"].get<std::string>(), std::string("existing"));
     queried = parsedToolResult(tm.invoke("vc_query_widgets", {{"widgetIDs", Json::array({widgetID, 42})}}));
     QCOMPARE(queried[0]["childPageIndex"].get<int>(), 1);
     QCOMPARE(queried[1]["currentPage"].get<int>(), 0);
@@ -264,6 +272,7 @@ void VCToolSurface_Test::invalidChildPageIndex_rejectedBeforeCreateOrUpsert()
         VCBridge::WidgetDetails slider;
         slider.id = 101;
         slider.type = "Slider";
+        slider.machineType = "slider";
         slider.parentID = 42;
         slider.caption = "Existing Slider";
         slider.childPageIndex = 1;
@@ -335,6 +344,7 @@ void VCToolSurface_Test::freezeAction_captionUpsertKeepsIdentity()
     VCBridge::WidgetDetails existing;
     existing.id = 200;
     existing.type = "Button";
+    existing.machineType = "button";
     existing.parentID = 42;
     existing.caption = "Hold the look";
     existing.action = "toggle";
@@ -348,7 +358,7 @@ void VCToolSurface_Test::freezeAction_captionUpsertKeepsIdentity()
     const Json created = parsedToolResult(tm.invoke("vc_create_widgets", {{"items", Json::array({{
         {"type", "button"}, {"parentID", 42}, {"caption", "Hold the look"}, {"action", "freeze"}
     }})}}));
-    QCOMPARE(created[0]["status"].get<std::string>(), std::string("existing"));
+    QCOMPARE(created[0]["outcome"].get<std::string>(), std::string("existing"));
     QCOMPARE(created[0]["widgetID"].get<int>(), 200);
     QCOMPARE(bridge.creationCalls, 0);
     QCOMPARE(bridge.details.value(200).action, QString("toggle"));
@@ -386,6 +396,7 @@ void VCToolSurface_Test::invalidButtonAction_rejectedBeforeMutation()
     VCBridge::WidgetDetails button;
     button.id = 100;
     button.type = "Button";
+    button.machineType = "button";
     button.caption = "Original Button";
     button.action = "toggle";
     bridge.details.insert(button.id, button);
@@ -393,6 +404,7 @@ void VCToolSurface_Test::invalidButtonAction_rejectedBeforeMutation()
     VCBridge::WidgetDetails sibling;
     sibling.id = 101;
     sibling.type = "Button";
+    sibling.machineType = "button";
     sibling.caption = "Original Sibling";
     sibling.action = "toggle";
     bridge.details.insert(sibling.id, sibling);
@@ -400,6 +412,7 @@ void VCToolSurface_Test::invalidButtonAction_rejectedBeforeMutation()
     VCBridge::WidgetDetails slider;
     slider.id = 102;
     slider.type = "Slider";
+    slider.machineType = "slider";
     slider.caption = "Original Slider";
     bridge.details.insert(slider.id, slider);
 

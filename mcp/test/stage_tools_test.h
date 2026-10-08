@@ -61,6 +61,8 @@ private slots:
     void createChannelGroups_preservesChannelOrder();
     void createChannelGroups_channelOutOfRange_rejectedWholesale();
     void createChannelGroups_unknownFixture_rejected();
+    void stage_wrappingFixtureId_rejected_data();
+    void stage_wrappingFixtureId_rejected();
     void queryChannelGroups_reportsMembers();
     void deleteChannelGroups_removesGroupKeepsFixtures();
     void channelGroups_surviveXmlRoundTrip();

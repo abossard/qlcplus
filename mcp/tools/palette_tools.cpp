@@ -24,6 +24,7 @@
 #include "scene.h"
 
 #include <QRegularExpression>
+#include <map>
 #include <QColor>
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -47,6 +48,73 @@ QLCPalette::PaletteType stringToPaletteType(const std::string &s)
     return QLCPalette::stringToType(QString::fromStdString(s));
 }
 
+using Json = nlohmann::json;
+
+// Parses one create_palettes item into palette values without touching the Doc.
+// Returns an error message, or empty on success.
+std::string parsePaletteValues(const Json &item, QLCPalette::PaletteType ptype, QVariantList &values)
+{
+    auto integer = [&](const char *key, int64_t def, int64_t lo, int64_t hi, std::string &err) -> QVariant {
+        if (!item.contains(key)) return QVariant(int(def));
+        auto v = mcp::jsonInteger(item.at(key), lo, hi);
+        if (!v) { err = mcp::integerError(key, lo, hi); return QVariant(); }
+        return QVariant(int(*v));
+    };
+    auto number = [&](const char *key, std::string &err) -> QVariant {
+        if (!item.contains(key)) return QVariant(0.0);
+        const Json &v = item.at(key);
+        if (!v.is_number() || !std::isfinite(v.get<double>()))
+        {
+            err = std::string(key) + " must be a finite number";
+            return QVariant();
+        }
+        return QVariant(v.get<double>());
+    };
+    auto color = [&](const char *key, const char *def, std::string &err) -> QColor {
+        if (!item.contains(key)) return QColor(def);
+        const Json &v = item.at(key);
+        QColor c = v.is_string() ? QColor(QString::fromStdString(v.get<std::string>())) : QColor();
+        if (!c.isValid()) err = std::string(key) + " must be a color string like '#rrggbb'";
+        return c;
+    };
+
+    std::string err;
+    switch (ptype)
+    {
+        case QLCPalette::Dimmer: values << integer("value", 255, 0, 255, err); break;
+        case QLCPalette::Color:
+        {
+            QColor rgb = color("rgb", "#ffffff", err);
+            QColor wauv = color("wauv", "#000000", err);
+            values << QVariant(QLCPalette::colorToString(rgb, wauv));
+        }
+        break;
+        case QLCPalette::Pan: values << number("panDegrees", err); break;
+        case QLCPalette::Tilt: values << number("tiltDegrees", err); break;
+        case QLCPalette::PanTilt: values << number("panDegrees", err) << number("tiltDegrees", err); break;
+        case QLCPalette::Position3D: values << number("x", err) << number("y", err) << number("z", err); break;
+        case QLCPalette::Shutter: values << integer("value", 0, 0, 255, err) << integer("value2", 0, 0, 100, err); break;
+        case QLCPalette::Gobo: values << integer("value", 0, 0, 255, err); break;
+        case QLCPalette::Zoom:
+        {
+            // Zoom degrees may be fractional (the GUI authors them that way);
+            // whole numbers stay ints so existing readback is unchanged.
+            if (item.contains("value") && item.at("value").is_number_float())
+            {
+                QVariant v = number("value", err);
+                if (err.empty() && (v.toDouble() < 0 || v.toDouble() > 360))
+                    err = "value must be a number in [0, 360]";
+                values << v;
+            }
+            else
+                values << integer("value", 0, 0, 360, err);
+        }
+        break;
+        default: break;
+    }
+    return err;
+}
+
 } // anonymous namespace
 
 void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
@@ -64,7 +132,7 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
                 {"name", {{"type", "string"}, {"description", "Palette name (required)"}}},
                 {"type", {{"type", "string"}, {"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Position3D", "Shutter", "Gobo", "Zoom"}}, {"description", typeDesc}}},
-                {"value", {{"type", "integer"}, {"description", "Dimmer intensity 0-255; the single value for Gobo and Zoom; the shutter preset for Shutter"}}},
+                {"value", {{"type", "number"}, {"description", "Integer for Dimmer intensity 0-255, Gobo, and the Shutter preset; Zoom degrees 0-360 may be fractional"}}},
                 {"value2", {{"type", "integer"}, {"description", "Shutter percentage 0-100; used with `value` as the shutter preset"}}},
                 {"panDegrees", {{"type", "number"}, {"description", "Pan degrees (Pan or PanTilt type)"}}},
                 {"tiltDegrees", {{"type", "number"}, {"description", "Tilt degrees (Tilt or PanTilt type)"}}},
@@ -84,20 +152,22 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             if (itemsErr) return *itemsErr;
 
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
+                const Json &item = items[i];
+                if (!item.is_object()) { results.push_back(mcp::itemError(i, "item must be an object")); continue; }
                 auto itemErr = validateFields(item, {"name", "type", "value", "value2", "panDegrees", "tiltDegrees", "rgb", "wauv", "x", "y", "z"});
-                if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
-
-                static const Json kEnums = {
-                    {"type", {{"enum", {"Dimmer", "Color", "Pan", "Tilt", "PanTilt", "Position3D", "Shutter", "Gobo", "Zoom"}}}}
-                };
-                itemErr = validateEnums(item, kEnums);
-                if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
+                if (!itemErr.empty()) { results.push_back(mcp::itemErrorFromDump(i, itemErr)); continue; }
 
                 if (!item.contains("name") || !item.contains("type"))
                 {
-                    results.push_back({{"error", "name and type are required"}});
+                    results.push_back(mcp::itemError(i, "name and type are required"));
+                    continue;
+                }
+                if (!item.at("name").is_string() || !item.at("type").is_string())
+                {
+                    results.push_back(mcp::itemError(i, "name and type must be strings"));
                     continue;
                 }
 
@@ -105,10 +175,15 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 QLCPalette::PaletteType ptype = stringToPaletteType(item.at("type").get<std::string>());
                 if (ptype == QLCPalette::Undefined)
                 {
-                    results.push_back({{"error", "invalid type. Must be: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom"},
-                                       {"name", name.toStdString()}});
+                    Json e = mcp::itemError(i, "invalid type. Must be: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom");
+                    e["name"] = name.toStdString();
+                    results.push_back(e);
                     continue;
                 }
+
+                QVariantList values;
+                std::string valueErr = parsePaletteValues(item, ptype, values);
+                if (!valueErr.empty()) { results.push_back(mcp::itemError(i, valueErr)); continue; }
 
                 // Upsert: find existing by name+type
                 QLCPalette *palette = findPaletteByNameAndType(doc, name, ptype);
@@ -120,79 +195,32 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 }
 
                 palette->resetValues();
-
-                // Set values based on type
-                switch (ptype)
-                {
-                    case QLCPalette::Dimmer:
-                    {
-                        int val = item.value("value", 255);
-                        palette->setValue(QVariant(val));
-                    }
-                    break;
-                    case QLCPalette::Color:
-                    {
-                        QColor rgb(QString::fromStdString(item.value("rgb", "#ffffff")));
-                        QColor wauv(QString::fromStdString(item.value("wauv", "#000000")));
-                        palette->setValue(QVariant(QLCPalette::colorToString(rgb, wauv)));
-                    }
-                    break;
-                    case QLCPalette::Pan:
-                    {
-                        double deg = item.value("panDegrees", 0.0);
-                        palette->setValue(QVariant(deg));
-                    }
-                    break;
-                    case QLCPalette::Tilt:
-                    {
-                        double deg = item.value("tiltDegrees", 0.0);
-                        palette->setValue(QVariant(deg));
-                    }
-                    break;
-                    case QLCPalette::PanTilt:
-                    {
-                        double panDeg = item.value("panDegrees", 0.0);
-                        double tiltDeg = item.value("tiltDegrees", 0.0);
-                        palette->setValue(QVariant(panDeg), QVariant(tiltDeg));
-                    }
-                    break;
-                    case QLCPalette::Position3D:
-                    {
-                        double x = item.value("x", 0.0);
-                        double y = item.value("y", 0.0);
-                        double z = item.value("z", 0.0);
-                        palette->setValue(QVariant(x), QVariant(y), QVariant(z));
-                    }
-                    break;
-                    case QLCPalette::Shutter:
-                    {
-                        int preset = item.value("value", 0);
-                        int pct = item.value("value2", 0);
-                        palette->setValue(QVariant(preset), QVariant(pct));
-                    }
-                    break;
-                    case QLCPalette::Gobo:
-                    case QLCPalette::Zoom:
-                    {
-                        int val = item.value("value", 0);
-                        palette->setValue(QVariant(val));
-                    }
-                    break;
-                    default:
-                        break;
-                }
+                if (values.size() == 1) palette->setValue(values[0]);
+                else if (values.size() == 2) palette->setValue(values[0], values[1]);
+                else if (values.size() == 3) palette->setValue(values[0], values[1], values[2]);
 
                 if (isNew)
                 {
                     palette->setTemporary(false);
-                    doc->addPalette(palette);
+                    if (!doc->addPalette(palette))
+                    {
+                        delete palette;
+                        results.push_back(mcp::itemError(i, "Doc refused to add palette"));
+                        continue;
+                    }
+                }
+                else
+                {
+                    doc->setModified();
                 }
 
                 results.push_back({
+                    {"index", i},
                     {"id", (int)palette->id()},
                     {"name", palette->name().toStdString()},
                     {"type", QLCPalette::typeToString(palette->type()).toStdString()},
-                    {"status", isNew ? "created" : "updated"}
+                    {"status", "ok"},
+                    {"outcome", isNew ? "created" : "updated"}
                 });
             }
             return results.dump();
@@ -221,61 +249,86 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             auto err = validateFields(args, {"ids", "names"});
             if (!err.empty()) return err;
 
-            QList<quint32> idsToDelete;
+            for (const char *key : {"ids", "names"})
+                if (args.contains(key) && !args.at(key).is_array())
+                    return Json({{"error", std::string(key) + " must be an array"}}).dump();
+            const Json ids = args.value("ids", Json::array());
+            const Json names = args.value("names", Json::array());
 
-            // Collect IDs from direct ID list
-            if (args.contains("ids") && args.at("ids").is_array())
-            {
-                for (auto &idVal : args.at("ids"))
-                    idsToDelete.append(idVal.get<int>());
-            }
+            // Globs match against the palettes present when the call started, so a
+            // match already deleted by an earlier selector reports duplicateOf.
+            QList<QPair<quint32, QString>> snapshot;
+            for (QLCPalette *p : doc->palettes())
+                snapshot.append({p->id(), p->name()});
+            std::map<quint32, size_t> deletedAt;
+            auto remove = [&](quint32 id) {
+                for (Function *fn : doc->functions())
+                    if (Scene *scene = qobject_cast<Scene *>(fn))
+                        scene->removePalette(id);
+                doc->deletePalette(id);
+            };
 
-            // Collect IDs from name patterns
-            if (args.contains("names") && args.at("names").is_array())
-            {
-                for (auto &nameVal : args.at("names"))
-                {
-                    QString pattern = QString::fromStdString(nameVal.get<std::string>());
-                    QRegularExpression re(
-                        QRegularExpression::wildcardToRegularExpression(pattern),
-                        QRegularExpression::CaseInsensitiveOption);
-                    for (QLCPalette *p : doc->palettes())
-                    {
-                        if (re.match(p->name()).hasMatch() && !idsToDelete.contains(p->id()))
-                            idsToDelete.append(p->id());
-                    }
-                }
-            }
-
-            // Remove palette refs from any scenes that reference them
-            for (Function *fn : doc->functions())
-            {
-                if (fn->type() != Function::SceneType) continue;
-                Scene *scene = qobject_cast<Scene*>(fn);
-                if (!scene) continue;
-                for (quint32 palId : idsToDelete)
-                    scene->removePalette(palId);
-            }
-
-            // Delete palettes
+            // ids first, then names: one record per selector, indexed globally.
             Json results = Json::array();
-            for (quint32 id : idsToDelete)
+            for (size_t i = 0; i < ids.size(); ++i)
             {
+                const auto idOpt = mcp::jsonInteger(ids[i], 0, mcp::kMaxId);
+                if (!idOpt) { results.push_back(mcp::itemError(i, mcp::integerError("ids[]", 0, mcp::kMaxId))); continue; }
+                const quint32 id = quint32(*idOpt);
+                if (deletedAt.count(id))
+                {
+                    results.push_back(mcp::itemOk(i, {{"id", (int)id}, {"outcome", "duplicate"},
+                                                      {"duplicateOf", deletedAt.at(id)}}));
+                    continue;
+                }
                 QLCPalette *p = doc->palette(id);
                 if (!p)
                 {
-                    results.push_back({{"id", (int)id}, {"status", "not found"}});
+                    Json r = mcp::itemError(i, "palette not found");
+                    r["id"] = (int)id;
+                    results.push_back(r);
                     continue;
                 }
-                QString name = p->name();
-                doc->deletePalette(id);
-                results.push_back({{"id", (int)id}, {"name", name.toStdString()}, {"status", "deleted"}});
+                const std::string name = p->name().toStdString();
+                remove(id);
+                deletedAt[id] = i;
+                results.push_back(mcp::itemOk(i, {{"id", (int)id}, {"name", name}, {"outcome", "deleted"}}));
+            }
+            for (size_t j = 0; j < names.size(); ++j)
+            {
+                const size_t i = ids.size() + j;
+                if (!names[j].is_string()) { results.push_back(mcp::itemError(i, "names[] must be a string")); continue; }
+                QRegularExpression re(
+                    QRegularExpression::wildcardToRegularExpression(QString::fromStdString(names[j].get<std::string>())),
+                    QRegularExpression::CaseInsensitiveOption);
+                Json matches = Json::array();
+                bool deletedHere = false;
+                for (const auto &[id, name] : snapshot)
+                {
+                    if (!re.match(name).hasMatch()) continue;
+                    Json m = {{"id", (int)id}, {"name", name.toStdString()}};
+                    if (deletedAt.count(id))
+                        m["duplicateOf"] = deletedAt.at(id);
+                    else
+                    {
+                        remove(id);
+                        deletedAt[id] = i;
+                        m["outcome"] = "deleted";
+                        deletedHere = true;
+                    }
+                    matches.push_back(m);
+                }
+                results.push_back(mcp::itemOk(i, {{"name", names[j]}, {"palettes", matches},
+                    {"outcome", deletedHere ? "deleted" : matches.empty() ? "noMatch" : "duplicate"}}));
             }
             return results.dump();
             });
         },
         std::nullopt,
-        std::string("Delete palettes by ID or name pattern (glob). Automatically removes palette references from any scenes that use them. Batch."),
+        std::string("Delete palettes by ID or name pattern (glob). Returns one record per selector, ids first then "
+                     "names, indexed in that order; a glob nests its matches under palettes, reports outcome "
+                     "\"noMatch\" when nothing matches, and marks palettes already deleted by an earlier "
+                     "selector with duplicateOf. Automatically removes palette references from any scenes that use them. Batch."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotDestructive));

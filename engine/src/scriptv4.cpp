@@ -21,6 +21,7 @@
 #include <QXmlStreamWriter>
 #include <QRandomGenerator>
 #include <QRegularExpression>
+#include <QJSEngine>
 #include <QDebug>
 #include <QUrl>
 
@@ -231,11 +232,28 @@ QList<quint32> Script::fixtureList() const
 
 QStringList Script::syntaxErrorsLines() const
 {
-    ScriptRunner *runner = new ScriptRunner(doc(), nullptr, m_data);
-    QStringList errorList = runner->collectScriptData();
-    //runner->deleteLater();
+    return syntaxErrors(m_data);
+}
 
-    return errorList;
+QStringList Script::syntaxErrors(const QString &content)
+{
+    QJSEngine engine;
+
+    // Parse the exact text ScriptRunner evaluates. The leading throw stops
+    // execution before any of it runs; parse errors keep their line number.
+    QJSValue wrapped = engine.evaluate("throw 0; (function run() { " + content + " })");
+    if (wrapped.isError() && wrapped.errorType() == QJSValue::SyntaxError)
+        return QStringList() << QString("Uncaught exception at line %1. %2")
+                                    .arg(wrapped.property("lineNumber").toInt())
+                                    .arg(wrapped.toString());
+
+    // The body must also parse on its own, so it cannot close the run() wrapper
+    QJSValue body = engine.globalObject().property("Function").callAsConstructor(QJSValueList() << content);
+    if (body.isError())
+        return QStringList() << QString("Uncaught exception at line 1. %1 (the script closes its run() wrapper)")
+                                    .arg(body.toString());
+
+    return QStringList();
 }
 
 /****************************************************************************

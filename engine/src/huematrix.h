@@ -103,7 +103,7 @@ public:
     void setAlgorithm(RGBAlgorithm *algo) override;
 
     int algorithmIndex() const override;
-    void setProperty(QString propName, QString value) override;
+    bool setProperty(QString propName, QString value) override;
 
     /** @reimp */
     void previewMap(int step, RGBMatrixStep *handler) override;
@@ -113,7 +113,7 @@ protected:
     QList<RGBScriptProperty> scriptPropertyAttributes() const override;
     void registerScriptPropertyAttributes();
     void includeFloatAttributeValue(int index, qreal value);
-    void applyScriptPropertyAttribute(int attrIndex, qreal value) override;
+    bool applyScriptPropertyAttribute(int attrIndex, qreal value) override;
 
     /** @reimp */
     int algorithmStepsCount() override;

@@ -78,19 +78,23 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
+                const Json &item = items[i];
                 auto err = validateFields(item, {"name"});
-                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
+                if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
                 QString name = QString::fromStdString(item.at("name").get<std::string>());
                 int existingIdx = vcBridge->findPageByName(name);
                 if (existingIdx >= 0)
                 {
-                    results.push_back({{"pageIndex", existingIdx}, {"status", "existing"}});
+                    results.push_back(mcp::itemOk(i, {{"pageIndex", existingIdx}, {"outcome", "existing"}}));
                     continue;
                 }
                 int idx = vcBridge->addPage(name);
-                results.push_back({{"pageIndex", idx}, {"status", "created"}});
+                results.push_back(idx >= 0
+                    ? mcp::itemOk(i, {{"pageIndex", idx}, {"outcome", "created"}})
+                    : mcp::itemError(i, "page creation failed"));
             }
             return results.dump();
             });
@@ -107,7 +111,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         "vc_create_widgets",
         Json{{"type", "object"}, {"properties", {
             {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
-                {"type", {{"type", "string"}, {"enum", {"frame", "soloframe", "button", "slider", "xypad", "cuelist", "label", "speedDial", "audioTrigger", "matrix", "clock"}}, {"description", "Widget type to create"}}},
+                {"type", {{"type", "string"}, {"enum", {"frame", "soloframe", "button", "slider", "xypad", "cuelist", "label", "speedDial", "audioTrigger", "matrix", "clock", "recordPanel"}}, {"description", "Widget type to create"}}},
                 {"parentID", {{"type", "integer"}, {"description", "Parent frame or page widget ID"}}},
                 {"childPageIndex", {{"type", "integer"}, {"minimum", 0}, {"description", "Target page within a multipage parent frame (non-container widgets only)"}}},
                 {"pageIndex", {{"type", "integer"}, {"description", "Page index (for top-level frames only)"}}},
@@ -223,7 +227,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 if (widgetType == VCType::Unknown)
                 {
                     results.push_back({{"error", "invalid widget type '" + typeStr +
-                        "'. Must be one of: frame, soloframe, button, slider, xypad, cuelist, label, speedDial, audioTrigger, matrix, clock"}});
+                        "'. Must be one of: frame, soloframe, button, slider, xypad, cuelist, label, speedDial, audioTrigger, matrix, clock, recordPanel"}});
                     continue;
                 }
 
@@ -249,6 +253,36 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     }
                 }
 
+                const bool frameOnPage = (widgetType == VCType::Frame || widgetType == VCType::SoloFrame)
+                                         && item.contains("pageIndex");
+                if (!frameOnPage && item.contains("parentID"))
+                {
+                    const int parentID = item.at("parentID").get<int>();
+                    const VCBridge::WidgetDetails parent = vcBridge->getWidgetDetails(parentID);
+                    if (parent.id < 0 || (parent.machineType != "frame" && parent.machineType != "soloframe"))
+                    {
+                        results.push_back({{"error", "parentID " + std::to_string(parentID) +
+                            " is not an existing frame or page"}});
+                        continue;
+                    }
+                }
+                if (widgetType == VCType::Slider && item.contains("channels"))
+                {
+                    std::string chErr;
+                    for (const auto &ch : item.at("channels"))
+                    {
+                        if (!chErr.empty()) break;
+                        chErr = validateFields(ch, {"fixtureID", "channel"});
+                        if (!chErr.empty()) break;
+                        for (const char *key : {"fixtureID", "channel"})
+                            if (chErr.empty() && !(ch.contains(key) && mcp::jsonInteger(ch.at(key), 0, mcp::kMaxId)))
+                                chErr = Json({{"error", "channels[]." + mcp::integerError(key, 0, mcp::kMaxId)}}).dump();
+                    }
+                    if (!chErr.empty()) { results.push_back(nlohmann::json::parse(chErr)); continue; }
+                }
+                const std::string refErr = VCRefs::check(item, widgetType, doc, *vcBridge);
+                if (!refErr.empty()) { results.push_back({{"error", refErr}}); continue; }
+
                 // 3. Dispatch to the appropriate creation logic based on type
                 switch (widgetType)
                 {
@@ -272,7 +306,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                                 {
                                     for (const auto &w : page.widgets)
                                     {
-                                        if ((w.type == "Frame" || w.type == "Solo Frame") && w.caption == caption)
+                                        if ((w.machineType == "frame" || w.machineType == "soloframe") && w.caption == caption)
                                         {
                                             existingId = w.id;
                                             break;
@@ -290,9 +324,9 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         else
                         {
                             int parentID = item.at("parentID").get<int>();
-                            int existingId = vcBridge->findWidgetByCaption(parentID, "Frame", caption);
+                            int existingId = vcBridge->findWidgetByCaption(parentID, "frame", caption);
                             if (existingId < 0)
-                                existingId = vcBridge->findWidgetByCaption(parentID, "Solo frame", caption);
+                                existingId = vcBridge->findWidgetByCaption(parentID, "soloframe", caption);
                             if (existingId >= 0)
                             {
                                 results.push_back({{"widgetID", existingId}, {"status", "existing"}});
@@ -352,7 +386,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString caption = QString::fromStdString(item.value("caption", ""));
                     if (!caption.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "Button", caption);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "button", caption);
                         if (existingId >= 0)
                         {
                             if (item.contains("childPageIndex") &&
@@ -422,7 +456,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     // Upsert: find existing slider by caption, update if found
                     if (!caption.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "Slider", caption);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "slider", caption);
                         if (existingId >= 0)
                         {
                             if (hasSliderConfig(sliderCfg))
@@ -457,8 +491,6 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {
                         for (auto &ch : item.at("channels"))
                         {
-                            auto chErr = validateFields(ch, {"fixtureID", "channel"});
-                            if (!chErr.empty()) { results.push_back(nlohmann::json::parse(chErr)); continue; }
                             channels.append({ch.at("fixtureID").get<int>(), ch.at("channel").get<int>()});
                         }
                     }
@@ -561,7 +593,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString caption = QString::fromStdString(item.value("caption", ""));
                     if (!caption.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "CueList", caption);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "cuelist", caption);
                         if (existingId >= 0)
                         {
                             if (item.contains("childPageIndex") &&
@@ -618,7 +650,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString text = QString::fromStdString(item.value("caption", item.value("text", "")));
                     if (!text.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "Label", text);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "label", text);
                         if (existingId >= 0)
                         {
                             if (item.contains("childPageIndex") &&
@@ -862,7 +894,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QString caption = QString::fromStdString(item.value("caption", ""));
                     if (!caption.isEmpty())
                     {
-                        int existingId = vcBridge->findWidgetByCaption(parentID, "Record Panel", caption);
+                        int existingId = vcBridge->findWidgetByCaption(parentID, "recordPanel", caption);
                         if (existingId >= 0)
                         {
                             if (item.contains("childPageIndex") &&
@@ -920,6 +952,22 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     if (!vcBridge->setWidgetPage(widgetID, item["childPageIndex"].get<int>()))
                         results.back() = {{"widgetID", widgetID}, {"error", "childPageIndex is outside the parent frame page range"}};
                 }
+            }
+            if (results.size() != args.at("items").size())
+                return Json({{"error", "internal: create produced a result count that does not match the items"}}).dump();
+            // Q8: one indexed terminal outcome per input item.
+            for (size_t i = 0; i < results.size(); ++i)
+            {
+                const Json legacy = results[i];
+                const int widgetID = legacy.value("widgetID", -1);
+                if (legacy.contains("error"))
+                    results[i] = mcp::itemError(i, legacy["error"].get<std::string>());
+                else if (widgetID < 0)
+                    results[i] = mcp::itemError(i, "widget creation failed");
+                else
+                    results[i] = mcp::itemOk(i, {{"widgetID", widgetID}, {"outcome", legacy.value("status", "created")}});
+                if (legacy.contains("widgetID") && widgetID >= 0)
+                    results[i]["widgetID"] = widgetID;
             }
             return results.dump();
             });

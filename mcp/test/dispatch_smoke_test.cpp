@@ -239,7 +239,7 @@ void DispatchSmoke_Test::dispatchSmoke_createPalettes_validItem_exists()
     QVERIFY(result.is_array());
     QCOMPARE(result.size(), (size_t)1);
     QVERIFY2(!result[0].contains("error"), result[0].dump().c_str());
-    QCOMPARE(result[0]["status"].get<std::string>(), std::string("created"));
+    QCOMPARE(result[0]["outcome"].get<std::string>(), std::string("created"));
 
     // Side-effect: palette exists in Doc.
     bool found = false;

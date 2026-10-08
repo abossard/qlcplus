@@ -21,6 +21,7 @@
 #define VCANIMATIONPRESET_H
 
 #include <QColor>
+#include <QObject>
 #include <QMap>
 
 class QXmlStreamReader;
@@ -42,7 +43,7 @@ class QXmlStreamWriter;
  *  intentionally kept compatible with the VCMatrix child-element XML so
  *  that projects can be shared between the two virtual consoles.
  */
-class VCAnimationPreset final
+class VCAnimationPreset final : public QObject
 {
 public:
     explicit VCAnimationPreset(quint8 id);

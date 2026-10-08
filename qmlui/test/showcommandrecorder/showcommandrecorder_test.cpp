@@ -66,13 +66,30 @@
 #include "functionparent.h"
 #include "mastertimer.h"
 #include "universe.h"
+#include "monitorproperties.h"
 #include "inputpatch.h"
 #include "inputoutputmap.h"
 #include "qlcinputsource.h"
 #include "qlcioplugin.h"
+#include "qlcchannel.h"
+#include "qlcfixturedef.h"
+#include "qlcfixturehead.h"
+#include "qlcfixturemode.h"
+#include "qlcphysical.h"
+#include "qlcpalette.h"
+#include "fixturegroup.h"
+#include "rgbplain.h"
+#include "rgbtext.h"
+#include "huematrix.h"
+#include "huescriptscache.h"
+#include "rgbscriptscache.h"
+#define private public
+#include "rgbmatrix.h"
+#undef private
 #include "scene.h"
 #include "show.h"
 #include "showcommandrecorder.h"
+#include "showcontrolaction.h"
 #include "showcommandtrack.h"
 #include "showeventlog.h"
 #include "showeventmodel.h"
@@ -86,6 +103,8 @@
 #include "vcbutton.h"
 #include "vcpage.h"
 #include "vcslider.h"
+#include "vcanimation.h"
+#include "vcxypad.h"
 #include "vcsoloframe.h"
 #include "vdjbridge.h"
 #include "showfactory.h"
@@ -96,10 +115,95 @@
 
 #include <fastmcpp/tools/manager.hpp>
 
+void ShowCommandRecorder_Test::initTestCase()
+{
+    qmlRegisterUncreatableType<Fixture>("org.qlcplus.classes", 1, 0, "Fixture", "Engine-owned");
+    qmlRegisterUncreatableType<QLCPalette>("org.qlcplus.classes", 1, 0, "QLCPalette", "Engine-owned");
+}
+
+void ShowCommandRecorder_Test::nativePlanning_immutableValues_data()
+{
+    QTest::addColumn<QString>("changedField");
+    QTest::addColumn<bool>("superseded");
+    QTest::newRow("identical snapshots") << QString() << false;
+    QTest::newRow("later point") << QStringLiteral("point") << true;
+    QTest::newRow("later range") << QStringLiteral("range") << true;
+    QTest::newRow("floor mode") << QStringLiteral("floorMode") << true;
+    QTest::newRow("stage size") << QStringLiteral("floorSize") << true;
+    QTest::newRow("head binding") << QStringLiteral("binding") << true;
+    QTest::newRow("later head selection") << QStringLiteral("selection") << true;
+    QTest::newRow("role") << QStringLiteral("role") << true;
+    QTest::newRow("binding lifetime") << QStringLiteral("bindingLifetime") << true;
+    QTest::newRow("choice lifetime") << QStringLiteral("choiceLifetime") << true;
+}
+
+void ShowCommandRecorder_Test::nativePlanning_immutableValues()
+{
+    QFETCH(QString, changedField);
+    QFETCH(bool, superseded);
+    ShowControlAction::State before;
+    before.role = ShowControlRole::XYPad;
+    before.point = QPointF(20.25, 30.75);
+    before.floor = QVector3D(1, 2, 3);
+    before.floorMode = true;
+    before.floorSize = QVector3D(24, 8, 13);
+    before.horizontal = QPointF(10, 240);
+    before.vertical = QPointF(220, 30);
+    before.headEnabled = {true, false};
+    ShowControlAction::State after = before;
+    after.point = QPointF(160.5, 80.25);
+    after.floor = QVector3D(4, 5, 6);
+    after.horizontal = QPointF(180, 40);
+    after.headEnabled = {false, true};
+    ShowControlAction::State current = after;
+    if (changedField == "point") current.point.setX(100);
+    if (changedField == "range") current.horizontal.setX(90);
+    if (changedField == "floorMode") current.floorMode = false;
+    if (changedField == "floorSize") current.floorSize.setX(48);
+    if (changedField == "binding") current.binding.insert("head", 2);
+    if (changedField == "selection") current.headEnabled = {false, false};
+    if (changedField == "role") current.role = ShowControlRole::AnimationFader;
+    const ShowControlAction::Values beforeValues = before, afterValues = after, currentValues = current;
+    const bool sameBindingLifetimes = changedField != "bindingLifetime";
+    const bool sameChoiceLifetime = changedField != "choiceLifetime";
+    QObject *unrelated = new QObject;
+    QPointer<QObject> externalLifetime(unrelated);
+    delete unrelated;
+    QVERIFY(externalLifetime.isNull());
+    for (int iteration = 0; iteration < 3; ++iteration)
+    {
+        const auto plan = ShowControlAction::planRestore(beforeValues, afterValues, currentValues,
+                                                        sameBindingLifetimes, sameChoiceLifetime);
+        QVERIFY(plan.point);
+        QVERIFY(plan.floor);
+        QVERIFY(plan.ranges);
+        QVERIFY(plan.choice);
+        QCOMPARE(plan.superseded, superseded);
+        QCOMPARE(current.point, changedField == "point" ? QPointF(100, 80.25) : after.point);
+        QCOMPARE(before.headEnabled, QVector<bool>({true, false}));
+    }
+
+    ShowControlRequest request;
+    request.role = ShowControlRole::AdjustSlider;
+    request.value = 50;
+    request.accepted.sliderLow = 0;
+    request.accepted.sliderHigh = 100;
+    before.scalar = 50;
+    const auto unchanged = ShowControlAction::planCapture(request, before, nullptr);
+    QVERIFY(unchanged.supported);
+    QVERIFY(unchanged.unchanged);
+    QCOMPARE(unchanged.input.position, qreal(0.5));
+    request.accepted.sliderHigh = 200;
+    const auto wider = ShowControlAction::planCapture(request, before, nullptr);
+    QCOMPARE(wider.input.position, qreal(0.25));
+    QCOMPARE(request.value, 50);
+}
+
 using Json = nlohmann::json;
 
 namespace
 {
+bool loadRecordingId(VCWidget *widget, const QUuid &id);
 /** The production widgets talk to Tardis on every value change and are reached
  *  through the real VirtualConsole/VCPage dispatch, so the recorder has to be
  *  tested against that same graph. */
@@ -249,6 +353,209 @@ Scene *addTarget(Doc *doc)
     return scene;
 }
 
+Fixture *addMoverTarget(Doc *doc, QList<QLCFixtureDef *> *defs, const QString &name, quint32 address,
+                        int heads = 1)
+{
+    QLCFixtureDef *def = new QLCFixtureDef();
+    defs->append(def);
+    def->setManufacturer("QLC+ Test");
+    def->setModel(name);
+    def->setType(QLCFixtureDef::MovingHead);
+
+    QLCChannel *pan = new QLCChannel();
+    pan->setName("Pan");
+    pan->setGroup(QLCChannel::Pan);
+    pan->setControlByte(QLCChannel::MSB);
+    def->addChannel(pan);
+
+    QLCChannel *panFine = new QLCChannel();
+    panFine->setName("Pan fine");
+    panFine->setGroup(QLCChannel::Pan);
+    panFine->setControlByte(QLCChannel::LSB);
+    def->addChannel(panFine);
+
+    QLCChannel *tilt = new QLCChannel();
+    tilt->setName("Tilt");
+    tilt->setGroup(QLCChannel::Tilt);
+    tilt->setControlByte(QLCChannel::MSB);
+    def->addChannel(tilt);
+
+    QLCChannel *tiltFine = new QLCChannel();
+    tiltFine->setName("Tilt fine");
+    tiltFine->setGroup(QLCChannel::Tilt);
+    tiltFine->setControlByte(QLCChannel::LSB);
+    def->addChannel(tiltFine);
+
+    QLCFixtureMode *mode = new QLCFixtureMode(def);
+    mode->setName("Basic");
+    mode->insertChannel(pan, 0);
+    mode->insertChannel(panFine, 1);
+    mode->insertChannel(tilt, 2);
+    mode->insertChannel(tiltFine, 3);
+
+    QLCPhysical physical;
+    physical.setFocusPanMax(540);
+    physical.setFocusTiltMax(270);
+    mode->setPhysical(physical);
+
+    QLCFixtureHead head;
+    head.addChannel(0);
+    head.addChannel(1);
+    head.addChannel(2);
+    head.addChannel(3);
+    mode->insertHead(-1, head);
+    for (int index = 1; index < heads; ++index)
+    {
+        QLCFixtureHead extra;
+        for (int channel = 0; channel < 4; ++channel)
+        {
+            auto *axis = new QLCChannel();
+            axis->setName(QStringLiteral("Head %1 axis %2").arg(index).arg(channel));
+            axis->setGroup(channel < 2 ? QLCChannel::Pan : QLCChannel::Tilt);
+            axis->setControlByte(channel % 2 == 0 ? QLCChannel::MSB : QLCChannel::LSB);
+            def->addChannel(axis);
+            mode->insertChannel(axis, index * 4 + channel);
+            extra.addChannel(index * 4 + channel);
+        }
+        mode->insertHead(-1, extra);
+    }
+    mode->cacheHeads();
+    def->addMode(mode);
+
+    Fixture *fixture = new Fixture(doc);
+    fixture->setName(name);
+    fixture->setFixtureDefinition(def, mode);
+    fixture->setUniverse(0);
+    fixture->setAddress(address);
+    if (doc->addFixture(fixture) == false)
+        return nullptr;
+
+    return fixture;
+}
+
+Fixture *addRgbTarget(Doc *doc, QList<QLCFixtureDef *> *defs, const QString &name, quint32 address,
+                      bool wauv = false)
+{
+    QLCFixtureDef *def = new QLCFixtureDef();
+    defs->append(def);
+    def->setManufacturer("QLC+ Test");
+    def->setModel(name);
+    def->setType(QLCFixtureDef::LEDBarPixels);
+
+    QLCChannel *dimmer = new QLCChannel();
+    dimmer->setName("Dimmer");
+    dimmer->setGroup(QLCChannel::Intensity);
+    def->addChannel(dimmer);
+
+    QLCChannel *red = new QLCChannel();
+    red->setName("Red");
+    red->setGroup(wauv ? QLCChannel::Intensity : QLCChannel::Colour);
+    red->setColour(QLCChannel::Red);
+    def->addChannel(red);
+
+    QLCChannel *green = new QLCChannel();
+    green->setName("Green");
+    green->setGroup(wauv ? QLCChannel::Intensity : QLCChannel::Colour);
+    green->setColour(QLCChannel::Green);
+    def->addChannel(green);
+
+    QLCChannel *blue = new QLCChannel();
+    blue->setName("Blue");
+    blue->setGroup(wauv ? QLCChannel::Intensity : QLCChannel::Colour);
+    blue->setColour(QLCChannel::Blue);
+    def->addChannel(blue);
+
+    QLCFixtureMode *mode = new QLCFixtureMode(def);
+    mode->setName("Basic");
+    mode->insertChannel(dimmer, 0);
+    mode->insertChannel(red, 1);
+    mode->insertChannel(green, 2);
+    mode->insertChannel(blue, 3);
+    if (wauv)
+    {
+        const QLCChannel::PrimaryColour colors[] = {QLCChannel::White, QLCChannel::Amber, QLCChannel::UV};
+        for (int index = 0; index < 3; ++index)
+        {
+            auto *channel = new QLCChannel();
+            channel->setGroup(QLCChannel::Intensity);
+            channel->setColour(colors[index]);
+            def->addChannel(channel);
+            mode->insertChannel(channel, index + 4);
+        }
+    }
+    QLCFixtureHead head;
+    head.addChannel(0);
+    head.addChannel(1);
+    head.addChannel(2);
+    head.addChannel(3);
+    if (wauv)
+        for (int index = 4; index < 7; ++index)
+            head.addChannel(index);
+    mode->insertHead(0, head);
+    def->addMode(mode);
+
+    Fixture *fixture = new Fixture(doc);
+    fixture->setName(name);
+    fixture->setFixtureDefinition(def, mode);
+    fixture->setUniverse(0);
+    fixture->setAddress(address);
+    if (doc->addFixture(fixture) == false)
+        return nullptr;
+
+    return fixture;
+}
+
+bool configureMatrixForPlayback(Doc *doc, RGBMatrix *matrix, QList<QLCFixtureDef *> *defs)
+{
+    if (doc == nullptr || matrix == nullptr || defs == nullptr)
+        return false;
+
+    FixtureGroup *group = new FixtureGroup(doc);
+    group->setName(QStringLiteral("Matrix Group"));
+    group->setSize(QSize(1, 1));
+    if (!doc->addFixtureGroup(group))
+        return false;
+
+    Fixture *fixture = addRgbTarget(doc, defs, QStringLiteral("RGB Fixture"), 64);
+    if (fixture == nullptr)
+        return false;
+    if (!group->assignFixture(fixture->id()))
+        return false;
+
+    matrix->setFixtureGroup(group->id());
+    matrix->setControlMode(RGBMatrix::ControlModeDimmer);
+    matrix->setAlgorithm(new RGBPlain(doc));
+    matrix->setColor(0, QColor(255, 255, 255));
+    return true;
+}
+
+int matrixOutputPeak(const Doc *doc)
+{
+    if (doc == nullptr)
+        return 0;
+    Doc *mutableDoc = const_cast<Doc *>(doc);
+    const QList<Universe *> universes = mutableDoc->inputOutputMap()->claimUniverses();
+    const auto release = qScopeGuard([mutableDoc]() { mutableDoc->inputOutputMap()->releaseUniverses(false); });
+    if (universes.isEmpty())
+        return 0;
+
+    int peak = 0;
+    for (Universe *universe : universes)
+    {
+        if (universe == nullptr)
+            continue;
+        const QByteArray values = universe->preGMValues();
+        const QByteArray *post = universe->postGMValues();
+        for (uchar value : values)
+            peak = qMax(peak, int(value));
+        if (post == nullptr)
+            continue;
+        for (uchar value : *post)
+            peak = qMax(peak, int(value));
+    }
+    return peak;
+}
+
 /** The production external-input route: a mapped input source delivered through
  *  the very slot InputOutputMap's signal is connected to. No control surface is
  *  patched to this universe here, so the event carries no user provenance. */
@@ -388,6 +695,22 @@ void tickAndDeliver(Doc *doc, int ticks = 1)
     }
 }
 
+void tickAndRenderUniverses(Doc *doc, int ticks = 1)
+{
+    for (int i = 0; i < ticks; i++)
+    {
+        doc->masterTimer()->timerTick();
+        QList<Universe *> universes = doc->inputOutputMap()->claimUniverses();
+        for (Universe *universe : universes)
+        {
+            if (universe != nullptr)
+                universe->processFaders(MasterTimer::tick());
+        }
+        doc->inputOutputMap()->releaseUniverses(false);
+        QCoreApplication::processEvents();
+    }
+}
+
 /** Play an external Show whose clock reports 0 first, from 0: the first
  *  fresh sample begins the traversal there, later ones cross intervals */
 void playExternalFromZero(Show *show, Doc *doc)
@@ -415,6 +738,18 @@ VCSlider *addAdjustSlider(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, q
     slider->setSliderMode(VCSlider::Adjust);
     slider->setControlledFunction(functionId);
     return slider;
+}
+
+VCXYPad *addXYPad(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID)
+{
+    return qobject_cast<VCXYPad *>(vc->widget(
+            bridge.addXYPad(frameID, QRect(300, 10, 200, 200), QList<quint32>())));
+}
+
+VCAnimation *addAnimation(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, quint32 functionId)
+{
+    return qobject_cast<VCAnimation *>(vc->widget(
+            bridge.addMatrix(frameID, QRect(520, 10, 120, 220), functionId, QStringLiteral("Matrix"))));
 }
 
 /** A Collection of the recorded target and a sibling that keeps it alive */
@@ -1516,6 +1851,10 @@ void ShowCommandRecorder_Test::newTake_endsEditedExtentAtContent()
     // arming keeps the edited end; the take's end is its content
     QVERIFY(recorder.setRecording(true));
     QCOMPARE(show->commandTrack().extent(), quint32(60000));
+
+    show->setExternalElapsedTime(11000);
+    tickAndDeliver(&doc, 2);
+
     show->setExternalElapsedTime(12000);
     QVERIFY(recorder.setRecording(false));
 
@@ -1675,6 +2014,7 @@ void ShowCommandRecorder_Test::replayedButtonOn_startsItsSceneThroughShowPlaybac
 
     Scene *scene = addTarget(&doc);
     QVERIFY(scene);
+    scene->requestAttributeOverride(Function::Intensity, 0.0);
     Show *show = new Show(&doc);
     show->setName(QStringLiteral("Replay show"));
     QVERIFY(doc.addFunction(show));
@@ -1707,7 +2047,72 @@ void ShowCommandRecorder_Test::replayedButtonOn_startsItsSceneThroughShowPlaybac
     // the batch is acknowledged once its receipt came back
     QTRY_VERIFY(log.receipts() > 0 && recorder.pendingControlRuns() == 0);
     QVERIFY(log.live(scene->id()));
+    QVERIFY(scene->startedAsChild());
     QCOMPARE(button->state(), VCButton::Active);
+}
+
+void ShowCommandRecorder_Test::nativeFunctionReceipt_settlesQueuedOperation_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::newRow("queued start with nonmonotonic sources") << QStringLiteral("start");
+    QTest::newRow("queued stop of last source") << QStringLiteral("stop");
+    QTest::newRow("Collection cause with queued independent child") << QStringLiteral("collection");
+}
+
+void ShowCommandRecorder_Test::nativeFunctionReceipt_settlesQueuedOperation()
+{
+    QFETCH(QString, operation);
+    Doc doc(nullptr, 1);
+    Scene *child = addTarget(&doc);
+    QVERIFY(child);
+    Collection *collection = new Collection(&doc);
+    QVERIFY(doc.addFunction(collection));
+    QVERIFY(collection->addFunction(child->id()));
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    const auto stop = qScopeGuard([&]() {
+        collection->stop(FunctionParent::master());
+        child->stop(FunctionParent::master());
+        tickAndDeliver(&doc, 4);
+    });
+    const FunctionParent first(FunctionParent::Function, 90);
+    const FunctionParent second(FunctionParent::Function, 8);
+    child->start(doc.masterTimer(), first);
+    child->start(doc.masterTimer(), second);
+    QVector<ShowFunctionExpectation> expectations{{child->id(), true, ShowCommand::InvalidId}};
+    if (operation == QStringLiteral("stop"))
+    {
+        tickAndDeliver(&doc, 4);
+        QVERIFY(child->isRunning());
+        child->stopSource(first);
+        QVERIFY(child->hasSource(second));
+        child->stopSource(second);
+        expectations = {{child->id(), false, ShowCommand::InvalidId}};
+    }
+    else if (operation == QStringLiteral("collection"))
+    {
+        collection->start(doc.masterTimer(), FunctionParent::master());
+        expectations = {{collection->id(), true, ShowCommand::InvalidId},
+                        {child->id(), true, collection->id()}};
+    }
+    QSignalSpy receipts(show, &Show::functionReceiptReady);
+    const quint64 traversal = show->commandTraversal();
+    show->requestFunctionReceipt(traversal, 37, expectations);
+    QCOMPARE(receipts.count(), 0);
+    tickAndDeliver(&doc, 4);
+    QCOMPARE(receipts.count(), 1);
+    QCOMPARE(receipts.first().at(0).toULongLong(), traversal);
+    QCOMPARE(receipts.first().at(1).toULongLong(), quint64(37));
+    QCOMPARE(child->isRunning(), operation != QStringLiteral("stop"));
+    QCOMPARE(child->hasSource(first), operation != QStringLiteral("stop"));
+    QCOMPARE(child->hasSource(second), operation != QStringLiteral("stop"));
+    if (operation == QStringLiteral("collection"))
+    {
+        QVERIFY(collection->isRunning());
+        QVERIFY(child->hasSource(FunctionParent(FunctionParent::Function, collection->id())));
+    }
+    tickAndDeliver(&doc, 4);
+    QCOMPARE(receipts.count(), 1);
 }
 
 void ShowCommandRecorder_Test::replayedCollectionOn_thenChildOff_stopsTheChild_data()
@@ -1800,7 +2205,9 @@ void ShowCommandRecorder_Test::replayedCollectionOn_thenChildOff_stopsTheChild()
     QTRY_VERIFY(log.receipts() > 0 && recorder.pendingControlRuns() == 0);
     QCOMPARE(lookButton->state(), VCButton::Active);
     QVERIFY(log.live(collection->id()));
+    QVERIFY(collection->startedAsChild());
     QVERIFY(log.live(sibling->id()));
+    QVERIFY(sibling->startedAsChild());
     QVERIFY(log.starts(child->id()) > 0);
     QVERIFY(!log.live(child->id()));
     QCOMPARE(childButton->state(), VCButton::Inactive);
@@ -1940,11 +2347,12 @@ void ShowCommandRecorder_Test::guiCancel_dropsWorkQueuedBeforeIt()
     }
     tickAndDeliver(&doc, 5);
 
-    QCOMPARE(rig.collection->isRunning(), receiptQueued);
-    QCOMPARE(rig.lookButton->state(), receiptQueued ? VCButton::Active : VCButton::Inactive);
-    // the child OFF behind the cancelled work is never applied
-    QCOMPARE(rig.child->isRunning(), receiptQueued);
-    QCOMPARE(rig.childButton->state(), receiptQueued ? VCButton::Monitoring : VCButton::Inactive);
+    QCOMPARE(rig.collection->isRunning(), false);
+    QCOMPARE(rig.lookButton->state(), VCButton::Inactive);
+    // Stop keeps ordinary Show/native cleanup: no replay rollback keeps a queued
+    // child active.
+    QCOMPARE(rig.child->isRunning(), false);
+    QCOMPARE(rig.childButton->state(), VCButton::Inactive);
 }
 
 void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch_data()
@@ -2047,7 +2455,7 @@ void ShowCommandRecorder_Test::replayedButtonOn_atContentEnd_runsBeforeShowEnds(
     QTRY_VERIFY(log.indexOf(show->id(), false) >= 0);
     QVERIFY(log.indexOf(scene->id(), true) >= 0);
     QVERIFY(log.indexOf(scene->id(), true) < log.indexOf(show->id(), false));
-    QCOMPARE(button->state(), VCButton::Active);
+    QCOMPARE(button->state(), VCButton::Inactive);
 }
 
 void ShowCommandRecorder_Test::replayedPlayingPair_waitsForItsCoupledPredecessor_data()
@@ -2440,6 +2848,7 @@ void ShowCommandRecorder_Test::cancelledSliderReplay_neverWritesLate()
     QVERIFY(applied(0.2));
 
     // and nothing the cancelled replay left behind lands after it
+    show->setExternalElapsedTime(2001);
     tickAndDeliver(&doc, 3);
     QVERIFY(!applied(0.8));
     QCOMPARE(scene->getAttributeValue(Function::Intensity), qreal(0.2));
@@ -2604,6 +3013,7 @@ void ShowCommandRecorder_Test::replayedSliderStart_isLiveBeforeLegacyIntensity()
     QVERIFY(applied(0.8));
     QVERIFY2(applied(0.2), "the legacy value found its target not started yet");
     QVERIFY(scene->isRunning());
+    QVERIFY(scene->startedAsChild());
     QCOMPARE(scene->getAttributeValue(Function::Intensity), qreal(0.2));
 
     show->stop(FunctionParent::master());
@@ -3049,14 +3459,15 @@ void ShowCommandRecorder_Test::replayedButtonOn_afterLegacyStop_endsActive()
         QThread::msleep(1);
     QVERIFY(stopAt > 0);
 
-    // as by hand once the Stop took effect: the click starts it again, owned by the button
+    // replayed ON stays ordinary Show playback ownership, even though the
+    // source command came from a recorded control
     QTRY_VERIFY(batches == 2 && recorder.pendingControlRuns() == 0 && log.starts(scene->id()) >= 2 &&
                 log.live(scene->id()) && button->state() == VCButton::Active);
     QCOMPARE(stopAt < secondBatchAt, stopBeforeBatch);
     QVERIFY(stopAt < restartAt);
     QCOMPARE(log.starts(scene->id()), 2);
     QCOMPARE(log.stops(scene->id()), 1);
-    QVERIFY(!scene->startedAsChild());
+    QVERIFY(scene->startedAsChild());
 }
 
 void ShowCommandRecorder_Test::replayedSubmaster_thenLegacyIntensity_endsAtLegacyValue()
@@ -3260,6 +3671,10 @@ void ShowCommandRecorder_Test::replayedSliderZero_thenOnSameFunction_endsActive(
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(slider);
     QVERIFY(button);
+    button->adjustIntensity(0.8);
+    slider->setValue(0);
+    tickAndDeliver(&doc, 2);
+    QCOMPARE(slider->value(), 0);
 
     // the fader and the button both play the Scene
     slider->setValue(100);
@@ -3293,8 +3708,10 @@ void ShowCommandRecorder_Test::replayedSliderZero_thenOnSameFunction_endsActive(
         });
         show->start(timer, FunctionParent::master());
         QTRY_VERIFY(log.indexOf(show->id(), false) >= 0 && recorder.pendingControlRuns() == 0 &&
-                    log.starts(scene->id()) > 0 && log.live(scene->id()) &&
-                    button->state() == VCButton::Active);
+                    log.starts(scene->id()) > 0);
+        QTRY_VERIFY(!log.live(scene->id()));
+        QTRY_VERIFY(!scene->isRunning());
+        QTRY_COMPARE(button->state(), VCButton::Inactive);
         return;
     }
 
@@ -3304,8 +3721,8 @@ void ShowCommandRecorder_Test::replayedSliderZero_thenOnSameFunction_endsActive(
     QVERIFY(log.indexOf(show->id(), false) >= 0);
     QCOMPARE(recorder.pendingControlRuns(), 0);
     QVERIFY(log.starts(scene->id()) > 0);
-    QVERIFY(scene->isRunning());
-    QCOMPARE(button->state(), VCButton::Active);
+    QVERIFY(!scene->isRunning());
+    QCOMPARE(button->state(), VCButton::Inactive);
 }
 
 void ShowCommandRecorder_Test::replayedSlider_reconfiguredInWriteWindow_neverRetargets_data()
@@ -4302,9 +4719,9 @@ void ShowCommandRecorder_Test::timelineRollback_data()
           "playext;ext:0;ext:4000;ext:14000;see:AB;mark;ext:8000;see:AB;changes;ext:14000;see:AB",
           { "A0B1", "A1B0", "B0,A1", "A0B1" } },
         { "h: first take, a REC capture at 12 repeats every pass", "plain", "",
-          "playext;rec;ext:0;ext:8000;see:A;ext:12000;click:A;see:A;ext:14000;ext:8000;see:A;ext:12000;see:A;"
-          "ext:14000;ext:8000;see:A;ext:12000;see:A;track",
-          { "A0", "A1", "A0", "A1", "A0", "A1", "A+@12000" } },
+          "playext;rec;ext:0;ext:8000;see:A;ext:12000;click:A;see:A;fns:A;ext:14000;ext:8000;see:A;fns:A;"
+          "ext:12000;see:A;fns:A;ext:14000;ext:8000;see:A;fns:A;ext:12000;see:A;fns:A;track",
+          { "A0", "A1", "A1", "A0", "A0", "A1", "A1", "A0", "A0", "A1", "A1", "A+@12000" } },
         { "i: a REC-off change on another control survives", "plain", "A+@12000",
           "playext;ext:0;ext:12000;ext:13000;click:C;see:AC;ext:14000;ext:8000;see:AC",
           { "A1C1", "A0C1" } },
@@ -4452,6 +4869,7 @@ void ShowCommandRecorder_Test::timelineRollback()
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), sliderFrameID, d->id());
     QVERIFY(slider);
     controls.insert(QLatin1Char('S'), slider);
+    functions.insert(QLatin1Char('D'), d);
 
     ShowCommandTrack track;
     quint32 nextId = 0;
@@ -4533,6 +4951,32 @@ void ShowCommandRecorder_Test::timelineRollback()
         else if (verb == QLatin1String("play"))
         {
             show->start(doc.masterTimer(), FunctionParent::master(), arg.toUInt());
+            settle();
+        }
+        else if (verb == QLatin1String("stop"))
+        {
+            show->stop(FunctionParent::master());
+            settle();
+        }
+        else if (verb == QLatin1String("stopfn"))
+        {
+            Function *function = functions.value(arg.at(0));
+            QVERIFY(function != nullptr);
+            function->stop(FunctionParent::master());
+            settle();
+        }
+        else if (verb == QLatin1String("setlocal"))
+        {
+            VCSlider *fader = qobject_cast<VCSlider *>(controls.value(arg.at(0)));
+            QVERIFY(fader != nullptr);
+            fader->setValue(arg.mid(1).toInt(), false, true);
+            settle();
+        }
+        else if (verb == QLatin1String("monitoroff"))
+        {
+            VCSlider *fader = qobject_cast<VCSlider *>(controls.value(arg.at(0)));
+            QVERIFY(fader != nullptr);
+            fader->setMonitorEnabled(false);
             settle();
         }
         else if (verb == QLatin1String("to"))
@@ -4621,6 +5065,149 @@ void ShowCommandRecorder_Test::timelineRollback()
     show->stop(FunctionParent::master());
     for (Function *f : std::as_const(functions))
         f->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 2);
+}
+
+void ShowCommandRecorder_Test::timelineRollback_sliderZeroReleaseKeepsLiveButtonOwner()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *scene = addTarget(&doc);
+    QVERIFY(scene);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
+    VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
+    QVERIFY(slider);
+    QVERIFY(button);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(0, 12000, slider->ensureRecordingId(),
+                                                        ShowControlRole::AdjustSlider,
+                                                        QStringLiteral("Intensity"), 0.8)));
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+
+    show->setSyncSource(ShowRunner::External);
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc, 2);
+    const FunctionParent replayOwner(FunctionParent::Function, show->id());
+    const FunctionParent liveOwner(FunctionParent::ManualVCWidget, button->id());
+    QVERIFY(!scene->hasSource(replayOwner));
+
+    show->setExternalElapsedTime(11000);
+    tickAndDeliver(&doc, 2);
+    slider->setValue(0, true, true);
+    tickAndDeliver(&doc, 2);
+    QCOMPARE(slider->value(), 0);
+
+    show->setExternalElapsedTime(12000);
+    for (int i = 0; i < 20 && slider->value() == 0; i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(slider->value() > 0);
+    for (int i = 0; i < 20 && !scene->hasSource(replayOwner); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(scene->hasSource(replayOwner));
+
+    show->setExternalElapsedTime(13000);
+    tickAndDeliver(&doc, 2);
+    button->requestUserStateChange(true);
+    for (int i = 0; i < 20 && !scene->isRunning(); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(scene->isRunning());
+    QCOMPARE(button->state(), VCButton::Active);
+    QVERIFY(scene->hasSource(replayOwner));
+    QVERIFY(scene->hasSource(liveOwner));
+
+    show->setExternalElapsedTime(14000);
+    for (int i = 0; i < 80 && (show->commandPosition() < 14000 || recorder.pendingControlRuns() > 0 ||
+                               show->commandWorkPending()); i++)
+        tickAndDeliver(&doc, 1);
+    show->setExternalElapsedTime(8000);
+    for (int i = 0; i < 80 && (show->commandPosition() > 8000 || recorder.pendingControlRuns() > 0 ||
+                               show->commandWorkPending()); i++)
+        tickAndDeliver(&doc, 1);
+    tickAndDeliver(&doc, 1);
+
+    QVERIFY(!scene->hasSource(replayOwner));
+    QVERIFY(scene->hasSource(liveOwner));
+    QCOMPARE(button->state(), VCButton::Active);
+    QVERIFY(scene->isRunning());
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 2);
+}
+
+void ShowCommandRecorder_Test::timelineRollback_sliderZeroRollbackReappliesAcrossWraps()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *scene = addTarget(&doc);
+    QVERIFY(scene);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
+    QVERIFY(slider);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(0, 12000, slider->ensureRecordingId(),
+                                                        ShowControlRole::AdjustSlider,
+                                                        QStringLiteral("Intensity"), 0.8)));
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+
+    show->setSyncSource(ShowRunner::External);
+    show->start(doc.masterTimer(), FunctionParent::master());
+    tickAndDeliver(&doc, 2);
+    const FunctionParent replayOwner(FunctionParent::Function, show->id());
+    QVERIFY(!scene->hasSource(replayOwner));
+
+    show->setExternalElapsedTime(11000);
+    tickAndDeliver(&doc, 2);
+    slider->setValue(0, true, true);
+    tickAndDeliver(&doc, 2);
+    QCOMPARE(slider->value(), 0);
+    QVERIFY(!scene->hasSource(replayOwner));
+
+    for (int wrap = 0; wrap < 2; ++wrap)
+    {
+        show->setExternalElapsedTime(12000);
+        for (int i = 0; i < 40 && slider->value() == 0; i++)
+            tickAndDeliver(&doc, 1);
+        QVERIFY(slider->value() > 0);
+        for (int i = 0; i < 40 && !scene->hasSource(replayOwner); i++)
+            tickAndDeliver(&doc, 1);
+        QVERIFY(scene->hasSource(replayOwner));
+        for (int i = 0; i < 40 && !scene->isRunning(); i++)
+            tickAndDeliver(&doc, 1);
+        QVERIFY(scene->isRunning());
+
+        show->setExternalElapsedTime(14000);
+        for (int i = 0; i < 80 && (show->commandPosition() < 14000 || recorder.pendingControlRuns() > 0 ||
+                                   show->commandWorkPending()); i++)
+            tickAndDeliver(&doc, 1);
+        show->setExternalElapsedTime(8000);
+        for (int i = 0; i < 80 && (show->commandPosition() > 8000 || recorder.pendingControlRuns() > 0 ||
+                                   show->commandWorkPending()); i++)
+            tickAndDeliver(&doc, 1);
+        tickAndDeliver(&doc, 1);
+
+        QCOMPARE(slider->value(), 0);
+        QVERIFY(!scene->hasSource(replayOwner));
+        for (int i = 0; i < 40 && scene->isRunning(); i++)
+            tickAndDeliver(&doc, 1);
+        QVERIFY(!scene->isRunning());
+    }
+
+    show->stop(FunctionParent::master());
     tickAndDeliver(&doc, 2);
 }
 
@@ -5210,6 +5797,8 @@ void ShowCommandRecorder_Test::play_liveInputAfterRunningRestartDoesNotEcho()
     recorder.setRecording(true);
     recorder.setResolvedShow(show->id());
     QCOMPARE(recorder.phaseValue(), int(ShowRecordPhase::Bound));
+    const QVector<ShowCommand> baselineCommands = recorder.track().commands();
+    const int baselineCount = baselineCommands.count();
 
     // the Show runs, then Stop and Play are accepted before its next tick
     show->start(doc.masterTimer(), FunctionParent::master());
@@ -5236,6 +5825,30 @@ void ShowCommandRecorder_Test::play_liveInputAfterRunningRestartDoesNotEcho()
         QVERIFY(recorder.submitUserInput(command));
     }
     tickAndDeliver(&doc, 20);
+    QCOMPARE(recorder.track().count(), baselineCount + 1);
+    QCOMPARE(show->commandTrack().count(), baselineCount + 1);
+    QSet<quint32> baselineIds;
+    for (const ShowCommand &cmd : baselineCommands)
+        baselineIds.insert(cmd.id);
+    QVector<ShowCommand> delta;
+    for (const ShowCommand &cmd : recorder.track().commands())
+    {
+        if (!baselineIds.contains(cmd.id))
+            delta.append(cmd);
+    }
+    QCOMPARE(delta.count(), 1);
+    const ShowCommand authored = delta.first();
+    if (input == QStringLiteral("button"))
+    {
+        QCOMPARE(int(authored.action), int(ShowCommandAction::SetButtonState));
+        QCOMPARE(authored.controlId, button->recordingId());
+        QCOMPARE(authored.on, true);
+    }
+    else
+    {
+        QCOMPARE(int(authored.action), int(ShowCommandAction::Start));
+        QCOMPARE(authored.functionId, target->id());
+    }
 
     // echoed, the Show would own the target too and keep it running
     QVERIFY(!target->startedAsChild());
@@ -6040,6 +6653,7 @@ void ShowCommandRecorder_Test::userClick_normalizedOnceToNativeDesiredState()
     const LookRig rig = addLookRig(&doc, bridge, ui.vc());
     QVERIFY(rig.childButton);
     VCButton *button = rig.childButton;
+    const FunctionParent manualOwner(FunctionParent::ManualVCWidget, button->id());
 
     if (initial == QLatin1String("active"))
         button->requestStateChange(true);
@@ -6066,22 +6680,25 @@ void ShowCommandRecorder_Test::userClick_normalizedOnceToNativeDesiredState()
         QCOMPARE(batches.count(), 1);
     }
 
+    QSignalSpy states(button, &VCButton::stateChanged);
     button->requestUserStateChange(true);
     const QVector<ShowControlRequest> queued = recorder.pendingUserRequests();
     for (int i = 0; i < 20 && (!recorder.pendingUserRequests().isEmpty() || recorder.pendingControlRuns() > 0); i++)
         tickAndDeliver(&doc);
     tickAndDeliver(&doc, 2);
 
-    QCOMPARE(button->state(), expectOn ? VCButton::Active : VCButton::Inactive);
-    QCOMPARE(rig.child->isRunning(), expectOn);
+    const bool resolvedExpectOn = expectOn;
+    const bool resolvedRunning = resolvedExpectOn;
+    QCOMPARE(button->state(), resolvedExpectOn ? VCButton::Active : VCButton::Inactive);
+    QCOMPARE(rig.child->isRunning(), resolvedRunning);
     QCOMPARE(queued.count(), replayed.isEmpty() ? 0 : 1);
     if (!queued.isEmpty())
-        QCOMPARE(queued.first().on, expectOn);
+        QCOMPARE(queued.first().on, resolvedExpectOn);
     if (recording)
     {
         QCOMPARE(recorder.track().commands().count(), qsizetype(1));
         QCOMPARE(int(recorder.track().commands().first().action), int(ShowCommandAction::SetButtonState));
-        QCOMPARE(recorder.track().commands().first().on, expectOn);
+        QCOMPARE(recorder.track().commands().first().on, resolvedExpectOn);
     }
     if (initial == QLatin1String("monitoring"))
     {
@@ -6092,7 +6709,34 @@ void ShowCommandRecorder_Test::userClick_normalizedOnceToNativeDesiredState()
         QVERIFY(rig.child->isRunning());
         QCOMPARE(button->state(), VCButton::Active);
     }
-
+    if (initial == QLatin1String("active") && replayed == QLatin1String("off"))
+    {
+        bool sawMonitoring = false;
+        for (const QList<QVariant> &entry : states)
+        {
+            if (!entry.isEmpty() && entry.first().toInt() == int(VCButton::Monitoring))
+            {
+                sawMonitoring = true;
+                break;
+            }
+        }
+        QVERIFY(sawMonitoring);
+        QVERIFY(!rig.child->isRunning());
+        QVERIFY(!rig.child->hasSource(manualOwner));
+        button->requestUserStateChange(true);
+        for (int i = 0; i < 20 && (!recorder.pendingUserRequests().isEmpty() ||
+                                  recorder.pendingControlRuns() > 0); i++)
+            tickAndDeliver(&doc);
+        tickAndDeliver(&doc, 2);
+        QCOMPARE(button->state(), VCButton::Active);
+        QVERIFY(rig.child->isRunning());
+        QVERIFY(rig.child->hasSource(manualOwner));
+        QCOMPARE(button->applyRecordedState(false, FunctionParent(FunctionParent::Function, show->id())),
+                 ShowCommandFsm::ShowButtonOp::Stop);
+        QCOMPARE(button->state(), VCButton::Monitoring);
+        QVERIFY(rig.child->isRunning());
+        QVERIFY(rig.child->hasSource(manualOwner));
+    }
     if (recording)
         QVERIFY(recorder.setRecording(false));
     show->stop(FunctionParent::master());
@@ -6647,6 +7291,8 @@ void ShowCommandRecorder_Test::userRequest_keepsItsAcceptedDestination_data()
         for (const QString &change : {QStringLiteral("none"), QStringLiteral("rebind"), QStringLiteral("remove"),
                                       QStringLiteral("mode")})
             QTest::newRow(qPrintable(control + QStringLiteral(", ") + change)) << control << change;
+    QTest::newRow("slider, click-and-go-type")
+        << QStringLiteral("slider") << QStringLiteral("click-and-go-type");
 }
 
 void ShowCommandRecorder_Test::userRequest_keepsItsAcceptedDestination()
@@ -6691,6 +7337,11 @@ void ShowCommandRecorder_Test::userRequest_keepsItsAcceptedDestination()
         else
             r.slider->setSliderMode(VCSlider::Level);
     }
+    else if (change == QLatin1String("click-and-go-type"))
+    {
+        QVERIFY(!button);
+        r.slider->setClickAndGoType(VCSlider::CnGPreset);
+    }
     else if (change == QLatin1String("remove"))
     {
         QVERIFY(r.bridge.removeWidget(button ? r.ba->id() : r.slider->id()));
@@ -6706,7 +7357,8 @@ void ShowCommandRecorder_Test::userRequest_keepsItsAcceptedDestination()
     QVERIFY(!r.b->isRunning());
     QCOMPARE(r.a->isRunning(), change == QLatin1String("none"));
     // a request whose destination changed is cancelled and reported, never retargeted
-    const bool reconfigured = change == QLatin1String("rebind") || change == QLatin1String("mode");
+    const bool reconfigured = change == QLatin1String("rebind") || change == QLatin1String("mode") ||
+                              change == QLatin1String("click-and-go-type");
     QCOMPARE(reported.isEmpty(), !reconfigured);
     QCOMPARE(r.recorder.lastError().isEmpty(), !reconfigured);
 }
@@ -7046,29 +7698,4863 @@ void ShowCommandRecorder_Test::acceptedSliderModes_recordPrimaryValue()
     QVERIFY(r.recorder.lastError().isEmpty());
 }
 
+void ShowCommandRecorder_Test::clickAndGoPreset_userPathRecordsSliderValue()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(2600);
+    r.slider->setClickAndGoType(VCSlider::CnGPreset);
+    QVERIFY(r.recorder.setRecording(true));
+
+    r.slider->requestUserClickAndGoPresetValue(64);
+    tickAndDeliver(&r.doc, 2);
+
+    const QVector<ShowCommand> records = r.show->commandTrack().commands();
+    QCOMPARE(records.count(), 1);
+    QCOMPARE(ShowCommand::actionToString(records.first().action), QStringLiteral("SetSliderChannel"));
+    QCOMPARE(int(records.first().role), int(ShowControlRole::AdjustSlider));
+    QCOMPARE(records.first().payload.encode(records.first().action),
+             QStringLiteral("{\"binding\":\"Intensity\",\"value\":64}"));
+    QCOMPARE(records.first().time, quint32(2600));
+    QCOMPARE(r.slider->value(), 64);
+    QVERIFY(r.recorder.lastError().isEmpty());
+}
+
+void ShowCommandRecorder_Test::clickAndGoPreset_replayAfterRangeChange_appliesAcceptedValue_data()
+{
+    QTest::addColumn<bool>("level");
+    QTest::addColumn<bool>("historical");
+    QTest::addColumn<int>("value");
+    QTest::addColumn<int>("nextCnG");
+    QTest::addColumn<int>("expected");
+    QTest::newRow("original Adjust raw64") << false << false << 64 << int(VCSlider::CnGNone) << 64;
+    for (const int value : {0, 64, 255})
+        for (const int next : {int(VCSlider::CnGNone), int(VCSlider::CnGPreset)})
+            QTest::newRow(qPrintable(QString("Level native byte%1 current CnG%2").arg(value).arg(next)))
+                << true << false << value << next << value;
+    QTest::newRow("historical v2 normalized current CnGNone range byte152")
+        << true << true << 191 << int(VCSlider::CnGNone) << 152;
+    QTest::newRow("historical v2 normalized current CnGPreset byte191")
+        << true << true << 191 << int(VCSlider::CnGPreset) << 191;
+}
+
+void ShowCommandRecorder_Test::clickAndGoPreset_replayAfterRangeChange_appliesAcceptedValue()
+{
+    QFETCH(bool, level);
+    QFETCH(bool, historical);
+    QFETCH(int, value);
+    QFETCH(int, nextCnG);
+    QFETCH(int, expected);
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(2600);
+    if (level)
+    {
+        r.slider->setSliderMode(VCSlider::Level);
+        r.slider->addLevelChannel(r.a->values().first().fxi, 3);
+        r.slider->setValue(42);
+        tickAndRenderUniverses(&r.doc, 3);
+    }
+    r.slider->setClickAndGoType(VCSlider::CnGPreset);
+    if (!historical)
+    {
+        QVERIFY(r.recorder.setRecording(true));
+        r.slider->requestUserClickAndGoPresetValue(value);
+        tickAndRenderUniverses(&r.doc, 3);
+        QVERIFY(r.recorder.setRecording(false));
+        QCOMPARE(r.show->commandTrack().count(), 1);
+        const auto &channel = std::get<ShowCommandChannel>(r.show->commandTrack().commands().first().payload.value);
+        QCOMPARE(channel.value, value);
+        QCOMPARE(channel.binding, level ? QString() : QStringLiteral("Intensity"));
+    }
+    QString xml;
+    if (historical)
+        xml = QStringLiteral("<CommandTrack Version=\"2\" Extent=\"4000\"><Command ID=\"1\" Time=\"2600\" "
+            "Action=\"SetSliderPosition\" Control=\"%1\" Role=\"LevelSlider\" Value=\"0.75\"/></CommandTrack>")
+            .arg(r.slider->ensureRecordingId().toString());
+    else
+    {
+        QXmlStreamWriter writer(&xml);
+        QVERIFY(r.show->commandTrack().saveXML(&writer));
+    }
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    ShowCommandTrack saved;
+    QString reason;
+    QVERIFY2(saved.loadXML(reader, &reason), qPrintable(reason));
+    if (historical)
+    {
+        QCOMPARE(saved.commands().first().action, ShowCommandAction::SetSliderPosition);
+        QCOMPARE(saved.commands().first().position, .75);
+        QString savedXml;
+        QXmlStreamWriter writer(&savedXml);
+        QVERIFY(saved.saveXML(&writer));
+        QVERIFY(savedXml.contains("Version=\"2\""));
+        QXmlStreamReader savedReader(savedXml);
+        QVERIFY(savedReader.readNextStartElement());
+        ShowCommandTrack reloaded;
+        QVERIFY2(reloaded.loadXML(savedReader, &reason), qPrintable(reason));
+        QCOMPARE(reloaded.commands(), saved.commands());
+        QCOMPARE(reloaded.commands().first().order, saved.commands().first().order);
+        QCOMPARE(reloaded.extent(), saved.extent());
+        saved = reloaded;
+    }
+    else
+        QCOMPARE(saved.commands(), r.show->commandTrack().commands());
+    QVERIFY(saved.setExtent(4000) && r.show->setCommandTrack(saved));
+    r.slider->setRangeLowLimit(level ? 32 : 0);
+    r.slider->setRangeHighLimit(level ? 192 : 127);
+    r.slider->setClickAndGoType(VCSlider::ClickAndGoType(nextCnG));
+    r.slider->setValue(200);
+    tickAndRenderUniverses(&r.doc, 3);
+
+    playExternalFromZero(r.show, &r.doc);
+    if (!level)
+    {
+        for (quint32 elapsed = r.show->elapsed(); elapsed < 2601; elapsed++)
+        {
+            r.show->setExternalElapsedTime(elapsed + 1);
+            tickAndDeliver(&r.doc, 1);
+        }
+    }
+    else
+    {
+        r.show->setExternalElapsedTime(2601);
+        tickAndRenderUniverses(&r.doc, 8);
+    }
+    QCOMPARE(r.slider->value(), expected);
+    if (level)
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray output = universes.first()->preGMValues();
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        QCOMPARE(quint8(output.at(3)), quint8(expected));
+    }
+    QCOMPARE(r.show->commandTrack().commands(), saved.commands());
+}
+
+void ShowCommandRecorder_Test::clickAndGoColors_userPathRecordsTypedPayload()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(2600);
+    r.slider->setSliderMode(VCSlider::Level);
+    r.slider->setClickAndGoType(VCSlider::CnGColors);
+    r.slider->addLevelChannel(r.a->values().first().fxi, 0);
+    QVERIFY(r.recorder.setRecording(true));
+
+    r.slider->requestUserClickAndGoColors(QColor(10, 20, 30), QColor(40, 50, 60));
+    tickAndDeliver(&r.doc, 2);
+
+    const QVector<ShowCommand> records = r.show->commandTrack().commands();
+    QCOMPARE(records.count(), 1);
+    QCOMPARE(int(records.first().action), int(ShowCommandAction::SetSliderColors));
+    QCOMPARE(int(records.first().role), int(ShowControlRole::LevelSlider));
+    QCOMPARE(records.first().position, qreal(128) / 255.0);
+    QVERIFY(records.first().attribute.isEmpty());
+    QCOMPARE(records.first().nativeArgument(), QStringLiteral("10,20,30;40,50,60"));
+    QCOMPARE(records.first().time, quint32(2600));
+    QCOMPARE(r.slider->value(), 128);
+    QCOMPARE(r.slider->cngPrimaryColor(), QColor(10, 20, 30));
+    QCOMPARE(r.slider->cngSecondaryColor(), QColor(40, 50, 60));
+    QVERIFY(r.recorder.lastError().isEmpty());
+}
+
+void ShowCommandRecorder_Test::clickAndGoColors_replayAppliesDistinctColorsWithSameBrightness_data()
+{
+    QTest::addColumn<bool>("saved");
+    QTest::addColumn<bool>("changedRange");
+    QTest::newRow("accepted native color output") << false << false;
+    QTest::newRow("saved native color output") << true << false;
+    QTest::newRow("accepted color changed range") << false << true;
+    QTest::newRow("saved color changed range") << true << true;
+}
+
+void ShowCommandRecorder_Test::clickAndGoColors_replayAppliesDistinctColorsWithSameBrightness()
+{
+    QFETCH(bool, saved);
+    QFETCH(bool, changedRange);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *fixture = addRgbTarget(&r.doc, &definitions, QStringLiteral("RGB/WAUV output"), 32, true);
+    QVERIFY(fixture);
+    r.show->setSyncSource(ShowRunner::External);
+    r.slider->setSliderMode(VCSlider::Level);
+    r.slider->setClickAndGoType(VCSlider::CnGColors);
+    for (int channel = 0; channel < 7; ++channel)
+        r.slider->addLevelChannel(fixture->id(), channel);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&]() { r.doc.inputOutputMap()->releaseUniverses(false); });
+        return universes.first()->preGMValues().mid(32, 7);
+    };
+    QVERIFY(r.recorder.setRecording(true));
+
+    r.show->setExternalElapsedTime(1001);
+    r.slider->requestUserClickAndGoColors(QColor(10, 20, 30), QColor(40, 50, 60));
+    tickAndRenderUniverses(&r.doc, 2);
+    const QByteArray firstOutput = output();
+    QCOMPARE(firstOutput, QByteArray::fromHex("800a141e28323c"));
+
+    r.show->setExternalElapsedTime(2000);
+    r.slider->requestUserClickAndGoColors(QColor(70, 80, 90), QColor(15, 25, 35));
+    tickAndRenderUniverses(&r.doc, 2);
+    const QByteArray secondOutput = output();
+    QCOMPARE(secondOutput, QByteArray::fromHex("8046505a0f1923"));
+    r.show->setExternalElapsedTime(3000);
+    r.slider->requestUserValue(160);
+    tickAndRenderUniverses(&r.doc, 2);
+    QVERIFY(r.recorder.setRecording(false));
+    ShowCommandTrack captured = r.show->commandTrack();
+    QVERIFY(captured.setExtent(4000));
+    QVERIFY(r.show->setCommandTrack(captured));
+    if (saved)
+    {
+        QString xml;
+        QXmlStreamWriter writer(&xml);
+        QVERIFY(r.show->commandTrack().saveXML(&writer));
+        QXmlStreamReader reader(xml);
+        QVERIFY(reader.readNextStartElement());
+        ShowCommandTrack loaded;
+        QString reason;
+        QVERIFY2(loaded.loadXML(reader, &reason), qPrintable(reason));
+        QCOMPARE(loaded.commands(), r.show->commandTrack().commands());
+        QVERIFY(r.show->setCommandTrack(loaded));
+    }
+
+    if (changedRange)
+    {
+        r.slider->setRangeLowLimit(32);
+        r.slider->setRangeHighLimit(192);
+    }
+    r.slider->setClickAndGoColors(QColor(0, 0, 0), QColor(0, 0, 0));
+    r.slider->setValue(0);
+    tickAndDeliver(&r.doc, 2);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = r.show->elapsed(); elapsed < 1001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), QByteArray::fromHex("800a141e28323c"));
+    QCOMPARE(r.slider->value(), 128);
+    QCOMPARE(r.slider->cngPrimaryColor(), QColor(10, 20, 30));
+    QCOMPARE(r.slider->cngSecondaryColor(), QColor(40, 50, 60));
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), firstOutput);
+
+    for (quint32 elapsed = 1001; elapsed < 2001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), QByteArray::fromHex("8046505a0f1923"));
+    QCOMPARE(r.slider->value(), 128);
+    QCOMPARE(r.slider->cngPrimaryColor(), QColor(70, 80, 90));
+    QCOMPARE(r.slider->cngSecondaryColor(), QColor(15, 25, 35));
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), secondOutput);
+    r.show->setExternalElapsedTime(3001);
+    tickAndRenderUniverses(&r.doc, 4);
+    QVERIFY(output() != secondOutput);
+    r.show->setExternalElapsedTime(2001);
+    tickAndRenderUniverses(&r.doc, 4);
+    QCOMPARE(output(), QByteArray::fromHex("8046505a0f1923"));
+}
+
+void ShowCommandRecorder_Test::clickAndGoColors_replayInvalidPayloadHasNoPartialEffect()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.slider->setSliderMode(VCSlider::Level);
+    r.slider->setClickAndGoType(VCSlider::CnGColors);
+    r.slider->addLevelChannel(r.a->values().first().fxi, 0);
+
+    ShowCommandTrack track;
+    const QUuid id = r.slider->ensureRecordingId();
+    QVERIFY(track.insert(ShowCommand::setSliderColors(1, 1000, id, ShowControlRole::LevelSlider,
+                                                      QStringLiteral("10,20,30;40,50,60"), qreal(128) / 255.0)));
+    QString rejection;
+    QVERIFY(!track.insert(ShowCommand::setSliderColors(2, 2000, id, ShowControlRole::LevelSlider,
+                                                       QStringLiteral("invalid"), qreal(128) / 255.0),
+                          &rejection));
+    QVERIFY(!rejection.isEmpty());
+    QCOMPARE(track.count(), 1);
+    QVERIFY(track.setExtent(4000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    r.slider->setClickAndGoColors(QColor(0, 0, 0), QColor(0, 0, 0));
+    r.slider->setValue(0);
+    tickAndDeliver(&r.doc, 2);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = r.show->elapsed(); elapsed < 1001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(r.slider->value(), 128);
+    QCOMPARE(r.slider->cngPrimaryColor(), QColor(10, 20, 30));
+    QCOMPARE(r.slider->cngSecondaryColor(), QColor(40, 50, 60));
+
+    for (quint32 elapsed = 1001; elapsed < 2001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(r.slider->value(), 128);
+    QCOMPARE(r.slider->cngPrimaryColor(), QColor(10, 20, 30));
+    QCOMPARE(r.slider->cngSecondaryColor(), QColor(40, 50, 60));
+}
+
+void ShowCommandRecorder_Test::sliderReset_replayReleasesOverrideToNonzeroMonitor()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.slider->setMonitorEnabled(true);
+    QVERIFY(r.recorder.setRecording(true));
+
+    r.show->setExternalElapsedTime(2000);
+    r.slider->requestUserValue(180);
+    tickAndDeliver(&r.doc, 2);
+
+    r.show->setExternalElapsedTime(2600);
+    r.slider->requestUserReset();
+    tickAndDeliver(&r.doc, 2);
+    QVERIFY(!r.slider->isOverriding());
+
+    r.show->setExternalElapsedTime(3200);
+    r.slider->requestUserReset();
+    tickAndDeliver(&r.doc, 2);
+    QVERIFY(!r.slider->isOverriding());
+    QVERIFY(r.recorder.setRecording(false));
+
+    int resetCount = 0;
+    for (const ShowCommand &cmd : r.show->commandTrack().commands())
+        resetCount += cmd.action == ShowCommandAction::SetSliderReset ? 1 : 0;
+    QCOMPARE(resetCount, 2);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = r.show->elapsed(); elapsed < 2801; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    r.slider->requestUserValue(200);
+    tickAndDeliver(&r.doc, 2);
+    QCOMPARE(r.slider->value(), 200);
+
+    for (quint32 elapsed = 2801; elapsed < 3201; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed);
+        tickAndDeliver(&r.doc, 1);
+    }
+
+    QVERIFY(!r.slider->isOverriding());
+    QVERIFY(r.slider->value() > 0);
+}
+
+void ShowCommandRecorder_Test::sliderReset_savedReplayReleasesNativeFader_data()
+{
+    QTest::addColumn<int>("monitored");
+    QTest::addColumn<bool>("secondOverride");
+    QTest::newRow("monitor73 repeated release") << 73 << true;
+    QTest::newRow("monitor141 repeated release") << 141 << true;
+    QTest::newRow("monitor73 idempotent reset") << 73 << false;
+}
+
+void ShowCommandRecorder_Test::sliderReset_savedReplayReleasesNativeFader()
+{
+    QFETCH(int, monitored);
+    QFETCH(bool, secondOverride);
+    RequestRig r;
+    r.slider->setSliderMode(VCSlider::Level);
+    r.slider->setMonitorEnabled(true);
+    const quint32 fixture = r.a->values().first().fxi;
+    r.slider->addLevelChannel(fixture, 0);
+    r.a->setValue(SceneValue(fixture, 0, monitored));
+    r.a->start(r.doc.masterTimer(), FunctionParent::master());
+    tickAndRenderUniverses(&r.doc, 4);
+    const auto native = [&]() {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const auto result = qMakePair(int(uchar(universes.first()->preGMValues().at(0))),
+                                     universes.first()->faders().count());
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return result;
+    };
+    QCOMPARE(native().first, monitored);
+    QCOMPARE(r.slider->monitorValue(), monitored);
+    QCOMPARE(r.slider->value(), monitored);
+    QVERIFY(!r.slider->isOverriding());
+    r.slider->requestUserValue(180);
+    tickAndRenderUniverses(&r.doc, 3);
+    r.slider->requestUserReset();
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(native().first, monitored);
+    QCOMPARE(native().second, 1);
+    const int monitorFaders = native().second;
+    r.show->setSyncSource(ShowRunner::External);
+    QVERIFY(r.recorder.setRecording(true));
+    r.show->setExternalElapsedTime(100);
+    r.slider->requestUserValue(180);
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(native().first, 180);
+    QCOMPARE(native().second, monitorFaders + 1);
+    QVERIFY(r.slider->isOverriding());
+    r.show->setExternalElapsedTime(200);
+    r.slider->requestUserReset();
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(native().first, monitored);
+    QCOMPARE(native().second, monitorFaders);
+    QCOMPARE(r.slider->value(), monitored);
+    QVERIFY(!r.slider->isOverriding());
+    r.show->setExternalElapsedTime(300);
+    if (secondOverride)
+        r.slider->requestUserValue(210);
+    tickAndRenderUniverses(&r.doc, 3);
+    r.show->setExternalElapsedTime(400);
+    r.slider->requestUserReset();
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(native().first, monitored);
+    QCOMPARE(native().second, monitorFaders);
+    QVERIFY(!r.slider->isOverriding());
+    QVERIFY(r.recorder.setRecording(false));
+    const auto captured = r.show->commandTrack().commands();
+    int resets = 0;
+    for (const auto &command : captured)
+        resets += command.action == ShowCommandAction::SetSliderReset;
+    QCOMPARE(resets, 2);
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(r.show->saveXML(&writer));
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show loaded(&r.doc);
+    QVERIFY(loaded.loadXML(reader));
+    QCOMPARE(loaded.commandTrack().commands(), captured);
+    for (int i = 0; i < captured.count(); ++i)
+        QCOMPARE(loaded.commandTrack().commands()[i].order, captured[i].order);
+    auto saved = loaded.commandTrack();
+    QVERIFY(saved.setExtent(1000) && r.show->setCommandTrack(saved));
+    for (int occurrence = 0; occurrence < 2; ++occurrence)
+    {
+        playExternalFromZero(r.show, &r.doc);
+        r.show->setExternalElapsedTime(150);
+        tickAndRenderUniverses(&r.doc, 4);
+        QCOMPARE(native().first, 180);
+        QCOMPARE(native().second, monitorFaders + 1);
+        QVERIFY(r.slider->isOverriding());
+        r.show->setExternalElapsedTime(250);
+        tickAndRenderUniverses(&r.doc, 4);
+        QCOMPARE(native().first, monitored);
+        QCOMPARE(native().second, monitorFaders);
+        QCOMPARE(r.slider->monitorValue(), monitored);
+        QCOMPARE(r.slider->value(), monitored);
+        QVERIFY(!r.slider->isOverriding());
+        r.show->setExternalElapsedTime(350);
+        tickAndRenderUniverses(&r.doc, 4);
+        QCOMPARE(native().first, secondOverride ? 210 : monitored);
+        QCOMPARE(native().second, monitorFaders + (secondOverride ? 1 : 0));
+        r.show->setExternalElapsedTime(450);
+        tickAndRenderUniverses(&r.doc, 4);
+        QCOMPARE(native().first, monitored);
+        QCOMPARE(native().second, monitorFaders);
+        QCOMPARE(r.slider->value(), monitored);
+        QVERIFY(!r.slider->isOverriding());
+        QCOMPARE(r.show->commandTrack().commands(), captured);
+        r.show->stop(FunctionParent::master());
+        tickAndRenderUniverses(&r.doc, 4);
+        QVERIFY(r.a->isRunning());
+    }
+}
+
+void ShowCommandRecorder_Test::animationFader_waitsForNativeStart_data()
+{
+    QTest::addColumn<int>("level");
+    QTest::newRow("half") << 128;
+    QTest::newRow("full") << 255;
+}
+
+void ShowCommandRecorder_Test::animationFader_waitsForNativeStart()
+{
+    QFETCH(int, level);
+    RequestRig r;
+    QList<QLCFixtureDef *> defs;
+    RGBMatrix *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &defs));
+    QVERIFY(r.doc.addFunction(matrix));
+    VCAnimation *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setAnimationFader(1, 10, animation->ensureRecordingId(), qreal(level) / 255.0)));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 10, matrix->id(), .25)));
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(r.show->setCommandTrack(track));
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    QSignalSpy receipts(r.show, &Show::functionReceiptReady);
+    r.show->start(r.doc.masterTimer(), FunctionParent::master());
+    for (int i = 0; i < 5; ++i)
+        r.doc.masterTimer()->timerTick();
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(animation->faderLevel(), level);
+    QVERIFY(!matrix->isRunning());
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QCOMPARE(receipts.count(), 0);
+    tickAndDeliver(&r.doc, 8);
+    QVERIFY(matrix->isRunning());
+    QVERIFY(receipts.count() > 0);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(matrix->getAttributeValue(Function::Intensity), .25);
+    qDeleteAll(defs);
+}
+
+void ShowCommandRecorder_Test::animationFader_sameValueLiveSurvivesStop_data()
+{
+    QTest::addColumn<int>("level");
+    QTest::addColumn<bool>("productionGesture");
+    QTest::newRow("half") << 128 << false;
+    QTest::newRow("full") << 255 << false;
+    QTest::newRow("production half press") << 128 << true;
+    QTest::newRow("production full press") << 255 << true;
+}
+
+void ShowCommandRecorder_Test::animationFader_sameValueLiveSurvivesStop()
+{
+    QFETCH(int, level);
+    QFETCH(bool, productionGesture);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    QVERIFY(r.doc.addFunction(matrix));
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setAnimationFader(1, 200, animation->ensureRecordingId(),
+                                                       qreal(level) / 255)));
+    QVERIFY(track.setExtent(2000) && r.show->setCommandTrack(track));
+    r.show->setSyncSource(ShowRunner::External);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 8);
+    const FunctionParent showOwner(FunctionParent::Function, r.show->id());
+    QVERIFY(matrix->hasSource(showOwner));
+    QCOMPARE(animation->faderLevel(), level);
+    const int before = matrixOutputPeak(&r.doc);
+    QVERIFY(before > 0);
+    if (productionGesture)
+    {
+        auto *view = r.ui.view();
+        view->resize(1100, 700);
+        view->show();
+        QVERIFY(QTest::qWaitForWindowExposed(view));
+        QQuickItem *fader = nullptr;
+        QTRY_VERIFY((fader = findVisualItem(view->contentItem(), QStringLiteral("matrixPlaybackFader"))));
+        auto *handle = qobject_cast<QQuickItem *>(fader->property("handle").value<QObject *>());
+        QVERIFY(handle);
+        const QPoint center = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+        QTest::mousePress(view, Qt::LeftButton, Qt::NoModifier, center);
+        QTest::mouseRelease(view, Qt::LeftButton, Qt::NoModifier, center);
+    }
+    else
+        animation->requestUserFaderLevel(level);
+    tickAndRenderUniverses(&r.doc, 3);
+    QVERIFY(matrix->hasSource(FunctionParent(FunctionParent::AutoVCWidget, animation->id())));
+    r.show->stop(FunctionParent::master());
+    tickAndRenderUniverses(&r.doc, 8);
+    QVERIFY(!matrix->hasSource(showOwner));
+    QVERIFY(matrix->isRunning());
+    QCOMPARE(animation->faderLevel(), level);
+    QCOMPARE(matrixOutputPeak(&r.doc), before);
+    QCOMPARE(r.show->commandTrack().commands(), track.commands());
+}
+
+void ShowCommandRecorder_Test::animationFader_userPathRecordsTypedPayload()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(2600);
+    RGBMatrix *matrix = new RGBMatrix(&r.doc);
+    matrix->setName(QStringLiteral("M"));
+    QVERIFY(r.doc.addFunction(matrix));
+    VCAnimation *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    QVERIFY(r.recorder.setRecording(true));
+
+    animation->requestUserFaderLevel(153);
+    tickAndDeliver(&r.doc, 2);
+
+    const QVector<ShowCommand> records = r.show->commandTrack().commands();
+    QCOMPARE(records.count(), 1);
+    QCOMPARE(int(records.first().action), int(ShowCommandAction::SetAnimationFader));
+    QCOMPARE(int(records.first().role), int(ShowControlRole::AnimationFader));
+    QCOMPARE(records.first().position, qreal(153) / 255.0);
+    QCOMPARE(records.first().time, quint32(2600));
+    QCOMPARE(animation->faderLevel(), 153);
+    QVERIFY(r.recorder.lastError().isEmpty());
+}
+
+void ShowCommandRecorder_Test::animationFader_replayZeroThenRestartAcrossWraps()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    QList<QLCFixtureDef *> defs;
+    RGBMatrix *matrix = new RGBMatrix(&r.doc);
+    matrix->setName(QStringLiteral("M"));
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &defs));
+    QVERIFY(r.doc.addFunction(matrix));
+    VCAnimation *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    const FunctionParent showOwner(FunctionParent::Function, r.show->id());
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setAnimationFader(1, 8000, animation->ensureRecordingId(), qreal(153) / 255.0)));
+    QVERIFY(track.insert(ShowCommand::setAnimationFader(2, 12000, animation->ensureRecordingId(), 0.0)));
+    QVERIFY(track.insert(ShowCommand::setAnimationFader(3, 16000, animation->ensureRecordingId(), qreal(204) / 255.0)));
+    QVERIFY(track.setExtent(20000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = r.show->elapsed(); elapsed < 16000; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndRenderUniverses(&r.doc, 1);
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(animation->faderLevel(), 204);
+    QVERIFY(matrix->hasSource(showOwner));
+    QVERIFY(matrix->isRunning());
+    QCOMPARE(matrixOutputPeak(&r.doc), 204);
+
+    r.show->setExternalElapsedTime(14000);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(animation->faderLevel(), 0);
+    QVERIFY(!matrix->hasSource(showOwner));
+    QVERIFY(!matrix->isRunning());
+    QCOMPARE(matrixOutputPeak(&r.doc), 0);
+
+    for (quint32 elapsed = 12000; elapsed < 16000; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndRenderUniverses(&r.doc, 1);
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(animation->faderLevel(), 204);
+    QVERIFY(matrix->hasSource(showOwner));
+    QVERIFY(matrix->isRunning());
+    QCOMPARE(matrixOutputPeak(&r.doc), 204);
+
+    const FunctionParent liveOwner(FunctionParent::ManualVCWidget, animation->id());
+    matrix->start(r.doc.masterTimer(), liveOwner);
+    QVERIFY(matrix->hasSource(liveOwner));
+
+    r.show->setExternalElapsedTime(14000);
+    tickAndRenderUniverses(&r.doc, 1);
+    for (int i = 0; i < 19 && matrixOutputPeak(&r.doc) == 0; i++)
+        tickAndRenderUniverses(&r.doc, 1);
+    QVERIFY(!matrix->hasSource(showOwner));
+    QVERIFY(matrix->hasSource(liveOwner));
+    QVERIFY(matrix->isRunning());
+    QVERIFY(matrixOutputPeak(&r.doc) > 0);
+
+    for (quint32 elapsed = 14000; elapsed < 16000; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndRenderUniverses(&r.doc, 1);
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(animation->faderLevel(), 204);
+    QVERIFY(matrix->hasSource(showOwner));
+    QVERIFY(matrix->isRunning());
+    QVERIFY(matrix->hasSource(liveOwner));
+    QCOMPARE(matrixOutputPeak(&r.doc), 204);
+
+    r.show->stop(FunctionParent::master());
+    tickAndRenderUniverses(&r.doc, 2);
+    QVERIFY(!matrix->hasSource(showOwner));
+    QVERIFY(matrix->hasSource(liveOwner));
+    QVERIFY(matrix->isRunning());
+    qDeleteAll(defs);
+}
+
+void ShowCommandRecorder_Test::xyPadPosition_userPathRecordsTypedPayload()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(2600);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    QVERIFY(r.recorder.setRecording(true));
+
+    pad->requestUserCurrentPosition(QPointF(64.5, 192.25));
+    tickAndDeliver(&r.doc, 2);
+
+    const QVector<ShowCommand> records = r.show->commandTrack().commands();
+    QCOMPARE(records.count(), 1);
+    QCOMPARE(int(records.first().action), int(ShowCommandAction::SetXYPadPosition));
+    QCOMPARE(int(records.first().role), int(ShowControlRole::XYPad));
+    QVERIFY(records.first().attribute.isEmpty());
+    QCOMPARE(records.first().nativeArgument(), QStringLiteral("64.5,192.25"));
+    QCOMPARE(records.first().time, quint32(2600));
+    QCOMPARE(pad->currentPosition(), QPointF(64.5, 192.25));
+    QVERIFY(r.recorder.lastError().isEmpty());
+}
+
+void ShowCommandRecorder_Test::xyPadFloor_userPathRecordsTypedPayload_data()
+{
+    QTest::addColumn<QVector3D>("point");
+    QTest::newRow("fractional floor and height") << QVector3D(1.25f, .75f, 3.125f);
+    QTest::newRow("nonzero height") << QVector3D(2.5f, 1.25f, 4.5f);
+}
+
+void ShowCommandRecorder_Test::selectedNative_userIngress_data()
+{
+    QTest::addColumn<int>("domain");
+    QTest::newRow("range endpoints") << 0;
+    QTest::newRow("static position choice") << 1;
+    QTest::newRow("matrix color") << 2;
+    QTest::newRow("matrix color choice") << 3;
+    QTest::newRow("matrix component") << 4;
+}
+
+void ShowCommandRecorder_Test::nativeQml_presetClickAuthorsOnce_data()
+{
+    QTest::addColumn<bool>("matrix");
+    QTest::newRow("position choice production click") << false;
+    QTest::newRow("Matrix Text production click") << true;
+}
+
+void ShowCommandRecorder_Test::nativeQml_presetClickAuthorsOnce()
+{
+    QFETCH(bool, matrix);
+    RequestRig r;
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    const int position = pad->addPositionPreset();
+    pad->setPresetName(quint8(position), QStringLiteral("Native position proof"));
+    auto *function = new RGBMatrix(&r.doc);
+    QVERIFY(r.doc.addFunction(function));
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, function->id());
+    QVERIFY(animation);
+    const int text = animation->addTextPreset(QStringLiteral("Native Text proof"));
+    QVERIFY(text >= 0);
+    auto *view = r.ui.view();
+    view->resize(1100, 700);
+    view->show();
+    QVERIFY(QTest::qWaitForWindowExposed(view));
+    QQuickItem *button = nullptr;
+    QTRY_VERIFY((button = findVisualItemWith(view->contentItem(), "label",
+        matrix ? QVariant(QStringLiteral("Native Text proof")) : QVariant(QStringLiteral("Native position proof")))));
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(1234);
+    QVERIFY(r.recorder.setRecording(true));
+    QTest::mouseClick(view, Qt::LeftButton, Qt::NoModifier,
+                     button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+    QTRY_COMPARE(r.show->commandTrack().count(), 1);
+    const ShowCommand command = r.show->commandTrack().commands().first();
+    QCOMPARE(command.time, quint32(1234));
+    QCOMPARE(command.action, matrix ? ShowCommandAction::SetAnimationContent
+                                    : ShowCommandAction::SetXYPadPositionPreset);
+    QCOMPARE(matrix ? animation->activePresetId() : pad->activePresetId(), matrix ? text : position);
+    if (matrix)
+    {
+        animation->setFaderLevel(128);
+        QCoreApplication::processEvents();
+        QCOMPARE(r.show->commandTrack().count(), 1);
+    }
+}
+
+void ShowCommandRecorder_Test::nativeQml_algorithmSelectionAuthorsOnce_data()
+{
+    QTest::addColumn<bool>("keyboard");
+    QTest::addColumn<bool>("popup");
+    QTest::addColumn<bool>("keyboardOpen");
+    QTest::newRow("visible dropdown mouse") << false << true << false;
+    QTest::newRow("visible combo keyboard") << true << false << false;
+    QTest::newRow("popup keyboard after mouse open") << true << true << false;
+    QTest::newRow("popup mouse after keyboard open") << false << true << true;
+}
+
+void ShowCommandRecorder_Test::nativeQml_algorithmSelectionAuthorsOnce()
+{
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("VCAnimationItem\\.qml.*(TypeError|ReferenceError)")));
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("CustomComboBox\\.qml.*Binding loop")));
+    QFETCH(bool, keyboard);
+    QFETCH(bool, popup);
+    QFETCH(bool, keyboardOpen);
+    RequestRig r;
+    ShowEventModel diagnostics(&r.doc, &r.recorder);
+    diagnostics.setOpen(true);
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    QVERIFY(r.doc.addFunction(matrix));
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    animation->setAlgorithmIndex(0);
+    const QStringList names = animation->algorithms();
+    QVERIFY(names.count() > 1);
+    animation->setFaderLevel(128);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(matrix->algorithm()->name(), names.first());
+    auto *view = r.ui.view();
+    view->resize(1100, 700);
+    view->show();
+    QVERIFY(QTest::qWaitForWindowExposed(view));
+    QQuickItem *combo = nullptr;
+    QTRY_VERIFY((combo = findVisualItem(view->contentItem(), QStringLiteral("animationAlgorithmCombo"))));
+    QVERIFY(combo->isVisible());
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(1234);
+    QVERIFY(r.recorder.setRecording(true));
+    animation->requestUserAlgorithm(-1);
+    animation->requestUserAlgorithm(names.count());
+    QCOMPARE(animation->algorithmIndex(), 0);
+    QCOMPARE(r.show->commandTrack().count(), 0);
+    if (keyboard && !popup)
+    {
+        combo->forceActiveFocus();
+        QTest::keyClick(view, Qt::Key_Down);
+    }
+    else
+    {
+        if (keyboardOpen)
+        {
+            combo->forceActiveFocus();
+            QTest::keyClick(view, Qt::Key_Space);
+        }
+        else
+            QTest::mouseClick(view, Qt::LeftButton, Qt::NoModifier,
+                             combo->mapToScene(QPointF(combo->width() / 2, combo->height() / 2)).toPoint());
+        QQuickItem *entry = nullptr;
+        QTRY_VERIFY((entry = findVisualItemWith(view->contentItem(), "label", names.at(1))));
+        if (keyboard)
+        {
+            QTest::keyClick(view, Qt::Key_Down);
+            QTest::keyClick(view, Qt::Key_Return);
+        }
+        else
+            QTest::mouseClick(view, Qt::LeftButton, Qt::NoModifier,
+                             entry->mapToScene(QPointF(entry->width() / 2, entry->height() / 2)).toPoint());
+    }
+    QTRY_COMPARE(animation->algorithmIndex(), 1);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(matrix->algorithm()->name(), names.at(1));
+    QTRY_COMPARE(r.show->commandTrack().count(), 1);
+    const ShowCommand captured = r.show->commandTrack().commands().first();
+    QCOMPARE(captured.action, ShowCommandAction::SetAnimationContent);
+    QCOMPARE(captured.controlId, animation->recordingId());
+    QCOMPARE(captured.time, quint32(1234));
+    const auto *content = std::get_if<ShowCommandContent>(&captured.payload.value);
+    QVERIFY(content);
+    QCOMPARE(content->algorithm, names.at(1));
+    QCOMPARE(content->text, QString());
+    QVERIFY(content->properties.isEmpty());
+    QCOMPARE(content->choice, -1);
+    QVector<ShowEventLog::Entry> caused;
+    for (const auto &entry : diagnostics.rows())
+        if (entry.controlId == captured.controlId && entry.trace != 0)
+            caused.append(entry);
+    QVERIFY(!caused.isEmpty());
+    const quint64 trace = caused.first().trace;
+    bool recorded = false;
+    for (const auto &entry : caused)
+    {
+        QCOMPARE(entry.trace, trace);
+        QCOMPARE(entry.origin, int(keyboard ? ShowCommandOrigin::Keyboard : ShowCommandOrigin::Pointer));
+        if (entry.phase == ShowEventLog::Phase::Decision && entry.outcome == ShowEventLog::Outcome::Recorded)
+        {
+            QCOMPARE(entry.showTimeMs, quint32(1234));
+            recorded = true;
+        }
+    }
+    QVERIFY(recorded);
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(r.show->commandTrack().saveXML(&writer));
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    ShowCommandTrack loaded;
+    QString reason;
+    QVERIFY2(loaded.loadXML(reader, &reason), qPrintable(reason));
+    QCOMPARE(loaded.commands(), QVector<ShowCommand>{captured});
+    animation->setAlgorithmIndex(0);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(matrix->algorithm()->name(), names.first());
+    animation->setFaderLevel(0);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.show->commandTrack().commands(), QVector<ShowCommand>{captured});
+    for (const auto &entry : diagnostics.rows())
+        if (entry.trace == trace)
+            QCOMPARE(entry.origin, int(keyboard ? ShowCommandOrigin::Keyboard : ShowCommandOrigin::Pointer));
+}
+
+void ShowCommandRecorder_Test::xyPadRanges_nativeOutputAndGeometry_data()
+{
+    QTest::addColumn<bool>("floor");
+    QTest::addColumn<int>("efxTicks");
+    QTest::newRow("fractional reversed native window") << false << -1;
+    QTest::newRow("floor clamp and native output") << true << -1;
+    QTest::newRow("queued EFX geometry") << false << 0;
+    QTest::newRow("running EFX geometry") << false << 2;
+}
+
+void ShowCommandRecorder_Test::xyPadRanges_nativeOutputAndGeometry()
+{
+    QFETCH(bool, floor);
+    QFETCH(int, efxTicks);
+    RequestRig r;
+    r.slider->setControlledFunction(Function::invalidId());
+    r.show->setSyncSource(ShowRunner::External);
+    r.doc.monitorProperties()->setGridUnits(MonitorProperties::Meters);
+    r.doc.monitorProperties()->setGridSize(QVector3D(24, 8, 13));
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Range mover"), 32);
+    QVERIFY(mover);
+    r.doc.monitorProperties()->setFixturePosition(mover->id(), 0, 0, QVector3D(2, 6, 3));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    const QPointF baseline(0, 255);
+    const QPointF horizontal(200.5, 40.25), vertical(180.75, 30.125);
+    pad->setFloorControl(floor);
+    if (floor)
+        pad->setFloorPosition(QVector3D(23, 1.75, 12));
+    else
+        pad->setCurrentPosition(QPointF(250.5, 240.25));
+    EFX *effect = nullptr;
+    if (efxTicks >= 0)
+    {
+        effect = new EFX(&r.doc);
+        QVERIFY(r.doc.addFunction(effect));
+        QVERIFY(effect->addFixture(mover->id()));
+        const int choice = pad->addFunctionPreset(effect->id());
+        QVERIFY(choice >= 0);
+        pad->requestUserPreset(choice);
+        tickAndRenderUniverses(&r.doc, efxTicks);
+    }
+    else
+        tickAndRenderUniverses(&r.doc, 2);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&]() { r.doc.inputOutputMap()->releaseUniverses(false); });
+        return universes.first()->preGMValues().mid(32, 4);
+    };
+    const QByteArray priorOutput = output();
+    r.show->setExternalElapsedTime(100);
+    QVERIFY(r.recorder.setRecording(true));
+    pad->requestUserRanges(horizontal, vertical);
+    QCOMPARE(pad->horizontalRange(), horizontal);
+    QCOMPARE(pad->verticalRange(), vertical);
+    if (effect != nullptr)
+    {
+        QCOMPARE(effect->getAttributeValue(EFX::XOffset), qreal(120.375));
+        QCOMPARE(effect->getAttributeValue(EFX::YOffset), qreal(105.4375));
+        QCOMPARE(effect->getAttributeValue(EFX::Width), qreal(80.125));
+        QCOMPARE(effect->getAttributeValue(EFX::Height), qreal(75.3125));
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    const QByteArray directOutput = output();
+    QVERIFY(directOutput != QByteArray(4, '\0'));
+    if (effect == nullptr)
+        QVERIFY(directOutput != priorOutput);
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    QVERIFY(r.recorder.setRecording(false));
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(r.show->commandTrack().saveXML(&writer));
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    ShowCommandTrack saved;
+    QString reason;
+    QVERIFY2(saved.loadXML(reader, &reason), qPrintable(reason));
+    QCOMPARE(saved.commands(), r.show->commandTrack().commands());
+    pad->setHorizontalRange(baseline);
+    pad->setVerticalRange(baseline);
+    if (floor)
+        pad->setFloorPosition(QVector3D(23, 1.75, 12));
+    tickAndRenderUniverses(&r.doc, 2);
+    const QVector3D priorFloor = pad->floorPosition();
+    QVERIFY(saved.setExtent(2000) && r.show->setCommandTrack(saved));
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(150);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(pad->horizontalRange(), horizontal);
+    QCOMPARE(pad->verticalRange(), vertical);
+    if (effect == nullptr)
+        QCOMPARE(output(), directOutput);
+    else
+    {
+        QCOMPARE(effect->getAttributeValue(EFX::XOffset), qreal(120.375));
+        QCOMPARE(effect->getAttributeValue(EFX::Width), qreal(80.125));
+    }
+    QCOMPARE(retired.count(), 1);
+    QCOMPARE(retired[0][1].toInt(), int(VCXYPad::RecordedWriteApplied));
+    r.show->setExternalElapsedTime(0);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(pad->horizontalRange(), baseline);
+    QCOMPARE(pad->verticalRange(), baseline);
+    if (floor)
+        QCOMPARE(pad->floorPosition(), priorFloor);
+    if (effect != nullptr)
+    {
+        QCOMPARE(effect->getAttributeValue(EFX::XOffset), qreal(127.5));
+        QCOMPARE(effect->getAttributeValue(EFX::Width), qreal(127.5));
+    }
+    QSet<quint64> generations;
+    for (const auto &receipt : retired)
+    {
+        QVERIFY(!generations.contains(receipt[0].toULongLong()));
+        generations.insert(receipt[0].toULongLong());
+    }
+}
+
+void ShowCommandRecorder_Test::typedDraft_transaction_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("payload");
+    QTest::addColumn<QString>("field");
+    QTest::addColumn<QVariant>("replacement");
+    QTest::newRow("range") << QStringLiteral("SetXYPadRanges")
+        << QStringLiteral("{\"horizontal\":[10,210],\"vertical\":[20,220]}") << QStringLiteral("horizontal")
+        << QVariant(QVariantList{12.25, 230.5});
+    QTest::newRow("choice") << QStringLiteral("SetXYPadPositionPreset")
+        << QStringLiteral("{\"choice\":1,\"active\":true,\"point\":[64,128]}") << QStringLiteral("point")
+        << QVariant(QVariantList{64.25, 192.5});
+    QTest::newRow("color") << QStringLiteral("SetAnimationColor")
+        << QStringLiteral("{\"index\":2,\"operation\":\"replace\",\"rgb\":[10,20,30]}") << QStringLiteral("rgb")
+        << QVariant(QVariantList{0, 0, 0});
+    QTest::newRow("content") << QStringLiteral("SetAnimationContent")
+        << QStringLiteral("{\"algorithm\":\"Text\",\"text\":\"before\",\"properties\":[]}") << QStringLiteral("text")
+        << QVariant(QStringLiteral("after\n<escaped>"));
+}
+
+void ShowCommandRecorder_Test::typedDraft_transaction()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, payload);
+    QFETCH(QString, field);
+    QFETCH(QVariant, replacement);
+    RequestRig r;
+    ShowCommand command;
+    QVERIFY(ShowCommand::actionFromString(action, &command.action));
+    command.id = 17;
+    command.time = 1000;
+    command.controlId = QUuid::createUuid();
+    command.role = action.startsWith("SetAnimation") ? ShowControlRole::AnimationFader : ShowControlRole::XYPad;
+    QVERIFY(ShowCommandPayload::decode(command.action, payload, &command.payload));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    QVERIFY(r.show->setCommandTrack(track));
+    QVERIFY(r.recorder.beginEditSession(r.show->id(), {17}));
+    QVariantMap draft;
+    QVERIFY(QMetaObject::invokeMethod(&r.recorder, "typedDraft", Q_RETURN_ARG(QVariantMap, draft),
+                                     Q_ARG(quint32, r.show->id()), Q_ARG(quint32, 17)));
+    draft.insert(field, replacement);
+    const QVariantMap candidates{{QStringLiteral("17"), draft}};
+    QVariantMap preview;
+    QVERIFY(QMetaObject::invokeMethod(&r.recorder, "previewTypedEdit", Q_RETURN_ARG(QVariantMap, preview),
+                                     Q_ARG(QVariantMap, candidates)));
+    QVERIFY2(!preview.contains("reason"), qPrintable(preview.value("reason").toString()));
+    QCOMPARE(r.show->commandTrack().commands().first(), command);
+    r.recorder.cancelEditSession();
+    QCOMPARE(r.show->commandTrack().commands().first(), command);
+    QVERIFY(r.recorder.beginEditSession(r.show->id(), {17}));
+    bool committed = false;
+    QVERIFY(QMetaObject::invokeMethod(&r.recorder, "commitTypedEdit", Q_RETURN_ARG(bool, committed),
+                                     Q_ARG(QVariantMap, candidates)));
+    QVERIFY2(committed, qPrintable(r.recorder.lastError()));
+    QVERIFY(r.show->commandTrack().commands().first() != command);
+    QCOMPARE(r.show->commandTrack().commands().first().id, quint32(17));
+    const auto after = r.show->commandTrack().commands().first();
+    QVERIFY(r.recorder.beginEditSession(r.show->id(), {17}));
+    QVariantMap invalidDraft = draft;
+    invalidDraft.insert("unrelated", true);
+    const QVariantMap invalid{{QStringLiteral("17"), invalidDraft}};
+    committed = true;
+    QVERIFY(QMetaObject::invokeMethod(&r.recorder, "commitTypedEdit", Q_RETURN_ARG(bool, committed),
+                                     Q_ARG(QVariantMap, invalid)));
+    QVERIFY(!committed);
+    QVERIFY(!r.recorder.lastError().isEmpty());
+    QCOMPARE(r.show->commandTrack().commands().first(), after);
+}
+
+void ShowCommandRecorder_Test::selectedNative_userIngress()
+{
+    QFETCH(int, domain);
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(2600);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    RGBMatrix *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(r.doc.addFunction(matrix));
+    VCAnimation *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    const int position = pad->addPositionPreset();
+    const int color = animation->addColorPreset(1, QColor(12, 34, 56));
+    const int knobs = animation->addColorKnobsPreset(0);
+    QVERIFY(r.recorder.setRecording(true));
+    if (domain == 0)
+        QVERIFY(QMetaObject::invokeMethod(pad, "requestUserRanges",
+            Q_ARG(QPointF, QPointF(10.25, 210.5)), Q_ARG(QPointF, QPointF(25.75, 230.125))));
+    else if (domain == 1)
+        QVERIFY(QMetaObject::invokeMethod(pad, "requestUserPreset", Q_ARG(int, position)));
+    else if (domain == 2)
+        QVERIFY(QMetaObject::invokeMethod(animation, "requestUserColor",
+            Q_ARG(int, 1), Q_ARG(QColor, QColor(12, 34, 56))));
+    else if (domain == 3)
+        QVERIFY(QMetaObject::invokeMethod(animation, "requestUserPreset", Q_ARG(int, color)));
+    else
+        QVERIFY(QMetaObject::invokeMethod(animation, "requestUserKnobValue",
+            Q_ARG(int, knobs), Q_ARG(int, 128)));
+    tickAndDeliver(&r.doc, 2);
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    const ShowCommand recorded = r.show->commandTrack().commands().first();
+    QCOMPARE(recorded.time, quint32(2600));
+    QCOMPARE(recorded.action, domain == 0 ? ShowCommandAction::SetXYPadRanges
+        : domain == 1 ? ShowCommandAction::SetXYPadPositionPreset : ShowCommandAction::SetAnimationColor);
+    if (domain == 0)
+    {
+        const auto ranges = std::get<ShowCommandRanges>(recorded.payload.value);
+        QCOMPARE(pad->horizontalRange(), QPointF(ranges.horizontal.pan, ranges.horizontal.tilt));
+        QCOMPARE(pad->verticalRange(), QPointF(ranges.vertical.pan, ranges.vertical.tilt));
+    }
+    else if (domain == 1)
+        QCOMPARE(pad->activePresetId(), position);
+    else
+    {
+        const auto arguments = std::get<ShowCommandMatrixColor>(recorded.payload.value);
+        QCOMPARE(arguments.index, domain == 4 ? 0 : 1);
+        if (domain == 4)
+            QCOMPARE(animation->colorAt(0).blue(), 128);
+        else
+            QCOMPARE(animation->colorAt(1), QColor(12, 34, 56));
+    }
+}
+
+void ShowCommandRecorder_Test::typedDraft_nativeMetadataRefusesWholeCandidate_data()
+{
+    QTest::addColumn<bool>("unknownAlgorithm");
+    QTest::addColumn<QString>("edge");
+    QTest::newRow("unavailable algorithm") << true << QStringLiteral("algorithm");
+    QTest::newRow("unavailable property") << false << QStringLiteral("property");
+    for (const QString &edge : {QStringLiteral("second binding"), QStringLiteral("second missing"),
+                               QStringLiteral("second ambiguous"), QStringLiteral("second disabled")})
+        QTest::newRow(qPrintable(edge)) << false << edge;
+}
+
+void ShowCommandRecorder_Test::typedDraft_nativeMetadataRefusesWholeCandidate()
+{
+    QFETCH(bool, unknownAlgorithm);
+    QFETCH(QString, edge);
+    RequestRig r;
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(r.doc.addFunction(matrix));
+    VCAnimation *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    ShowCommand content;
+    content.id = 17;
+    content.action = ShowCommandAction::SetAnimationContent;
+    content.role = ShowControlRole::AnimationFader;
+    content.controlId = animation->ensureRecordingId();
+    ShowCommandContent argument;
+    argument.algorithm = QStringLiteral("Text");
+    argument.text = QStringLiteral("before");
+    content.payload.value = argument;
+    ShowCommand color = content;
+    color.id = 18;
+    color.action = ShowCommandAction::SetAnimationColor;
+    ShowCommandMatrixColor colorArgument;
+    colorArgument.index = 0;
+    color.payload.value = colorArgument;
+    VCAnimation *secondControl = animation;
+    if (edge.startsWith("second"))
+    {
+        secondControl = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+        QVERIFY(secondControl);
+        color.controlId = secondControl->ensureRecordingId();
+    }
+    ShowCommandTrack track;
+    QVERIFY(track.insert(content) && track.insert(color));
+    QVERIFY(r.show->setCommandTrack(track));
+    const int history = r.recorder.lastEditSerial();
+    QVERIFY(r.recorder.beginEditSession(r.show->id(), {17, 18}));
+    QVariantMap draft, second;
+    QVERIFY(QMetaObject::invokeMethod(&r.recorder, "typedDraft", Q_RETURN_ARG(QVariantMap, draft),
+                                     Q_ARG(quint32, r.show->id()), Q_ARG(quint32, 17)));
+    QVERIFY(QMetaObject::invokeMethod(&r.recorder, "typedDraft", Q_RETURN_ARG(QVariantMap, second),
+                                     Q_ARG(quint32, r.show->id()), Q_ARG(quint32, 18)));
+    if (edge == "algorithm" && unknownAlgorithm)
+        draft["algorithm"] = QStringLiteral("Unavailable native algorithm");
+    else if (edge == "property")
+        draft["properties"] = QVariantList{QVariantMap{{"name", "missing"}, {"type", "String"}, {"value", "text"}}};
+    else
+        draft["text"] = QStringLiteral("valid first candidate");
+    second["rgb"] = QVariantList{12, 34, 56};
+    if (edge == "second binding")
+    {
+        auto *other = new RGBMatrix(&r.doc);
+        QVERIFY(r.doc.addFunction(other));
+        secondControl->setFunctionID(other->id());
+    }
+    if (edge == "second missing")
+        secondControl->setFunctionID(Function::invalidId());
+    if (edge == "second ambiguous")
+    {
+        auto *duplicate = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+        QVERIFY(duplicate);
+        QVERIFY(loadRecordingId(duplicate, secondControl->recordingId()));
+    }
+    if (edge == "second disabled")
+        secondControl->setDisabled(true);
+    const QVariantMap candidates{{"17", draft}, {"18", second}};
+    bool committed = true;
+    QVERIFY(QMetaObject::invokeMethod(&r.recorder, "commitTypedEdit", Q_RETURN_ARG(bool, committed),
+                                     Q_ARG(QVariantMap, candidates)));
+    QVERIFY(!committed);
+    QVERIFY(!r.recorder.lastError().isEmpty());
+    QCOMPARE(r.show->commandTrack().commands(), track.commands());
+    QCOMPARE(r.recorder.lastEditSerial(), history);
+    QCOMPARE(animation->faderLevel(), 0);
+    QVERIFY(!matrix->isRunning());
+}
+
+void ShowCommandRecorder_Test::typedDraft_floorAtomicCandidate_data()
+{
+    QTest::addColumn<QString>("edge");
+    for (const QString &edge : {QStringLiteral("invalid height"), QStringLiteral("changed bounds"),
+                               QStringLiteral("selected conflict"), QStringLiteral("valid"),
+                               QStringLiteral("noop"), QStringLiteral("unresolved")})
+        QTest::newRow(qPrintable(edge)) << edge;
+}
+
+void ShowCommandRecorder_Test::typedDraft_floorAtomicCandidate()
+{
+    QFETCH(QString, edge);
+    RequestRig r;
+    r.doc.monitorProperties()->setGridUnits(MonitorProperties::Meters);
+    r.doc.monitorProperties()->setGridSize(QVector3D(24, 8, 12));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->setFloorControl(true);
+    pad->setHorizontalRange(QPointF(85, 170));
+    pad->setVerticalRange(QPointF(85, 170));
+    pad->setFloorPosition(QVector3D(12.25f, 21, 6.125f));
+    QCOMPARE(pad->floorPosition(), QVector3D(12.25f, 20, 6.125f));
+    pad->setFloorPosition(QVector3D(12.25f, 1.75f, 6.125f));
+    ShowCommand floor;
+    floor.id = 40;
+    floor.action = ShowCommandAction::SetXYPadFloor;
+    floor.role = ShowControlRole::XYPad;
+    floor.controlId = edge == "unresolved" ? QUuid::createUuid() : pad->ensureRecordingId();
+    floor.payload.value = ShowCommandFloor{12.25, 1.75, 6.125};
+    ShowCommand second = floor;
+    second.id = 41;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(floor) && track.insert(second) && r.show->setCommandTrack(track));
+    const int serial = r.recorder.lastEditSerial();
+    QVERIFY(r.recorder.beginEditSession(r.show->id(), {40, 41}));
+    QVariantMap firstDraft = r.recorder.typedDraft(r.show->id(), 40);
+    QVariantMap secondDraft = r.recorder.typedDraft(r.show->id(), 41);
+    if (edge != "noop")
+    {
+        firstDraft["y"] = edge == "invalid height" || edge == "unresolved" ? 21 : 20;
+        secondDraft["x"] = 14.375;
+    }
+    if (edge == "changed bounds")
+        pad->setHorizontalRange(QPointF(0, 255));
+    if (edge == "selected conflict")
+    {
+        second.time = 10;
+        QVERIFY(track.replace(second) && r.show->setCommandTrack(track));
+    }
+    const QVector<ShowCommand> before = r.show->commandTrack().commands();
+    const QVector3D native = pad->floorPosition();
+    QSignalSpy applied(pad, &VCXYPad::floorPositionChanged);
+    const QVariantMap candidates{{"40", firstDraft}, {"41", secondDraft}};
+    const QVariantMap preview = r.recorder.previewTypedEdit(candidates);
+    const bool valid = edge == "valid" || edge == "noop" || edge == "unresolved";
+    QCOMPARE(preview.contains("reason"), !valid);
+    QCOMPARE(r.show->commandTrack().commands(), before);
+    QCOMPARE(applied.count(), 0);
+    QCOMPARE(r.recorder.commitTypedEdit(candidates), valid);
+    if (valid)
+    {
+        if (edge != "noop")
+        {
+            floor.payload.value = ShowCommandFloor{12.25, edge == "unresolved" ? 21.0 : 20.0, 6.125};
+            second.payload.value = ShowCommandFloor{14.375, 1.75, 6.125};
+        }
+        QCOMPARE(r.show->commandTrack().commands(), QVector<ShowCommand>({floor, second}));
+        QCOMPARE(r.recorder.lastEditSerial(), serial + (edge == "noop" ? 0 : 1));
+    }
+    else
+    {
+        QCOMPARE(r.show->commandTrack().commands(), before);
+        QCOMPARE(r.recorder.lastEditSerial(), serial);
+        QVERIFY(!r.recorder.lastError().isEmpty());
+    }
+    QCOMPARE(pad->floorPosition(), native);
+    QCOMPARE(applied.count(), 0);
+    const auto after = r.show->commandTrack().commands();
+    for (int i = 0; i < after.count(); ++i)
+        QCOMPARE(after.at(i).order, before.at(i).order);
+}
+
+void ShowCommandRecorder_Test::xyPadFloor_userPathRecordsTypedPayload()
+{
+    QFETCH(QVector3D, point);
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(2600);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->setFloorControl(true);
+    QVERIFY(r.recorder.setRecording(true));
+    QVERIFY(QMetaObject::invokeMethod(pad, "requestUserFloorPosition", Q_ARG(QVector3D, point)));
+    tickAndDeliver(&r.doc, 2);
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    const ShowCommand recorded = r.show->commandTrack().commands().first();
+    QCOMPARE(recorded.action, ShowCommandAction::SetXYPadFloor);
+    QCOMPARE(recorded.time, quint32(2600));
+    ShowCommandFloor decoded;
+    QVERIFY(recorded.attribute.isEmpty());
+    QVERIFY(ShowCommandFloor::decode(recorded.nativeArgument(), &decoded));
+    QCOMPARE(QVector3D(decoded.x, decoded.y, decoded.z), point);
+    QCOMPARE(pad->floorPosition(), point);
+    QCOMPARE(r.recorder.referencedControls().first().toMap().value("status").toString(),
+             QStringLiteral("Ready"));
+    pad->setFloorControl(false);
+    const QVariantMap reference = r.recorder.referencedControls().first().toMap();
+    QCOMPARE(reference.value("status").toString(), QStringLiteral("Incompatible"));
+    QVERIFY(reference.value("detail").toString().contains(QStringLiteral("floor")));
+}
+
+void ShowCommandRecorder_Test::xyPadFloor_savedReplayMatchesNativeOutput_data()
+{
+    QTest::addColumn<QVector3D>("point");
+    QTest::newRow("fractional floor") << QVector3D(7.25f, 0.0f, 4.125f);
+    QTest::newRow("nonzero height") << QVector3D(7.25f, 1.75f, 4.125f);
+}
+
+void ShowCommandRecorder_Test::xyPadFloor_savedReplayMatchesNativeOutput()
+{
+    QFETCH(QVector3D, point);
+    QByteArray directOutput, replayOutput;
+    const auto run = [&](bool replay, QByteArray &output) {
+        RequestRig r;
+        r.doc.monitorProperties()->setGridUnits(MonitorProperties::Meters);
+        r.doc.monitorProperties()->setGridSize(QVector3D(24, 8, 13));
+        QList<QLCFixtureDef *> definitions;
+        Fixture *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Floor mover"), 32);
+        QVERIFY(mover);
+        r.doc.monitorProperties()->setFixturePosition(mover->id(), 0, 0, QVector3D(2, 6, 3));
+        VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+        QVERIFY(pad);
+        pad->addFixture(QVariant::fromValue(mover));
+        QCOMPARE(pad->fixtures().count(), 1);
+        pad->setFloorControl(true);
+        QCOMPARE(pad->floorSize(), QVector3D(24, 8, 13));
+        if (replay)
+        {
+            r.show->setSyncSource(ShowRunner::External);
+            r.show->setExternalElapsedTime(100);
+            QVERIFY(r.recorder.setRecording(true));
+            pad->requestUserFloorPosition(point);
+            tickAndDeliver(&r.doc, 2);
+            QVERIFY(r.recorder.setRecording(false));
+            QCOMPARE(r.show->commandTrack().count(), 1);
+            ShowCommandTrack captured = r.show->commandTrack();
+            QVERIFY(captured.setExtent(3000));
+            QString xml;
+            QXmlStreamWriter writer(&xml);
+            QVERIFY(captured.saveXML(&writer));
+            ShowCommandTrack loaded;
+            QXmlStreamReader reader(xml);
+            QVERIFY(reader.readNextStartElement());
+            QString reason;
+            QVERIFY2(loaded.loadXML(reader, &reason), qPrintable(reason));
+            QCOMPARE(loaded.commands().first(), captured.commands().first());
+            QVERIFY(r.show->setCommandTrack(loaded));
+        }
+        pad->setFloorControl(false);
+        pad->setFloorPosition(QVector3D());
+        pad->setFloorControl(true);
+        {
+            QList<Universe *> universes = r.doc.inputOutputMap()->claimUniverses();
+            pad->writeDMX(r.doc.masterTimer(), universes);
+            r.doc.inputOutputMap()->releaseUniverses(false);
+        }
+        tickAndRenderUniverses(&r.doc, 2);
+        if (replay)
+        {
+            playExternalFromZero(r.show, &r.doc);
+            r.show->setExternalElapsedTime(101);
+            tickAndDeliver(&r.doc, 8);
+            QCOMPARE(pad->floorPosition(), point);
+        }
+        else
+            pad->setFloorPosition(point);
+        QList<Universe *> universes = r.doc.inputOutputMap()->claimUniverses();
+        pad->writeDMX(r.doc.masterTimer(), universes);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        tickAndRenderUniverses(&r.doc, 2);
+        universes = r.doc.inputOutputMap()->claimUniverses();
+        output = universes.first()->preGMValues().mid(32, 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        r.show->stop(FunctionParent::master());
+        qDeleteAll(definitions);
+    };
+    run(false, directOutput);
+    run(true, replayOutput);
+    QCOMPARE(directOutput.size(), 4);
+    QVERIFY(directOutput != QByteArray(4, '\0'));
+    QCOMPARE(replayOutput, directOutput);
+}
+
+void ShowCommandRecorder_Test::xyPadPositionChoice_frozenTransition_data()
+{
+    QTest::addColumn<QString>("prior");
+    QTest::addColumn<QString>("mutation");
+    QTest::newRow("Scene to position") << QStringLiteral("Scene") << QStringLiteral("edit");
+    QTest::newRow("EFX to position") << QStringLiteral("EFX") << QStringLiteral("edit");
+    QTest::newRow("head selection to position") << QStringLiteral("Group") << QStringLiteral("edit");
+    QTest::newRow("reordered compatible position") << QStringLiteral("Scene") << QStringLiteral("reorder");
+    QTest::newRow("deleted position refuses retained command") << QStringLiteral("Scene") << QStringLiteral("delete");
+}
+
+void ShowCommandRecorder_Test::xyPadPositionChoice_frozenTransition()
+{
+    QFETCH(QString, prior);
+    QFETCH(QString, mutation);
+    RequestRig r;
+    r.slider->setControlledFunction(Function::invalidId());
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Transition mover"), 32);
+    QVERIFY(mover);
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    pad->setHorizontalRange(QPointF(40, 200));
+    const QPointF accepted(64.5, 192.25), baseline(120, 80);
+    pad->setCurrentPosition(accepted);
+    const int position = pad->addPositionPreset();
+    QVERIFY(position >= 0);
+    if (mutation == "reorder")
+    {
+        pad->setCurrentPosition(QPointF(150.75, 24.125));
+        QVERIFY(pad->addPositionPreset() >= 0);
+    }
+    Function *effect = nullptr;
+    qreal beforeX = 0, beforeWidth = 0;
+    int previous = -1;
+    if (prior == "EFX")
+    {
+        auto *efx = new EFX(&r.doc);
+        QVERIFY(r.doc.addFunction(efx));
+        QVERIFY(efx->addFixture(mover->id()));
+        effect = efx;
+        beforeX = efx->getAttributeValue(EFX::XOffset);
+        beforeWidth = efx->getAttributeValue(EFX::Width);
+        previous = pad->addFunctionPreset(efx->id());
+    }
+    else if (prior == "Scene")
+    {
+        r.a->setValue(SceneValue(mover->id(), 0, 64));
+        effect = r.a;
+        previous = pad->addFunctionPreset(effect->id());
+    }
+    else
+        previous = pad->addFixtureGroupHeadPreset(int(mover->id()), 0);
+    QVERIFY(previous >= 0);
+    pad->setCurrentPosition(baseline);
+    tickAndRenderUniverses(&r.doc, 3);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray values = universes.first()->preGMValues().mid(32, 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return values;
+    };
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(100);
+    QVERIFY(r.recorder.setRecording(true));
+    pad->requestUserPreset(previous);
+    tickAndRenderUniverses(&r.doc, 3);
+    r.show->setExternalElapsedTime(200);
+    pad->requestUserPreset(position);
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(pad->activePresetId(), position);
+    QCOMPARE(pad->currentPosition(), accepted);
+    if (effect != nullptr)
+        QVERIFY(!effect->isRunning());
+    const QByteArray direct = output();
+    QVERIFY(direct != QByteArray(4, 0));
+    QCOMPARE(r.show->commandTrack().count(), 2);
+    const auto point = std::get<ShowCommandChoice>(
+        r.show->commandTrack().commands().last().payload.value).point;
+    QCOMPARE(point.pan, accepted.x());
+    QCOMPARE(point.tilt, accepted.y());
+    QVERIFY(r.recorder.setRecording(false));
+    QString trackXml;
+    QXmlStreamWriter trackWriter(&trackXml);
+    QVERIFY(r.show->commandTrack().saveXML(&trackWriter));
+    QXmlStreamReader trackReader(trackXml);
+    QVERIFY(trackReader.readNextStartElement());
+    ShowCommandTrack saved;
+    QString reason;
+    QVERIFY2(saved.loadXML(trackReader, &reason), qPrintable(reason));
+    const QVector<ShowCommand> authored = saved.commands();
+    QString widgetXml;
+    QXmlStreamWriter widgetWriter(&widgetXml);
+    QVERIFY(static_cast<VCWidget *>(pad)->saveXML(&widgetWriter));
+    QVERIFY(widgetXml.contains("<X>64.5</X>") && widgetXml.contains("<Y>192.25</Y>"));
+    widgetXml.replace("<X>64.5</X>", "<X>150.75</X>");
+    widgetXml.replace("<Y>192.25</Y>", "<Y>24.125</Y>");
+    QByteArray bytes = widgetXml.toUtf8();
+    QBuffer widgetBuffer(&bytes);
+    QVERIFY(widgetBuffer.open(QIODevice::ReadOnly));
+    QXmlStreamReader widgetReader(&widgetBuffer);
+    QVERIFY(widgetReader.readNextStartElement() && pad->loadXML(widgetReader));
+    if (mutation == "reorder")
+    {
+        QVERIFY(pad->movePresetDown(quint8(position)) != position);
+        bool compatible = false;
+        for (const QVariant &entry : pad->presetsList())
+            if (entry.toMap().value("id").toInt() == position)
+                compatible = entry.toMap().value("typeString").toString() == "Position";
+        QVERIFY(compatible);
+    }
+    else if (mutation == "delete")
+    {
+        pad->removePreset(quint8(position));
+        for (const QVariant &entry : pad->presetsList())
+            QVERIFY(entry.toMap().value("id").toInt() != position);
+    }
+    pad->setCurrentPosition(baseline);
+    tickAndRenderUniverses(&r.doc, 3);
+    QVERIFY(saved.setExtent(2000) && r.show->setCommandTrack(saved));
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 12);
+    QCOMPARE(r.show->commandTrack().commands(), authored);
+    for (int i = 0; i < authored.count(); ++i)
+        QCOMPARE(r.show->commandTrack().commands()[i].order, authored[i].order);
+    if (mutation == "delete")
+    {
+        QCOMPARE(pad->activePresetId(), previous);
+        QCOMPARE(pad->currentPosition(), baseline);
+        QVERIFY2(ShowEventLog::summary().reason.contains("XY choice no longer exists"),
+                 qPrintable(ShowEventLog::summary().reason));
+        return;
+    }
+    QVERIFY2(pad->activePresetId() == position, qPrintable(ShowEventLog::summary().reason));
+    QCOMPARE(pad->currentPosition(), accepted);
+    QCOMPARE(output(), direct);
+    if (effect != nullptr)
+        QVERIFY(!effect->isRunning());
+    if (auto *efx = qobject_cast<EFX *>(effect))
+    {
+        QCOMPARE(efx->getAttributeValue(EFX::XOffset), beforeX);
+        QCOMPARE(efx->getAttributeValue(EFX::Width), beforeWidth);
+    }
+    r.show->stop(FunctionParent::master());
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(pad->currentPosition(), accepted);
+    QCOMPARE(output(), direct);
+}
+
+void ShowCommandRecorder_Test::xyPadFunctionChoice_releaseSettlesItsSource_data()
+{
+    QTest::addColumn<int>("ticksBeforeRelease");
+    QTest::newRow("queued start") << 0;
+    QTest::newRow("running source") << 1;
+}
+
+void ShowCommandRecorder_Test::xyPadFunctionChoice_releaseSettlesItsSource()
+{
+    QFETCH(int, ticksBeforeRelease);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    Fixture *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Preset mover"), 32);
+    QVERIFY(mover);
+    r.a->setValue(SceneValue(mover->id(), 0, 64));
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    const int choice = pad->addFunctionPreset(r.a->id());
+    QVERIFY(choice >= 0);
+    QVERIFY(r.recorder.setRecording(true));
+    pad->requestUserPreset(choice);
+    const FunctionParent owner(FunctionParent::ManualVCWidget, pad->id());
+    QVERIFY(r.a->hasSource(owner));
+    tickAndDeliver(&r.doc, ticksBeforeRelease);
+    pad->requestUserPreset(choice);
+    QCOMPARE(pad->activePresetId(), -1);
+    QVERIFY(!r.a->hasSource(owner));
+    tickAndRenderUniverses(&r.doc, 3);
+    QVERIFY(!r.a->isRunning());
+    QCOMPARE(r.show->commandTrack().count(), 2);
+    const auto &commands = r.show->commandTrack().commands();
+    QCOMPARE(commands[0].action, ShowCommandAction::SetXYPadFunctionPreset);
+    QVERIFY(std::get<ShowCommandChoice>(commands[0].payload.value).active);
+    QVERIFY(!std::get<ShowCommandChoice>(commands[1].payload.value).active);
+}
+
+void ShowCommandRecorder_Test::xyPadFunctionChoice_backwardPreservesActualOwner_data()
+{
+    QTest::addColumn<bool>("independentOwner");
+    QTest::newRow("native manual owner") << false;
+    QTest::newRow("native and independent owner") << true;
+}
+
+void ShowCommandRecorder_Test::xyPadFunctionChoice_backwardPreservesActualOwner()
+{
+    QFETCH(bool, independentOwner);
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.slider->setControlledFunction(Function::invalidId());
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Choice mover"), 32);
+    QVERIFY(mover);
+    r.a->setValue(SceneValue(mover->id(), 0, 64));
+    r.b->setValue(SceneValue(mover->id(), 0, 192));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    const int first = pad->addFunctionPreset(r.a->id());
+    const int second = pad->addFunctionPreset(r.b->id());
+    QVERIFY(first >= 0 && second >= 0);
+    const FunctionParent manual(FunctionParent::ManualVCWidget, pad->id());
+    const FunctionParent showOwner(FunctionParent::Function, r.show->id());
+    const FunctionParent other(FunctionParent::ManualVCWidget, r.ba->id());
+    pad->requestUserPreset(first);
+    tickAndRenderUniverses(&r.doc, 3);
+    QVERIFY(r.a->hasSource(manual));
+    if (independentOwner)
+        r.b->start(r.doc.masterTimer(), other);
+    ShowCommand command;
+    command.id = 1;
+    command.time = 200;
+    command.action = ShowCommandAction::SetXYPadFunctionPreset;
+    command.role = ShowControlRole::XYPad;
+    command.controlId = pad->ensureRecordingId();
+    ShowCommandChoice argument;
+    argument.choice = second;
+    argument.active = true;
+    command.payload.value = argument;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    QVERIFY(track.setExtent(2000) && r.show->setCommandTrack(track));
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(pad->activePresetId(), second);
+    QVERIFY(r.b->hasSource(showOwner));
+    QVERIFY(!r.a->hasSource(manual));
+    r.show->setExternalElapsedTime(0);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(pad->activePresetId(), first);
+    QVERIFY(r.a->hasSource(manual));
+    QVERIFY(!r.a->hasSource(showOwner));
+    QVERIFY(!r.b->hasSource(showOwner));
+    QCOMPARE(r.b->hasSource(other), independentOwner);
+    r.show->stop(FunctionParent::master());
+    tickAndRenderUniverses(&r.doc, 5);
+    QVERIFY(r.a->hasSource(manual));
+    QCOMPARE(r.b->hasSource(other), independentOwner);
+}
+
+void ShowCommandRecorder_Test::xyPadChoice_pendingLifetimeCancels_data()
+{
+    QTest::addColumn<bool>("functionReplacement");
+    QTest::newRow("same-ID Function replacement") << true;
+    QTest::newRow("native preset reload") << false;
+}
+
+void ShowCommandRecorder_Test::xyPadChoice_pendingLifetimeCancels()
+{
+    QFETCH(bool, functionReplacement);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Pending mover"), 32);
+    QVERIFY(mover);
+    r.a->setValue(SceneValue(mover->id(), 0, 64));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    const int choice = pad->addFunctionPreset(r.a->id());
+    QVERIFY(choice >= 0);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 100, pad->ensureRecordingId(),
+                                                       QStringLiteral("64,128"))));
+    QVERIFY(track.setExtent(2000) && r.show->setCommandTrack(track));
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    r.show->start(r.doc.masterTimer(), FunctionParent::master());
+    for (int tick = 0; tick < 20 && batches.isEmpty(); ++tick)
+        r.doc.masterTimer()->timerTick();
+    QCOMPARE(batches.count(), 1);
+    r.show->setPause(true);
+    pad->requestUserPreset(choice);
+    QCOMPARE(r.recorder.pendingUserRequests().count(), 1);
+    const quint32 function = r.a->id();
+    if (functionReplacement)
+    {
+        QVERIFY(r.doc.deleteFunction(function));
+        r.a = new Scene(&r.doc);
+        r.a->setValue(SceneValue(mover->id(), 0, 192));
+        QVERIFY(r.doc.addFunction(r.a, function));
+    }
+    else
+    {
+        QString document;
+        QXmlStreamWriter writer(&document);
+        QVERIFY(static_cast<VCWidget *>(pad)->saveXML(&writer));
+        QXmlStreamReader reader(document);
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(pad->loadXML(reader));
+    }
+    QSignalSpy starts(r.a, &Function::running);
+    r.show->stop(FunctionParent::master());
+    tickAndRenderUniverses(&r.doc, 8);
+    QVERIFY(r.recorder.pendingUserRequests().isEmpty());
+    QCOMPARE(starts.count(), 0);
+    QVERIFY(!r.a->hasSource(FunctionParent(FunctionParent::ManualVCWidget, pad->id())));
+    QVERIFY(!r.recorder.lastError().isEmpty());
+}
+
+void ShowCommandRecorder_Test::nativeReplay_claimedBindingCancels_data()
+{
+    QTest::addColumn<int>("mutation");
+    QTest::newRow("claimed Scene same-ID replacement") << 0;
+    QTest::newRow("claimed Scene preset reload") << 1;
+    QTest::newRow("claimed Matrix rebound") << 2;
+}
+
+void ShowCommandRecorder_Test::nativeReplay_claimedBindingCancels()
+{
+    QFETCH(int, mutation);
+    RequestRig r;
+    r.slider->setControlledFunction(Function::invalidId());
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Claim mover"), 32);
+    QVERIFY(mover);
+    r.a->setValue(SceneValue(mover->id(), 0, 64));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    const int choice = pad->addFunctionPreset(r.a->id());
+    QVERIFY(choice >= 0);
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    QVERIFY(r.doc.addFunction(matrix));
+    auto *otherMatrix = new RGBMatrix(&r.doc);
+    QVERIFY(r.doc.addFunction(otherMatrix));
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    const int priorAlgorithm = animation->algorithmIndex();
+    ShowCommand command;
+    command.id = 2;
+    command.time = 11;
+    if (mutation == 2)
+    {
+        command.action = ShowCommandAction::SetAnimationContent;
+        command.role = ShowControlRole::AnimationFader;
+        command.controlId = animation->ensureRecordingId();
+        ShowCommandContent content;
+        content.algorithm = QStringLiteral("Text");
+        content.text = QStringLiteral("Claimed text");
+        command.payload.value = content;
+    }
+    else
+    {
+        command.action = ShowCommandAction::SetXYPadFunctionPreset;
+        command.role = ShowControlRole::XYPad;
+        command.controlId = pad->ensureRecordingId();
+        ShowCommandChoice argument;
+        argument.choice = choice;
+        argument.active = true;
+        command.payload.value = argument;
+    }
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 10, mutation == 2 ? matrix->id() : r.a->id())));
+    QVERIFY(track.insert(command));
+    QVERIFY(track.setExtent(2000) && r.show->setCommandTrack(track));
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    r.show->start(r.doc.masterTimer(), FunctionParent::master());
+    for (int tick = 0; tick < 20 && batches.isEmpty(); ++tick)
+        r.doc.masterTimer()->timerTick();
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QCOMPARE(pad->activePresetId(), -1);
+    QCOMPARE(animation->algorithmIndex(), priorAlgorithm);
+    const quint64 failures = ShowEventLog::summary().count;
+    if (mutation == 0)
+    {
+        const quint32 id = r.a->id();
+        r.a->stop(FunctionParent::master());
+        r.doc.masterTimer()->timerTick();
+        QVERIFY(r.doc.deleteFunction(id));
+        r.a = new Scene(&r.doc);
+        r.a->setValue(SceneValue(mover->id(), 0, 192));
+        QVERIFY(r.doc.addFunction(r.a, id));
+    }
+    else if (mutation == 1)
+    {
+        QString document;
+        QXmlStreamWriter writer(&document);
+        QVERIFY(static_cast<VCWidget *>(pad)->saveXML(&writer));
+        QXmlStreamReader reader(document);
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(pad->loadXML(reader));
+    }
+    else
+        animation->setFunctionID(otherMatrix->id());
+    QSignalSpy starts(mutation == 2 ? static_cast<Function *>(otherMatrix) : static_cast<Function *>(r.a),
+                      &Function::running);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(pad->activePresetId(), -1);
+    QCOMPARE(animation->algorithmIndex(), priorAlgorithm);
+    if (mutation != 1)
+        QCOMPARE(starts.count(), 0);
+    QCOMPARE(r.show->commandTrack().commands(), track.commands());
+    QCOMPARE(ShowEventLog::summary().count, failures + 1);
+    QVERIFY(ShowEventLog::summary().reason.contains("required native binding changed while waiting"));
+}
+
+void ShowCommandRecorder_Test::nativeChoice_newOccurrenceRefusesIncompatibleBinding_data()
+{
+    QTest::addColumn<QString>("domain");
+    QTest::addColumn<QString>("mutation");
+    for (const QString &domain : {QStringLiteral("position"), QStringLiteral("Scene"),
+                                  QStringLiteral("EFX"), QStringLiteral("group"),
+                                  QStringLiteral("color"), QStringLiteral("content")})
+        for (const QString &mutation : {QStringLiteral("preset deleted"), QStringLiteral("preset type")})
+            QTest::newRow(qPrintable(domain + " " + mutation)) << domain << mutation;
+    QTest::newRow("Scene Function deleted") << QStringLiteral("Scene") << QStringLiteral("Function deleted");
+    QTest::newRow("Scene same-ID incompatible Function") << QStringLiteral("Scene") << QStringLiteral("Function type");
+    QTest::newRow("EFX Function deleted") << QStringLiteral("EFX") << QStringLiteral("Function deleted");
+    QTest::newRow("EFX same-ID incompatible Function") << QStringLiteral("EFX") << QStringLiteral("Function type");
+    QTest::newRow("group deleted") << QStringLiteral("group") << QStringLiteral("group deleted");
+}
+
+void ShowCommandRecorder_Test::nativeChoice_newOccurrenceRefusesIncompatibleBinding()
+{
+    QFETCH(QString, domain);
+    QFETCH(QString, mutation);
+    RequestRig r;
+    r.slider->setControlledFunction(Function::invalidId());
+    r.show->setSyncSource(ShowRunner::External);
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    VCXYPad *pad = nullptr;
+    VCAnimation *animation = nullptr;
+    RGBMatrix *matrix = nullptr;
+    Function *effect = nullptr;
+    FixtureGroup *group = nullptr;
+    int choice = -1;
+    if (domain == "color" || domain == "content")
+    {
+        matrix = new RGBMatrix(&r.doc);
+        QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+        matrix->setControlMode(RGBMatrix::ControlModeRgb);
+        matrix->setDuration(100000);
+        matrix->setFadeInSpeed(0);
+        matrix->setFadeOutSpeed(0);
+        QVERIFY(r.doc.addFunction(matrix));
+        animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+        QVERIFY(animation);
+        choice = domain == "color" ? animation->addColorPreset(0, QColor(40, 50, 60))
+                                   : animation->addTextPreset("frozen");
+    }
+    else
+    {
+        auto *first = addMoverTarget(&r.doc, &definitions, "Occurrence first", 32);
+        auto *second = addMoverTarget(&r.doc, &definitions, "Occurrence second", 48);
+        QVERIFY(first && second);
+        pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+        QVERIFY(pad);
+        pad->addFixture(QVariant::fromValue(first));
+        pad->addFixture(QVariant::fromValue(second));
+        pad->setCurrentPosition(QPointF(64.5, 192.25));
+        if (domain == "position")
+            choice = pad->addPositionPreset();
+        else if (domain == "group")
+        {
+            group = new FixtureGroup(&r.doc);
+            QVERIFY(r.doc.addFixtureGroup(group));
+            QVERIFY(group->assignFixture(second->id()));
+            choice = pad->addFixtureGroupPreset(QVariant::fromValue(group));
+        }
+        else
+        {
+            if (domain == "EFX")
+            {
+                auto *efx = new EFX(&r.doc);
+                QVERIFY(efx->addFixture(first->id()));
+                effect = efx;
+            }
+            else
+            {
+                auto *scene = new Scene(&r.doc);
+                scene->setValue(SceneValue(first->id(), 0, 200));
+                effect = scene;
+            }
+            QVERIFY(r.doc.addFunction(effect));
+            choice = pad->addFunctionPreset(effect->id());
+        }
+    }
+    QVERIFY(choice >= 0);
+    QVERIFY(r.recorder.setRecording(true));
+    r.show->setExternalElapsedTime(100);
+    if (pad != nullptr)
+        pad->requestUserPreset(choice);
+    else
+        animation->requestUserPreset(choice);
+    tickAndRenderUniverses(&r.doc, 4);
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    if (domain == "Scene" || domain == "EFX" || domain == "group")
+    {
+        r.show->setExternalElapsedTime(200);
+        pad->requestUserPreset(choice);
+        tickAndRenderUniverses(&r.doc, 4);
+        QCOMPARE(r.show->commandTrack().count(), 2);
+        QVERIFY(!std::get<ShowCommandChoice>(r.show->commandTrack().commands().last().payload.value).active);
+    }
+    QVERIFY(r.recorder.setRecording(false));
+    const auto captured = r.show->commandTrack().commands();
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(r.show->saveXML(&writer));
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show loaded(&r.doc);
+    QVERIFY(loaded.loadXML(reader));
+    QCOMPARE(loaded.commandTrack().commands(), captured);
+    for (int i = 0; i < captured.count(); ++i)
+        QCOMPARE(loaded.commandTrack().commands()[i].order, captured[i].order);
+    auto saved = loaded.commandTrack();
+    QVERIFY(saved.setExtent(2000) && r.show->setCommandTrack(saved));
+    if (pad != nullptr)
+    {
+        pad->setCurrentPosition(QPointF(8, 16));
+    }
+    else
+    {
+        animation->requestUserColor(0, QColor(12, 34, 56));
+        animation->requestUserFaderLevel(255);
+    }
+    tickAndRenderUniverses(&r.doc, 4);
+    QString reason;
+    if (mutation == "preset deleted")
+    {
+        if (pad != nullptr)
+            pad->removePreset(quint8(choice));
+        else
+            animation->removePreset(quint8(choice));
+        reason = pad != nullptr ? "XY choice no longer exists"
+            : domain == "color" ? "Matrix color choice is incompatible" : "Matrix content choice is incompatible";
+    }
+    else if (mutation == "preset type")
+    {
+        QString document;
+        QXmlStreamWriter widgetWriter(&document);
+        VCWidget *widget = pad != nullptr ? static_cast<VCWidget *>(pad) : animation;
+        QVERIFY(widget->saveXML(&widgetWriter));
+        const QString oldType = domain == "group" ? "FixtureGroup" : domain == "color" ? "Color1"
+            : domain == "content" ? "Text" : domain == "position" ? "Position" : domain;
+        const QString newType = pad != nullptr ? (domain == "position" ? "FixtureGroup" : "Position")
+            : domain == "color" ? "Text" : "Color1";
+        const QString oldElement = "<Type>" + oldType + "</Type>";
+        QVERIFY(document.contains(oldElement));
+        document.replace(oldElement, "<Type>" + newType + "</Type>");
+        const QString presetTag = pad != nullptr ? "Preset" : "Control";
+        const int begin = document.indexOf("<" + presetTag + " ID=\"" + QString::number(choice) + "\"");
+        const QString closing = "</" + presetTag + ">";
+        const int end = document.indexOf(closing, begin) + closing.size();
+        QVERIFY(begin >= 0 && end > begin);
+        const QString rootName = pad != nullptr ? "XYPad" : "Matrix";
+        document = document.left(document.indexOf('>') + 1) + document.mid(begin, end - begin)
+            + "</" + rootName + ">";
+        const auto fixtures = pad != nullptr ? pad->fixtures() : decltype(pad->fixtures())();
+        QXmlStreamReader widgetReader(document);
+        QVERIFY(widgetReader.readNextStartElement());
+        QVERIFY(widget->loadXML(widgetReader));
+        if (pad != nullptr)
+        {
+            for (const auto &fixture : fixtures)
+                pad->addFixture(QVariant::fromValue(r.doc.fixture(fixture.m_head.fxi)));
+            pad->setCurrentPosition(QPointF(8, 16));
+            QCOMPARE(pad->presetsList().count(), 1);
+        }
+        else
+        {
+            animation->setFunctionID(matrix->id());
+            QCOMPARE(animation->presetsList().count(), 1);
+        }
+        reason = pad != nullptr ? "XY choice has an incompatible type"
+            : domain == "color" ? "Matrix color choice is incompatible" : "Matrix content choice is incompatible";
+    }
+    else if (mutation.startsWith("Function"))
+    {
+        const quint32 id = effect->id();
+        QVERIFY(r.doc.deleteFunction(id));
+        effect = nullptr;
+        if (mutation == "Function type")
+        {
+            effect = new Collection(&r.doc);
+            QVERIFY(r.doc.addFunction(effect, id));
+        }
+        reason = "XY choice function is missing or incompatible";
+    }
+    else
+    {
+        QVERIFY(r.doc.deleteFixtureGroup(group->id()));
+        group = nullptr;
+        reason = "XY choice has no current heads";
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    const auto output = [&]() {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray bytes = universes.first()->preGMValues();
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return bytes;
+    };
+    const auto before = ShowControlAction::observe(pad != nullptr ? static_cast<VCWidget *>(pad) : animation);
+    const auto beforeOutput = output();
+    const QVariantMap reference = r.recorder.referencedControls().first().toMap();
+    QCOMPARE(reference.value("status").toString(), QStringLiteral("Incompatible"));
+    QVERIFY2(reference.value("detail").toString().contains(reason), qPrintable(reference.value("detail").toString()));
+    std::unique_ptr<QSignalSpy> starts;
+    if (effect != nullptr)
+        starts = std::make_unique<QSignalSpy>(effect, &Function::running);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 8);
+    const auto after = ShowControlAction::observe(pad != nullptr ? static_cast<VCWidget *>(pad) : animation);
+    QCOMPARE(after.choice, before.choice);
+    QCOMPARE(after.point, before.point);
+    QCOMPARE(after.headEnabled, before.headEnabled);
+    QCOMPARE(after.colors, before.colors);
+    QCOMPARE(after.algorithm, before.algorithm);
+    QCOMPARE(after.text, before.text);
+    QCOMPARE(after.properties, before.properties);
+    QCOMPARE(output(), beforeOutput);
+    QCOMPARE(r.show->commandTrack().commands(), captured);
+    for (int i = 0; i < captured.count(); ++i)
+        QCOMPARE(r.show->commandTrack().commands()[i].order, captured[i].order);
+    QVERIFY2(ShowEventLog::summary().reason.contains(reason), qPrintable(ShowEventLog::summary().reason));
+    if (starts)
+        QCOMPARE(starts->count(), 0);
+    if (effect != nullptr)
+        QVERIFY(!effect->hasSource(FunctionParent(FunctionParent::Function, r.show->id())));
+}
+
+void ShowCommandRecorder_Test::playedNativeChoice_editsRemainDataOnly_data()
+{
+    QTest::addColumn<bool>("group");
+    QTest::addColumn<bool>("remove");
+    QTest::newRow("passed Function delete") << false << true;
+    QTest::newRow("passed Function retime") << false << false;
+    QTest::newRow("passed group delete") << true << true;
+    QTest::newRow("passed group retime") << true << false;
+}
+
+void ShowCommandRecorder_Test::playedNativeChoice_editsRemainDataOnly()
+{
+    QFETCH(bool, group);
+    QFETCH(bool, remove);
+    RequestRig r;
+    r.slider->setControlledFunction(Function::invalidId());
+    r.show->setSyncSource(ShowRunner::External);
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Data-only mover"), 32);
+    QVERIFY(mover);
+    r.a->setValue(SceneValue(mover->id(), 0, 64));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    int choice;
+    if (group)
+    {
+        auto *selection = new FixtureGroup(&r.doc);
+        QVERIFY(r.doc.addFixtureGroup(selection));
+        QVERIFY(selection->assignFixture(mover->id()));
+        choice = pad->addFixtureGroupPreset(QVariant::fromValue(selection));
+    }
+    else
+        choice = pad->addFunctionPreset(r.a->id());
+    QVERIFY(choice >= 0);
+    ShowCommand command;
+    command.id = 1;
+    command.time = 100;
+    command.action = group ? ShowCommandAction::SetXYPadGroupPreset : ShowCommandAction::SetXYPadFunctionPreset;
+    command.role = ShowControlRole::XYPad;
+    command.controlId = pad->ensureRecordingId();
+    ShowCommandChoice argument;
+    argument.choice = choice;
+    argument.active = true;
+    command.payload.value = argument;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 4000, r.b->id(), 0.2)));
+    QVERIFY(track.setExtent(5000) && r.show->setCommandTrack(track));
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(150);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(pad->activePresetId(), choice);
+    const FunctionParent other(FunctionParent::ManualVCWidget, r.ba->id());
+    const FunctionParent showOwner(FunctionParent::Function, r.show->id());
+    r.a->start(r.doc.masterTimer(), other);
+    tickAndRenderUniverses(&r.doc, 2);
+    r.show->setPause(true);
+    tickAndDeliver(&r.doc, 2);
+    const quint32 cursor = r.show->elapsed();
+    QSignalSpy active(pad, &VCXYPad::activePresetIdChanged);
+    QSignalSpy starts(r.a, &Function::running);
+    QSignalSpy stops(r.a, qOverload<quint32>(&Function::stopped));
+    if (remove)
+        QVERIFY(r.recorder.removeCommands(r.show->id(), {1}));
+    else
+        QVERIFY(r.recorder.retimeCommand(r.show->id(), 1, 1700));
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(r.show->elapsed(), cursor);
+    QCOMPARE(pad->activePresetId(), choice);
+    QCOMPARE(active.count(), 0);
+    QCOMPARE(starts.count(), 0);
+    QCOMPARE(stops.count(), 0);
+    QVERIFY(r.a->hasSource(other));
+    QCOMPARE(r.a->hasSource(showOwner), !group);
+    if (!remove)
+    {
+        r.show->setPause(false);
+        r.show->setExternalElapsedTime(1800);
+        tickAndRenderUniverses(&r.doc, 10);
+        QCOMPARE(pad->activePresetId(), choice);
+        QVERIFY(r.a->hasSource(other));
+    }
+    r.show->stop(FunctionParent::master());
+    tickAndRenderUniverses(&r.doc, 5);
+    QVERIFY(r.a->hasSource(other));
+    QVERIFY(!r.a->hasSource(showOwner));
+    QCOMPARE(pad->activePresetId(), group ? choice : -1);
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_bindingRetiresExactlyOnce_data()
+{
+    QTest::addColumn<QString>("mutation");
+    for (const auto &mutation : {QStringLiteral("fixture address"), QStringLiteral("fixture removed"),
+                                 QStringLiteral("group changed"), QStringLiteral("group removed"),
+                                 QStringLiteral("pad inversion"), QStringLiteral("unrelated fixture")})
+        QTest::newRow(qPrintable(mutation)) << mutation;
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_bindingRetiresExactlyOnce()
+{
+    QFETCH(QString, mutation);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *first = addMoverTarget(&r.doc, &definitions, QStringLiteral("Claimed head"), 32);
+    auto *second = addMoverTarget(&r.doc, &definitions, QStringLiteral("Other head"), 64);
+    QVERIFY(first && second);
+    auto *group = new FixtureGroup(&r.doc);
+    QVERIFY(r.doc.addFixtureGroup(group));
+    QVERIFY(group->assignFixture(first->id()));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addGroup(QVariant::fromValue(group));
+    QSignalSpy retirements(pad, &VCXYPad::recordedWriteRetired);
+    const quint64 generation = pad->applyRecordedPosition(QPointF(64.5, 192.25));
+    QVERIFY(generation != 0);
+    QCOMPARE(pad->awaitPendingWrite(), generation);
+    if (mutation == QLatin1String("fixture address"))
+        first->setAddress(96);
+    else if (mutation == QLatin1String("fixture removed"))
+        QVERIFY(r.doc.deleteFixture(first->id()));
+    else if (mutation == QLatin1String("group changed"))
+        QVERIFY(group->assignFixture(second->id()));
+    else if (mutation == QLatin1String("group removed"))
+        QVERIFY(r.doc.deleteFixtureGroup(group->id()));
+    else if (mutation == QLatin1String("pad inversion"))
+        pad->setInvertedAppearance(!pad->invertedAppearance());
+    else
+        second->setAddress(96);
+    const bool compatible = mutation == QLatin1String("unrelated fixture");
+    QCOMPARE(pad->awaitPendingWrite(), compatible ? generation : quint64(0));
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(retirements.count(), 1);
+    QCOMPARE(retirements.first()[0].toULongLong(), generation);
+    QCOMPARE(retirements.first()[1].toInt(),
+             int(compatible ? VCXYPad::RecordedWriteApplied : VCXYPad::RecordedWriteCancelled));
+    const auto universes = r.doc.inputOutputMap()->claimUniverses();
+    const QByteArray output = universes.first()->preGMValues();
+    r.doc.inputOutputMap()->releaseUniverses(false);
+    QVERIFY(output.mid(64, 4) == QByteArray(4, 0));
+    QVERIFY(output.mid(96, 4) == QByteArray(4, 0));
+    QCOMPARE(output.mid(32, 4) != QByteArray(4, 0), compatible);
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(retirements.count(), 1);
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_cancelledSameValueWrites_data()
+{
+    QTest::addColumn<bool>("floor");
+    QTest::addColumn<bool>("recorded");
+    QTest::addColumn<bool>("cancelFirst");
+    for (const bool floor : {false, true})
+        for (const bool recorded : {false, true})
+            for (const bool cancelFirst : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("%1 %2 %3")
+                    .arg(floor ? "floor" : "coordinates", recorded ? "replay" : "live",
+                         cancelFirst ? "cancelled" : "pending"))) << floor << recorded << cancelFirst;
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_floorModeChangeCancels_data()
+{
+    QTest::addColumn<bool>("floor");
+    QTest::addColumn<bool>("liveSuccessor");
+    QTest::addColumn<bool>("drainRetirement");
+    for (bool floor : {false, true})
+        for (bool live : {false, true})
+        for (bool drain : {false, true})
+            QTest::newRow(qPrintable(QStringLiteral("%1 to %2, %3 successor, %4 retirement")
+                .arg(floor ? "floor" : "coordinates", floor ? "coordinates" : "floor",
+                     live ? "live" : "recorded", drain ? "drained" : "queued"))) << floor << live << drain;
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_floorModeChangeCancels()
+{
+    QFETCH(bool, floor);
+    QFETCH(bool, liveSuccessor);
+    QFETCH(bool, drainRetirement);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Mode head"), 32);
+    QVERIFY(mover);
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    r.doc.monitorProperties()->setGridUnits(MonitorProperties::Meters);
+    r.doc.monitorProperties()->setGridSize(QVector3D(24, 8, 13));
+    pad->setFloorControl(floor);
+    pad->setCurrentPosition(QPointF(8, 16));
+    pad->setFloorPosition(QVector3D(4, 0, 5));
+    tickAndRenderUniverses(&r.doc, 2);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray bytes = universes.first()->preGMValues().mid(32, 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return bytes;
+    };
+    const QByteArray before = output();
+    const QPointF point(64.5, 192.25);
+    const QVector3D target(23, 1.75, 12);
+    pad->setFloorControl(!floor);
+    tickAndRenderUniverses(&r.doc, 2);
+    const QByteArray nativeModeOutput = output();
+    QCOMPARE(nativeModeOutput, QByteArray::fromHex(floor ? "08001000" : "67a82aaa"));
+    QVERIFY(nativeModeOutput != before);
+    if (floor)
+        pad->requestUserCurrentPosition(point);
+    else
+        pad->requestUserFloorPosition(target);
+    tickAndRenderUniverses(&r.doc, 2);
+    const QByteArray nativeSuccessorOutput = output();
+    QVERIFY(nativeSuccessorOutput != nativeModeOutput);
+    pad->setCurrentPosition(QPointF(8, 16));
+    pad->setFloorPosition(QVector3D(4, 0, 5));
+    pad->setFloorControl(floor);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), before);
+    QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+    QSignalSpy receipts(pad, &VCXYPad::recordedWriteRetired);
+    const quint64 old = floor ? pad->applyRecordedFloorPosition(target)
+                              : pad->applyRecordedPosition(point);
+    QVERIFY(old != 0);
+    pad->setFloorControl(!floor);
+    QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+    if (floor)
+        QCOMPARE(pad->currentPosition(), QPointF(8, 16));
+    else
+        QCOMPARE(pad->floorPosition(), QVector3D(4, 0, 5));
+    if (drainRetirement)
+        tickAndRenderUniverses(&r.doc, 2);
+    else
+    {
+        r.doc.masterTimer()->timerTick();
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        for (Universe *universe : universes)
+            universe->processFaders(MasterTimer::tick());
+        r.doc.inputOutputMap()->releaseUniverses(false);
+    }
+    QCOMPARE(output(), nativeModeOutput);
+    QCOMPARE(receipts.count(), drainRetirement ? 1 : 0);
+    quint64 next = 0;
+    if (liveSuccessor)
+    {
+        if (floor)
+            pad->requestUserCurrentPosition(point);
+        else
+            pad->requestUserFloorPosition(target);
+    }
+    else
+        next = floor ? pad->applyRecordedPosition(point) : pad->applyRecordedFloorPosition(target);
+    if (!liveSuccessor)
+        QVERIFY(next > old);
+    ShowControlAction::cancelWriter(pad, old);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), nativeSuccessorOutput);
+    QCOMPARE(receipts.count(), liveSuccessor ? 1 : 2);
+    QCOMPARE(receipts.first()[0].toULongLong(), old);
+    QCOMPARE(receipts.first()[1].toInt(), int(VCXYPad::RecordedWriteCancelled));
+    QCOMPARE(receipts.first()[4].toString(), QStringLiteral("XY floor mode changed after publication"));
+    if (!liveSuccessor)
+    {
+        QCOMPARE(receipts.last()[0].toULongLong(), next);
+        QCOMPARE(receipts.last()[1].toInt(), int(VCXYPad::RecordedWriteApplied));
+    }
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(receipts.count(), liveSuccessor ? 1 : 2);
+    QCOMPARE(output(), nativeSuccessorOutput);
+    for (const auto &receipt : receipts)
+        if (receipt[0].toULongLong() == old)
+            QCOMPARE(receipt[1].toInt(), int(VCXYPad::RecordedWriteCancelled));
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_cancelledSameValueWrites()
+{
+    QFETCH(bool, floor);
+    QFETCH(bool, recorded);
+    QFETCH(bool, cancelFirst);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Reasserted head"), 32);
+    QVERIFY(mover);
+    r.doc.monitorProperties()->setGridUnits(MonitorProperties::Meters);
+    r.doc.monitorProperties()->setGridSize(QVector3D(24, 8, 13));
+    r.doc.monitorProperties()->setFixturePosition(mover->id(), 0, 0, QVector3D(2, 6, 3));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    pad->setFloorControl(floor);
+    pad->setCurrentPosition(QPointF(8, 16));
+    pad->setFloorPosition(QVector3D(4, 0, 5));
+    tickAndRenderUniverses(&r.doc, 2);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray values = universes.first()->preGMValues().mid(32, 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return values;
+    };
+    const QByteArray before = output();
+    const QPointF point(64.5, 192.25);
+    const QVector3D target(23, 1.75, 12);
+    QSignalSpy receipts(pad, &VCXYPad::recordedWriteRetired);
+    const quint64 cancelled = floor ? pad->applyRecordedFloorPosition(target) : pad->applyRecordedPosition(point);
+    QVERIFY(cancelled != 0);
+    if (cancelFirst)
+    {
+        ShowControlAction::cancelWriter(pad, cancelled);
+        QCOMPARE(receipts.count(), 1);
+        QCOMPARE(receipts.first()[1].toInt(), int(VCXYPad::RecordedWriteCancelled));
+    }
+    QCOMPARE(output(), before);
+    quint64 next = 0;
+    if (recorded)
+        next = floor ? pad->applyRecordedFloorPosition(target) : pad->applyRecordedPosition(point);
+    else if (floor)
+        pad->requestUserFloorPosition(target);
+    else
+        pad->requestUserCurrentPosition(point);
+    if (recorded)
+        QVERIFY(next > cancelled);
+    ShowControlAction::cancelWriter(pad, cancelled);
+    tickAndRenderUniverses(&r.doc, 2);
+    QVERIFY(output() != before);
+    QCOMPARE(receipts.count(), recorded ? 2 : 1);
+    QCOMPARE(receipts.first()[1].toInt(), int(cancelFirst ? VCXYPad::RecordedWriteCancelled
+                                                       : VCXYPad::RecordedWriteSuperseded));
+    if (recorded)
+    {
+        QCOMPARE(receipts.last()[0].toULongLong(), next);
+        QCOMPARE(receipts.last()[1].toInt(), int(VCXYPad::RecordedWriteApplied));
+    }
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_floorProjectionChangeCancels_data()
+{
+    QTest::addColumn<QString>("mutation");
+    QTest::addColumn<bool>("liveSuccessor");
+    QTest::addColumn<QByteArray>("expectedOutput");
+    QTest::addColumn<bool>("settled");
+    for (const auto &mutation : {QStringLiteral("position"), QStringLiteral("rotation"),
+                                 QStringLiteral("inverted pan"), QStringLiteral("inverted tilt"),
+                                 QStringLiteral("unrelated fixture"), QStringLiteral("hidden flag")})
+        for (bool live : {false, true})
+        for (bool settled : {false, true})
+        {
+            const QByteArray expected = mutation == QLatin1String("position") ? "7aa23963"
+                : mutation == QLatin1String("rotation") ? "80eb1d2d"
+                : mutation == QLatin1String("inverted pan") ? "8d0e2704"
+                : mutation == QLatin1String("inverted tilt") ? "72f0d8fa" : "72f02704";
+            QTest::newRow(qPrintable(mutation + (live ? " live" : " recorded") +
+                                    (settled ? " after settlement" : " pending")))
+                << mutation << live << QByteArray::fromHex(expected) << settled;
+        }
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_floorProjectionChangeCancels()
+{
+    QFETCH(QString, mutation);
+    QFETCH(bool, liveSuccessor);
+    QFETCH(QByteArray, expectedOutput);
+    QFETCH(bool, settled);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Projection head"), 32);
+    auto *other = addMoverTarget(&r.doc, &definitions, QStringLiteral("Unrelated head"), 64);
+    QVERIFY(mover && other);
+    auto *properties = r.doc.monitorProperties();
+    properties->setGridUnits(MonitorProperties::Meters);
+    properties->setGridSize(QVector3D(24, 8, 13));
+    properties->setFixturePosition(mover->id(), 0, 0, QVector3D(2, 6, 3));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    pad->setFloorControl(true);
+    pad->setFloorPosition(QVector3D(4, 0, 5));
+    tickAndRenderUniverses(&r.doc, 2);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray bytes = universes.first()->preGMValues().mid(32, 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return bytes;
+    };
+    const QByteArray before = output();
+    QCOMPARE(before, QByteArray::fromHex("67a92ab7"));
+    QSignalSpy receipts(pad, &VCXYPad::recordedWriteRetired);
+    const QVector3D target(23, 1.75, 12);
+    const quint64 old = pad->applyRecordedFloorPosition(target);
+    QVERIFY(old != 0);
+    if (settled)
+        tickAndRenderUniverses(&r.doc, 2);
+    if (mutation == QLatin1String("position"))
+        properties->setFixturePosition(mover->id(), 0, 0, QVector3D(8000, 6000, 9000));
+    else if (mutation == QLatin1String("rotation"))
+        properties->setFixtureRotation(mover->id(), 0, 0, QVector3D(20, 35, 10));
+    else if (mutation == QLatin1String("inverted pan"))
+        properties->setFixtureFlags(mover->id(), 0, 0, MonitorProperties::InvertedPanFlag);
+    else if (mutation == QLatin1String("inverted tilt"))
+        properties->setFixtureFlags(mover->id(), 0, 0, MonitorProperties::InvertedTiltFlag);
+    else if (mutation == QLatin1String("hidden flag"))
+        properties->setFixtureFlags(mover->id(), 0, 0, MonitorProperties::HiddenFlag);
+    else
+        properties->setFixturePosition(other->id(), 0, 0, QVector3D(8000, 6000, 9000));
+    const bool changed = mutation != QLatin1String("unrelated fixture") &&
+                         mutation != QLatin1String("hidden flag");
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(receipts.count(), 1);
+    QCOMPARE(receipts.first()[0].toULongLong(), old);
+    QCOMPARE(receipts.first()[1].toInt(),
+             int(changed && !settled ? VCXYPad::RecordedWriteCancelled : VCXYPad::RecordedWriteApplied));
+    if (changed && !settled)
+    {
+        QVERIFY(!receipts.first()[4].toString().isEmpty());
+        QCOMPARE(output(), before);
+    }
+    else
+        QCOMPARE(output(), QByteArray::fromHex("72f02704"));
+    quint64 next = 0;
+    if (liveSuccessor)
+        pad->requestUserFloorPosition(target);
+    else
+        next = pad->applyRecordedFloorPosition(target);
+    if (changed && !liveSuccessor)
+        QVERIFY(next > old);
+    ShowControlAction::cancelWriter(pad, old);
+    tickAndRenderUniverses(&r.doc, 2);
+    if (changed && !liveSuccessor)
+    {
+        QCOMPARE(receipts.count(), 2);
+        QCOMPARE(receipts.last()[0].toULongLong(), next);
+        QCOMPARE(receipts.last()[1].toInt(), int(VCXYPad::RecordedWriteApplied));
+    }
+    else
+        QCOMPARE(receipts.count(), 1);
+    QCOMPARE(output(), expectedOutput);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(receipts.count(), changed && !liveSuccessor ? 2 : 1);
+}
+
+void ShowCommandRecorder_Test::xyPadGroup_savedReplayUsesCurrentHeads_data()
+{
+    QTest::addColumn<bool>("membershipChanged");
+    QTest::addColumn<bool>("groupEntry");
+    QTest::newRow("accepted individual heads") << false << false;
+    QTest::newRow("current compatible individual heads") << true << false;
+    QTest::newRow("accepted wider group entry") << false << true;
+    QTest::newRow("current compatible wider group entry") << true << true;
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_configurationChangeReportsCancellation_data()
+{
+    QTest::addColumn<bool>("mode");
+    QTest::newRow("floor mode") << true;
+    QTest::newRow("physical pose") << false;
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_configurationChangeReportsCancellation()
+{
+    QFETCH(bool, mode);
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Cancelled projection"), 32);
+    QVERIFY(mover);
+    auto *properties = r.doc.monitorProperties();
+    properties->setGridUnits(MonitorProperties::Meters);
+    properties->setGridSize(QVector3D(24, 8, 13));
+    properties->setFixturePosition(mover->id(), 0, 0, QVector3D(2, 6, 3));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    pad->setFloorControl(true);
+    pad->setCurrentPosition(QPointF(8, 16));
+    pad->setFloorPosition(QVector3D(4, 0, 5));
+    tickAndRenderUniverses(&r.doc, 2);
+    QByteArray expectedOutput = QByteArray::fromHex("67a92ab7");
+    if (mode)
+    {
+        pad->setFloorControl(false);
+        tickAndRenderUniverses(&r.doc, 2);
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        expectedOutput = universes.first()->preGMValues().mid(32, 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        QCOMPARE(expectedOutput, QByteArray::fromHex("08001000"));
+        pad->setFloorControl(true);
+        tickAndRenderUniverses(&r.doc, 2);
+    }
+    ShowCommand floor;
+    floor.id = 1;
+    floor.time = 1000;
+    floor.controlId = pad->ensureRecordingId();
+    floor.role = ShowControlRole::XYPad;
+    floor.action = ShowCommandAction::SetXYPadFloor;
+    floor.payload.value = ShowCommandFloor{23, 1.75, 12};
+    ShowCommandTrack track;
+    QVERIFY(track.insert(floor));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1000, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000) && r.show->setCommandTrack(track));
+    QSignalSpy receipts(pad, &VCXYPad::recordedWriteRetired);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(1000);
+    r.doc.masterTimer()->timerTick();
+    r.doc.masterTimer()->timerTick();
+    QCoreApplication::processEvents();
+    const quint64 old = pad->awaitPendingWrite();
+    QVERIFY(old != 0);
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QVERIFY(r.bb->state() != VCButton::Active);
+    const quint64 failures = ShowEventLog::summary().count;
+    if (mode)
+        pad->setFloorControl(false);
+    else
+        properties->setFixturePosition(mover->id(), 0, 0, QVector3D(8000, 6000, 9000));
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(receipts.count(), 1);
+    QCOMPARE(receipts.first()[0].toULongLong(), old);
+    QCOMPARE(receipts.first()[1].toInt(), int(VCXYPad::RecordedWriteCancelled));
+    QCOMPARE(ShowEventLog::summary().count, failures + 1);
+    QCOMPARE(ShowEventLog::summary().reason, receipts.first()[4].toString());
+    const auto universes = r.doc.inputOutputMap()->claimUniverses();
+    const QByteArray bytes = universes.first()->preGMValues().mid(32, 4);
+    r.doc.inputOutputMap()->releaseUniverses(false);
+    QCOMPARE(bytes, expectedOutput);
+    QCOMPARE(r.bb->state(), VCButton::Active);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(r.show->commandTrack().commands(), track.commands());
+}
+
+void ShowCommandRecorder_Test::xyPadGroup_savedReplayUsesCurrentHeads()
+{
+    QFETCH(bool, membershipChanged);
+    QFETCH(bool, groupEntry);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *first = addMoverTarget(&r.doc, &definitions, QStringLiteral("First head"), 32);
+    auto *second = addMoverTarget(&r.doc, &definitions, QStringLiteral("Second head"), 64);
+    QVERIFY(first && second);
+    auto *group = new FixtureGroup(&r.doc);
+    QVERIFY(r.doc.addFixtureGroup(group));
+    QVERIFY(group->assignFixture(first->id()));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    if (groupEntry)
+    {
+        auto *all = new FixtureGroup(&r.doc);
+        QVERIFY(r.doc.addFixtureGroup(all));
+        QVERIFY(all->assignFixture(first->id()) && all->assignFixture(second->id()));
+        pad->addGroup(QVariant::fromValue(all));
+    }
+    else
+    {
+        pad->addFixture(QVariant::fromValue(first));
+        pad->addFixture(QVariant::fromValue(second));
+    }
+    const int choice = pad->addFixtureGroupPreset(QVariant::fromValue(group));
+    QVERIFY(choice >= 0);
+    const QPointF baseline(8, 16), accepted(64.5, 192.25);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray values = universes.first()->preGMValues();
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return values.mid(32, 4) + values.mid(64, 4);
+    };
+    pad->setCurrentPosition(baseline);
+    tickAndRenderUniverses(&r.doc, 2);
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(100);
+    QVERIFY(r.recorder.setRecording(true));
+    pad->requestUserPreset(choice);
+    r.show->setExternalElapsedTime(200);
+    pad->requestUserCurrentPosition(accepted);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(r.show->commandTrack().count(), 2);
+    QVERIFY(r.recorder.setRecording(false));
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(r.show->commandTrack().saveXML(&writer));
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    ShowCommandTrack saved;
+    QString reason;
+    QVERIFY2(saved.loadXML(reader, &reason), qPrintable(reason));
+    QCOMPARE(saved.commands(), r.show->commandTrack().commands());
+    pad->applyPreset(choice);
+    pad->setCurrentPosition(baseline);
+    tickAndRenderUniverses(&r.doc, 2);
+    const QByteArray before = output();
+    if (membershipChanged)
+    {
+        group->resignFixture(first->id());
+        QVERIFY(group->assignFixture(second->id()));
+    }
+    pad->requestUserPreset(choice);
+    pad->requestUserCurrentPosition(accepted);
+    tickAndRenderUniverses(&r.doc, 2);
+    const QByteArray direct = output();
+    QVERIFY(direct != before);
+    QCOMPARE(direct.mid(membershipChanged ? 0 : 4, 4), before.mid(membershipChanged ? 0 : 4, 4));
+    pad->applyPreset(choice);
+    pad->setCurrentPosition(baseline);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), before);
+    QVERIFY(saved.setExtent(2000) && r.show->setCommandTrack(saved));
+    QSignalSpy retirements(pad, &VCXYPad::recordedWriteRetired);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(output(), direct);
+    QCOMPARE(pad->activePresetId(), choice);
+    QVERIFY(retirements.count() >= 2);
+    r.show->setExternalElapsedTime(0);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(pad->activePresetId(), -1);
+    QCOMPARE(pad->currentPosition(), baseline);
+    QCOMPARE(output(), before);
+    QSet<quint64> retired;
+    for (const auto &receipt : retirements)
+    {
+        const quint64 generation = receipt[0].toULongLong();
+        QVERIFY(!retired.contains(generation));
+        retired.insert(generation);
+    }
+}
+
+void ShowCommandRecorder_Test::xyPadGroup_multiheadSelectionRestores_data()
+{
+    QTest::addColumn<bool>("group");
+    QTest::newRow("one fixture head preset") << false;
+    QTest::newRow("group resolves one of two fixture heads") << true;
+}
+
+void ShowCommandRecorder_Test::xyPadGroup_multiheadSelectionRestores()
+{
+    QFETCH(bool, group);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Two head mover"), 32, 2);
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(mover && pad);
+    QCOMPARE(mover->heads(), quint32(2));
+    pad->addFixture(QVariant::fromValue(mover));
+    QCOMPARE(pad->fixtures().count(), 2);
+    int choice;
+    if (group)
+    {
+        auto *selected = new FixtureGroup(&r.doc);
+        QVERIFY(r.doc.addFixtureGroup(selected));
+        QVERIFY(selected->assignHead(QLCPoint(), GroupHead(mover->id(), 1)));
+        choice = pad->addFixtureGroupPreset(QVariant::fromValue(selected));
+    }
+    else
+        choice = pad->addFixtureGroupHeadPreset(mover->id(), 1);
+    QVERIFY(choice >= 0);
+    const auto output = [&]() {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray bytes = universes.first()->preGMValues().mid(32, 8);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return bytes.toHex();
+    };
+    pad->setCurrentPosition(QPointF(8, 16));
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(output(), QByteArray("0800100008001000"));
+    r.show->setSyncSource(ShowRunner::External);
+    QVERIFY(r.recorder.setRecording(true));
+    r.show->setExternalElapsedTime(100);
+    pad->requestUserPreset(choice);
+    r.show->setExternalElapsedTime(200);
+    pad->requestUserCurrentPosition(QPointF(64.5, 192.25));
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(output(), QByteArray("080010004080c040"));
+    r.show->setExternalElapsedTime(300);
+    pad->requestUserPreset(choice);
+    QCOMPARE(pad->activePresetId(), -1);
+    r.show->setExternalElapsedTime(400);
+    pad->requestUserCurrentPosition(QPointF(32.25, 96.75));
+    tickAndRenderUniverses(&r.doc, 3);
+    QCOMPARE(output(), QByteArray("204060c0204060c0"));
+    QVERIFY(r.recorder.setRecording(false));
+    const auto accepted = r.show->commandTrack().commands();
+    QCOMPARE(accepted.count(), 4);
+    QVERIFY(std::get<ShowCommandChoice>(accepted[0].payload.value).active);
+    QVERIFY(!std::get<ShowCommandChoice>(accepted[2].payload.value).active);
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(r.show->saveXML(&writer));
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show loaded(&r.doc);
+    QVERIFY(loaded.loadXML(reader));
+    QCOMPARE(loaded.commandTrack().commands(), accepted);
+    for (int i = 0; i < accepted.count(); ++i)
+        QCOMPARE(loaded.commandTrack().commands()[i].order, accepted[i].order);
+    auto saved = loaded.commandTrack();
+    QVERIFY(saved.setExtent(2000) && r.show->setCommandTrack(saved));
+    pad->setCurrentPosition(QPointF(8, 16));
+    tickAndRenderUniverses(&r.doc, 2);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 16);
+    QCOMPARE(output(), QByteArray("080010004080c040"));
+    QCOMPARE(pad->activePresetId(), choice);
+    r.show->setExternalElapsedTime(450);
+    tickAndRenderUniverses(&r.doc, 16);
+    QCOMPARE(output(), QByteArray("204060c0204060c0"));
+    QCOMPARE(pad->activePresetId(), -1);
+    r.show->setExternalElapsedTime(0);
+    tickAndRenderUniverses(&r.doc, 16);
+    QCOMPARE(output(), QByteArray("0800100008001000"));
+    QCOMPARE(pad->activePresetId(), -1);
+}
+
+void ShowCommandRecorder_Test::xyPadPosition_replayAppliesRecordedPositionAcrossWraps()
+{
+    const QPointF before(11.5, 170.75);
+    const QPointF oneAxisChanged(32.25, 170.75);
+
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 0, r.a->id())));
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 8000, pad->ensureRecordingId(),
+                                                       QStringLiteral("11.5,170.75"))));
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(2, 12000, pad->ensureRecordingId(),
+                                                       QStringLiteral("32.25,170.75"))));
+    QVERIFY(track.insert(ShowCommand::stop(3, 19000, r.a->id())));
+    QVERIFY(track.setExtent(20000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = r.show->elapsed(); elapsed < 8001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(pad->currentPosition(), before);
+    for (quint32 elapsed = r.show->elapsed(); elapsed < 12001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(pad->currentPosition(), oneAxisChanged);
+
+    r.show->setExternalElapsedTime(8000);
+    tickAndDeliver(&r.doc, 2);
+    QCOMPARE(pad->currentPosition(), before);
+    for (quint32 elapsed = 8000; elapsed < 12001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(pad->currentPosition(), oneAxisChanged);
+
+    r.show->setExternalElapsedTime(8000);
+    tickAndDeliver(&r.doc, 2);
+    QCOMPARE(pad->currentPosition(), before);
+    for (quint32 elapsed = 8000; elapsed < 12001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(pad->currentPosition(), oneAxisChanged);
+}
+
+void ShowCommandRecorder_Test::xyPadPosition_replayMatchesDirectNativeOutputFractional_data()
+{
+    QTest::addColumn<QPointF>("recorded");
+    QTest::newRow("fractional both axes") << QPointF(64.5, 192.25);
+    QTest::newRow("fine-byte carry") << QPointF(127.99609375, 32.00390625);
+}
+
+void ShowCommandRecorder_Test::xyPadPosition_replayMatchesDirectNativeOutputFractional()
+{
+    QFETCH(QPointF, recorded);
+    QByteArray replayOut;
+    QByteArray directOut;
+
+    {
+        Doc doc(nullptr, 1);
+        UiFixture ui(&doc);
+        ShowCommandRecorder recorder(&doc);
+        recorder.setVirtualConsole(ui.vc());
+        VCBridgeV5 bridge(&doc, ui.vc());
+        const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
+        VCXYPad *pad = addXYPad(bridge, ui.vc(), frameID);
+        QVERIFY(pad);
+
+        QList<QLCFixtureDef *> defs;
+        Fixture *mover = addMoverTarget(&doc, &defs, QStringLiteral("Mover"), 0);
+        QVERIFY(mover);
+        pad->addFixture(QVariant::fromValue(mover));
+        QCOMPARE(pad->fixtures().count(), 1);
+
+        Show *show = new Show(&doc);
+        QVERIFY(doc.addFunction(show));
+        show->setSyncSource(ShowRunner::External);
+        ShowCommandTrack track;
+        QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                           ShowCommandPanTilt{recorded.x(), recorded.y()}.encode())));
+        QVERIFY(track.setExtent(2000));
+        QVERIFY(show->setCommandTrack(track));
+        playExternalFromZero(show, &doc);
+        for (quint32 elapsed = show->elapsed(); elapsed < 1001; elapsed++)
+        {
+            show->setExternalElapsedTime(elapsed + 1);
+            tickAndDeliver(&doc, 1);
+        }
+        QCOMPARE(pad->currentPosition(), recorded);
+        tickAndRenderUniverses(&doc, 2);
+        QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&doc]() { doc.inputOutputMap()->releaseUniverses(false); });
+        pad->writeDMX(doc.masterTimer(), universes);
+        replayOut = universes.first()->preGMValues();
+        show->stop(FunctionParent::master());
+        qDeleteAll(defs);
+    }
+
+    {
+        Doc doc(nullptr, 1);
+        UiFixture ui(&doc);
+        ShowCommandRecorder recorder(&doc);
+        recorder.setVirtualConsole(ui.vc());
+        VCBridgeV5 bridge(&doc, ui.vc());
+        const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
+        VCXYPad *pad = addXYPad(bridge, ui.vc(), frameID);
+        QVERIFY(pad);
+
+        QList<QLCFixtureDef *> defs;
+        Fixture *mover = addMoverTarget(&doc, &defs, QStringLiteral("Mover"), 0);
+        QVERIFY(mover);
+        pad->addFixture(QVariant::fromValue(mover));
+        QCOMPARE(pad->fixtures().count(), 1);
+
+        pad->setCurrentPosition(recorded);
+        tickAndRenderUniverses(&doc, 2);
+        QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&doc]() { doc.inputOutputMap()->releaseUniverses(false); });
+        pad->writeDMX(doc.masterTimer(), universes);
+        directOut = universes.first()->preGMValues();
+        qDeleteAll(defs);
+    }
+
+    QVERIFY(directOut.left(4) != QByteArray(4, '\0'));
+    QCOMPARE(uchar(replayOut.at(0)), uchar(directOut.at(0)));
+    QCOMPARE(uchar(replayOut.at(1)), uchar(directOut.at(1)));
+    QCOMPARE(uchar(replayOut.at(2)), uchar(directOut.at(2)));
+    QCOMPARE(uchar(replayOut.at(3)), uchar(directOut.at(3)));
+}
+
+void ShowCommandRecorder_Test::animationContent_acceptedTextReachesNativePlayback_data()
+{
+    QTest::addColumn<bool>("alreadyPlaying");
+    QTest::newRow("content accepted before playback") << false;
+    QTest::newRow("content accepted during playback") << true;
+}
+
+void ShowCommandRecorder_Test::animationContent_acceptedTextReachesNativePlayback()
+{
+    QFETCH(bool, alreadyPlaying);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    QVERIFY(r.doc.addFunction(matrix));
+    VCAnimation *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    const int choice = animation->addTextPreset(QStringLiteral("Accepted text"));
+    QVERIFY(choice >= 0);
+    if (alreadyPlaying)
+    {
+        animation->requestUserFaderLevel(200);
+        tickAndRenderUniverses(&r.doc, 2);
+    }
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(100);
+    QVERIFY(r.recorder.setRecording(true));
+    animation->requestUserPreset(choice);
+    QCOMPARE(r.show->commandTrack().commands().count(), 1);
+    const ShowCommand captured = r.show->commandTrack().commands().first();
+    QCOMPARE(captured.action, ShowCommandAction::SetAnimationContent);
+    QCOMPARE(animation->activePresetId(), choice);
+    QVERIFY(r.recorder.setRecording(false));
+    animation->requestUserFaderLevel(0);
+    tickAndRenderUniverses(&r.doc, 2);
+    animation->requestUserFaderLevel(200);
+    tickAndRenderUniverses(&r.doc, 2);
+    const auto *text = dynamic_cast<RGBText *>(matrix->algorithm());
+    QVERIFY(text);
+    QCOMPARE(text->text(), QStringLiteral("Accepted text"));
+    QCOMPARE(r.show->commandTrack().commands().first(), captured);
+}
+
+void ShowCommandRecorder_Test::animationColor_indexedNativeOutput_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::addColumn<bool>("playing");
+    for (const QString &operation : {QStringLiteral("replace"), QStringLiteral("black"),
+                                      QStringLiteral("reset"), QStringLiteral("component")})
+        for (const bool playing : {false, true})
+            QTest::newRow(qPrintable(operation + (playing ? " playing" : " stopped"))) << operation << playing;
+    for (const QString &operation : {QStringLiteral("preset edit"), QStringLiteral("preset reorder"),
+                                      QStringLiteral("preset delete")})
+        QTest::newRow(qPrintable(operation)) << operation << false;
+}
+
+void ShowCommandRecorder_Test::animationColor_indexedNativeOutput()
+{
+    QFETCH(QString, operation);
+    QFETCH(bool, playing);
+    RequestRig r;
+    QTemporaryDir scripts(QDir::currentPath() + QStringLiteral("/recording-colors-XXXXXX"));
+    QVERIFY(scripts.isValid());
+    const QByteArray script = R"JS((function() {
+      var algo = {apiVersion:3, author:"QLC+ test", acceptColors:2};
+      algo.name = "Recording indexed colors";
+      algo.colors = [0xff103050, 0xff507090];
+      algo.rgbMapSetColors = function(colors) { algo.colors = colors; };
+      algo.rgbMapGetColors = function() { return algo.colors; };
+      algo.rgbMapStepCount = function() { return 1; };
+      algo.rgbMap = function(w,h) {
+        var rows = [];
+        for (var y=0; y<h; ++y) {
+          var row=[]; for (var x=0; x<w; ++x) row.push(algo.colors[1]); rows.push(row);
+        } return rows;
+      };
+      return algo;
+    })())JS";
+    QFile file(scripts.filePath(QStringLiteral("colors.js")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(script), qint64(script.size()));
+    file.close();
+    QVERIFY(r.doc.rgbScriptsCache()->load(QDir(scripts.path())));
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    QVERIFY(r.doc.addFunction(matrix));
+    matrix->setDuration(100);
+    matrix->setFadeInSpeed(0);
+    matrix->setFadeOutSpeed(0);
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    const int algorithm = animation->addAlgorithmPreset(QStringLiteral("Recording indexed colors"), {});
+    QVERIFY(algorithm >= 0);
+    animation->requestUserPreset(algorithm);
+    matrix->setTempoType(Function::Time);
+    matrix->setRunOrder(Function::Loop);
+    animation->setColorAt(1, QColor(10, 20, 30));
+    if (playing)
+    {
+        animation->requestUserFaderLevel(255);
+        tickAndRenderUniverses(&r.doc, 128);
+    }
+    const int knobs = animation->addColorKnobsPreset(1);
+    QVERIFY(knobs >= 0);
+    int colorChoice = -1;
+    if (operation.startsWith("preset"))
+    {
+        colorChoice = animation->addColorPreset(1, QColor(180, 120, 60));
+        QVERIFY(colorChoice >= 0);
+        QVERIFY(animation->addColorPreset(1, QColor(90, 80, 70)) >= 0);
+    }
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(100);
+    QVERIFY(r.recorder.setRecording(true));
+    if (colorChoice >= 0)
+        animation->requestUserPreset(colorChoice);
+    else if (operation == "component")
+        animation->requestUserKnobValue(knobs, 180);
+    else
+        animation->requestUserColor(1, operation == "reset" ? QColor() :
+                                      operation == "black" ? QColor(0, 0, 0) : QColor(180, 120, 60));
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    const ShowCommand captured = r.show->commandTrack().commands().first();
+    QCOMPARE(captured.action, ShowCommandAction::SetAnimationColor);
+    QCOMPARE(animation->colorAt(1), operation == "reset" ? QColor() :
+             operation == "black" ? QColor(0, 0, 0) :
+             operation == "component" ? QColor(10, 20, 180) : QColor(180, 120, 60));
+    QVERIFY(r.recorder.setRecording(false));
+    animation->requestUserFaderLevel(255);
+    tickAndRenderUniverses(&r.doc, 32);
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray values = universes.first()->preGMValues();
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return values;
+    };
+    const QByteArray direct = output();
+    QCOMPARE(matrix->getColor(1), animation->colorAt(1));
+    if (operation == "black" || operation == "reset")
+        QCOMPARE(direct, QByteArray(direct.size(), '\0'));
+    else
+        QVERIFY(direct != QByteArray(direct.size(), '\0'));
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(r.show->commandTrack().saveXML(&writer));
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    ShowCommandTrack saved;
+    QString reason;
+    QVERIFY2(saved.loadXML(reader, &reason), qPrintable(reason));
+    QCOMPARE(saved.commands().first(), captured);
+    if (operation == "preset edit")
+    {
+        animation->requestUserFaderLevel(0);
+        tickAndRenderUniverses(&r.doc, 3);
+        QString widgetXml;
+        QXmlStreamWriter widgetWriter(&widgetXml);
+        QVERIFY(static_cast<VCWidget *>(animation)->saveXML(&widgetWriter));
+        QVERIFY(widgetXml.contains("#b4783c"));
+        widgetXml.replace("#b4783c", "#010203");
+        QByteArray widgetBytes = widgetXml.toUtf8();
+        QBuffer widgetBuffer(&widgetBytes);
+        QVERIFY(widgetBuffer.open(QIODevice::ReadOnly));
+        QXmlStreamReader widgetReader(&widgetBuffer);
+        QVERIFY(widgetReader.readNextStartElement() && animation->loadXML(widgetReader));
+        animation->applyPreset(quint8(algorithm));
+        animation->setFaderLevel(255);
+        tickAndRenderUniverses(&r.doc, 3);
+    }
+    else if (operation == "preset reorder")
+    {
+        const QVariantList beforeReorder = animation->presetsList();
+        animation->movePresetDown(quint8(colorChoice));
+        QVERIFY(animation->presetsList() != beforeReorder);
+    }
+    else if (operation == "preset delete")
+        animation->removePreset(quint8(colorChoice));
+    animation->requestUserColor(1, operation == "component" ? QColor(10, 20, 30) : QColor(1, 2, 3));
+    QCOMPARE(animation->colorAt(1), operation == "component" ? QColor(10, 20, 30) : QColor(1, 2, 3));
+    QCOMPARE(animation->faderLevel(), 255);
+    QCOMPARE(matrix->algorithm()->name(), QStringLiteral("Recording indexed colors"));
+    tickAndRenderUniverses(&r.doc, 32);
+    QVERIFY(output() != direct);
+    const QByteArray beforeReplay = output();
+    saved.setExtent(200);
+    QVERIFY(r.show->setCommandTrack(saved));
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(101);
+    tickAndRenderUniverses(&r.doc, 32);
+    if (operation == "preset delete")
+    {
+        QCOMPARE(output(), beforeReplay);
+        QCOMPARE(animation->colorAt(1), QColor(1, 2, 3));
+        QVERIFY2(ShowEventLog::summary().reason.contains("Matrix color choice is incompatible"),
+                 qPrintable(ShowEventLog::summary().reason));
+    }
+    else
+    {
+        QCOMPARE(animation->colorAt(1), operation == "reset" ? QColor() :
+                 operation == "black" ? QColor(0, 0, 0) :
+                 operation == "component" ? QColor(10, 20, 180) : QColor(180, 120, 60));
+        QCOMPARE(output(), direct);
+    }
+    QCOMPARE(r.show->commandTrack().commands().first(), captured);
+    QCOMPARE(r.show->commandTrack().commands().first().order, captured.order);
+}
+
+void ShowCommandRecorder_Test::animationContent_nativePropertiesStayFrozen_data()
+{
+    QTest::addColumn<QString>("edge");
+    for (const auto &edge : {QStringLiteral("stopped"), QStringLiteral("playing"),
+                             QStringLiteral("List refusal"), QStringLiteral("Range refusal"),
+                             QStringLiteral("Float refusal"), QStringLiteral("missing algorithm"),
+                             QStringLiteral("original edit"), QStringLiteral("original reorder"),
+                             QStringLiteral("original delete"), QStringLiteral("String metadata changed"),
+                             QStringLiteral("String metadata missing")})
+        QTest::newRow(qPrintable(edge)) << edge;
+}
+
+void ShowCommandRecorder_Test::animationContent_nativePropertiesStayFrozen()
+{
+    QFETCH(QString, edge);
+    RequestRig r;
+    QTemporaryDir scripts(QDir::currentPath() + QStringLiteral("/recording-properties-XXXXXX"));
+    QVERIFY(scripts.isValid());
+    const QByteArray script = R"JS((function() {
+      var algo = {apiVersion:2, author:"QLC+ test", acceptColors:0};
+      algo.name = "Recording properties";
+      algo.mode = "A"; algo.amount = 1; algo.spread = 0.5; algo.caption = "before";
+      algo.properties = [
+        "name:mode|type:list|values:A,B|write:setMode|read:getMode",
+        "name:amount|type:range|values:1,10|write:setAmount|read:getAmount",
+        "name:spread|type:float|values:0,2|write:setSpread|read:getSpread",
+        "name:caption|type:string|write:setCaption|read:getCaption"];
+      algo.setMode = function(v) { algo.mode = v; };
+      algo.getMode = function() { return algo.mode; };
+      algo.setAmount = function(v) { algo.amount = Number(v); };
+      algo.getAmount = function() { return algo.amount; };
+      algo.setSpread = function(v) { algo.spread = Number(v); };
+      algo.getSpread = function() { return algo.spread; };
+      algo.setCaption = function(v) { algo.caption = v; };
+      algo.getCaption = function() { return algo.caption; };
+      algo.rgbMapStepCount = function() { return 1; };
+      algo.rgbMap = function(w,h) {
+        var rows = [], color = ((algo.mode === "B" ? 180 : 40) << 16) |
+          ((algo.amount * 10 + Math.round(algo.spread * 10)) << 8) | algo.caption.length;
+        for (var y=0; y<h; ++y) {
+          var row=[]; for (var x=0; x<w; ++x) row.push(color); rows.push(row);
+        } return rows;
+      };
+      return algo;
+    })())JS";
+    QFile file(scripts.filePath(QStringLiteral("properties.js")));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(script), qint64(script.size()));
+    file.close();
+    QVERIFY(r.doc.rgbScriptsCache()->load(QDir(scripts.path())));
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    QVERIFY(r.doc.addFunction(matrix));
+    matrix->setDuration(100);
+    matrix->setFadeInSpeed(0);
+    matrix->setFadeOutSpeed(0);
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    QVariantMap properties{{"mode", "B"}, {"amount", 7}, {"spread", 1.25}, {"caption", "frozen\ntext"}};
+    if (edge == "List refusal") properties["mode"] = "absent";
+    if (edge == "Range refusal") properties["amount"] = 99;
+    if (edge == "Float refusal") properties["spread"] = 5.25;
+    const int choice = animation->addAlgorithmPreset(QStringLiteral("Recording properties"), properties);
+    QVERIFY(choice >= 0);
+    if (edge == "missing algorithm")
+        QVERIFY(QFile::remove(file.fileName()));
+    if (edge == "playing" || edge.contains("refusal") || edge == "missing algorithm")
+    {
+        animation->requestUserFaderLevel(200);
+        tickAndRenderUniverses(&r.doc, 3);
+    }
+    const auto output = [&]()
+    {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray values = universes.first()->preGMValues();
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return values;
+    };
+    const QByteArray before = output();
+    const QString beforeAlgorithm = matrix->algorithm()->name();
+    const int beforeChoice = animation->activePresetId();
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(100);
+    QVERIFY(r.recorder.setRecording(true));
+    animation->requestUserPreset(choice);
+    const bool valid = !edge.contains("refusal") && edge != "missing algorithm";
+    if (!valid)
+    {
+        QCOMPARE(r.show->commandTrack().count(), 0);
+        QCOMPARE(animation->activePresetId(), beforeChoice);
+        QCOMPARE(matrix->algorithm()->name(), beforeAlgorithm);
+        tickAndRenderUniverses(&r.doc, 3);
+        QCOMPARE(output(), before);
+        QVERIFY(r.recorder.setRecording(false));
+        return;
+    }
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    const ShowCommand captured = r.show->commandTrack().commands().first();
+    QCOMPARE(captured.action, ShowCommandAction::SetAnimationContent);
+    const auto *content = std::get_if<ShowCommandContent>(&captured.payload.value);
+    QVERIFY(content && content->properties.count() == 4);
+    QCOMPARE(content->choice, choice);
+    QCOMPARE(content->properties["mode"].type, ShowCommandProperty::Type::List);
+    QCOMPARE(content->properties["mode"].text, QStringLiteral("B"));
+    QCOMPARE(content->properties["amount"].type, ShowCommandProperty::Type::Range);
+    QCOMPARE(content->properties["amount"].number, qreal(7));
+    QCOMPARE(content->properties["spread"].type, ShowCommandProperty::Type::Float);
+    QCOMPARE(content->properties["spread"].number, qreal(1.25));
+    QCOMPARE(content->properties["caption"].type, ShowCommandProperty::Type::String);
+    QCOMPARE(content->properties["caption"].text, QStringLiteral("frozen\ntext"));
+    QVERIFY(r.recorder.setRecording(false));
+    animation->requestUserFaderLevel(200);
+    tickAndRenderUniverses(&r.doc, 3);
+    auto *native = dynamic_cast<RGBScript *>(matrix->algorithm());
+    QVERIFY(native);
+    QCOMPARE(native->name(), QStringLiteral("Recording properties"));
+    QCOMPARE(native->property("mode"), QStringLiteral("B"));
+    QCOMPARE(native->property("amount").toInt(), 7);
+    QCOMPARE(native->property("spread").toDouble(), 1.25);
+    QCOMPARE(native->property("caption"), QStringLiteral("frozen\ntext"));
+    tickAndRenderUniverses(&r.doc, 32);
+    const QByteArray direct = output();
+    QVERIFY(direct != QByteArray(direct.size(), 0));
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(r.show->commandTrack().saveXML(&writer));
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    ShowCommandTrack saved;
+    QString reason;
+    QVERIFY2(saved.loadXML(reader, &reason), qPrintable(reason));
+    QCOMPARE(saved.commands().first(), captured);
+    animation->requestUserFaderLevel(0);
+    tickAndRenderUniverses(&r.doc, 3);
+    QFile earlier(scripts.filePath(QStringLiteral("earlier.js")));
+    QVERIFY(earlier.open(QIODevice::WriteOnly));
+    QByteArray reordered = script;
+    reordered.replace("Recording properties", "AAA earlier algorithm");
+    QCOMPARE(earlier.write(reordered), qint64(reordered.size()));
+    earlier.close();
+    const int acceptedIndex = animation->algorithms().indexOf(QStringLiteral("Recording properties"));
+    QVERIFY(r.doc.rgbScriptsCache()->load(QDir(scripts.path())));
+    QVERIFY(animation->algorithms().indexOf(QStringLiteral("Recording properties")) != acceptedIndex);
+    const int changed = animation->addAlgorithmPreset(QStringLiteral("Recording properties"),
+        {{"mode", "A"}, {"amount", 2}, {"spread", 0.25}, {"caption", "later"}});
+    QVERIFY(changed >= 0);
+    if (edge == "original edit")
+    {
+        QString widgetXml;
+        QXmlStreamWriter widgetWriter(&widgetXml);
+        QVERIFY(static_cast<VCWidget *>(animation)->saveXML(&widgetWriter));
+        QVERIFY(widgetXml.contains("<Property Name=\"amount\">7</Property>"));
+        widgetXml.replace("<Property Name=\"mode\">B</Property>", "<Property Name=\"mode\">A</Property>");
+        widgetXml.replace("<Property Name=\"amount\">7</Property>", "<Property Name=\"amount\">2</Property>");
+        widgetXml.replace("<Property Name=\"spread\">1.25</Property>", "<Property Name=\"spread\">0.25</Property>");
+        widgetXml.replace("frozen\ntext", "edited original");
+        QByteArray widgetBytes = widgetXml.toUtf8();
+        QBuffer widgetBuffer(&widgetBytes);
+        QVERIFY(widgetBuffer.open(QIODevice::ReadOnly));
+        QXmlStreamReader widgetReader(&widgetBuffer);
+        QVERIFY(widgetReader.readNextStartElement() && animation->loadXML(widgetReader));
+        QCOMPARE(animation->presetsList().count(), 2);
+        QString reloadedXml;
+        QXmlStreamWriter reloadedWriter(&reloadedXml);
+        QVERIFY(static_cast<VCWidget *>(animation)->saveXML(&reloadedWriter));
+        QVERIFY2(reloadedXml.contains("<Property Name=\"amount\">2</Property>"), qPrintable(reloadedXml));
+    }
+    if (edge == "original edit")
+        animation->applyPreset(quint8(changed));
+    else
+        animation->requestUserPreset(changed);
+    QCOMPARE(animation->activePresetId(), changed);
+    animation->requestUserFaderLevel(200);
+    tickAndRenderUniverses(&r.doc, 3);
+    native = dynamic_cast<RGBScript *>(matrix->algorithm());
+    QVERIFY(native);
+    QCOMPARE(native->property("mode"), QStringLiteral("A"));
+    QCOMPARE(native->property("amount").toInt(), 2);
+    QCOMPARE(native->property("spread").toDouble(), 0.25);
+    QCOMPARE(native->property("caption"), QStringLiteral("later"));
+    QVERIFY(output() != direct);
+    if (edge == "original reorder")
+    {
+        QString beforeReorder;
+        QXmlStreamWriter beforeWriter(&beforeReorder);
+        QVERIFY(static_cast<VCWidget *>(animation)->saveXML(&beforeWriter));
+        animation->movePresetUp(quint8(changed));
+        QString afterReorder;
+        QXmlStreamWriter afterWriter(&afterReorder);
+        QVERIFY(static_cast<VCWidget *>(animation)->saveXML(&afterWriter));
+        QVERIFY(afterReorder != beforeReorder);
+    }
+    else if (edge == "original delete")
+        animation->removePreset(quint8(choice));
+    else if (edge.startsWith("String metadata"))
+    {
+        QByteArray changedScript = script;
+        if (edge == "String metadata changed")
+            changedScript.replace("name:caption|type:string|write:setCaption|read:getCaption",
+                                  "name:caption|type:float|values:0,2|write:setCaption|read:getCaption");
+        else
+            changedScript.replace(",\n        \"name:caption|type:string|write:setCaption|read:getCaption\"", "");
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(file.write(changedScript), qint64(changedScript.size()));
+        file.close();
+        QVERIFY(r.doc.rgbScriptsCache()->load(QDir(scripts.path())));
+    }
+    const QByteArray beforeReplay = output();
+    QVERIFY(saved.setExtent(2000) && r.show->setCommandTrack(saved));
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 32);
+    native = dynamic_cast<RGBScript *>(matrix->algorithm());
+    QVERIFY(native);
+    QCOMPARE(r.show->commandTrack().commands().first(), captured);
+    QCOMPARE(r.show->commandTrack().commands().first().order, captured.order);
+    if (edge == "original delete" || edge.startsWith("String metadata"))
+    {
+        QCOMPARE(native->property("mode"), QStringLiteral("A"));
+        QCOMPARE(native->property("amount").toInt(), 2);
+        QCOMPARE(native->property("spread").toDouble(), 0.25);
+        QCOMPARE(native->property("caption"), QStringLiteral("later"));
+        QCOMPARE(output(), beforeReplay);
+        const QString expectedReason = edge == "original delete" ? "Matrix content choice is incompatible"
+            : edge == "String metadata changed" ? "Matrix property 'caption' changed type"
+                                                : "Matrix property 'caption' is unavailable";
+        QVERIFY2(ShowEventLog::summary().reason.contains(expectedReason), qPrintable(ShowEventLog::summary().reason));
+        return;
+    }
+    QCOMPARE(native->property("mode"), QStringLiteral("B"));
+    QCOMPARE(native->property("amount").toInt(), 7);
+    QCOMPARE(native->property("spread").toDouble(), 1.25);
+    QCOMPARE(native->property("caption"), QStringLiteral("frozen\ntext"));
+    QCOMPARE(output().toHex(), direct.toHex());
+}
+
+void ShowCommandRecorder_Test::animationContent_backwardRestoresActualContent_data()
+{
+    QTest::addColumn<bool>("localBefore");
+    QTest::newRow("native Matrix content before override") << false;
+    QTest::newRow("native VC content before override") << true;
+}
+
+void ShowCommandRecorder_Test::animationContent_backwardRestoresActualContent()
+{
+    QFETCH(bool, localBefore);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    matrix->setAlgorithm(RGBAlgorithm::algorithm(&r.doc, QStringLiteral("Text")));
+    QVERIFY(r.doc.addFunction(matrix));
+    auto *text = dynamic_cast<RGBText *>(matrix->algorithm());
+    QVERIFY(text);
+    text->setText(QStringLiteral("actual before"));
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    if (localBefore)
+    {
+        const int preset = animation->addTextPreset(QStringLiteral("actual before"));
+        QVERIFY(preset >= 0);
+        animation->requestUserPreset(preset);
+    }
+    animation->requestUserFaderLevel(200);
+    tickAndRenderUniverses(&r.doc, 3);
+    text = dynamic_cast<RGBText *>(matrix->algorithm());
+    QVERIFY(text);
+    QCOMPARE(text->text(), QStringLiteral("actual before"));
+    const int choiceBefore = animation->activePresetId();
+    const int algorithmBefore = animation->algorithmIndex();
+    ShowCommand command;
+    command.id = 1;
+    command.time = 200;
+    command.action = ShowCommandAction::SetAnimationContent;
+    command.controlId = animation->ensureRecordingId();
+    command.role = ShowControlRole::AnimationFader;
+    ShowCommandContent content;
+    content.algorithm = QStringLiteral("Text");
+    content.text = QStringLiteral("recorded after");
+    command.payload.value = content;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    QVERIFY(track.setExtent(2000) && r.show->setCommandTrack(track));
+    r.show->setSyncSource(ShowRunner::External);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 6);
+    text = dynamic_cast<RGBText *>(matrix->algorithm());
+    QVERIFY(text);
+    QCOMPARE(text->text(), QStringLiteral("recorded after"));
+    r.show->setExternalElapsedTime(0);
+    tickAndRenderUniverses(&r.doc, 6);
+    text = dynamic_cast<RGBText *>(matrix->algorithm());
+    QVERIFY(text);
+    QCOMPARE(text->text(), QStringLiteral("actual before"));
+    QCOMPARE(animation->activePresetId(), choiceBefore);
+    QCOMPARE(animation->algorithmIndex(), algorithmBefore);
+    QCOMPARE(animation->faderLevel(), 200);
+    QVERIFY(matrix->hasSource(FunctionParent(FunctionParent::AutoVCWidget, animation->id())));
+    animation->requestUserFaderLevel(0);
+    tickAndRenderUniverses(&r.doc, 2);
+    text = dynamic_cast<RGBText *>(matrix->algorithm());
+    QVERIFY(text);
+    text->setText(QStringLiteral("future native content"));
+    animation->requestUserFaderLevel(200);
+    tickAndRenderUniverses(&r.doc, 2);
+    text = dynamic_cast<RGBText *>(matrix->algorithm());
+    QVERIFY(text);
+    QCOMPARE(text->text(), localBefore ? QStringLiteral("actual before") : QStringLiteral("future native content"));
+}
+
+void ShowCommandRecorder_Test::animationContent_multistepBackwardClosure_data()
+{
+    QTest::addColumn<bool>("localBefore");
+    QTest::addColumn<int>("beforeCount");
+    QTest::addColumn<int>("heldStep");
+    QTest::addColumn<int>("changedCount");
+    QTest::addColumn<QString>("intervening");
+    QTest::newRow("native amount before content") << false << 10 << 4 << 3 << QString();
+    QTest::newRow("VC amount before content") << true << 10 << 4 << 3 << QString();
+    QTest::newRow("normal native rounding accepted") << false << 8 << 3 << 4 << QString();
+    QTest::newRow("another amount local content") << true << 7 << 5 << 2 << QString();
+    QTest::newRow("natural advance is not manual authority") << false << 10 << 4 << 3 << QStringLiteral("advance");
+    QTest::newRow("same-name algorithm replacement refuses whole restore") << false << 10 << 4 << 3 << QStringLiteral("algorithm");
+    QTest::newRow("delivered target rebind refuses whole restore") << false << 10 << 4 << 3 << QStringLiteral("rebind");
+    QTest::newRow("same-ID delivered replacement refuses whole restore") << false << 10 << 4 << 3 << QStringLiteral("replacement");
+    QTest::newRow("later live same content refuses whole restore") << true << 10 << 4 << 3 << QStringLiteral("live");
+    QTest::newRow("invalid native group refuses before any restore write") << false << 10 << 4 << 3 << QStringLiteral("invalid group");
+    QTest::newRow("deleted native group refuses before any restore write") << false << 10 << 4 << 3 << QStringLiteral("deleted group");
+    QTest::newRow("replaced native group geometry refuses whole restore") << false << 10 << 4 << 3 << QStringLiteral("replacement group");
+    QTest::newRow("empty native group refuses whole restore") << false << 10 << 4 << 3 << QStringLiteral("empty group");
+    QTest::newRow("one-step invalid group refuses whole restore") << false << 1 << 0 << 1 << QStringLiteral("equal invalid group");
+    QTest::newRow("one-step deleted group refuses whole restore") << false << 1 << 0 << 1 << QStringLiteral("equal deleted group");
+    QTest::newRow("one-step resized group refuses whole restore") << false << 1 << 0 << 1 << QStringLiteral("equal resized group");
+    QTest::newRow("one-step valid content restores") << false << 1 << 0 << 1 << QStringLiteral("equal valid");
+    QTest::newRow("missing Fill metadata refuses before effects") << false << 100 << 0 << 1024 << QStringLiteral("Fireworks");
+    QTest::newRow("before target algorithm restores actual content") << false << 100 << 0 << 1024 << QStringLiteral("algorithm restore");
+    QTest::newRow("VC Fill after Fireworks restores actual content") << true << 100 << 0 << 1024 << QStringLiteral("algorithm restore");
+}
+
+void ShowCommandRecorder_Test::animationContent_multistepBackwardClosure()
+{
+    QFETCH(bool, localBefore);
+    QFETCH(int, beforeCount);
+    QFETCH(int, heldStep);
+    QFETCH(int, changedCount);
+    QFETCH(QString, intervening);
+    const bool equalCursor = intervening.startsWith("equal");
+    const bool fireworks = intervening == "Fireworks" || intervening == "algorithm restore";
+    RequestRig r;
+    QTemporaryDir scripts(QDir::currentPath() + QStringLiteral("/multistep-content-XXXXXX"));
+    QVERIFY(scripts.isValid());
+    QFile file(scripts.filePath("phase.js"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    const QByteArray source = R"JS((function() {
+      var algo = {apiVersion:2, author:"QLC+ test", acceptColors:0, amount:10};
+      algo.name = "Native phase";
+      algo.properties = ["name:amount|type:range|values:1,10|write:setAmount|read:getAmount"];
+      algo.setAmount = function(v) { algo.amount = Number(v); };
+      algo.getAmount = function() { return algo.amount; };
+      algo.rgbMapStepCount = function(w,h) { return algo.amount * w * h; };
+      algo.rgbMap = function(w,h,rgb,step) {
+        var value = (step + 1) * 20;
+        return [[(value << 16) | (value << 8) | value]];
+      };
+      return algo;
+    })())JS";
+    QCOMPARE(file.write(source), qint64(source.size()));
+    file.close();
+    QVERIFY(r.doc.rgbScriptsCache()->load(QDir(scripts.path())));
+    if (equalCursor || fireworks)
+    {
+        const QDir shipped("/Users/abossard/Desktop/projects/qlcplus/resources/rgbscripts");
+        QVERIFY(QFile::copy(shipped.filePath("fill.js"), scripts.filePath("fill.js")));
+        if (fireworks)
+            QVERIFY(QFile::copy(shipped.filePath("fireworks.js"), scripts.filePath("fireworks.js")));
+        QVERIFY(r.doc.rgbScriptsCache()->load(QDir(scripts.path())));
+    }
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    const QString priorAlgorithm = equalCursor || fireworks ? QStringLiteral("Fill") : QStringLiteral("Native phase");
+    matrix->setAlgorithm(RGBAlgorithm::algorithm(&r.doc, priorAlgorithm));
+    if (equalCursor || fireworks)
+    {
+        if (fireworks)
+        {
+            r.doc.fixtureGroup(matrix->fixtureGroup())->setSize(QSize(100, 100));
+            matrix->setFixtureGroup(matrix->fixtureGroup());
+        }
+        matrix->setProperty("orientation", "Horizontal");
+    }
+    else
+        matrix->setProperty("amount", QString::number(beforeCount));
+    matrix->setDuration(100);
+    matrix->setFadeInSpeed(0);
+    matrix->setFadeOutSpeed(0);
+    matrix->setRunOrder(Function::Loop);
+    QVERIFY(r.doc.addFunction(matrix));
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    if (localBefore)
+    {
+        const int choice = animation->addAlgorithmPreset(priorAlgorithm,
+            fireworks ? QVariantMap{{"orientation", "Horizontal"}} : QVariantMap{{"amount", beforeCount}});
+        QVERIFY(choice >= 0);
+        animation->requestUserPreset(choice);
+    }
+    animation->requestUserFaderLevel(255);
+    tickAndRenderUniverses(&r.doc, 2);
+    tickAndRenderUniverses(&r.doc, heldStep * (100 / MasterTimer::tick()) + 1);
+    animation->requestUserFaderLevel(0);
+    tickAndRenderUniverses(&r.doc, 2);
+    animation->requestUserFaderLevel(255);
+    tickAndRenderUniverses(&r.doc, 2);
+    if (!equalCursor && !fireworks)
+        matrix->setProperty("amount", QString::number(beforeCount));
+    tickAndRenderUniverses(&r.doc, heldStep * (100 / MasterTimer::tick()) + 1);
+    matrix->setDuration(100000);
+    const auto output = [&]() {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray bytes = universes.first()->preGMValues().mid(64, 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return bytes;
+    };
+    const QByteArray beforeOutput = output();
+    if (!fireworks)
+        QVERIFY(beforeOutput != QByteArray(4, 0));
+    const auto before = ShowControlAction::observe(animation);
+    const auto beforeElapsed = matrix->elapsed();
+    const auto beforeBeats = matrix->elapsedBeats();
+    ShowCommand command;
+    command.id = 40;
+    command.time = 200;
+    command.controlId = animation->ensureRecordingId();
+    command.role = ShowControlRole::AnimationFader;
+    command.action = ShowCommandAction::SetAnimationContent;
+    ShowCommandContent content;
+    content.algorithm = fireworks ? QStringLiteral("Fireworks") : priorAlgorithm;
+    if (equalCursor)
+        content.properties.insert("orientation", {ShowCommandProperty::Type::List, QStringLiteral("Vertical"), 0});
+    else if (!fireworks)
+        content.properties.insert("amount", {ShowCommandProperty::Type::Range, QString(), double(changedCount)});
+    if (intervening == "live")
+        content.choice = animation->addAlgorithmPreset("Native phase", {{"amount", changedCount}});
+    command.payload.value = content;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command) && track.setExtent(2000) && r.show->setCommandTrack(track));
+    r.show->setSyncSource(ShowRunner::External);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 6);
+    QCOMPARE(matrix->algorithm()->name(), content.algorithm);
+    if (equalCursor)
+        QCOMPARE(matrix->property("orientation"), QStringLiteral("Vertical"));
+    else if (!fireworks)
+        QCOMPARE(matrix->property("amount"), QString::number(changedCount));
+    QVERIFY(matrix->elapsed() > beforeElapsed);
+    const auto appliedGeneration = matrix->algorithmGeneration();
+    RGBMatrix *delivered = matrix;
+    if (intervening == "algorithm")
+    {
+        matrix->setAlgorithm(RGBAlgorithm::algorithm(&r.doc, "Native phase"));
+        QVERIFY(matrix->algorithmGeneration() != appliedGeneration);
+    }
+    else if (intervening == "rebind" || intervening == "replacement")
+    {
+        const quint32 originalId = matrix->id();
+        const quint32 groupId = matrix->fixtureGroup();
+        if (intervening == "replacement")
+        {
+            animation->requestUserFaderLevel(0);
+            tickAndRenderUniverses(&r.doc, 4);
+            QVERIFY(!matrix->isRunning());
+            QVERIFY(r.doc.deleteFunction(originalId));
+        }
+        auto *replacement = new RGBMatrix(&r.doc);
+        replacement->setFixtureGroup(groupId);
+        replacement->setAlgorithm(RGBAlgorithm::algorithm(&r.doc, "Native phase"));
+        replacement->setProperty("amount", QString::number(changedCount));
+        replacement->setDuration(100000);
+        QVERIFY(r.doc.addFunction(replacement, intervening == "replacement" ? originalId : Function::invalidId()));
+        animation->setFunctionID(replacement->id());
+        matrix = replacement;
+        if (intervening == "replacement")
+            delivered = replacement;
+        tickAndRenderUniverses(&r.doc, 2);
+    }
+    else if (intervening == "live")
+    {
+        const auto sameContent = ShowControlAction::observe(animation);
+        QVERIFY(content.choice >= 0);
+        animation->requestUserPreset(content.choice);
+        tickAndRenderUniverses(&r.doc, 2);
+        const auto reasserted = ShowControlAction::observe(animation);
+        QCOMPARE(reasserted.choice, sameContent.choice);
+        QCOMPARE(reasserted.properties, sameContent.properties);
+        QCOMPARE(reasserted.colors, sameContent.colors);
+        QCOMPARE(reasserted.algorithm, sameContent.algorithm);
+    }
+    else if (intervening == "advance")
+    {
+        matrix->setDuration(matrix->elapsed() + MasterTimer::tick());
+        tickAndRenderUniverses(&r.doc, 2);
+        matrix->setDuration(100000);
+    }
+    else if (intervening == "Fireworks")
+    {
+        // The cached name remains, but the prior public definition is unavailable.
+        QVERIFY(QFile::remove(scripts.filePath("fill.js")));
+    }
+    else if (intervening.endsWith("group"))
+    {
+        const quint32 groupId = matrix->fixtureGroup();
+        if (intervening == "equal resized group")
+        {
+            r.doc.fixtureGroup(groupId)->setSize(QSize(2, 1));
+            matrix->setFixtureGroup(groupId);
+        }
+        else if (intervening == "empty group")
+        {
+            r.doc.fixtureGroup(groupId)->setSize(QSize(0, 0));
+            matrix->setFixtureGroup(groupId);
+        }
+        else
+        {
+            matrix->setFixtureGroup(FixtureGroup::invalidId());
+            tickAndRenderUniverses(&r.doc, 4);
+            QVERIFY(!matrix->isRunning());
+            if (intervening != "invalid group" && intervening != "equal invalid group")
+            {
+                QVERIFY(r.doc.deleteFixtureGroup(groupId));
+                if (intervening == "replacement group")
+                {
+                    auto *replacement = new FixtureGroup(&r.doc);
+                    replacement->setSize(QSize(2, 1));
+                    QVERIFY(r.doc.addFixtureGroup(replacement, groupId));
+                }
+                matrix->setFixtureGroup(groupId);
+            }
+        }
+        QCOMPARE(matrix->algorithmGeneration(), appliedGeneration);
+        tickAndRenderUniverses(&r.doc, 4);
+    }
+    const auto beforeBackward = ShowControlAction::observe(animation);
+    const auto outputAtBackward = output();
+    const auto elapsedAtBackward = delivered->elapsed();
+    const auto beatsAtBackward = delivered->elapsedBeats();
+    const QString deliveredAmountAtBackward = delivered->property("amount");
+    const auto nativeColorsAtBackward = matrix->getColors();
+    const auto nativeAlgorithmAtBackward = matrix->algorithm();
+    const auto bindingAtBackward = animation->functionID();
+    const auto faderAtBackward = animation->faderLevel();
+    const quint64 failuresAtBackward = ShowEventLog::summary().count;
+    r.show->setExternalElapsedTime(0);
+    tickAndRenderUniverses(&r.doc, 6);
+    if (intervening.endsWith("group") && !delivered->isRunning())
+    {
+        QCOMPARE(delivered->elapsed(), elapsedAtBackward);
+        QCOMPARE(delivered->elapsedBeats(), beatsAtBackward);
+    }
+    else
+    {
+        QVERIFY(delivered->elapsed() >= elapsedAtBackward);
+        QVERIFY(delivered->elapsedBeats() >= beforeBeats);
+    }
+    if (intervening == "algorithm" || intervening == "rebind" ||
+        intervening == "replacement" || intervening == "live" || intervening.endsWith("group") ||
+        intervening == "Fireworks")
+    {
+        const auto unchanged = ShowControlAction::observe(animation);
+        QCOMPARE(unchanged.properties, beforeBackward.properties);
+        QCOMPARE(unchanged.colors, beforeBackward.colors);
+        QCOMPARE(unchanged.algorithm, beforeBackward.algorithm);
+        QCOMPARE(unchanged.text, beforeBackward.text);
+        QCOMPARE(unchanged.algorithmOverride, beforeBackward.algorithmOverride);
+        QCOMPARE(unchanged.contentOverride, beforeBackward.contentOverride);
+        QCOMPARE(unchanged.choice, beforeBackward.choice);
+        QCOMPARE(unchanged.binding, beforeBackward.binding);
+        QCOMPARE(unchanged.lifetimes, beforeBackward.lifetimes);
+        QCOMPARE(unchanged.matrixGroupLifetime, beforeBackward.matrixGroupLifetime);
+        QCOMPARE(unchanged.choiceLifetime, beforeBackward.choiceLifetime);
+        if (equalCursor)
+            QCOMPARE(matrix->property("orientation"), QStringLiteral("Vertical"));
+        else if (!fireworks)
+            QCOMPARE(matrix->property("amount"), QString::number(changedCount));
+        QCOMPARE(matrix->algorithm(), nativeAlgorithmAtBackward);
+        QCOMPARE(matrix->getColors(), nativeColorsAtBackward);
+        QCOMPARE(animation->functionID(), bindingAtBackward);
+        QCOMPARE(animation->faderLevel(), faderAtBackward);
+        QCOMPARE(delivered->property("amount"), deliveredAmountAtBackward);
+        QCOMPARE(output(), outputAtBackward);
+        QCOMPARE(r.show->commandTrack().commands(), track.commands());
+        QCOMPARE(r.show->commandTrack().commands().first().order, track.commands().first().order);
+        if (intervening.endsWith("group") || intervening == "Fireworks")
+        {
+            qInfo() << "Refusal count before" << failuresAtBackward
+                    << "after" << ShowEventLog::summary().count
+                    << "reason" << ShowEventLog::summary().reason;
+            QCOMPARE(ShowEventLog::summary().count, failuresAtBackward + 1);
+            QCOMPARE(ShowEventLog::summary().reason,
+                     QStringLiteral("previous Matrix content is no longer compatible"));
+        }
+        else
+            QCOMPARE(ShowEventLog::summary().count, failuresAtBackward);
+        return;
+    }
+    if (equalCursor || intervening == "algorithm restore")
+    {
+        QCOMPARE(matrix->algorithm()->name(), priorAlgorithm);
+        QCOMPARE(matrix->property("orientation"), QStringLiteral("Horizontal"));
+        const auto restored = ShowControlAction::observe(animation);
+        QCOMPARE(restored.properties, before.properties);
+        QCOMPARE(restored.algorithm, before.algorithm);
+        QCOMPARE(restored.colors, before.colors);
+        QCOMPARE(restored.choice, before.choice);
+        QCOMPARE(restored.text, before.text);
+        QCOMPARE(restored.algorithmOverride, before.algorithmOverride);
+        QCOMPARE(restored.contentOverride, before.contentOverride);
+        QCOMPARE(restored.scalar, before.scalar);
+        QCOMPARE(ShowEventLog::summary().count, failuresAtBackward);
+        return;
+    }
+    QCOMPARE(matrix->property("amount"), QString::number(beforeCount));
+    const auto restored = ShowControlAction::observe(animation);
+    QCOMPARE(restored.algorithm, before.algorithm);
+    QCOMPARE(restored.properties, before.properties);
+    QCOMPARE(restored.colors, before.colors);
+    QCOMPARE(restored.choice, before.choice);
+    QCOMPARE(restored.text, before.text);
+    QCOMPARE(restored.algorithmOverride, before.algorithmOverride);
+    QCOMPARE(restored.contentOverride, before.contentOverride);
+    QCOMPARE(restored.scalar, before.scalar);
+    // Compare output at a defined native sample, not the script's hidden animation state.
+    RGBMap restoredMap;
+    matrix->algorithm()->rgbMap(QSize(1, 1), qRgb(255, 255, 255), 0, restoredMap);
+    QCOMPARE(restoredMap, RGBMap({{qRgb(20, 20, 20) & 0x00ffffff}}));
+}
+
+void ShowCommandRecorder_Test::animationContent_callbackFailure_data()
+{
+    QTest::addColumn<bool>("invalidMetadata");
+    QTest::addColumn<QString>("fault");
+    QTest::newRow("admitted callable faults during execution") << false << QString("writer");
+    QTest::newRow("missing property refuses before effects") << true << QString("writer");
+    QTest::newRow("successful writer immediate count fault") << false << QString("count");
+    QTest::newRow("API3 color getter fault") << false << QString("getColors");
+    QTest::newRow("API3 queued color writer fault") << false << QString("setColors");
+    QTest::newRow("stopped content fader start writer fault") << false << QString("fader");
+    QTest::newRow("color reapplies local writer fault") << false << QString("color");
+    QTest::newRow("algorithm initialization writer fault") << false << QString("algorithm");
+    QTest::newRow("HUE effective property override fault") << false << QString("hue");
+    QTest::newRow("HUE property reader fault") << false << QString("hueReader");
+    QTest::newRow("valid native zero count") << false << QString("zero");
+    QTest::newRow("valid API3 empty colors") << false << QString("emptyColors");
+    QTest::newRow("backward managed property callback fault") << false << QString("restore");
+}
+
+void ShowCommandRecorder_Test::animationContent_callbackFailure()
+{
+    QFETCH(bool, invalidMetadata);
+    QFETCH(QString, fault);
+    RequestRig r;
+    QTemporaryDir scripts(QDir::currentPath() + QStringLiteral("/callback-content-XXXXXX"));
+    QVERIFY(scripts.isValid());
+    QFile file(scripts.filePath("fault.js"));
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QByteArray source = R"JS((function() {
+      var algo = {apiVersion:2, author:"QLC+ test", acceptColors:0, amount:3};
+      algo.name = "Managed fault";
+      algo.properties = ["name:amount|type:range|values:1,10|write:setAmount|read:getAmount"];
+      algo.setAmount = function(v) {
+        algo.amount = Number(v);
+        if (algo.amount == 7) throw new Error("accepted callback fault");
+      };
+      algo.getAmount = function() { return algo.amount; };
+      algo.rgbMapStepCount = function(w,h) { return 1; };
+      algo.rgbMap = function(w,h,rgb,step) { return [[algo.amount << 16]]; };
+      return algo;
+    })())JS";
+    if (fault == "count")
+    {
+        source.replace("if (algo.amount == 7) throw", "if (false) throw");
+        source.replace("return 1;", "if (algo.amount == 7) throw new Error('count callback fault'); return 1;");
+    }
+    if (fault == "zero" || fault == "emptyColors")
+        source.replace("if (algo.amount == 7) throw", "if (false) throw");
+    if (fault == "zero")
+        source.replace("return 1;", "return 0;");
+    if (fault == "getColors" || fault == "setColors" || fault == "emptyColors")
+    {
+        source.replace("apiVersion:2", "apiVersion:3");
+        source.replace("acceptColors:0", "acceptColors:1");
+        source.replace("if (algo.amount == 7) throw", "if (false) throw");
+        source.replace("return algo;", fault != "setColors" ?
+            "algo.rgbMapSetColors = function(c) {}; algo.rgbMapGetColors = function() { if (algo.amount == 7) throw new Error('color getter fault'); return []; }; return algo;" :
+            "algo.rgbMapSetColors = function(c) { if (algo.amount == 7) throw new Error('color writer fault'); }; algo.rgbMapGetColors = function() { return [0xff123456]; }; return algo;");
+    }
+    if (fault == "hue")
+    {
+        source.replace("if (algo.amount == 7) throw new Error(\"accepted callback fault\");",
+                       "if (algo.amount == 7) algo.armed = true; if (algo.amount == 5 && algo.armed) throw new Error('effective override fault');");
+    }
+    if (fault == "emptyColors")
+        source.replace("if (algo.amount == 7) throw", "if (false) throw");
+    if (fault == "restore")
+        source.replace("if (algo.amount == 7) throw new Error(\"accepted callback fault\");",
+                       "if (algo.amount == 7) algo.armed = true; if (algo.amount == 3 && algo.armed) throw new Error('restore callback fault');");
+    if (fault == "hueReader")
+    {
+        source.replace("if (algo.amount == 7) throw", "if (false) throw");
+        source.replace("return algo.amount;", "if (algo.amount == 7) throw new Error('property reader fault'); return algo.amount;");
+    }
+    QCOMPARE(file.write(source), qint64(source.size()));
+    file.close();
+    QVERIFY(r.doc.rgbScriptsCache()->load(QDir(scripts.path())));
+    if (fault == "hue" || fault == "hueReader")
+        QVERIFY(r.doc.hueScriptsCache()->load(QDir(scripts.path()), false));
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    RGBMatrix *matrix = fault == "hue" || fault == "hueReader" ? new HUEMatrix(&r.doc) : new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    matrix->setAlgorithm(RGBAlgorithm::algorithm(&r.doc, fault == "algorithm" ? "Fill" : "Managed fault"));
+    matrix->setProperty("amount", fault == "algorithm" ? "7" : "3");
+    QVERIFY(r.doc.addFunction(matrix));
+    if (fault == "hue")
+        matrix->requestAttributeOverride(RGBMatrix::ScriptPropertyAttr, 5);
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+    QVERIFY(animation);
+    QVERIFY(animation->runtimeAlgorithms().contains(QStringLiteral("Managed fault")));
+    if (fault == "fader" || fault == "color" || fault == "setColors")
+        QVERIFY(animation->setRuntimeContent("Managed fault", QString(), {{"amount", "7"}}));
+    if (fault != "fader")
+    {
+        animation->setFaderLevel(200);
+        tickAndRenderUniverses(&r.doc, 3);
+    }
+    ShowCommand command;
+    command.id = 80;
+    command.time = 200;
+    command.controlId = animation->ensureRecordingId();
+    command.role = ShowControlRole::AnimationFader;
+    command.action = ShowCommandAction::SetAnimationContent;
+    ShowCommandContent content;
+    content.algorithm = "Managed fault";
+    content.properties.insert(invalidMetadata ? "missing" : "amount",
+                              {ShowCommandProperty::Type::Range, QString(), fault == "algorithm" ? 3.0 : 7.0});
+    command.payload.value = content;
+    if (fault == "fader")
+    {
+        command.action = ShowCommandAction::SetAnimationFader;
+        command.payload.value = std::monostate{};
+        command.position = 200.0 / 255.0;
+    }
+    if (fault == "color" || fault == "setColors")
+    {
+        command.action = ShowCommandAction::SetAnimationColor;
+        ShowCommandMatrixColor color;
+        color.index = 0;
+        color.color.red = 12;
+        color.color.green = 34;
+        color.color.blue = 56;
+        command.payload.value = color;
+    }
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    if (fault == "fader")
+        QVERIFY(track.insert(ShowCommand::setIntensity(81, 200, matrix->id(), .25)));
+    QVERIFY(track.setExtent(2000) && r.show->setCommandTrack(track));
+    ShowEventModel model(&r.doc, &r.recorder);
+    model.setOpen(true);
+    const auto before = ShowControlAction::observe(animation);
+    const auto failures = ShowEventLog::summary().count;
+    QSignalSpy receipts(r.show, &Show::functionReceiptReady);
+    r.show->setSyncSource(ShowRunner::External);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    if (fault == "fader")
+    {
+        for (int i = 0; i < 5; ++i)
+            r.doc.masterTimer()->timerTick();
+        QCoreApplication::processEvents();
+        QCOMPARE(r.recorder.pendingControlRuns(), 1);
+        QCOMPARE(receipts.count(), 0);
+        QVERIFY(!matrix->isRunning());
+        QVERIFY(r.show->commandWorkPending());
+        QCOMPARE(ShowEventLog::summary().count, failures + 1);
+    }
+    tickAndRenderUniverses(&r.doc, 8);
+    if (fault == "restore")
+    {
+        QCOMPARE(ShowEventLog::summary().count, failures);
+        QCOMPARE(matrix->property("amount"), QStringLiteral("7"));
+        r.show->setExternalElapsedTime(0);
+        tickAndRenderUniverses(&r.doc, 8);
+        QCOMPARE(ShowEventLog::summary().count, failures + 1);
+        QCOMPARE(ShowEventLog::summary().reason,
+                 QStringLiteral("notApplied: native Matrix callback failed: setAmount: Error: restore callback fault"));
+        QCOMPARE(r.show->commandTrack().commands(), track.commands());
+        QCOMPARE(r.show->commandTrack().commands().first().order, track.commands().first().order);
+        QCOMPARE(r.recorder.pendingControlRuns(), 0);
+        QVERIFY(!r.show->commandWorkPending());
+        QCOMPARE(matrix->property("amount"), QStringLiteral("3"));
+        RGBMap map;
+        matrix->algorithm()->rgbMap(QSize(1, 1), qRgb(255, 255, 255), 0, map);
+        QCOMPARE(map, RGBMap({{3u << 16}}));
+        return;
+    }
+    QCOMPARE(r.show->commandTrack().commands(), track.commands());
+    QCOMPARE(r.show->commandTrack().commands().first().order, track.commands().first().order);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QVERIFY(!r.show->commandWorkPending());
+    const bool success = fault == "zero" || fault == "emptyColors";
+    QCOMPARE(ShowEventLog::summary().count, failures + (success ? 0 : 1));
+    int executions = 0;
+    for (const auto &entry : model.rows())
+    {
+        if (entry.phase != ShowEventLog::Phase::Execute || entry.commandId != command.id)
+            continue;
+        qInfo() << "Managed callback outcome" << int(entry.outcome) << entry.reason;
+        QCOMPARE(entry.outcome, success ? ShowEventLog::Outcome::Applied :
+                 invalidMetadata ? ShowEventLog::Outcome::Skipped : ShowEventLog::Outcome::Failed);
+        QVERIFY(!entry.reason.isEmpty());
+        if (!invalidMetadata && !success)
+        {
+            const QString callback = fault == "count" ? "rgbMapStepCount: Error: count callback fault" :
+                fault == "getColors" ? "rgbMapGetColors: Error: color getter fault" :
+                fault == "setColors" ? "rgbMapSetColors: Error: color writer fault" :
+                fault == "hue" ? "setAmount: Error: effective override fault" :
+                fault == "hueReader" ? "getAmount: Error: property reader fault" :
+                "setAmount: Error: accepted callback fault";
+            QCOMPARE(entry.reason, "notApplied: native Matrix callback failed: " + callback);
+        }
+        ++executions;
+    }
+    QCOMPARE(executions, 1);
+    if (invalidMetadata)
+    {
+        const auto after = ShowControlAction::observe(animation);
+        QCOMPARE(after.algorithm, before.algorithm);
+        QCOMPARE(after.properties, before.properties);
+        QCOMPARE(after.colors, before.colors);
+        QCOMPARE(after.choice, before.choice);
+        QCOMPARE(after.contentOverride, before.contentOverride);
+        QCOMPARE(matrix->property("amount"), QStringLiteral("3"));
+    }
+    else
+    {
+        // Native execution may have effects before the callback throws.
+        const uint expectedAmount = fault == "algorithm" ? 3 : fault == "hue" ? 5 : 7;
+        QCOMPARE(matrix->property("amount"), QString::number(expectedAmount));
+        RGBMap map;
+        matrix->algorithm()->rgbMap(QSize(1, 1), qRgb(255, 255, 255), 0, map);
+        QCOMPARE(map, RGBMap({{expectedAmount << 16}}));
+        if (fault == "fader")
+        {
+            QCOMPARE(animation->faderLevel(), 200);
+            QVERIFY(matrix->hasSource(FunctionParent(FunctionParent::Function, r.show->id())));
+            QVERIFY(receipts.count() > 0);
+            QCOMPARE(matrix->getAttributeValue(Function::Intensity), .25);
+        }
+        if (fault == "color")
+            QCOMPARE(animation->colorAt(0), QColor(12, 34, 56));
+    }
+}
+
+void ShowCommandRecorder_Test::animationColor_backwardDoesNotRedirectAfterRebind_data()
+{
+    QTest::addColumn<bool>("replaceId");
+    QTest::addColumn<bool>("stop");
+    QTest::newRow("different Matrix") << false << false;
+    QTest::newRow("same ID replacement") << true << false;
+    QTest::newRow("Stop releases delivered Matrix") << false << true;
+}
+
+void ShowCommandRecorder_Test::animationColor_backwardDoesNotRedirectAfterRebind()
+{
+    QFETCH(bool, replaceId);
+    QFETCH(bool, stop);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(&r.doc);
+    QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+    QVERIFY(r.doc.addFunction(matrix));
+    const quint32 originalId = matrix->id();
+    auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, originalId);
+    QVERIFY(animation);
+    animation->setColorAt(0, QColor(10, 20, 30));
+    ShowCommand command;
+    command.id = 1;
+    command.time = 200;
+    command.action = ShowCommandAction::SetAnimationColor;
+    command.controlId = animation->ensureRecordingId();
+    command.role = ShowControlRole::AnimationFader;
+    ShowCommandMatrixColor color;
+    color.index = 0;
+    color.color = {40, 50, 60, 0, 0, 0};
+    command.payload.value = color;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    if (stop)
+    {
+        ShowCommand fader;
+        fader.id = 2;
+        fader.time = 201;
+        fader.action = ShowCommandAction::SetAnimationFader;
+        fader.controlId = command.controlId;
+        fader.role = command.role;
+        fader.position = qreal(200) / 255;
+        QVERIFY(track.insert(fader));
+    }
+    QVERIFY(track.setExtent(2000) && r.show->setCommandTrack(track));
+    r.show->setSyncSource(ShowRunner::External);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(250);
+    tickAndRenderUniverses(&r.doc, 6);
+    QCOMPARE(animation->colorAt(0), QColor(40, 50, 60));
+    const FunctionParent showOwner(FunctionParent::Function, r.show->id());
+    if (stop)
+        QVERIFY(matrix->hasSource(showOwner));
+    QVector<QColor> accepted;
+    for (int index = 0; index < RGBAlgorithmColorDisplayCount; ++index)
+        accepted.append(animation->colorAt(index));
+    const quint32 groupId = matrix->fixtureGroup();
+    if (replaceId)
+        QVERIFY(r.doc.deleteFunction(originalId));
+    auto *replacement = new RGBMatrix(&r.doc);
+    replacement->setFixtureGroup(groupId);
+    replacement->setControlMode(RGBMatrix::ControlModeDimmer);
+    replacement->setAlgorithm(new RGBPlain(&r.doc));
+    QVERIFY(r.doc.addFunction(replacement, replaceId ? originalId : Function::invalidId()));
+    for (int index = 0; index < accepted.count(); ++index)
+        replacement->setColor(index, accepted[index]);
+    animation->setFunctionID(replacement->id());
+    QCOMPARE(animation->colorAt(0), QColor(40, 50, 60));
+    QSignalSpy writes(animation, &VCAnimation::colorsChanged);
+    if (stop)
+    {
+        replacement->start(r.doc.masterTimer(), FunctionParent::master());
+        tickAndRenderUniverses(&r.doc, 2);
+        QVERIFY(replacement->hasSource(FunctionParent::master()));
+        r.show->stop(FunctionParent::master());
+        tickAndRenderUniverses(&r.doc, 6);
+        QVERIFY(!matrix->hasSource(showOwner));
+        QVERIFY(!matrix->isRunning());
+        QVERIFY(replacement->hasSource(FunctionParent::master()));
+        QCOMPARE(animation->colorAt(0), QColor(40, 50, 60));
+        QCOMPARE(writes.count(), 0);
+        return;
+    }
+    r.show->setExternalElapsedTime(0);
+    tickAndRenderUniverses(&r.doc, 6);
+    QCOMPARE(animation->colorAt(0), QColor(40, 50, 60));
+    QCOMPARE(replacement->getColor(0), QColor(40, 50, 60));
+    QCOMPARE(writes.count(), 0);
+}
+
+void ShowCommandRecorder_Test::animationFader_nonMatrixBinding_isUnboundAndSkipped()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCAnimation *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, r.a->id());
+    QVERIFY(animation);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setAnimationFader(1, 1000, animation->ensureRecordingId(), qreal(204) / 255.0)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    ShowEventModel model(&r.doc, &r.recorder);
+    model.setOpen(true);
+
+    QVariantMap row;
+    for (const QVariant &entry : r.recorder.referencedControls())
+    {
+        const QVariantMap map = entry.toMap();
+        if (map.value("controlId").toUuid() == animation->recordingId())
+        {
+            row = map;
+            break;
+        }
+    }
+    QVERIFY(!row.isEmpty());
+    QCOMPARE(row.value("status").toString(), QStringLiteral("Unbound"));
+
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 40; i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        tickAndDeliver(&r.doc, 1);
+    }
+
+    bool skipped = false;
+    for (const ShowEventLog::Entry &e : model.rows())
+    {
+        if (e.phase == ShowEventLog::Phase::Execute && e.outcome == ShowEventLog::Outcome::Skipped &&
+            e.controlId == animation->recordingId())
+        {
+            skipped = true;
+            break;
+        }
+    }
+    QVERIFY(skipped);
+}
+
+void ShowCommandRecorder_Test::xyPadPosition_rollbackIgnoresLaterRangeEdit()
+{
+    const QPointF before(20.5, 100.25);
+    const QPointF recorded(96.75, 100.25);
+
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 8000, pad->ensureRecordingId(),
+                                                       QStringLiteral("20.5,100.25"))));
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(2, 12000, pad->ensureRecordingId(),
+                                                       QStringLiteral("96.75,100.25"))));
+    QVERIFY(track.setExtent(20000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = r.show->elapsed(); elapsed < 12001; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(pad->currentPosition(), recorded);
+
+    const QPointF editedH(10.0, 240.0);
+    pad->setHorizontalRange(editedH);
+    QCOMPARE(pad->horizontalRange(), editedH);
+
+    r.show->setExternalElapsedTime(8000);
+    tickAndDeliver(&r.doc, 1);
+    for (int i = 0; i < 80 && (r.show->commandPosition() > 8000 || r.recorder.pendingControlRuns() > 0 ||
+                               r.show->commandWorkPending()); i++)
+    {
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(pad->currentPosition(), before);
+    QCOMPARE(pad->horizontalRange(), editedH);
+}
+
+void ShowCommandRecorder_Test::replayedMatchingXYPosition_takesNoAction()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->setCurrentPosition(QPointF(80.25, 143.75));
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("80.25,143.75"))));
+    QVERIFY(track.insert(ShowCommand::start(2, 1001, r.a->id())));
+    QVERIFY(track.setExtent(2000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = r.show->elapsed();
+         elapsed < 1002 && (!r.a->isRunning() || r.recorder.pendingControlRuns() > 0);
+         elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&r.doc, 1);
+    }
+
+    QVERIFY(r.a->isRunning());
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(pad->currentPosition(), QPointF(80.25, 143.75));
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_waitsForRecordedWriteBeforeLegacy()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1000, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QVERIFY(r.bb->state() != VCButton::Active);
+
+    r.show->setExternalElapsedTime(1001);
+    for (int i = 0;
+         i < 30 && (retired.isEmpty() || r.recorder.pendingControlRuns() > 0 || r.bb->state() != VCButton::Active);
+         i++)
+        tickAndDeliver(&r.doc, 1);
+    QVERIFY(!retired.isEmpty());
+    QCOMPARE(retired.first().at(1).toInt(), int(VCXYPad::RecordedWriteCancelled));
+    QCOMPARE(r.bb->state(), VCButton::Active);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_nativeWritePrecedesRetirement()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+
+    QList<QLCFixtureDef *> defs;
+    Fixture *mover = addMoverTarget(&r.doc, &defs, QStringLiteral("Mover"), 64);
+    QVERIFY(mover);
+    pad->addFixture(QVariant::fromValue(mover));
+    QCOMPARE(pad->fixtures().count(), 1);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1001, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QVERIFY(r.bb->state() != VCButton::Active);
+
+    r.show->setExternalElapsedTime(1001);
+    for (int i = 0;
+         i < 40 && (retired.isEmpty() || r.recorder.pendingControlRuns() > 0 || r.bb->state() != VCButton::Active);
+         i++)
+        tickAndDeliver(&r.doc, 1);
+    QVERIFY(!retired.isEmpty());
+    QCOMPARE(retired.first().at(1).toInt(), int(VCXYPad::RecordedWriteApplied));
+    QCOMPARE(r.bb->state(), VCButton::Active);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+
+    qDeleteAll(defs);
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_floorModeStillRetiresWriteBeforeLegacy()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->setFloorControl(true);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1001, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QVERIFY(r.bb->state() != VCButton::Active);
+
+    r.show->setExternalElapsedTime(1001);
+    for (int i = 0;
+         i < 40 && (retired.isEmpty() || r.recorder.pendingControlRuns() > 0 || r.bb->state() != VCButton::Active);
+         i++)
+        tickAndDeliver(&r.doc, 1);
+    QVERIFY(!retired.isEmpty());
+    QCOMPARE(retired.first().at(1).toInt(), int(VCXYPad::RecordedWriteCancelled));
+    QCOMPARE(r.bb->state(), VCButton::Active);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_floorModeWritableRetiresAppliedBeforeLegacy()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->setFloorControl(true);
+
+    QList<QLCFixtureDef *> defs;
+    Fixture *mover = addMoverTarget(&r.doc, &defs, QStringLiteral("FloorMover"), 64);
+    QVERIFY(mover);
+    pad->addFixture(QVariant::fromValue(mover));
+    QCOMPARE(pad->fixtures().count(), 1);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1001, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QVERIFY(r.bb->state() != VCButton::Active);
+
+    r.show->setExternalElapsedTime(1001);
+    for (int i = 0;
+         i < 40 && (retired.isEmpty() || r.recorder.pendingControlRuns() > 0 || r.bb->state() != VCButton::Active);
+         i++)
+        tickAndDeliver(&r.doc, 1);
+    QVERIFY(!retired.isEmpty());
+    QCOMPARE(retired.first().at(1).toInt(), int(VCXYPad::RecordedWriteApplied));
+    QCOMPARE(r.bb->state(), VCButton::Active);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+
+    qDeleteAll(defs);
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_supersededPendingWrite_stillReleasesLegacy()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1001, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+
+    pad->setCurrentPosition(QPointF(10.0, 10.0));
+    QCoreApplication::processEvents();
+    QVERIFY(!retired.isEmpty());
+    QCOMPARE(retired.first().at(1).toInt(), int(VCXYPad::RecordedWriteSuperseded));
+
+    for (int i = 0; i < 40 && (r.bb->state() != VCButton::Active || r.recorder.pendingControlRuns() > 0); i++)
+    {
+        r.show->setExternalElapsedTime(1001);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(r.bb->state(), VCButton::Active);
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_stopRestartWhilePending_keepsTraversalIsolation()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::start(2, 1001, r.a->id())));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    quint64 firstGen = 0;
+    for (int i = 0; i < 40 && firstGen == 0; i++)
+    {
+        firstGen = qMax(firstGen, pad->awaitPendingWrite());
+        if (firstGen == 0 && !retired.isEmpty())
+            firstGen = retired.last().first().toULongLong();
+        if (firstGen == 0)
+            QCoreApplication::processEvents();
+    }
+    QVERIFY(firstGen != 0);
+
+    r.show->stop(FunctionParent::master());
+    r.show->start(r.doc.masterTimer(), FunctionParent::master());
+    r.show->setExternalElapsedTime(0);
+    tickAndDeliver(&r.doc, 1);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+
+    const quint32 firstTraversal = r.show->commandTraversal();
+    for (int i = 0; i < 30 && batches.count() < 2; i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 2);
+    quint64 secondGen = 0;
+    for (int i = 0; i < 40 && secondGen == 0; i++)
+    {
+        secondGen = qMax(secondGen, pad->awaitPendingWrite());
+        if (secondGen == 0 && !retired.isEmpty())
+            secondGen = retired.last().first().toULongLong();
+        if (secondGen == 0)
+            QCoreApplication::processEvents();
+    }
+    QVERIFY(secondGen != 0);
+    QVERIFY(r.show->commandTraversal() >= firstTraversal);
+
+    // a late retirement from the first traversal must not clear the second pending write
+    QCoreApplication::processEvents();
+    QVERIFY(!r.a->isRunning());
+
+    r.show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 40 && (!r.a->isRunning() || r.recorder.pendingControlRuns() > 0); i++)
+        tickAndDeliver(&r.doc, 1);
+    QVERIFY(r.a->isRunning());
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QVERIFY(!retired.isEmpty());
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_rollbackWaitBlocksLaterStartUntilRetire()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+
+    QList<QLCFixtureDef *> defs;
+    Fixture *mover = addMoverTarget(&r.doc, &defs, QStringLiteral("Mover"), 64);
+    QVERIFY(mover);
+    pad->addFixture(QVariant::fromValue(mover));
+    QCOMPARE(pad->fixtures().count(), 1);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 8000, pad->ensureRecordingId(),
+                                                       QStringLiteral("11.5,170.75"))));
+    QVERIFY(track.insert(ShowCommand::start(2, 8001, r.a->id())));
+    QVERIFY(track.insert(ShowCommand::stop(3, 9000, r.a->id())));
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(4, 12000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.setExtent(20000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+    const FunctionParent showOwner(FunctionParent::Function, r.show->id());
+    const auto rollbackApplied = [&retired](quint64 generation) {
+        for (const QList<QVariant> &entry : retired)
+        {
+            if (entry.count() < 2)
+                continue;
+            if (entry.at(0).toULongLong() != generation)
+                continue;
+            if (entry.at(1).toInt() == int(VCXYPad::RecordedWriteApplied))
+                return true;
+        }
+        return false;
+    };
+    playExternalFromZero(r.show, &r.doc);
+    for (quint32 elapsed = 0; elapsed < 12000; elapsed++)
+    {
+        r.show->setExternalElapsedTime(elapsed + 1);
+        tickAndRenderUniverses(&r.doc, 1);
+    }
+    QVERIFY(!r.a->isRunning());
+    QCOMPARE(pad->currentPosition(), QPointF(64.5, 192.25));
+    retired.clear();
+
+    r.show->setExternalElapsedTime(8000);
+    tickAndRenderUniverses(&r.doc, 1);
+    const quint64 rollbackGeneration = pad->awaitPendingWrite();
+    QVERIFY(rollbackGeneration > 0);
+    QVERIFY(r.recorder.pendingControlRuns() > 0);
+    QVERIFY(!r.a->isRunning());
+    QVERIFY(!r.a->hasSource(showOwner));
+
+    r.show->setExternalElapsedTime(8001);
+    for (int i = 0; i < 30 && !rollbackApplied(rollbackGeneration); i++)
+    {
+        QVERIFY(!r.a->isRunning());
+        QVERIFY(!r.a->hasSource(showOwner));
+        tickAndRenderUniverses(&r.doc, 1);
+    }
+    QVERIFY(rollbackApplied(rollbackGeneration));
+    QVERIFY(!r.a->isRunning());
+    QVERIFY(!r.a->hasSource(showOwner));
+
+    {
+        const QList<Universe *> universes = r.doc.inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&r]() { r.doc.inputOutputMap()->releaseUniverses(false); });
+        QVERIFY(int(mover->universe()) < universes.count());
+        Universe *universe = universes.at(int(mover->universe()));
+        QVERIFY(universe != nullptr);
+        const QByteArray values = universe->preGMValues();
+        const quint32 panMsb = mover->channelAddress(mover->channelNumber(QLCChannel::Pan, QLCChannel::MSB, 0));
+        const quint32 panLsb = mover->channelAddress(mover->channelNumber(QLCChannel::Pan, QLCChannel::LSB, 0));
+        const quint32 tiltMsb = mover->channelAddress(mover->channelNumber(QLCChannel::Tilt, QLCChannel::MSB, 0));
+        const quint32 tiltLsb = mover->channelAddress(mover->channelNumber(QLCChannel::Tilt, QLCChannel::LSB, 0));
+        QVERIFY(int(panMsb) < values.size());
+        QVERIFY(int(panLsb) < values.size());
+        QVERIFY(int(tiltMsb) < values.size());
+        QVERIFY(int(tiltLsb) < values.size());
+        QCOMPARE(uchar(values.at(int(panMsb))), uchar(11));
+        QCOMPARE(uchar(values.at(int(panLsb))), uchar(128));
+        QCOMPARE(uchar(values.at(int(tiltMsb))), uchar(170));
+        QCOMPARE(uchar(values.at(int(tiltLsb))), uchar(192));
+    }
+
+    for (int i = 0; i < 30 && (!r.a->isRunning() || r.recorder.pendingControlRuns() > 0); i++)
+        tickAndRenderUniverses(&r.doc, 1);
+    QVERIFY(r.a->isRunning());
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+
+    qDeleteAll(defs);
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_deleteAfterDetachedRetirement_releasesWait()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    VCXYPad *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+
+    QList<QLCFixtureDef *> defs;
+    Fixture *mover = addMoverTarget(&r.doc, &defs, QStringLiteral("Mover"), 64);
+    QVERIFY(mover);
+    pad->addFixture(QVariant::fromValue(mover));
+    QCOMPARE(pad->fixtures().count(), 1);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1000, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QCOMPARE(pad->awaitPendingWrite() > 0, true);
+
+    // one native tick detaches the pending generation and queues retirement
+    r.doc.masterTimer()->timerTick();
+    QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+
+    QVERIFY(r.bridge.removeWidget(pad->id()));
+    pad = nullptr;
+    QCoreApplication::processEvents();
+
+    for (int i = 0; i < 40 && (r.bb->state() != VCButton::Active || r.recorder.pendingControlRuns() > 0); i++)
+    {
+        r.show->setExternalElapsedTime(1000);
+        tickAndDeliver(&r.doc, 1);
+    }
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(r.bb->state(), VCButton::Active);
+
+    qDeleteAll(defs);
+}
+
+void ShowCommandRecorder_Test::replayedXYPosition_deleteWhileTimerThreadWriting_releasesWaitExactOnce()
+{
+    // Observed by both test and timer callback. Atomics outlive callbacks.
+    std::atomic<int> retireEvents{ 0 };
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    MasterTimer *timer = doc.masterTimer();
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+    Scene *a = addTarget(&doc);
+    QVERIFY(a);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Threaded delete"), false);
+    VCXYPad *pad = addXYPad(bridge, ui.vc(), frame);
+    QVERIFY(pad);
+
+    QList<QLCFixtureDef *> defs;
+    Fixture *mover = addMoverTarget(&doc, &defs, QStringLiteral("Mover"), 64);
+    QVERIFY(mover);
+    pad->addFixture(QVariant::fromValue(mover));
+    QCOMPARE(pad->fixtures().count(), 1);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("64.5,192.25"))));
+    QVERIFY(track.insert(ShowCommand::start(2, 1001, a->id())));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(show->setCommandTrack(track));
+
+    QSignalSpy batches(show, &Show::controlBatchesReady);
+    QSignalSpy retired(pad, &VCXYPad::recordedWriteRetired);
+    QObject probe;
+    connect(pad, &VCXYPad::recordedWriteRetired, &probe, [&]() { retireEvents++; }, Qt::DirectConnection);
+
+    timer->start();
+    const auto stopAll = qScopeGuard([&]() {
+        if (pad != nullptr)
+            QObject::disconnect(pad, nullptr, &probe, nullptr);
+        show->stop(FunctionParent::master());
+        show->stopAndWait();
+        timer->stop();
+    });
+
+    const auto runToBatch = [&](quint64 &generation) {
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(0);
+        generation = 0;
+        for (int i = 0; i < 500 && batches.isEmpty(); i++)
+        {
+            show->setExternalElapsedTime(1000);
+            QThread::msleep(1);
+            QCoreApplication::processEvents();
+            generation = qMax(generation, pad->awaitPendingWrite());
+        }
+        QCOMPARE(batches.count(), 1);
+        for (int i = 0; i < 200 && generation == 0; i++)
+        {
+            QThread::msleep(1);
+            QCoreApplication::processEvents();
+            generation = qMax(generation, pad->awaitPendingWrite());
+        }
+        QVERIFY(generation > 0);
+    };
+    const auto retirementFor = [&retired](quint64 generation) {
+        QList<QList<QVariant>> matches;
+        for (const QList<QVariant> &entry : retired)
+        {
+            if (entry.isEmpty())
+                continue;
+            if (entry.first().toULongLong() == generation)
+                matches.append(entry);
+        }
+        return matches;
+    };
+
+    // Phase 1: one real timer write retires once as Applied, with native bytes
+    quint64 generation = 0;
+    runToBatch(generation);
+    for (int i = 0; i < 500 && retirementFor(generation).isEmpty(); i++)
+    {
+        QThread::msleep(1);
+        QCoreApplication::processEvents();
+    }
+    const QList<QList<QVariant>> appliedRetire = retirementFor(generation);
+    QCOMPARE(appliedRetire.count(), 1);
+    QCOMPARE(appliedRetire.first().at(1).toInt(), int(VCXYPad::RecordedWriteApplied));
+    QCOMPARE(retireEvents.load(), 1);
+    {
+        const QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&doc]() { doc.inputOutputMap()->releaseUniverses(false); });
+        QVERIFY(int(mover->universe()) < universes.count());
+        Universe *universe = universes.at(int(mover->universe()));
+        QVERIFY(universe != nullptr);
+        const uint tick = MasterTimer::tick();
+        for (Universe *u : universes)
+        {
+            if (u != nullptr)
+                u->processFaders(tick);
+        }
+        const QByteArray values = universe->preGMValues();
+        const quint32 panMsb = mover->channelAddress(mover->channelNumber(QLCChannel::Pan, QLCChannel::MSB, 0));
+        const quint32 panLsb = mover->channelAddress(mover->channelNumber(QLCChannel::Pan, QLCChannel::LSB, 0));
+        const quint32 tiltMsb = mover->channelAddress(mover->channelNumber(QLCChannel::Tilt, QLCChannel::MSB, 0));
+        const quint32 tiltLsb = mover->channelAddress(mover->channelNumber(QLCChannel::Tilt, QLCChannel::LSB, 0));
+        QVERIFY(int(panMsb) < values.size());
+        QVERIFY(int(panLsb) < values.size());
+        QVERIFY(int(tiltMsb) < values.size());
+        QVERIFY(int(tiltLsb) < values.size());
+        QCOMPARE(uchar(values.at(int(panMsb))), uchar(64));
+        QCOMPARE(uchar(values.at(int(panLsb))), uchar(128));
+        QCOMPARE(uchar(values.at(int(tiltMsb))), uchar(192));
+        QCOMPARE(uchar(values.at(int(tiltLsb))), uchar(64));
+    }
+    show->setExternalElapsedTime(1001);
+    QTRY_VERIFY(a->isRunning());
+    QTRY_COMPARE(recorder.pendingControlRuns(), 0);
+
+    // Phase 2: delete while a new write is still in flight and release wait.
+    retired.clear();
+    retireEvents = 0;
+    batches.clear();
+    show->stop(FunctionParent::master());
+    show->stopAndWait();
+    a->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 2);
+    pad->setCurrentPosition(QPointF(0.0, 0.0));
+    quint64 inflight = 0;
+    runToBatch(inflight);
+
+    QVERIFY(bridge.removeWidget(pad->id()));
+    pad = nullptr;
+    QCoreApplication::processEvents();
+
+    show->setExternalElapsedTime(1001);
+    QTRY_VERIFY(a->isRunning());
+    QTRY_COMPARE(recorder.pendingControlRuns(), 0);
+    const QList<QList<QVariant>> inflightRetire = retirementFor(inflight);
+    QCOMPARE(inflightRetire.count(), 1);
+    QCOMPARE(inflightRetire.first().at(1).toInt(), int(VCXYPad::RecordedWriteCancelled));
+    QCOMPARE(retireEvents.load(), 1);
+
+    qDeleteAll(defs);
+}
+
 void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive_data()
 {
     QTest::addColumn<QString>("input");
     QTest::addColumn<QString>("item");
     QTest::addColumn<bool>("reported");
+    QTest::addColumn<int>("recorded");
+    QTest::addColumn<int>("origin");
 
-    QTest::newRow("flash button") << QStringLiteral("flash button") << QString() << true;
-    QTest::newRow("blackout button") << QStringLiteral("blackout button") << QString() << true;
+    QTest::newRow("flash button pointer") << QStringLiteral("flash button") << QString() << false << 2
+                                          << int(ShowCommandOrigin::Pointer);
+    QTest::newRow("flash button keyboard") << QStringLiteral("flash button") << QString() << false << 2
+                                           << int(ShowCommandOrigin::Keyboard);
+    QTest::newRow("flash button midi") << QStringLiteral("flash button") << QString() << false << 2
+                                       << int(ShowCommandOrigin::Midi);
+    QTest::newRow("flash button osc") << QStringLiteral("flash button") << QString() << false << 2
+                                      << int(ShowCommandOrigin::Osc);
+    QTest::newRow("blackout button") << QStringLiteral("blackout button") << QString() << false << 1
+                                     << int(ShowCommandOrigin::Pointer);
+    QTest::newRow("freeze button") << QStringLiteral("freeze button") << QString() << false << 1
+                                   << int(ShowCommandOrigin::Pointer);
+    QTest::newRow("freeze hold button") << QStringLiteral("freeze hold button") << QString() << false << 2
+                                        << int(ShowCommandOrigin::Pointer);
     // inner boundary: delivered to the widget as its mapped input id
-    QTest::newRow("slider reset input") << QStringLiteral("slider reset input") << QString() << true;
-    QTest::newRow("slider flash input") << QStringLiteral("slider flash input") << QString() << true;
+    QTest::newRow("slider reset input") << QStringLiteral("slider reset input") << QString() << false << 1
+                                        << int(ShowCommandOrigin::Midi);
+    QTest::newRow("slider flash input midi") << QStringLiteral("slider flash input") << QString() << false << 2
+                                             << int(ShowCommandOrigin::Midi);
+    QTest::newRow("slider flash input keyboard") << QStringLiteral("slider flash input") << QString() << false << 2
+                                                 << int(ShowCommandOrigin::Keyboard);
+    QTest::newRow("slider flash input osc") << QStringLiteral("slider flash input") << QString() << false << 2
+                                            << int(ShowCommandOrigin::Osc);
+    QTest::newRow("slider flash orphan release keyboard")
+        << QStringLiteral("slider flash orphan release input") << QString() << false << 0
+        << int(ShowCommandOrigin::Keyboard);
     // a real click on the production slider item's button
     QTest::newRow("slider reset button") << QStringLiteral("reset button")
-                                         << QStringLiteral("qrc:/VCSliderItem.qml") << true;
+                                         << QStringLiteral("qrc:/VCSliderItem.qml") << false << 1
+                                         << int(ShowCommandOrigin::Pointer);
     QTest::newRow("slider flash button") << QStringLiteral("flash button press")
-                                         << QStringLiteral("qrc:/VCSliderItem.qml") << true;
+                                         << QStringLiteral("qrc:/VCSliderItem.qml") << false << 2
+                                         << int(ShowCommandOrigin::Pointer);
     QTest::newRow("flow slider reset button") << QStringLiteral("reset button")
-                                              << QStringLiteral("qrc:/FlowSliderItem.qml") << true;
+                                              << QStringLiteral("qrc:/FlowSliderItem.qml") << false << 1
+                                              << int(ShowCommandOrigin::Pointer);
     QTest::newRow("flow slider flash button") << QStringLiteral("flash button press")
-                                              << QStringLiteral("qrc:/FlowSliderItem.qml") << true;
+                                              << QStringLiteral("qrc:/FlowSliderItem.qml") << false << 2
+                                              << int(ShowCommandOrigin::Pointer);
     // programmatic use is nobody's input
-    QTest::newRow("programmatic reset") << QStringLiteral("programmatic reset") << QString() << false;
-    QTest::newRow("programmatic flash") << QStringLiteral("programmatic flash") << QString() << false;
+    QTest::newRow("programmatic reset") << QStringLiteral("programmatic reset") << QString() << false << 0
+                                        << int(ShowCommandOrigin::Programmatic);
+    QTest::newRow("programmatic flash") << QStringLiteral("programmatic flash") << QString() << false << 0
+                                        << int(ShowCommandOrigin::Programmatic);
 }
 
 void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
@@ -7076,6 +12562,8 @@ void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
     QFETCH(QString, input);
     QFETCH(QString, item);
     QFETCH(bool, reported);
+    QFETCH(int, recorded);
+    QFETCH(int, origin);
 
     RequestRig r;
     r.show->setSyncSource(ShowRunner::External);
@@ -7138,13 +12626,14 @@ void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
     }
     else if (input == QLatin1String("flash button"))
     {
+        const ShowCommandOrigin route = ShowCommandOrigin(origin);
         VCButton *flash = qobject_cast<VCButton *>(r.ui.vc()->widget(
             r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), r.a->id(), QStringLiteral("Flash"),
                                QStringLiteral("flash"))));
         QVERIFY(flash);
-        flash->requestUserStateChange(true);
+        flash->requestUserStateChange(true, route);
         live = flash->state() == VCButton::Active;
-        flash->requestUserStateChange(false);
+        flash->requestUserStateChange(false, route);
     }
     else if (input == QLatin1String("blackout button"))
     {
@@ -7157,24 +12646,1956 @@ void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
         live = r.doc.inputOutputMap()->blackout();
         r.doc.inputOutputMap()->setBlackout(false);
     }
+    else if (input == QLatin1String("freeze button"))
+    {
+        VCButton *freeze = qobject_cast<VCButton *>(r.ui.vc()->widget(
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), Function::invalidId(),
+                               QStringLiteral("Freeze"), QStringLiteral("freeze"))));
+        QVERIFY(freeze);
+        freeze->requestUserStateChange(true);
+        tickAndDeliver(&r.doc, 2);
+        live = r.doc.inputOutputMap()->isFrozen();
+        r.doc.inputOutputMap()->setFrozen(false);
+    }
+    else if (input == QLatin1String("freeze hold button"))
+    {
+        VCButton *freezeHold = qobject_cast<VCButton *>(r.ui.vc()->widget(
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), Function::invalidId(),
+                               QStringLiteral("Freeze hold"), QStringLiteral("freezehold"))));
+        QVERIFY(freezeHold);
+        freezeHold->requestUserStateChange(true);
+        tickAndDeliver(&r.doc, 2);
+        live = r.doc.inputOutputMap()->isFrozen();
+        freezeHold->requestUserStateChange(false);
+        tickAndDeliver(&r.doc, 2);
+        live = live && !r.doc.inputOutputMap()->isFrozen();
+    }
     else if (input == QLatin1String("slider reset input"))
     {
         r.slider->setIsOverriding(true);
         r.slider->deliverInput(1, UCHAR_MAX, ShowCommandOrigin::Midi);
         live = r.slider->isOverriding() == false;
     }
+    else if (input == QLatin1String("slider flash orphan release input"))
+    {
+        const ShowCommandOrigin route = ShowCommandOrigin(origin);
+        r.slider->setValue(102);
+        tickAndDeliver(&r.doc, 2);
+        const qreal before = r.a->getAttributeValue(Function::Intensity);
+        r.slider->deliverInput(2, 0, route);
+        live = qFuzzyCompare(r.a->getAttributeValue(Function::Intensity), before);
+    }
     else
     {
-        r.slider->deliverInput(2, UCHAR_MAX, ShowCommandOrigin::Midi);
+        const ShowCommandOrigin route = ShowCommandOrigin(origin);
+        r.slider->deliverInput(2, UCHAR_MAX, route);
         live = qFuzzyCompare(r.a->getAttributeValue(Function::Intensity), qreal(1.0));
-        r.slider->deliverInput(2, 0, ShowCommandOrigin::Midi);
+        r.slider->deliverInput(2, 0, route);
     }
     tickAndDeliver(&r.doc, 2);
 
     QVERIFY(live);
-    QCOMPARE(r.show->commandTrack().count(), 0);
+    QCOMPARE(r.show->commandTrack().count(), recorded);
+    if (input.contains(QStringLiteral("reset")) && recorded == 1)
+        QCOMPARE(int(r.show->commandTrack().commands().first().action), int(ShowCommandAction::SetSliderReset));
     QCOMPARE(errors.count(), reported ? 1 : 0);
     QCOMPARE(r.recorder.lastError().startsWith(QStringLiteral("Not recorded")), reported);
+}
+
+void ShowCommandRecorder_Test::flashMixedIngressOverlap_recordsExactTimesAndOrder()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Mixed ingress overlap"), false);
+    auto *flashA = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash A"),
+                         QStringLiteral("flash"))));
+    auto *flashB = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 40), target->id(), QStringLiteral("Flash B"),
+                         QStringLiteral("flash"))));
+    QVERIFY(flashA && flashB);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    flashA->requestUserStateChange(true, ShowCommandOrigin::Pointer);
+    show->setExternalElapsedTime(1100);
+    flashB->requestUserStateChange(true, ShowCommandOrigin::Midi);
+    show->setExternalElapsedTime(2000);
+    flashA->requestUserStateChange(false, ShowCommandOrigin::Keyboard);
+    show->setExternalElapsedTime(2100);
+    flashB->requestUserStateChange(false, ShowCommandOrigin::Osc);
+    tickAndDeliver(&doc, 3);
+
+    const QVector<ShowCommand> commands = show->commandTrack().commands();
+    QCOMPARE(commands.count(), 4);
+    QCOMPARE(commands.at(0).time, 1000u);
+    QCOMPARE(commands.at(1).time, 1100u);
+    QCOMPARE(commands.at(2).time, 2000u);
+    QCOMPARE(commands.at(3).time, 2100u);
+    QCOMPARE(commands.at(0).controlId, flashA->ensureRecordingId());
+    QCOMPARE(commands.at(2).controlId, flashA->ensureRecordingId());
+    QCOMPARE(commands.at(1).controlId, flashB->ensureRecordingId());
+    QCOMPARE(commands.at(3).controlId, flashB->ensureRecordingId());
+    QVERIFY(commands.at(0).on);
+    QVERIFY(commands.at(1).on);
+    QVERIFY(!commands.at(2).on);
+    QVERIFY(!commands.at(3).on);
+    QCOMPARE(int(commands.at(0).role), int(ShowControlRole::FlashButton));
+    QCOMPARE(int(commands.at(1).role), int(ShowControlRole::FlashButton));
+    const quint32 pairA = commands.at(0).pairId;
+    const quint32 pairB = commands.at(1).pairId;
+    QVERIFY(pairA != ShowCommand::InvalidId);
+    QVERIFY(pairB != ShowCommand::InvalidId);
+    QVERIFY(pairA != pairB);
+    QCOMPARE(commands.at(2).pairId, pairA);
+    QCOMPARE(commands.at(3).pairId, pairB);
+    QVERIFY(commands.at(0).id < commands.at(1).id);
+    QVERIFY(commands.at(1).id < commands.at(2).id);
+    QVERIFY(commands.at(2).id < commands.at(3).id);
+}
+
+void ShowCommandRecorder_Test::sliderFlashReplay_restoresRuntimePreFlashValue()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(1000);
+    r.slider->setMonitorEnabled(true);
+    r.slider->setAdjustFlashEnabled(true);
+    QVERIFY(r.recorder.setRecording(true));
+
+    // Author a flash hold, then release.
+    r.slider->deliverInput(2, UCHAR_MAX, ShowCommandOrigin::Midi);
+    r.show->setExternalElapsedTime(2000);
+    r.slider->deliverInput(2, 0, ShowCommandOrigin::Midi);
+    tickAndDeliver(&r.doc, 3);
+
+    const QVector<ShowCommand> recorded = r.show->commandTrack().commands();
+    QCOMPARE(recorded.count(), 2);
+    QCOMPARE(int(recorded.at(0).action), int(ShowCommandAction::SetButtonState));
+    QCOMPARE(int(recorded.at(1).action), int(ShowCommandAction::SetButtonState));
+    QVERIFY(recorded.at(0).on);
+    QVERIFY(!recorded.at(1).on);
+    QCOMPARE(recorded.at(0).time, 1000u);
+    QCOMPARE(recorded.at(1).time, 2000u);
+
+    QVERIFY(r.recorder.setRecording(false));
+    const ShowCommandTrack recordedTrack = r.show->commandTrack();
+    QVERIFY(r.show->setCommandTrack(recordedTrack));
+
+    // Runtime value has moved since authoring. Replay must restore this value.
+    r.slider->setValue(153);
+    tickAndDeliver(&r.doc, 2);
+    const qreal liveBeforeReplay = r.a->getAttributeValue(Function::Intensity);
+
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(1001);
+    bool flashed = false;
+    for (int i = 0; i < 20; i++)
+    {
+        tickAndDeliver(&r.doc, 1);
+        if (qFuzzyCompare(r.a->getAttributeValue(Function::Intensity), qreal(1.0)))
+        {
+            flashed = true;
+            break;
+        }
+    }
+    QVERIFY(flashed);
+
+    r.show->setExternalElapsedTime(2001);
+    bool restored = false;
+    for (int i = 0; i < 20; i++)
+    {
+        tickAndDeliver(&r.doc, 1);
+        if (qFuzzyCompare(r.a->getAttributeValue(Function::Intensity), liveBeforeReplay))
+        {
+            restored = true;
+            break;
+        }
+    }
+    QVERIFY(restored);
+}
+
+void ShowCommandRecorder_Test::holdCapture_assignsPairAndPersistsXml_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::newRow("flash") << QStringLiteral("flash");
+    QTest::newRow("freezehold") << QStringLiteral("freezehold");
+}
+
+void ShowCommandRecorder_Test::holdCapture_assignsPairAndPersistsXml()
+{
+    QFETCH(QString, action);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Pair hold"), false);
+    auto *button = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold"), action)));
+    QVERIFY(button);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    button->requestUserStateChange(true);
+    show->setExternalElapsedTime(2000);
+    button->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+
+    const QVector<ShowCommand> commands = show->commandTrack().commands();
+    QCOMPARE(commands.count(), 2);
+    QCOMPARE(commands.at(0).action, ShowCommandAction::SetButtonState);
+    QCOMPARE(commands.at(1).action, ShowCommandAction::SetButtonState);
+    QVERIFY(commands.at(0).on);
+    QVERIFY(!commands.at(1).on);
+    QCOMPARE(commands.at(0).time, 1000u);
+    QCOMPARE(commands.at(1).time, 2000u);
+    QVERIFY(commands.at(0).pairId != ShowCommand::InvalidId);
+    QCOMPARE(commands.at(1).pairId, commands.at(0).pairId);
+
+    const QVector<ShowCommandGroup> groups = show->commandTrack().groups();
+    QCOMPARE(groups.count(), 1);
+    QCOMPARE(groups.at(0).eventIds, (QVector<quint32>{commands.at(0).id, commands.at(1).id}));
+    QCOMPARE(groups.at(0).startTime, 1000u);
+    QCOMPARE(groups.at(0).endTime, 2000u);
+
+    QByteArray xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(show->commandTrack().saveXML(&writer));
+    const QString pair = QStringLiteral("Pair=\"%1\"").arg(commands.at(0).pairId);
+    QCOMPARE(xml.count(pair.toUtf8()), 2);
+
+    ShowCommandTrack loaded;
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QString error;
+    QVERIFY2(loaded.loadXML(reader, &error), qPrintable(error));
+    const QVector<ShowCommand> loadedCommands = loaded.commands();
+    QCOMPARE(loadedCommands.count(), 2);
+    QCOMPARE(loadedCommands.at(0).pairId, commands.at(0).pairId);
+    QCOMPARE(loadedCommands.at(1).pairId, commands.at(0).pairId);
+}
+
+void ShowCommandRecorder_Test::seekInsideHold_appliesOnlyCurrentHoldState_data()
+{
+    QTest::addColumn<QString>("control");
+    QTest::newRow("flash") << QStringLiteral("flash");
+    QTest::newRow("freezehold") << QStringLiteral("freezehold");
+    QTest::newRow("sliderflash") << QStringLiteral("sliderflash");
+}
+
+void ShowCommandRecorder_Test::seekInsideHold_appliesOnlyCurrentHoldState()
+{
+    QFETCH(QString, control);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Seek hold"), false);
+    VCButton *button = nullptr;
+    VCSlider *slider = nullptr;
+    qreal sliderBaseline = 0;
+    if (control == QLatin1String("flash"))
+    {
+        button = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
+    }
+    else if (control == QLatin1String("freezehold"))
+    {
+        button = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+                             QStringLiteral("freezehold"))));
+    }
+    else
+    {
+        slider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+        QVERIFY(slider != nullptr);
+        slider->setAdjustFlashEnabled(true);
+        slider->setValue(153);
+        tickAndDeliver(&doc, 2);
+        sliderBaseline = target->getAttributeValue(Function::Intensity);
+    }
+    QVERIFY(button != nullptr || slider != nullptr);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    if (button != nullptr)
+        button->requestUserStateChange(true);
+    else
+        slider->requestUserFlash(true);
+    show->setExternalElapsedTime(2000);
+    if (button != nullptr)
+        button->requestUserStateChange(false);
+    else
+        slider->requestUserFlash(false);
+    tickAndDeliver(&doc, 3);
+    QVERIFY(recorder.setRecording(false));
+
+    playExternalFromZero(show, &doc);
+    QScopedPointer<QSignalSpy> buttonStateChanges;
+    if (button != nullptr)
+        buttonStateChanges.reset(new QSignalSpy(button, &VCButton::stateChanged));
+
+    show->setExternalElapsedTime(1500);
+    for (int i = 0; i < 20; i++)
+    {
+        tickAndDeliver(&doc, 1);
+        if (button != nullptr && control == QLatin1String("flash") && button->state() == VCButton::Active)
+            break;
+        if (button != nullptr && control == QLatin1String("freezehold") && doc.inputOutputMap()->isFrozen())
+            break;
+        if (slider != nullptr && qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)))
+            break;
+    }
+    if (button != nullptr && control == QLatin1String("flash"))
+        QCOMPARE(button->state(), VCButton::Active);
+    else if (button != nullptr)
+        QVERIFY(doc.inputOutputMap()->isFrozen());
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+    const int changesAtSeek = buttonStateChanges.isNull() ? 0 : buttonStateChanges->count();
+    if (!buttonStateChanges.isNull())
+        QVERIFY(changesAtSeek >= 1);
+
+    show->setExternalElapsedTime(1600);
+    tickAndDeliver(&doc, 3);
+    if (button != nullptr && control == QLatin1String("flash"))
+        QCOMPARE(button->state(), VCButton::Active);
+    else if (button != nullptr)
+        QVERIFY(doc.inputOutputMap()->isFrozen());
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+    if (!buttonStateChanges.isNull())
+        QCOMPARE(buttonStateChanges->count(), changesAtSeek);
+
+    show->setExternalElapsedTime(2001);
+    for (int i = 0; i < 20; i++)
+    {
+        tickAndDeliver(&doc, 1);
+        if (button != nullptr && control == QLatin1String("flash") && button->state() == VCButton::Inactive)
+            break;
+        if (button != nullptr && control == QLatin1String("freezehold") && !doc.inputOutputMap()->isFrozen())
+            break;
+        if (slider != nullptr && qFuzzyCompare(target->getAttributeValue(Function::Intensity), sliderBaseline))
+            break;
+    }
+    if (button != nullptr && control == QLatin1String("flash"))
+        QCOMPARE(button->state(), VCButton::Inactive);
+    else if (button != nullptr)
+        QVERIFY(!doc.inputOutputMap()->isFrozen());
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), sliderBaseline));
+    if (!buttonStateChanges.isNull())
+        QCOMPARE(buttonStateChanges->count(), changesAtSeek + 1);
+}
+
+void ShowCommandRecorder_Test::freshStartInsideHold_sliderFlashRestoresRuntimeBaselineAcrossBackwardLoop()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Fresh start slider flash"), false);
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+    QVERIFY(slider != nullptr);
+    slider->setAdjustFlashEnabled(true);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    slider->requestUserFlash(true);
+    show->setExternalElapsedTime(2000);
+    slider->requestUserFlash(false);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    slider->setValue(153);
+    tickAndDeliver(&doc, 2);
+    const qreal runtimeBaseline = target->getAttributeValue(Function::Intensity);
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1500);
+    for (int i = 0; i < 20 && !qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+
+    show->setExternalElapsedTime(1600);
+    tickAndDeliver(&doc, 3);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+
+    show->setExternalElapsedTime(2100);
+    for (int i = 0; i < 20 &&
+         !qFuzzyCompare(target->getAttributeValue(Function::Intensity), runtimeBaseline); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), runtimeBaseline));
+
+    show->setExternalElapsedTime(500);
+    for (int i = 0; i < 20 &&
+         !qFuzzyCompare(target->getAttributeValue(Function::Intensity), runtimeBaseline); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), runtimeBaseline));
+
+    show->setExternalElapsedTime(1500);
+    for (int i = 0; i < 20 && !qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+
+    show->setExternalElapsedTime(2100);
+    for (int i = 0; i < 20 &&
+         !qFuzzyCompare(target->getAttributeValue(Function::Intensity), runtimeBaseline); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), runtimeBaseline));
+}
+
+void ShowCommandRecorder_Test::replayedGlobalButtons_applyDesiredStatesAndFreezeHoldSharedRelease()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Globals"), false);
+    auto *blackout = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Blackout"),
+                         QStringLiteral("blackout"))));
+    auto *freeze = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze"),
+                         QStringLiteral("freeze"))));
+    auto *holdA = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(190, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold A"),
+                         QStringLiteral("freezehold"))));
+    auto *holdB = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(280, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold B"),
+                         QStringLiteral("freezehold"))));
+    QVERIFY(blackout && freeze && holdA && holdB);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    blackout->requestUserStateChange(true);
+    show->setExternalElapsedTime(2000);
+    blackout->requestUserStateChange(true);
+    show->setExternalElapsedTime(3000);
+    freeze->requestUserStateChange(true);
+    show->setExternalElapsedTime(4000);
+    freeze->requestUserStateChange(true);
+    show->setExternalElapsedTime(5000);
+    holdA->requestUserStateChange(true);
+    show->setExternalElapsedTime(5500);
+    holdB->requestUserStateChange(true);
+    show->setExternalElapsedTime(6000);
+    holdA->requestUserStateChange(false);
+    show->setExternalElapsedTime(6500);
+    holdB->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+
+    const QVector<ShowCommand> recorded = show->commandTrack().commands();
+    QCOMPARE(recorded.count(), 8);
+    QVERIFY(recorder.setRecording(false));
+
+    doc.inputOutputMap()->setBlackout(false);
+    doc.inputOutputMap()->setFrozen(false);
+    doc.inputOutputMap()->setFrozenMomentary(false);
+    tickAndDeliver(&doc, 2);
+
+    const auto advanceUntil = [&](quint32 timeMs, const std::function<bool()> &predicate)
+    {
+        show->setExternalElapsedTime(timeMs);
+        for (int i = 0; i < 30; i++)
+        {
+            tickAndDeliver(&doc, 1);
+            if (predicate())
+                return true;
+        }
+        return false;
+    };
+
+    playExternalFromZero(show, &doc);
+    QVERIFY(advanceUntil(1001, [&]() { return doc.inputOutputMap()->blackout(); }));
+    QVERIFY(advanceUntil(2001, [&]() { return !doc.inputOutputMap()->blackout(); }));
+    QVERIFY(advanceUntil(3001, [&]() { return doc.inputOutputMap()->isFrozen(); }));
+    QVERIFY(advanceUntil(4001, [&]() { return !doc.inputOutputMap()->isFrozen(); }));
+    QVERIFY(advanceUntil(5001, [&]() { return doc.inputOutputMap()->isFrozen(); }));
+    QVERIFY(advanceUntil(5501, [&]() { return doc.inputOutputMap()->isFrozen(); }));
+    // shared momentary contract: any freeze-hold release clears it
+    QVERIFY(advanceUntil(6001, [&]() { return !doc.inputOutputMap()->isFrozen(); }));
+    QVERIFY(advanceUntil(6501, [&]() { return !doc.inputOutputMap()->isFrozen(); }));
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+}
+
+void ShowCommandRecorder_Test::recOff_closesFreezeHoldWithoutCapturingLaterRelease()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("REC off hold"), false);
+    auto *hold = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+                         QStringLiteral("freezehold"))));
+    QVERIFY(hold);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    hold->requestUserStateChange(true);
+    tickAndDeliver(&doc, 2);
+
+    show->setExternalElapsedTime(1200);
+    QVERIFY(recorder.setRecording(false));
+
+    QVector<ShowCommand> saved = show->commandTrack().commands();
+    QCOMPARE(saved.count(), 2);
+    QCOMPARE(int(saved.at(0).action), int(ShowCommandAction::SetButtonState));
+    QCOMPARE(int(saved.at(1).action), int(ShowCommandAction::SetButtonState));
+    QVERIFY(saved.at(0).on);
+    QVERIFY(!saved.at(1).on);
+    QCOMPARE(saved.at(0).time, 1000u);
+    QCOMPARE(saved.at(1).time, 1200u);
+
+    const int savedCount = saved.count();
+    show->setExternalElapsedTime(2000);
+    hold->requestUserStateChange(false);
+    tickAndDeliver(&doc, 2);
+
+    saved = show->commandTrack().commands();
+    QCOMPARE(saved.count(), savedCount);
+}
+
+void ShowCommandRecorder_Test::pause_replayFlashHoldStaysActiveUntilResumeRelease_data()
+{
+    QTest::addColumn<QString>("control");
+    QTest::newRow("flash") << QStringLiteral("flash");
+    QTest::newRow("freezehold") << QStringLiteral("freezehold");
+    QTest::newRow("sliderflash") << QStringLiteral("sliderflash");
+}
+
+void ShowCommandRecorder_Test::pause_replayFlashHoldStaysActiveUntilResumeRelease()
+{
+    QFETCH(QString, control);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Pause hold"), false);
+    VCButton *button = nullptr;
+    VCSlider *slider = nullptr;
+    qreal sliderBaseline = 0;
+    if (control == QLatin1String("flash"))
+    {
+        button = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
+    }
+    else if (control == QLatin1String("freezehold"))
+    {
+        button = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+                             QStringLiteral("freezehold"))));
+    }
+    else
+    {
+        slider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+        QVERIFY(slider != nullptr);
+        slider->setAdjustFlashEnabled(true);
+        slider->setValue(102);
+        tickAndDeliver(&doc, 2);
+        sliderBaseline = target->getAttributeValue(Function::Intensity);
+    }
+    QVERIFY(button != nullptr || slider != nullptr);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    if (button != nullptr)
+        button->requestUserStateChange(true);
+    else
+        slider->requestUserFlash(true);
+    show->setExternalElapsedTime(2000);
+    if (button != nullptr)
+        button->requestUserStateChange(false);
+    else
+        slider->requestUserFlash(false);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 20; i++)
+    {
+        tickAndDeliver(&doc, 1);
+        if (button != nullptr && control == QLatin1String("flash") && button->state() == VCButton::Active)
+            break;
+        if (button != nullptr && control == QLatin1String("freezehold") && doc.inputOutputMap()->isFrozen())
+            break;
+        if (slider != nullptr && qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)))
+            break;
+    }
+    if (button != nullptr && control == QLatin1String("flash"))
+        QCOMPARE(button->state(), VCButton::Active);
+    else if (button != nullptr)
+        QVERIFY(doc.inputOutputMap()->isFrozen());
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+
+    show->setPause(true);
+    show->setExternalElapsedTime(2500);
+    tickAndDeliver(&doc, 5);
+    if (button != nullptr && control == QLatin1String("flash"))
+        QCOMPARE(button->state(), VCButton::Active);
+    else if (button != nullptr)
+        QVERIFY(doc.inputOutputMap()->isFrozen());
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+
+    show->setPause(false);
+    for (int i = 0; i < 30; i++)
+    {
+        tickAndDeliver(&doc, 1);
+        if (button != nullptr && control == QLatin1String("flash") && button->state() == VCButton::Inactive)
+            break;
+        if (button != nullptr && control == QLatin1String("freezehold") && !doc.inputOutputMap()->isFrozen())
+            break;
+        if (slider != nullptr && qFuzzyCompare(target->getAttributeValue(Function::Intensity), sliderBaseline))
+            break;
+    }
+    if (button != nullptr && control == QLatin1String("flash"))
+        QCOMPARE(button->state(), VCButton::Inactive);
+    else if (button != nullptr)
+        QVERIFY(!doc.inputOutputMap()->isFrozen());
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), sliderBaseline));
+}
+
+void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFlash_data()
+{
+    QTest::addColumn<bool>("manualOverlay");
+    QTest::newRow("replay only") << false;
+    QTest::newRow("manual overlay") << true;
+}
+
+void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFlash()
+{
+    QFETCH(bool, manualOverlay);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop flash ownership"), false);
+    auto *replayFlash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Replay flash"), QStringLiteral("flash"))));
+    auto *manualFlash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 40), target->id(), QStringLiteral("Manual flash"), QStringLiteral("flash"))));
+    QVERIFY(replayFlash && manualFlash);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    replayFlash->requestUserStateChange(true);
+    show->setExternalElapsedTime(4000);
+    replayFlash->requestUserStateChange(false);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 20 && replayFlash->state() != VCButton::Active; i++)
+        tickAndDeliver(&doc, 1);
+    QCOMPARE(replayFlash->state(), VCButton::Active);
+
+    if (manualOverlay)
+    {
+        manualFlash->requestUserStateChange(true);
+        tickAndDeliver(&doc, 2);
+        QCOMPARE(manualFlash->state(), VCButton::Active);
+    }
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    if (!manualOverlay)
+        QCOMPARE(replayFlash->state(), VCButton::Inactive);
+    QCOMPARE(manualFlash->state(), manualOverlay ? VCButton::Active : VCButton::Inactive);
+
+    if (manualOverlay)
+    {
+        manualFlash->requestUserStateChange(false);
+        tickAndDeliver(&doc, 2);
+        QCOMPARE(manualFlash->state(), VCButton::Inactive);
+        QCOMPARE(replayFlash->state(), VCButton::Inactive);
+    }
+}
+
+void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedSliderFlash_data()
+{
+    QTest::addColumn<bool>("manualOverlay");
+    QTest::newRow("replay only") << false;
+    QTest::newRow("manual overlay") << true;
+}
+
+void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedSliderFlash()
+{
+    QFETCH(bool, manualOverlay);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop slider flash ownership"), false);
+    VCSlider *replaySlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+    VCSlider *manualSlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+    QVERIFY(replaySlider != nullptr);
+    QVERIFY(manualSlider != nullptr);
+    replaySlider->setAdjustFlashEnabled(true);
+    manualSlider->setAdjustFlashEnabled(true);
+    replaySlider->setValue(102);
+    manualSlider->setValue(102);
+    tickAndDeliver(&doc, 2);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    replaySlider->requestUserFlash(true);
+    show->setExternalElapsedTime(4000);
+    replaySlider->requestUserFlash(false);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    replaySlider->setValue(153);
+    manualSlider->setValue(153);
+    tickAndDeliver(&doc, 2);
+    const qreal baseline = target->getAttributeValue(Function::Intensity);
+
+    if (manualOverlay)
+    {
+        manualSlider->requestUserFlash(true);
+        tickAndDeliver(&doc, 2);
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+    }
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 20 && !qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    if (!manualOverlay)
+    {
+        for (int i = 0; i < 20 &&
+             !qFuzzyCompare(target->getAttributeValue(Function::Intensity), baseline); i++)
+            tickAndDeliver(&doc, 1);
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), baseline));
+    }
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+
+    if (manualOverlay)
+    {
+        manualSlider->requestUserFlash(false);
+        for (int i = 0; i < 20 &&
+             !qFuzzyCompare(target->getAttributeValue(Function::Intensity), baseline); i++)
+            tickAndDeliver(&doc, 1);
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), baseline));
+    }
+}
+
+void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen_data()
+{
+    QTest::addColumn<QString>("control");
+    QTest::newRow("freezehold") << QStringLiteral("freezehold");
+    QTest::newRow("flash") << QStringLiteral("flash");
+    QTest::newRow("sliderflash") << QStringLiteral("sliderflash");
+}
+
+void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen()
+{
+    QFETCH(QString, control);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Save mid hold"), false);
+    VCButton *hold = nullptr;
+    VCSlider *slider = nullptr;
+    if (control == QLatin1String("freezehold"))
+    {
+        hold = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+                             QStringLiteral("freezehold"))));
+    }
+    else if (control == QLatin1String("flash"))
+    {
+        hold = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"),
+                             QStringLiteral("flash"))));
+    }
+    else
+    {
+        slider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+        QVERIFY(slider != nullptr);
+        slider->setAdjustFlashEnabled(true);
+    }
+    QVERIFY(hold != nullptr || slider != nullptr);
+
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master());
+    for (int i = 0; i < 20 && !show->isRunning(); i++)
+        tickAndDeliver(&doc, 1);
+    show->setExternalElapsedTime(10000);
+    if (hold != nullptr)
+        hold->requestUserStateChange(true);
+    else
+        slider->requestUserFlash(true);
+    tickAndDeliver(&doc, 2);
+
+    const QVector<ShowCommand> beforeCheckpoint = show->commandTrack().commands();
+    QCOMPARE(beforeCheckpoint.count(), 1);
+    QVERIFY(beforeCheckpoint.at(0).on);
+    QVERIFY(beforeCheckpoint.at(0).pairId != ShowCommand::InvalidId);
+    const quint32 pairId = beforeCheckpoint.at(0).pairId;
+
+    show->setExternalElapsedTime(12000);
+    QVERIFY(recorder.checkpoint());
+    tickAndDeliver(&doc, 2);
+
+    const QVector<ShowCommand> liveDuringHold = show->commandTrack().commands();
+    QCOMPARE(liveDuringHold.count(), 1);
+    QCOMPARE(liveDuringHold.at(0).pairId, pairId);
+
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    writer.writeStartDocument();
+    QVERIFY(show->saveXML(&writer));
+    writer.writeEndDocument();
+
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show loaded(&doc);
+    QVERIFY(loaded.loadXML(reader));
+    const QVector<ShowCommand> checkpointCommands = loaded.commandTrack().commands();
+    QCOMPARE(checkpointCommands.count(), 2);
+    QVERIFY(checkpointCommands.at(0).on);
+    QVERIFY(!checkpointCommands.at(1).on);
+    QCOMPARE(checkpointCommands.at(0).time, 10000u);
+    QCOMPARE(checkpointCommands.at(1).time, 12000u);
+    QCOMPARE(checkpointCommands.at(0).pairId, pairId);
+    QCOMPARE(checkpointCommands.at(1).pairId, pairId);
+
+    show->setExternalElapsedTime(20000);
+    if (hold != nullptr)
+        hold->requestUserStateChange(false);
+    else
+        slider->requestUserFlash(false);
+    tickAndDeliver(&doc, 3);
+
+    const QVector<ShowCommand> liveAfterRelease = show->commandTrack().commands();
+    QCOMPARE(liveAfterRelease.count(), 2);
+    QVERIFY(liveAfterRelease.at(0).on);
+    QVERIFY(!liveAfterRelease.at(1).on);
+    QCOMPARE(liveAfterRelease.at(0).time, 10000u);
+    QCOMPARE(liveAfterRelease.at(1).time, 20000u);
+    QCOMPARE(liveAfterRelease.at(0).pairId, pairId);
+    QCOMPARE(liveAfterRelease.at(1).pairId, pairId);
+}
+
+void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState_data()
+{
+    QTest::addColumn<QString>("control");
+    QTest::addColumn<QString>("domain");
+    QTest::newRow("freezehold") << QStringLiteral("freezehold") << QStringLiteral("scalar");
+    QTest::newRow("flash") << QStringLiteral("flash") << QStringLiteral("scalar");
+    QTest::newRow("sliderflash") << QStringLiteral("sliderflash") << QStringLiteral("scalar");
+    for (const QString &domain : {QStringLiteral("coordinate"), QStringLiteral("color"),
+                                  QStringLiteral("ranges"), QStringLiteral("content")})
+        QTest::newRow(qPrintable("compound " + domain)) << QStringLiteral("flash") << domain;
+}
+
+namespace { bool loadEditorProperties(Doc *doc, const QString &path); }
+
+void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState()
+{
+    QFETCH(QString, control);
+    QFETCH(QString, domain);
+
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    QTemporaryDir scripts(QDir::currentPath() + QStringLiteral("/checkpoint-properties-XXXXXX"));
+    r.show->setSyncSource(ShowRunner::External);
+    QVERIFY(r.show->setCommandTrack(ShowCommandTrack()));
+    QVERIFY(r.recorder.setRecording(true));
+    r.show->start(r.doc.masterTimer(), FunctionParent::master());
+    for (int i = 0; i < 20 && !r.show->isRunning(); i++)
+        tickAndDeliver(&r.doc, 1);
+
+    VCButton *hold = nullptr;
+    VCSlider *slider = nullptr;
+    if (control == QLatin1String("freezehold"))
+    {
+        hold = qobject_cast<VCButton *>(r.ui.vc()->widget(
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+                               QStringLiteral("freezehold"))));
+    }
+    else if (control == QLatin1String("flash"))
+    {
+        r.ba->setActionType(VCButton::Flash);
+        hold = r.ba;
+    }
+    else
+    {
+        r.slider->setAdjustFlashEnabled(true);
+        slider = r.slider;
+    }
+    QVERIFY(hold != nullptr || slider != nullptr);
+
+    r.show->setExternalElapsedTime(10000);
+    if (hold != nullptr)
+        hold->requestUserStateChange(true);
+    else
+        slider->requestUserFlash(true);
+    tickAndDeliver(&r.doc, 2);
+
+    r.show->setExternalElapsedTime(10500);
+    if (domain == "coordinate" || domain == "ranges")
+    {
+        auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Checkpoint mover"), 32);
+        auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+        QVERIFY(mover && pad);
+        pad->addFixture(QVariant::fromValue(mover));
+        if (domain == "coordinate")
+            pad->requestUserCurrentPosition(QPointF(127.99609375, 32.00390625));
+        else
+            pad->requestUserRanges(QPointF(200.5, 40.25), QPointF(30.125, 180.75));
+    }
+    else if (domain == "color")
+    {
+        auto *fixture = addRgbTarget(&r.doc, &definitions, QStringLiteral("Checkpoint color"), 32, true);
+        auto *slider = qobject_cast<VCSlider *>(r.ui.vc()->widget(r.bridge.addSlider(r.frame,
+            QRect(400, 10, 60, 200), "level", "Compound color", Function::invalidId(), {})));
+        QVERIFY(fixture && slider);
+        slider->setClickAndGoType(VCSlider::CnGColors);
+        for (quint32 channel = 0; channel < fixture->channels(); ++channel)
+            slider->addLevelChannel(fixture->id(), channel);
+        slider->requestUserClickAndGoColors(QColor(10, 20, 30), QColor(40, 50, 60));
+    }
+    else if (domain == "content")
+    {
+        QVERIFY(scripts.isValid() && loadEditorProperties(&r.doc, scripts.path()));
+        auto *matrix = new RGBMatrix(&r.doc);
+        QVERIFY(configureMatrixForPlayback(&r.doc, matrix, &definitions));
+        QVERIFY(r.doc.addFunction(matrix));
+        auto *animation = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+        QVERIFY(animation);
+        const int choice = animation->addAlgorithmPreset("Editor properties",
+            {{"mode", "B"}, {"amount", 7}, {"spread", 1.25}, {"caption", "frozen\ncontent"}});
+        QVERIFY(choice >= 0);
+        animation->requestUserPreset(choice);
+    }
+    tickAndRenderUniverses(&r.doc, 3);
+
+    if (domain != "scalar")
+    {
+        const auto &compound = r.show->commandTrack().commands().last();
+        QCOMPARE(compound.time, quint32(10500));
+        if (domain == "coordinate")
+            QCOMPARE(compound.payload.encode(compound.action), QStringLiteral("127.99609375,32.00390625"));
+        if (domain == "ranges")
+        {
+            const auto &value = std::get<ShowCommandRanges>(compound.payload.value);
+            QCOMPARE(value.horizontal.pan, qreal(200.5));
+            QCOMPARE(value.horizontal.tilt, qreal(40.25));
+            QCOMPARE(value.vertical.pan, qreal(30.125));
+            QCOMPARE(value.vertical.tilt, qreal(180.75));
+        }
+        if (domain == "color")
+        {
+            QCOMPARE(compound.position, qreal(128) / 255);
+            QCOMPARE(compound.payload, (ShowCommandPayload{ShowCommandColors{10, 20, 30, 40, 50, 60}}));
+        }
+        if (domain == "content")
+        {
+            const auto &value = std::get<ShowCommandContent>(compound.payload.value);
+            QCOMPARE(value.algorithm, QStringLiteral("Editor properties"));
+            QCOMPARE(value.properties.count(), 4);
+            QCOMPARE(value.properties["mode"].text, QStringLiteral("B"));
+            QCOMPARE(value.properties["amount"].number, qreal(7));
+            QCOMPARE(value.properties["spread"].number, qreal(1.25));
+            QCOMPARE(value.properties["caption"].text, QStringLiteral("frozen\ncontent"));
+        }
+    }
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    r.show->setExternalElapsedTime(11000);
+    ShowCommandInput start;
+    start.origin = ShowCommandOrigin::Pointer;
+    start.action = ShowCommandAction::Start;
+    start.functionId = goneId;
+    QVERIFY(r.recorder.submitUserInput(start));
+    QVERIFY(r.doc.deleteFunction(goneId));
+    r.show->setExternalElapsedTime(11500);
+    r.slider->requestUserValue(77);
+    const QVector<ShowCommand> beforeFailure = r.show->commandTrack().commands();
+    int holdOnIndex = -1;
+    bool sawMissingStart = false;
+    for (int i = 0; i < beforeFailure.count(); i++)
+    {
+        const ShowCommand &cmd = beforeFailure.at(i);
+        if (cmd.action == ShowCommandAction::SetButtonState && cmd.on && cmd.time == 10000u &&
+            cmd.pairId != ShowCommand::InvalidId)
+            holdOnIndex = i;
+        if (cmd.action == ShowCommandAction::Start && cmd.functionId == goneId && cmd.time == 11000u)
+            sawMissingStart = true;
+    }
+    QVERIFY(holdOnIndex >= 0);
+    QVERIFY(sawMissingStart);
+    const quint32 pairId = beforeFailure.at(holdOnIndex).pairId;
+
+    r.show->setExternalElapsedTime(12000);
+    QVERIFY(!r.recorder.checkpoint());
+    QVERIFY(!r.recorder.lastError().isEmpty());
+    QCOMPARE(r.show->commandTrack().commands(), beforeFailure);
+
+    Scene *back = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(back, goneId));
+    QVERIFY(r.recorder.checkpoint());
+    const QVector<ShowCommand> liveAfterRetry = r.show->commandTrack().commands();
+    QVERIFY(!liveAfterRetry.isEmpty());
+    QCOMPARE(liveAfterRetry.count(), beforeFailure.count() + 1);
+    for (int i = 0; i < beforeFailure.count(); ++i)
+    {
+        QCOMPARE(liveAfterRetry[i], beforeFailure[i]);
+        QCOMPARE(liveAfterRetry[i].order, beforeFailure[i].order);
+    }
+    QCOMPARE(liveAfterRetry.last().time, quint32(11500));
+    QCOMPARE(liveAfterRetry.last().position, qreal(77) / 255);
+
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    writer.writeStartDocument();
+    QVERIFY(r.show->saveXML(&writer));
+    writer.writeEndDocument();
+
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show loaded(&r.doc);
+    QVERIFY(loaded.loadXML(reader));
+    const ShowCommandTrack saved = loaded.commandTrack();
+    QVERIFY(saved.count() >= 3);
+    for (const auto &accepted : beforeFailure)
+    {
+        const auto found = std::find_if(saved.commands().cbegin(), saved.commands().cend(),
+            [&](const ShowCommand &command) { return command.id == accepted.id; });
+        QVERIFY(found != saved.commands().cend());
+        QCOMPARE(*found, accepted);
+        QCOMPARE(found->order, accepted.order);
+        QCOMPARE(found->pairId, accepted.pairId);
+    }
+    bool sawProjectedClosure = false;
+    bool sawStart = false;
+    bool sawLiveProjectedClosure = false;
+    for (const ShowCommand &cmd : saved.commands())
+    {
+        if (cmd.action == ShowCommandAction::SetButtonState &&
+            cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
+            cmd.pairId == pairId && !cmd.on && cmd.time == 12000u)
+            sawProjectedClosure = true;
+        if (cmd.action == ShowCommandAction::Start && cmd.functionId == goneId &&
+            cmd.time == 11000u)
+            sawStart = true;
+    }
+    for (const ShowCommand &cmd : liveAfterRetry)
+    {
+        if (cmd.action == ShowCommandAction::SetButtonState &&
+            cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
+            cmd.pairId == pairId && !cmd.on && cmd.time == 12000u)
+            sawLiveProjectedClosure = true;
+    }
+    QVERIFY(sawProjectedClosure);
+    QVERIFY(sawStart);
+    QVERIFY(!sawLiveProjectedClosure);
+
+    r.show->setExternalElapsedTime(20000);
+    if (hold != nullptr)
+        hold->requestUserStateChange(false);
+    else
+        slider->requestUserFlash(false);
+    tickAndDeliver(&r.doc, 3);
+
+    const QVector<ShowCommand> liveAfterRelease = r.show->commandTrack().commands();
+    for (const auto &accepted : beforeFailure)
+    {
+        const auto found = std::find_if(liveAfterRelease.cbegin(), liveAfterRelease.cend(),
+            [&](const ShowCommand &command) { return command.id == accepted.id; });
+        QVERIFY(found != liveAfterRelease.cend());
+        QCOMPARE(*found, accepted);
+        QCOMPARE(found->order, accepted.order);
+    }
+    bool sawLiveRelease = false;
+    for (const ShowCommand &cmd : liveAfterRelease)
+    {
+        if (cmd.action == ShowCommandAction::SetButtonState && cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
+            cmd.pairId == pairId && !cmd.on && cmd.time == 20000u)
+            sawLiveRelease = true;
+    }
+    QVERIFY(sawLiveRelease);
+}
+
+void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFreezeHold_data()
+{
+    QTest::addColumn<bool>("manualOverlay");
+    QTest::newRow("replay only") << false;
+    QTest::newRow("manual overlay") << true;
+}
+
+void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFreezeHold()
+{
+    QFETCH(bool, manualOverlay);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop ownership"), false);
+    auto *replayHold = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Replay hold"),
+                         QStringLiteral("freezehold"))));
+    auto *manualHold = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 40), Function::invalidId(), QStringLiteral("Manual hold"),
+                         QStringLiteral("freezehold"))));
+    QVERIFY(replayHold && manualHold);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    replayHold->requestUserStateChange(true);
+    show->setExternalElapsedTime(4000);
+    replayHold->requestUserStateChange(false);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    doc.inputOutputMap()->setFrozen(false);
+    doc.inputOutputMap()->setFrozenMomentary(false);
+    tickAndDeliver(&doc, 2);
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 20 && !doc.inputOutputMap()->isFrozen(); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(doc.inputOutputMap()->isFrozen());
+
+    if (manualOverlay)
+    {
+        manualHold->requestUserStateChange(true);
+        tickAndDeliver(&doc, 2);
+        QVERIFY(doc.inputOutputMap()->isFrozen());
+    }
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QCOMPARE(doc.inputOutputMap()->isFrozen(), manualOverlay);
+
+    if (manualOverlay)
+    {
+        manualHold->requestUserStateChange(false);
+        tickAndDeliver(&doc, 2);
+        QVERIFY(!doc.inputOutputMap()->isFrozen());
+    }
+}
+
+void ShowCommandRecorder_Test::replayStop_doesNotRollbackValues_butBackwardSeekDoes()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop value ownership"), false);
+    VCSlider *replaySlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+    VCSlider *manualSlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+    QVERIFY(replaySlider != nullptr);
+    QVERIFY(manualSlider != nullptr);
+
+    replaySlider->setValue(51);
+    tickAndDeliver(&doc, 2);
+    const qreal beforeValue = target->getAttributeValue(Function::Intensity);
+    QVERIFY(beforeValue > 0.0);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setSliderPosition(0, 1000, replaySlider->ensureRecordingId(),
+                                                        ShowControlRole::AdjustSlider,
+                                                        QStringLiteral("Intensity"), qreal(204) / 255.0)));
+    QVERIFY(track.setExtent(4000));
+    QVERIFY(show->setCommandTrack(track));
+
+    const auto playToRecorded = [&]() {
+        playExternalFromZero(show, &doc);
+        show->setExternalElapsedTime(1001);
+        for (int i = 0; i < 30 && replaySlider->value() != 204; i++)
+            tickAndDeliver(&doc, 1);
+        QCOMPARE(replaySlider->value(), 204);
+    };
+
+    // Stop uses ordinary Show/native ownership release, not timeline rollback.
+    playToRecorded();
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QVERIFY(!qFuzzyCompare(target->getAttributeValue(Function::Intensity), beforeValue));
+
+    // A live owner still survives Show stop.
+    playToRecorded();
+    manualSlider->requestUserValue(230);
+    tickAndDeliver(&doc, 2);
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QVERIFY(target->isRunning());
+    QVERIFY(target->getAttributeValue(Function::Intensity) > 0.0);
+
+    // Backward seek keeps rollback behavior and restores the true before state.
+    target->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 2);
+    replaySlider->setValue(51);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), beforeValue));
+
+    playToRecorded();
+    show->setExternalElapsedTime(0);
+    for (int i = 0; i < 30 && !qFuzzyCompare(target->getAttributeValue(Function::Intensity), beforeValue); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), beforeValue));
+}
+
+void ShowCommandRecorder_Test::replayStop_releasesShowOwnedButtonStart_keepsManualOwner()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *scene = addTarget(&doc);
+    QVERIFY(scene);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop ownership"), false);
+    auto *button = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), scene->id(), QStringLiteral("Replay toggle"),
+                         QStringLiteral("toggle"))));
+    QVERIFY(button);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(0, 1000, button->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(10000));
+    QVERIFY(show->setCommandTrack(track));
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 20 && !scene->isRunning(); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(scene->isRunning());
+    QVERIFY(scene->startedAsChild());
+
+    const FunctionParent manualOwner(FunctionParent::AutoVCWidget, 4242);
+    scene->start(doc.masterTimer(), manualOwner);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(scene->isRunning());
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QVERIFY(scene->isRunning());
+    QCOMPARE(button->state(), VCButton::Monitoring);
+
+    button->requestUserStateChange(true);
+    for (int i = 0; i < 20 && button->state() != VCButton::Active; i++)
+        tickAndDeliver(&doc, 1);
+    QCOMPARE(button->state(), VCButton::Active);
+    QVERIFY(scene->isRunning());
+    button->requestUserStateChange(true);
+    for (int i = 0; i < 20 && scene->isRunning(); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(!scene->isRunning());
+}
+
+void ShowCommandRecorder_Test::replayStop_preservesUnownedGlobalLatches_data()
+{
+    QTest::addColumn<bool>("initialBlackout");
+    QTest::addColumn<bool>("initialFreeze");
+    QTest::addColumn<bool>("initialMomentary");
+    QTest::addColumn<bool>("manualMomentaryHold");
+
+    QTest::newRow("all true") << true << true << true << true;
+    QTest::newRow("blackout only") << true << false << false << false;
+    QTest::newRow("freeze only") << false << true << false << false;
+    QTest::newRow("momentary via hold") << false << false << true << true;
+    QTest::newRow("momentary native only") << false << false << true << false;
+}
+
+void ShowCommandRecorder_Test::replayStop_preservesUnownedGlobalLatches()
+{
+    QFETCH(bool, initialBlackout);
+    QFETCH(bool, initialFreeze);
+    QFETCH(bool, initialMomentary);
+    QFETCH(bool, manualMomentaryHold);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Scene *scene = addTarget(&doc);
+    QVERIFY(scene);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop global ownership"), false);
+    auto *hold = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold"),
+                         QStringLiteral("freezehold"))));
+    QVERIFY(hold);
+
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setIntensity(0, 1000, scene->id(), 0.5)));
+    QVERIFY(track.setExtent(10000));
+    QVERIFY(show->setCommandTrack(track));
+
+    doc.inputOutputMap()->setBlackout(initialBlackout);
+    doc.inputOutputMap()->setFrozen(initialFreeze);
+    if (initialMomentary && manualMomentaryHold)
+    {
+        hold->requestUserStateChange(true);
+        tickAndDeliver(&doc, 2);
+    }
+    else if (initialMomentary)
+    {
+        doc.inputOutputMap()->setFrozenMomentary(true);
+    }
+    else
+    {
+        doc.inputOutputMap()->setFrozenMomentary(false);
+    }
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1001);
+    tickAndDeliver(&doc, 3);
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(doc.inputOutputMap()->blackout(), initialBlackout);
+    QCOMPARE(doc.inputOutputMap()->isFrozen(), initialFreeze || initialMomentary);
+    QCOMPARE(doc.inputOutputMap()->frozenMomentary(), initialMomentary);
+}
+
+void ShowCommandRecorder_Test::liveFreezeSameValueIntent_survivesReplayStop()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Freeze override"), false);
+    auto *freeze = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze"),
+                         QStringLiteral("freeze"))));
+    QVERIFY(freeze);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    freeze->requestUserStateChange(true);
+    show->setExternalElapsedTime(4000);
+    freeze->requestUserStateChange(true);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    doc.inputOutputMap()->setFrozen(false);
+    tickAndDeliver(&doc, 2);
+
+    playExternalFromZero(show, &doc);
+    bool frozen = false;
+    for (quint32 elapsed = show->elapsed(); elapsed < 1001; elapsed++)
+    {
+        show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&doc, 1);
+        if (doc.inputOutputMap()->isFrozen())
+        {
+            frozen = true;
+            break;
+        }
+    }
+    QVERIFY(frozen);
+    QVERIFY(doc.inputOutputMap()->isFrozen());
+
+    ShowControlRequest sameValue;
+    sameValue.control = freeze;
+    sameValue.role = ShowControlRole::FreezeButton;
+    sameValue.buttonState = true;
+    sameValue.on = true;
+    sameValue.origin = ShowCommandOrigin::Keyboard;
+    recorder.requestUserControl(sameValue);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(doc.inputOutputMap()->isFrozen());
+
+    show->setExternalElapsedTime(2000);
+    tickAndDeliver(&doc, 2);
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QVERIFY(doc.inputOutputMap()->isFrozen());
+}
+
+void ShowCommandRecorder_Test::editingActiveReplayFreezeHold_releasesImmediately()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Edit active hold"), false);
+    auto *hold = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+                         QStringLiteral("freezehold"))));
+    QVERIFY(hold);
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    hold->requestUserStateChange(true);
+    show->setExternalElapsedTime(4000);
+    hold->requestUserStateChange(false);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    const QVector<ShowCommand> saved = show->commandTrack().commands();
+    QCOMPARE(saved.count(), 2);
+    const quint32 onId = saved.at(0).id;
+    const quint32 offId = saved.at(1).id;
+
+    doc.inputOutputMap()->setFrozen(false);
+    doc.inputOutputMap()->setFrozenMomentary(false);
+    tickAndDeliver(&doc, 2);
+
+    playExternalFromZero(show, &doc);
+    bool frozen = false;
+    for (quint32 elapsed = show->elapsed(); elapsed < 1001; elapsed++)
+    {
+        show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&doc, 1);
+        if (doc.inputOutputMap()->isFrozen())
+        {
+            frozen = true;
+            break;
+        }
+    }
+    QVERIFY(frozen);
+    QVERIFY(doc.inputOutputMap()->isFrozen());
+
+    QVERIFY(recorder.removeCommands(show->id(), QVariantList{ onId, offId }));
+    tickAndDeliver(&doc, 3);
+    QVERIFY(!doc.inputOutputMap()->isFrozen());
+}
+
+void ShowCommandRecorder_Test::editingActiveReplayHoldEdits_releaseImmediately_data()
+{
+    QTest::addColumn<QString>("control");
+    QTest::addColumn<QString>("edit");
+
+    for (const QString &control : {QStringLiteral("freezehold"), QStringLiteral("flash"), QStringLiteral("sliderflash")})
+    {
+        QTest::newRow(qPrintable(control + QStringLiteral(" delete"))) << control << QStringLiteral("delete");
+        QTest::newRow(qPrintable(control + QStringLiteral(" sessionMove"))) << control << QStringLiteral("sessionMove");
+        QTest::newRow(qPrintable(control + QStringLiteral(" retimeOff"))) << control << QStringLiteral("retimeOff");
+    }
+}
+
+void ShowCommandRecorder_Test::editingActiveReplayHoldEdits_releaseImmediately()
+{
+    QFETCH(QString, control);
+    QFETCH(QString, edit);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Edit active hold"), false);
+    VCButton *holdButton = nullptr;
+    VCButton *flashButton = nullptr;
+    VCSlider *flashSlider = nullptr;
+    Scene *target = nullptr;
+    qreal sliderBaseline = 0;
+
+    if (control == QLatin1String("freezehold"))
+    {
+        holdButton = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+                             QStringLiteral("freezehold"))));
+        QVERIFY(holdButton);
+    }
+    else if (control == QLatin1String("flash"))
+    {
+        target = addTarget(&doc);
+        flashButton = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"),
+                             QStringLiteral("flash"))));
+        QVERIFY(flashButton);
+    }
+    else
+    {
+        target = addTarget(&doc);
+        flashSlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+        QVERIFY(flashSlider);
+        flashSlider->setAdjustFlashEnabled(true);
+        flashSlider->setValue(102);
+        tickAndDeliver(&doc, 2);
+        sliderBaseline = target->getAttributeValue(Function::Intensity);
+    }
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    if (holdButton != nullptr)
+        holdButton->requestUserStateChange(true);
+    else if (flashButton != nullptr)
+        flashButton->requestUserStateChange(true);
+    else
+        flashSlider->requestUserFlash(true);
+    show->setExternalElapsedTime(4000);
+    if (holdButton != nullptr)
+        holdButton->requestUserStateChange(false);
+    else if (flashButton != nullptr)
+        flashButton->requestUserStateChange(false);
+    else
+        flashSlider->requestUserFlash(false);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    const QVector<ShowCommand> saved = show->commandTrack().commands();
+    QCOMPARE(saved.count(), 2);
+    const quint32 onId = saved.at(0).id;
+    const quint32 offId = saved.at(1).id;
+
+    doc.inputOutputMap()->setFrozen(false);
+    doc.inputOutputMap()->setFrozenMomentary(false);
+    tickAndDeliver(&doc, 2);
+
+    playExternalFromZero(show, &doc);
+    bool active = false;
+    for (quint32 elapsed = show->elapsed(); elapsed < 2001; elapsed++)
+    {
+        show->setExternalElapsedTime(elapsed + 1);
+        tickAndDeliver(&doc, 1);
+        if (holdButton != nullptr && doc.inputOutputMap()->isFrozen())
+        {
+            active = true;
+            break;
+        }
+        if (flashButton != nullptr && flashButton->state() == VCButton::Active)
+        {
+            active = true;
+            break;
+        }
+        if (flashSlider != nullptr && qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)))
+        {
+            active = true;
+            break;
+        }
+    }
+    QVERIFY(active);
+    show->setExternalElapsedTime(2000);
+    tickAndDeliver(&doc, 2);
+
+    if (edit == QLatin1String("delete"))
+    {
+        QVERIFY(recorder.removeCommands(show->id(), QVariantList{ onId, offId }));
+    }
+    else if (edit == QLatin1String("retimeOff"))
+    {
+        QVERIFY(recorder.beginEditSession(show->id(), QVariantList{ onId, offId }));
+        QVERIFY(recorder.commitRetime(int(ShowRetimeKind::StretchEnd), -2500.0));
+    }
+    else
+    {
+        QVERIFY(recorder.beginEditSession(show->id(), QVariantList{ onId, offId }));
+        const QVariantMap preview = recorder.previewRetime(0, 5000.0);
+        QVERIFY(preview.contains(QStringLiteral("times")));
+        if (holdButton != nullptr)
+            QVERIFY(doc.inputOutputMap()->isFrozen());
+        else if (flashButton != nullptr)
+            QCOMPARE(flashButton->state(), VCButton::Active);
+        else
+            QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+        recorder.cancelEditSession(QStringLiteral("esc"));
+        if (holdButton != nullptr)
+            QVERIFY(doc.inputOutputMap()->isFrozen());
+        else if (flashButton != nullptr)
+            QCOMPARE(flashButton->state(), VCButton::Active);
+        else
+            QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0)));
+        QVERIFY(recorder.beginEditSession(show->id(), QVariantList{ onId, offId }));
+        QVERIFY(recorder.commitRetime(0, 5000.0));
+    }
+
+    tickAndDeliver(&doc, 3);
+    if (holdButton != nullptr)
+        QVERIFY(!doc.inputOutputMap()->isFrozen());
+    else if (flashButton != nullptr)
+        QCOMPARE(flashButton->state(), VCButton::Inactive);
+    else
+        QVERIFY(qFuzzyCompare(target->getAttributeValue(Function::Intensity), sliderBaseline));
+}
+
+void ShowCommandRecorder_Test::editingPlayedGlobalLatchEvents_areDataOnlyUntilBoundary_data()
+{
+    QTest::addColumn<QString>("control");
+    QTest::addColumn<QString>("boundary");
+
+    for (const QString &control : {QStringLiteral("blackout"), QStringLiteral("freeze")})
+    {
+        QTest::newRow(qPrintable(control + QStringLiteral(" next-change")))
+            << control << QStringLiteral("next-change");
+        QTest::newRow(qPrintable(control + QStringLiteral(" seek")))
+            << control << QStringLiteral("seek");
+        QTest::newRow(qPrintable(control + QStringLiteral(" stop")))
+            << control << QStringLiteral("stop");
+    }
+}
+
+void ShowCommandRecorder_Test::editingPlayedGlobalLatchEvents_areDataOnlyUntilBoundary()
+{
+    QFETCH(QString, control);
+    QFETCH(QString, boundary);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    recorder.setResolvedShow(show->id());
+    show->setSyncSource(ShowRunner::External);
+
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Edit global latch"), false);
+    VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(),
+                         control == QLatin1String("blackout") ? QStringLiteral("Blackout")
+                                                               : QStringLiteral("Freeze"),
+                         control)));
+    QVERIFY(button != nullptr);
+
+    const auto isActive = [&]() {
+        return control == QLatin1String("blackout")
+                   ? doc.inputOutputMap()->blackout()
+                   : doc.inputOutputMap()->isFrozen();
+    };
+
+    QVERIFY(recorder.setRecording(true));
+    show->setExternalElapsedTime(1000);
+    button->requestUserStateChange(true);
+    show->setExternalElapsedTime(4000);
+    button->requestUserStateChange(true);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(recorder.setRecording(false));
+
+    const QVector<ShowCommand> saved = show->commandTrack().commands();
+    QCOMPARE(saved.count(), 2);
+    const quint32 onId = saved.at(0).id;
+    const quint32 offId = saved.at(1).id;
+
+    doc.inputOutputMap()->setBlackout(false);
+    doc.inputOutputMap()->setFrozen(false);
+    doc.inputOutputMap()->setFrozenMomentary(false);
+    tickAndDeliver(&doc, 2);
+
+    playExternalFromZero(show, &doc);
+    show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 20 && !isActive(); i++)
+        tickAndDeliver(&doc, 1);
+    QVERIFY(isActive());
+    show->setExternalElapsedTime(1500);
+    tickAndDeliver(&doc, 2);
+    QVERIFY(isActive());
+
+    Q_UNUSED(offId);
+    QVERIFY(recorder.removeCommands(show->id(), QVariantList{onId}));
+
+    tickAndDeliver(&doc, 3);
+    QVERIFY(isActive());
+
+    if (boundary == QLatin1String("next-change"))
+    {
+        show->setExternalElapsedTime(4001);
+        for (int i = 0; i < 30 && isActive(); i++)
+            tickAndDeliver(&doc, 1);
+    }
+    else if (boundary == QLatin1String("seek"))
+    {
+        show->setExternalElapsedTime(5000);
+        for (int i = 0; i < 30 && isActive(); i++)
+            tickAndDeliver(&doc, 1);
+    }
+    else
+    {
+        show->stop(FunctionParent::master());
+        for (int i = 0; i < 30 && isActive(); i++)
+            tickAndDeliver(&doc, 1);
+    }
+    QVERIFY(!isActive());
+}
+
+void ShowCommandRecorder_Test::holdPairSelection_requiresWholePair_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::newRow("remove one edge") << QStringLiteral("remove");
+    QTest::newRow("move one edge") << QStringLiteral("move");
+    QTest::newRow("snap one edge") << QStringLiteral("snap");
+    QTest::newRow("retime one edge") << QStringLiteral("retime");
+    QTest::newRow("copy one edge") << QStringLiteral("copy");
+    QTest::newRow("begin session one edge") << QStringLiteral("session");
+}
+
+void ShowCommandRecorder_Test::holdPairSelection_requiresWholePair()
+{
+    QFETCH(QString, operation);
+
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(0);
+    const int frame = r.bridge.addFrame(0, QRect(0, 0, 500, 200), QStringLiteral("Pair edits"), false);
+    auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
+        r.bridge.addButton(frame, QRect(10, 10, 90, 40), r.a->id(), QStringLiteral("Flash"),
+                           QStringLiteral("flash"))));
+    QVERIFY(button);
+
+    QVERIFY(r.recorder.setRecording(true));
+    r.show->setExternalElapsedTime(1000);
+    button->requestUserStateChange(true);
+    r.show->setExternalElapsedTime(2000);
+    button->requestUserStateChange(false);
+    tickAndDeliver(&r.doc, 2);
+    QVERIFY(r.recorder.setRecording(false));
+
+    const QVector<ShowCommand> before = r.show->commandTrack().commands();
+    QCOMPARE(before.count(), 2);
+    const quint32 onId = before.at(0).id;
+    const quint32 pairId = before.at(0).pairId;
+    QVERIFY(pairId != ShowCommand::InvalidId);
+    QCOMPARE(before.at(1).pairId, pairId);
+
+    bool ok = false;
+    if (operation == QLatin1String("remove"))
+        ok = r.recorder.removeCommands(r.show->id(), QVariantList{ onId });
+    else if (operation == QLatin1String("move"))
+        ok = r.recorder.moveCommands(r.show->id(), QVariantList{ onId }, 1, 250.0);
+    else if (operation == QLatin1String("snap"))
+        ok = r.recorder.snapCommands(r.show->id(), QVariantList{ onId }, 1000.0, 0.0);
+    else if (operation == QLatin1String("retime"))
+        ok = r.recorder.retimeCommand(r.show->id(), onId, 1500.0);
+    else if (operation == QLatin1String("copy"))
+        ok = r.recorder.copyCommands(r.show->id(), QVariantList{ onId });
+    else
+        ok = r.recorder.beginEditSession(r.show->id(), QVariantList{ onId });
+
+    QVERIFY(!ok);
+    QVERIFY(!r.recorder.lastError().isEmpty());
+
+    const QVector<ShowCommand> after = r.show->commandTrack().commands();
+    QCOMPARE(after.count(), before.count());
+    for (int i = 0; i < before.count(); i++)
+    {
+        QCOMPARE(after.at(i).id, before.at(i).id);
+        QCOMPARE(after.at(i).time, before.at(i).time);
+        QCOMPARE(after.at(i).order, before.at(i).order);
+        QCOMPARE(after.at(i).pairId, before.at(i).pairId);
+        QCOMPARE(after.at(i).on, before.at(i).on);
+    }
+}
+
+void ShowCommandRecorder_Test::holdPairSelection_refusesMalformedPair()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    const int frame = r.bridge.addFrame(0, QRect(0, 0, 500, 200), QStringLiteral("Malformed hold"), false);
+    auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
+        r.bridge.addButton(frame, QRect(10, 10, 90, 40), r.a->id(), QStringLiteral("Flash"),
+                           QStringLiteral("flash"))));
+    QVERIFY(button);
+
+    ShowCommandTrack malformed;
+    ShowCommand on = ShowCommand::setButtonState(10, 1000, button->ensureRecordingId(), true);
+    on.role = ShowControlRole::FlashButton;
+    on.pairId = 77;
+    QVERIFY(malformed.insert(on));
+    QVERIFY(malformed.setExtent(1000));
+    QVERIFY(r.show->setCommandTrack(malformed));
+
+    QVERIFY(!r.recorder.removeCommands(r.show->id(), {10u}));
+    QVERIFY(!r.recorder.lastError().isEmpty());
+    QVERIFY(!r.recorder.copyCommands(r.show->id(), {10u}));
+    QVERIFY(!r.recorder.lastError().isEmpty());
+    QVERIFY(!r.recorder.beginEditSession(r.show->id(), {10u}));
+    QVERIFY(!r.recorder.lastError().isEmpty());
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    QCOMPARE(r.show->commandTrack().commands().at(0).pairId, 77u);
+}
+
+void ShowCommandRecorder_Test::holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem()
+{
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(0);
+    const int frame = r.bridge.addFrame(0, QRect(0, 0, 500, 200), QStringLiteral("Pair paste"), false);
+    auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
+        r.bridge.addButton(frame, QRect(10, 10, 90, 40), r.a->id(), QStringLiteral("Flash"),
+                           QStringLiteral("flash"))));
+    QVERIFY(button);
+
+    QVERIFY(r.recorder.setRecording(true));
+    r.show->setExternalElapsedTime(1000);
+    button->requestUserStateChange(true);
+    r.show->setExternalElapsedTime(2000);
+    button->requestUserStateChange(false);
+    tickAndDeliver(&r.doc, 2);
+    QVERIFY(r.recorder.setRecording(false));
+
+    const QVector<ShowCommand> source = r.show->commandTrack().commands();
+    QCOMPARE(source.count(), 2);
+    const quint32 sourcePairId = source.at(0).pairId;
+    QVERIFY(sourcePairId != ShowCommand::InvalidId);
+    QCOMPARE(source.at(1).pairId, sourcePairId);
+    const QVariantList sourceIds{ source.at(0).id, source.at(1).id };
+
+    QVERIFY(r.recorder.copyCommands(r.show->id(), sourceIds));
+    const QVariantList pastedIds = r.recorder.pasteCommands(r.show->id(), 5000.0);
+    QVERIFY2(!pastedIds.isEmpty(), qPrintable(r.recorder.lastError()));
+    tickAndDeliver(&r.doc, 3);
+
+    QVector<ShowCommand> pasted = r.show->commandTrack().commands();
+    QCOMPARE(pasted.count(), 4);
+    const quint32 pastedOnId = pasted.at(2).id;
+    const quint32 pastedOffId = pasted.at(3).id;
+    const quint32 pastedPairId = pasted.at(2).pairId;
+    QVERIFY(pastedPairId != ShowCommand::InvalidId);
+    QCOMPARE(pasted.at(3).pairId, pastedPairId);
+    QVERIFY(pastedPairId != sourcePairId);
+
+    QCOMPARE(pasted.at(2).id, pastedOnId);
+    QCOMPARE(pasted.at(3).id, pastedOffId);
 }
 
 void ShowCommandRecorder_Test::patchedInput_recordsOnlyUserRoutes_data()
@@ -7266,6 +14687,116 @@ void ShowCommandRecorder_Test::patchedInput_recordsOnlyUserRoutes()
         QCOMPARE(r.ba->state(), VCButton::Active);
     else
         QCOMPARE(r.slider->value(), finalValue);
+}
+
+void ShowCommandRecorder_Test::patchedXY_coarseFineInterleavesPointer_data()
+{
+    QTest::addColumn<QString>("plugin");
+    QTest::newRow("MIDI coarse fine pointer") << QStringLiteral("MIDI");
+    QTest::newRow("OSC coarse fine pointer") << QStringLiteral("OSC");
+}
+
+void ShowCommandRecorder_Test::patchedXY_coarseFineInterleavesPointer()
+{
+    QFETCH(QString, plugin);
+    RequestRig r;
+    QVERIFY(patchInputPlugin(&r.doc, plugin, kSourceUniverse));
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Mapped mover"), 32);
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(mover && pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    for (quint8 id = 0; id < 4; ++id)
+    {
+        QSharedPointer<QLCInputSource> source(new QLCInputSource(kSourceUniverse, kSourceChannel + id));
+        source->setID(id);
+        pad->addInputSource(source);
+        r.ui.vc()->page(0)->mapInputSource(source, pad);
+    }
+    pad->setCurrentPosition(QPointF(8, 16));
+    tickAndRenderUniverses(&r.doc, 2);
+    r.show->setSyncSource(ShowRunner::External);
+    ShowEventModel diagnostics(&r.doc, &r.recorder);
+    diagnostics.setOpen(true);
+    QVERIFY(r.recorder.setRecording(true));
+    const QVector<QPointF> expected{{64, 16}, {64.5, 16}, {127.375, 32.25},
+                                   {127.99609375, 32.25}, {127.99609375, 192.25},
+                                   {127.99609375, 192.00390625}};
+    const auto deliver = [&](quint8 id, uchar value) {
+        return QMetaObject::invokeMethod(r.ui.vc(), "slotInputValueChanged",
+            Q_ARG(quint32, kSourceUniverse), Q_ARG(quint32, kSourceChannel + id), Q_ARG(uchar, value));
+    };
+    for (int i = 0; i < expected.count(); ++i)
+    {
+        r.show->setExternalElapsedTime(100 + i);
+        if (i == 0) QVERIFY(deliver(0, 64));
+        if (i == 1) QVERIFY(deliver(1, 128));
+        if (i == 2) pad->requestUserCurrentPosition(expected[i]);
+        if (i == 3) QVERIFY(deliver(1, 255));
+        if (i == 4) QVERIFY(deliver(2, 192));
+        if (i == 5) QVERIFY(deliver(3, 1));
+        tickAndRenderUniverses(&r.doc, 3);
+        QCOMPARE(pad->currentPosition(), expected[i]);
+        QCOMPARE(r.show->commandTrack().count(), i + 1);
+        const auto &command = r.show->commandTrack().commands()[i];
+        QCOMPARE(command.action, ShowCommandAction::SetXYPadPosition);
+        QCOMPARE(command.time, quint32(100 + i));
+        QCOMPARE(command.controlId, pad->recordingId());
+        const auto &point = std::get<ShowCommandPanTilt>(command.payload.value);
+        QCOMPARE(point.pan, expected[i].x());
+        QCOMPARE(point.tilt, expected[i].y());
+    }
+    int recorded = 0;
+    QSet<quint64> causes;
+    for (const auto &entry : diagnostics.rows())
+        if (entry.controlId == pad->recordingId() && entry.phase == ShowEventLog::Phase::Decision &&
+            entry.outcome == ShowEventLog::Outcome::Recorded)
+        {
+            QVERIFY(entry.showTimeMs >= 100 && entry.showTimeMs <= 105);
+            QCOMPARE(entry.origin, int(entry.showTimeMs == 102 ? ShowCommandOrigin::Pointer
+                : plugin == "MIDI" ? ShowCommandOrigin::Midi : ShowCommandOrigin::Osc));
+            QVERIFY(entry.trace != 0 && !causes.contains(entry.trace));
+            causes.insert(entry.trace);
+            ++recorded;
+        }
+    QCOMPARE(recorded, 6);
+    const auto accepted = r.show->commandTrack().commands();
+    const auto universes = r.doc.inputOutputMap()->claimUniverses();
+    const QByteArray direct = universes.first()->preGMValues().mid(32, 4);
+    r.doc.inputOutputMap()->releaseUniverses(false);
+    QCOMPARE(direct.toHex(), QByteArray("7fffc001"));
+    pad->setCurrentPosition(QPointF(2, 3));
+    pad->requestUserCurrentPosition(QPointF(3, 4), ShowCommandOrigin::Programmatic);
+    pad->requestUserCurrentPosition(QPointF(4, 5), ShowCommandOrigin::Audio);
+    pad->updateFeedback();
+    QVERIFY(QMetaObject::invokeMethod(pad, "slotInputValueChanged", Q_ARG(quint8, 255), Q_ARG(uchar, 255)));
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(r.show->commandTrack().commands(), accepted);
+    QVERIFY(r.recorder.setRecording(false));
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(r.show->saveXML(&writer));
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show loaded(&r.doc);
+    QVERIFY(loaded.loadXML(reader));
+    QCOMPARE(loaded.commandTrack().commands(), accepted);
+    for (int i = 0; i < accepted.count(); ++i)
+        QCOMPARE(loaded.commandTrack().commands()[i].order, accepted[i].order);
+    auto saved = loaded.commandTrack();
+    QVERIFY(saved.setExtent(2000) && r.show->setCommandTrack(saved));
+    pad->setCurrentPosition(QPointF(8, 16));
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(150);
+    tickAndRenderUniverses(&r.doc, 32);
+    QCOMPARE(pad->currentPosition(), expected.last());
+    const auto replayUniverses = r.doc.inputOutputMap()->claimUniverses();
+    const QByteArray replay = replayUniverses.first()->preGMValues().mid(32, 4);
+    r.doc.inputOutputMap()->releaseUniverses(false);
+    QCOMPARE(replay, direct);
+    QCOMPARE(r.show->commandTrack().commands(), accepted);
 }
 
 void ShowCommandRecorder_Test::nonUserChanges_recordNothing_data()
@@ -9117,15 +16648,107 @@ namespace
 {
 /** A stopped Show in the production Show editor with a mixed take: legacy
  *  function commands and VC state records, with equal times */
+bool loadEditorProperties(Doc *doc, const QString &path)
+{
+    const QByteArray script = R"JS((function() {
+      var algo = {apiVersion:2, author:"QLC+ test", acceptColors:0};
+      algo.name = "Editor properties";
+      algo.mode = "A"; algo.amount = 1; algo.spread = 0.5; algo.caption = "before";
+      algo.properties = [
+        "name:mode|type:list|values:A,B|write:setMode|read:getMode",
+        "name:amount|type:range|values:1,10|write:setAmount|read:getAmount",
+        "name:spread|type:float|values:0,2|write:setSpread|read:getSpread",
+        "name:caption|type:string|write:setCaption|read:getCaption"];
+      algo.setMode = function(v) { algo.mode = v; }; algo.getMode = function() { return algo.mode; };
+      algo.setAmount = function(v) { algo.amount = Number(v); }; algo.getAmount = function() { return algo.amount; };
+      algo.setSpread = function(v) { algo.spread = Number(v); }; algo.getSpread = function() { return algo.spread; };
+      algo.setCaption = function(v) { algo.caption = v; }; algo.getCaption = function() { return algo.caption; };
+      algo.rgbMapStepCount = function() { return 1; };
+      algo.rgbMap = function(w,h) { return [[0x102030]]; };
+      return algo;
+    })())JS";
+    QFile file(QDir(path).filePath(QStringLiteral("properties.js")));
+    if (!file.open(QIODevice::WriteOnly) || file.write(script) != script.size())
+        return false;
+    file.close();
+    return doc->rgbScriptsCache()->load(QDir(path));
+}
+
 struct EditorRig
 {
     AppRig rig;
+    QTemporaryDir propertyScripts{QDir::currentPath() + QStringLiteral("/editor-properties-XXXXXX")};
     Show *show = nullptr;
     Scene *scene = nullptr;
     VCButton *button = nullptr;
     VCSlider *fader = nullptr;
     VCSlider *dimmer = nullptr;
     QUuid missing = QUuid::createUuid();
+    Show *independentShow = nullptr;
+    Scene *independentScene = nullptr;
+
+    std::vector<std::unique_ptr<QSignalSpy>> draftEffectSignals(VCWidget *control)
+    {
+        std::vector<std::unique_ptr<QSignalSpy>> observations;
+        for (const char *signature : {"currentPositionChanged()", "floorPositionChanged()",
+             "horizontalRangeChanged()", "verticalRangeChanged()", "activePresetIdChanged()",
+             "colorsChanged()", "algorithmIndexChanged()", "faderLevelChanged()",
+             "valueChanged(int)", "cngPrimaryColorChanged(QColor)", "cngSecondaryColorChanged(QColor)"})
+        {
+            const int index = control->metaObject()->indexOfSignal(signature);
+            if (index >= 0)
+                observations.emplace_back(std::make_unique<QSignalSpy>(control, control->metaObject()->method(index)));
+        }
+        return observations;
+    }
+
+    bool startIndependentPlayback()
+    {
+        independentScene = addTarget(rig.doc);
+        if (independentScene == nullptr || independentScene->id() == scene->id())
+            return false;
+        independentScene->setFadeInSpeed(0);
+        independentScene->setFadeOutSpeed(0);
+        independentShow = new Show(rig.doc);
+        if (!rig.doc->addFunction(independentShow))
+            return false;
+        independentShow->setSyncSource(ShowRunner::External);
+        ShowCommandTrack track;
+        if (!track.insert(ShowCommand::start(0, 10, independentScene->id())) ||
+            !track.insert(ShowCommand::setIntensity(1, 100, independentScene->id(), .25)) ||
+            !track.insert(ShowCommand::setIntensity(2, 200, independentScene->id(), .75)) ||
+            !track.setExtent(20000) || !independentShow->setCommandTrack(track))
+            return false;
+        playExternalFromZero(independentShow, rig.doc);
+        rig.realTimer = true;
+        rig.doc->masterTimer()->start();
+        independentShow->setExternalElapsedTime(50);
+        settleNative(10);
+        return independentShow->isRunning() && independentScene->isRunning() && independentOutput() == 200;
+    }
+
+    int independentOutput() const
+    {
+        const auto universes = rig.doc->inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&]() { rig.doc->inputOutputMap()->releaseUniverses(false); });
+        QMutexLocker locker(&universes.first()->m_outputMutex);
+        return quint8(universes.first()->m_lastPublishedFrame.at(0));
+    }
+
+    void advanceIndependentPlayback(quint32 time)
+    {
+        independentShow->setExternalElapsedTime(time);
+        settleNative(10);
+        qInfo() << "Independent Show" << independentShow->id() << "Scene" << independentScene->id()
+                << "accepted time" << independentShow->externalElapsedTime()
+                << "intensity" << independentScene->getAttributeValue(Function::Intensity)
+                << "output" << independentOutput();
+    }
+
+    void settleNative(int ticks)
+    {
+        QTest::qWait(ticks * MasterTimer::tick());
+    }
 
     bool setUp()
     {
@@ -9269,7 +16892,10 @@ struct EditorRig
     {
         QTest::keyClick(rig.app.get(), Qt::Key_A, Qt::ControlModifier);
         for (const QChar &c : text)
-            QTest::keyClick(rig.app.get(), c.toLatin1());
+            if (c == QLatin1Char('\n'))
+                QTest::keyClick(rig.app.get(), Qt::Key_Return);
+            else
+                QTest::keyClick(rig.app.get(), c.toLatin1());
         if (finish != Qt::Key_unknown)
             QTest::keyClick(rig.app.get(), finish);
         QCoreApplication::processEvents();
@@ -9309,6 +16935,86 @@ struct EditorRig
         return index >= 0 ? track.commands().at(index) : none;
     }
 };
+
+VCWidget *bindEditorCommand(EditorRig &ed, ShowCommand *command, QList<QLCFixtureDef *> *definitions)
+{
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    VCBridgeV5 bridge(ed.rig.doc, vc);
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Typed history"), false);
+    VCWidget *control = nullptr;
+    if (command->role == ShowControlRole::AdjustSlider)
+        control = ed.fader;
+    else if (command->role == ShowControlRole::LevelSlider)
+    {
+        auto *fixture = addRgbTarget(ed.rig.doc, definitions, QStringLiteral("History color"),
+                                     command->id == 41 ? 48 : 32, true);
+        auto *slider = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(100, 10, 60, 200),
+            QStringLiteral("level"), QStringLiteral("History color"), Function::invalidId(), {})));
+        if (fixture == nullptr || slider == nullptr)
+            return nullptr;
+        slider->setClickAndGoType(VCSlider::CnGColors);
+        for (quint32 channel = 0; channel < fixture->channels(); ++channel)
+            slider->addLevelChannel(fixture->id(), channel);
+        control = slider;
+    }
+    else if (command->role == ShowControlRole::AnimationFader)
+    {
+        auto *matrix = new RGBMatrix(ed.rig.doc);
+        if (!ed.rig.doc->addFunction(matrix))
+            return nullptr;
+        auto *animation = addAnimation(bridge, vc, frame, matrix->id());
+        if (animation == nullptr)
+            return nullptr;
+        control = animation;
+        if (auto *color = std::get_if<ShowCommandMatrixColor>(&command->payload.value))
+        {
+            if (color->choice >= 0)
+                color->choice = animation->addColorPreset(color->index, QColor(0, 0, 0));
+        }
+        if (auto *content = std::get_if<ShowCommandContent>(&command->payload.value))
+        {
+            if (!ed.propertyScripts.isValid() || !loadEditorProperties(ed.rig.doc, ed.propertyScripts.path()))
+                return nullptr;
+            content->algorithm = QStringLiteral("Editor properties");
+            content->properties = {
+                {"mode", {ShowCommandProperty::Type::List, QStringLiteral("A"), 0}},
+                {"amount", {ShowCommandProperty::Type::Range, QString(), 7}},
+                {"spread", {ShowCommandProperty::Type::Float, QString(), 1.25}},
+                {"caption", {ShowCommandProperty::Type::String, QStringLiteral("<escaped>"), 0}}};
+        }
+    }
+    else
+    {
+        auto *fixture = addMoverTarget(ed.rig.doc, definitions, QStringLiteral("History mover"),
+                                       command->id == 41 ? 80 : 64);
+        auto *pad = addXYPad(bridge, vc, frame);
+        if (fixture == nullptr || pad == nullptr)
+            return nullptr;
+        pad->addFixture(QVariant::fromValue(fixture));
+        control = pad;
+        if (command->action == ShowCommandAction::SetXYPadFloor)
+        {
+            ed.rig.doc->monitorProperties()->setGridUnits(MonitorProperties::Meters);
+            ed.rig.doc->monitorProperties()->setGridSize(QVector3D(24, 8, 12));
+            pad->setFloorControl(true);
+        }
+        if (auto *choice = std::get_if<ShowCommandChoice>(&command->payload.value))
+        {
+            if (command->action == ShowCommandAction::SetXYPadPositionPreset)
+                choice->choice = pad->addPositionPreset();
+            else if (command->action == ShowCommandAction::SetXYPadFunctionPreset)
+            {
+                ed.scene->setValue(SceneValue(fixture->id(), 0, 100));
+                choice->choice = pad->addFunctionPreset(ed.scene->id());
+            }
+            else
+                choice->choice = pad->addFixtureGroupHeadPreset(fixture->id(), 0);
+        }
+    }
+    if (control != nullptr)
+        command->controlId = control->ensureRecordingId();
+    return control;
+}
 } // namespace
 
 void ShowCommandRecorder_Test::recordingsTab_listsAndEditsTheTake()
@@ -10885,6 +18591,7 @@ void ShowCommandRecorder_Test::recordingsEditor_workspaceReuseDropsOldEditsAndCa
     EditorRig ed;
     QVERIFY(ed.setUp());
     QVERIFY(ed.openRecordings());
+    QSignalSpy changed(ed.rig.recorder, &ShowCommandRecorder::commandsChanged);
     QTRY_COMPARE(ed.rowIds().count(), 7);
     const quint32 originalShow = ed.show->id();
     QVERIFY(ed.doubleClick(2, "valueCell"));
@@ -10903,6 +18610,12 @@ void ShowCommandRecorder_Test::recordingsEditor_workspaceReuseDropsOldEditsAndCa
     ed.fader = nullptr;
     ed.dimmer = nullptr;
     ed.scene = nullptr;
+    QCoreApplication::processEvents();
+    QTest::qWait(100);
+    const int afterReset = changed.count();
+    QCoreApplication::processEvents();
+    QTest::qWait(100);
+    QCOMPARE(changed.count(), afterReset);
     qInfo() << "PHASE reuse";
     Scene *scene = new Scene(ed.rig.doc);
     scene->setName(QStringLiteral("Replacement scene"));
@@ -10933,15 +18646,26 @@ void ShowCommandRecorder_Test::recordingsEditor_workspaceReuseDropsOldEditsAndCa
     qInfo() << "PHASE hidden";
     ed.click(ed.item(QStringLiteral("timelineTab")));
     QTRY_VERIFY(ed.item(QStringLiteral("recordingsView")) == nullptr);
-    QSignalSpy refreshed(ed.rig.recorder, &ShowCommandRecorder::commandsChanged);
+    // Both editor tabs share observation; leaving the editor releases it.
+    QVERIFY(QMetaObject::invokeMethod(ed.root(), "switchToContext", Q_ARG(QVariant, QStringLiteral("VC")),
+                                      Q_ARG(QVariant, QStringLiteral("qrc:/VirtualConsole.qml"))));
+    QCoreApplication::processEvents();
+    QTest::qWait(100);
+    const int hiddenChangedBaseline = changed.count();
     auto *functions = qobject_cast<FunctionManager *>(ed.rig.context("functionManager"));
     functions->deleteFunctions({scene->id()});
     ed.settledHistory();
     ed.tardis()->undoAction();
     QTest::qWait(100);
-    QCOMPARE(refreshed.count(), 0);
+    QCOMPARE(changed.count(), hiddenChangedBaseline);
+    QVERIFY(QMetaObject::invokeMethod(ed.root(), "switchToContext", Q_ARG(QVariant, QStringLiteral("SHOWMGR")),
+                                      Q_ARG(QVariant, QStringLiteral("qrc:/ShowManager.qml"))));
+    QCoreApplication::processEvents();
     QVERIFY(ed.openRecordings());
     QTRY_COMPARE(EditorRig::cell(ed.row(2), "controlCell"), QStringLiteral("Replacement scene"));
+    const int settledChanged = changed.count();
+    QTest::qWait(100);
+    QCOMPARE(changed.count(), settledChanged);
     qInfo() << "PHASE done";
 }
 
@@ -11114,9 +18838,9 @@ struct FlowRun
 };
 
 /** REC off, recorded button/slider input at repeated and rewound Show
- *  times, not recorded origins and duplicates, an unsupported Flash, a
- *  refused edit, then a replay mixing VC state, a missing control and
- *  legacy commands */
+ *  times, not recorded origins and duplicates, recorded Flash hold pairs, a
+ *  refused edit, then a replay mixing VC state, a missing control and legacy
+ *  commands */
 FlowRun runFlow(bool open)
 {
     FlowRun run;
@@ -11279,7 +19003,7 @@ void ShowCommandRecorder_Test::debugPanel_tracesFlowDecisionsAndOutcomes()
     const int script = findRow(rows, P::Decision, O::Ignored, fader, audio + 1);
     QCOMPARE(rows.at(script).origin, int(ShowCommandOrigin::Programmatic));
     QVERIFY(rows.at(dup).reason != rows.at(audio).reason);
-    const int flash = findRow(rows, P::Decision, O::Unsupported, QStringLiteral("Flash"), script);
+    const int flash = findRow(rows, P::Decision, O::Recorded, QStringLiteral("Flash"), script);
     QVERIFY(flash > script);
 
     // later Show time, then a rewind: arrival order, not Show time
@@ -11319,8 +19043,8 @@ void ShowCommandRecorder_Test::debugPanel_tracesFlowDecisionsAndOutcomes()
     // an unchanged live value is not reported as a change
     QCOMPARE(rows.at(findRow(rows, P::Execute, O::Skipped, fader, dup)).trace, rows.at(dup).trace);
 
-    // failed operations only: Flash press and release, the refused edit, the missing control
-    QCOMPARE(run.summary.count, quint64(4));
+    // failed operations only: the refused edit and the missing control
+    QCOMPARE(run.summary.count, quint64(2));
     QVERIFY(run.summary.reason.contains(QLatin1String("no control")));
     QCOMPARE(run.summary.view, ShowEventLog::View::References);
 }
@@ -11335,9 +19059,29 @@ void ShowCommandRecorder_Test::debugPanel_leavesRecordingAndReplayUnchanged()
     QVERIFY(closed.rows.isEmpty());
     QVERIFY(open.rows.count() > 20);
 
-    QCOMPARE(open.commands.count(), 4);
+    QCOMPARE(open.commands.count(), 6);
     QCOMPARE(open.commands, closed.commands);
     QCOMPARE(open.orders, closed.orders);
+    QCOMPARE(int(open.commands.at(0).action), int(ShowCommandAction::SetButtonState));
+    int sliderCount = 0;
+    int flashOn = 0;
+    int flashOff = 0;
+    for (const ShowCommand &command : std::as_const(open.commands))
+    {
+        if (command.action == ShowCommandAction::SetSliderPosition)
+            sliderCount++;
+        if (command.action == ShowCommandAction::SetButtonState &&
+            command.role == ShowControlRole::FlashButton)
+        {
+            if (command.on)
+                flashOn++;
+            else
+                flashOff++;
+        }
+    }
+    QCOMPARE(sliderCount, 1);
+    QCOMPARE(flashOn, 1);
+    QCOMPARE(flashOff, 1);
     QCOMPARE(open.revision, closed.revision);
     QCOMPARE(open.buttonState, closed.buttonState);
     QCOMPARE(open.faderValue, closed.faderValue);
@@ -11776,26 +19520,78 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     QVERIFY(flash);
     QVERIFY(ed.rig.recorder->setRecording(true));
     QVERIFY(ed.rig.recorder->isAuthoring());
-    const ShowCommandTrack authored = ed.show->commandTrack();
-    const quint64 revision = ed.show->commandTrackRevision();
+    const QVector<ShowCommand> authoredBeforePress = ed.show->commandTrack().commands();
+    const quint64 revisionBeforePress = ed.show->commandTrackRevision();
+    const QUuid flashId = flash->ensureRecordingId();
 
-    // closed: two failures become a count and a reason, no event history
+    // closed: supported flash actions do not create problems or event history
     const quint64 offered = ShowEventLog::stats().offered;
     flash->requestUserStateChange(true, ShowCommandOrigin::Pointer);
     flash->requestUserStateChange(false, ShowCommandOrigin::Pointer);
-    QTRY_VERIFY(ed.item(QStringLiteral("problemsIndicator")) != nullptr);
-    QCOMPARE(ed.item(QStringLiteral("problemsIndicator"))->property("text").toString(), QStringLiteral("Problems: 2"));
-    QVERIFY(ed.item(QStringLiteral("problemsReason"))->property("text").toString().contains(QLatin1String("Flash")));
+    QTRY_VERIFY(ed.item(QStringLiteral("problemsIndicator")) == nullptr);
+    QTRY_VERIFY(ed.item(QStringLiteral("problemsReason")) == nullptr);
     QCOMPARE(ShowEventLog::stats().offered, offered);
     QCOMPARE(ShowEventLog::generation(), quint64(0));
+    const auto assertFlashCommands = [&](const QVector<ShowCommand> &before, int count) {
+        QSet<quint32> beforeIds;
+        QSet<quint32> pairIds;
+        for (const ShowCommand &cmd : before)
+        {
+            beforeIds.insert(cmd.id);
+            if (cmd.pairId != ShowCommand::InvalidId)
+                pairIds.insert(cmd.pairId);
+        }
+        const QVector<ShowCommand> current = ed.show->commandTrack().commands();
+        for (const ShowCommand &cmd : before)
+        {
+            const auto retained = std::find_if(current.cbegin(), current.cend(),
+                                               [&](const ShowCommand &candidate) { return candidate.id == cmd.id; });
+            QVERIFY(retained != current.cend());
+            QCOMPARE(*retained, cmd);
+            QCOMPARE(retained->order, cmd.order);
+        }
+        QVector<ShowCommand> delta;
+        for (const ShowCommand &cmd : current)
+        {
+            if (!beforeIds.contains(cmd.id))
+                delta.append(cmd);
+        }
+        std::sort(delta.begin(), delta.end(), [](const ShowCommand &a, const ShowCommand &b) { return a.id < b.id; });
+        QCOMPARE(delta.count(), count);
+        for (int i = 0; i < delta.count(); i++)
+        {
+            const ShowCommand &cmd = delta.at(i);
+            QCOMPARE(int(cmd.action), int(ShowCommandAction::SetButtonState));
+            QCOMPARE(cmd.controlId, flashId);
+            QCOMPARE(int(cmd.role), int(ShowControlRole::FlashButton));
+            QCOMPARE(cmd.on, i % 2 == 0);
+            QVERIFY(cmd.pairId != ShowCommand::InvalidId);
+            if (cmd.on)
+            {
+                QVERIFY(!pairIds.contains(cmd.pairId));
+                pairIds.insert(cmd.pairId);
+            }
+            else
+            {
+                QCOMPARE(cmd.pairId, delta.at(i - 1).pairId);
+            }
+            if (i > 0)
+            {
+                QVERIFY(delta.at(i - 1).time <= cmd.time);
+                if (delta.at(i - 1).time == cmd.time)
+                    QVERIFY(delta.at(i - 1).order < cmd.order);
+            }
+        }
+    };
+    assertFlashCommands(authoredBeforePress, 2);
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 2);
 
-    // the indicator opens the panel on its view; details begin now
-    ed.click(ed.item(QStringLiteral("problemsIndicator")));
+    // open the panel from its control; details begin now
+    ed.click(ed.item(QStringLiteral("recordDebugButton")));
     QTRY_VERIFY(events->isActive());
     QCOMPARE(events->tab(), int(ShowEventModel::EventsTab));
     QCoreApplication::processEvents();
     QCOMPARE(events->count(), 0);
-    QTRY_VERIFY(ed.item(QStringLiteral("problemsIndicator")) == nullptr);
 
     const auto press = [&](int times)
     {
@@ -11803,15 +19599,29 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
             flash->requestUserStateChange(i % 2 == 0, ShowCommandOrigin::Pointer);
         QCoreApplication::processEvents();
     };
+    const QVector<ShowCommand> afterClosedTrack = ed.show->commandTrack().commands();
+    const int baselineCommands = authoredBeforePress.count() + 2;
     press(40);
-    QTRY_COMPARE(events->count(), 40);
+    assertFlashCommands(afterClosedTrack, 40);
+    QCOMPARE(ed.show->commandTrack().count(), baselineCommands + 40);
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 42);
     QQuickItem *panel = ed.item(QStringLiteral("showDebugPanel"));
     QQuickItem *list = ed.item(QStringLiteral("eventsList"));
     QVERIFY(panel && list);
     QTRY_VERIFY(list->property("atYEnd").toBool());
 
     // reading older rows: a real wheel scroll stops following
-    wheelUp(ed.rig.app.get(), list, 20);
+    for (int i = 0; i < 5 && list->property("atYEnd").toBool(); i++)
+    {
+        wheelUp(ed.rig.app.get(), list, 20);
+        QCoreApplication::processEvents();
+    }
+    if (list->property("atYEnd").toBool())
+    {
+        const qreal y = list->property("contentY").toReal();
+        list->setProperty("contentY", qMax<qreal>(0.0, y - 120.0));
+        QCoreApplication::processEvents();
+    }
     QTRY_VERIFY(!list->property("atYEnd").toBool());
     QVERIFY(!panel->property("followTail").toBool());
     // a press while it still moves only stops it
@@ -11828,8 +19638,13 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     const qreal contentY = list->property("contentY").toReal();
 
     // new rows neither move the reader nor take the selection or focus
+    const QVector<ShowCommand> afterFirstPhase = ed.show->commandTrack().commands();
     press(40);
-    QTRY_COMPARE(events->count(), 80);
+    assertFlashCommands(afterFirstPhase, 40);
+    QCOMPARE(ed.show->commandTrack().count(), baselineCommands + 80);
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 82);
+    const quint64 revisionBeforeUiInspection = ed.show->commandTrackRevision();
+    const QVector<ShowCommand> commandsBeforeUiInspection = ed.show->commandTrack().commands();
     QCOMPARE(list->property("contentY").toReal(), contentY);
     QCOMPARE(panel->property("selectedSeq").toReal(), selected);
     QVERIFY(list->hasActiveFocus());
@@ -11854,18 +19669,54 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     // the referenced controls, problems first, filtered on request
     ed.click(ed.item(QStringLiteral("referencesTab")));
     QQuickItem *refs = ed.item(QStringLiteral("referencesList"));
-    QTRY_COMPARE(refs->property("count").toInt(), 4);
+    const QVariantList referenced = ed.rig.recorder->referencedControls();
+    const QString buttonId = ed.button->recordingId().toString(QUuid::WithoutBraces);
+    const QString faderId = ed.fader->recordingId().toString(QUuid::WithoutBraces);
+    const QString dimmerId = ed.dimmer->recordingId().toString(QUuid::WithoutBraces);
+    const QString flashControlId = flashId.toString(QUuid::WithoutBraces);
+    const QString missingId = ed.missing.toString(QUuid::WithoutBraces);
+    QSet<QString> controlIds;
+    for (const QVariant &entry : referenced)
+        controlIds.insert(entry.toMap().value("controlId").toString());
+    QCOMPARE(controlIds, QSet<QString>({buttonId, faderId, dimmerId, flashControlId, missingId}));
+    QCOMPARE(referenced.count(), 5);
+    QCOMPARE(referenceRow(referenced, ed.button->recordingId()).value("status").toString(), QStringLiteral("Ready"));
+    QCOMPARE(roleStatus(referenceRow(referenced, ed.button->recordingId()), QStringLiteral("ToggleButton")),
+             QStringLiteral("Ready"));
+    QCOMPARE(referenceRow(referenced, ed.fader->recordingId()).value("status").toString(), QStringLiteral("Ready"));
+    QCOMPARE(roleStatus(referenceRow(referenced, ed.fader->recordingId()), QStringLiteral("AdjustSlider")),
+             QStringLiteral("Ready"));
+    QCOMPARE(referenceRow(referenced, flashId).value("status").toString(), QStringLiteral("Ready"));
+    QCOMPARE(roleStatus(referenceRow(referenced, flashId), QStringLiteral("FlashButton")),
+             QStringLiteral("Ready"));
+    QCOMPARE(referenceRow(referenced, ed.dimmer->recordingId()).value("status").toString(),
+             QStringLiteral("Disabled"));
+    QCOMPARE(referenceRow(referenced, ed.missing).value("status").toString(), QStringLiteral("Missing"));
+    const auto roleReason = [](const QVariantMap &row, const QString &role) {
+        for (const QVariant &entry : row.value("roles").toList())
+        {
+            const QVariantMap roleEntry = entry.toMap();
+            if (roleEntry.value("role").toString() == role)
+                return roleEntry.value("reason").toString();
+        }
+        return QString();
+    };
+    QVERIFY(roleReason(referenceRow(referenced, ed.dimmer->recordingId()), QStringLiteral("LevelSlider"))
+                .contains(QLatin1String("disabled")));
+    QVERIFY(roleReason(referenceRow(referenced, ed.missing), QStringLiteral("ToggleButton"))
+                .contains(QLatin1String("no control")));
+    QTRY_COMPARE(refs->property("count").toInt(), referenced.count());
     ed.click(ed.item(QStringLiteral("referencesProblems")));
     QTRY_COMPARE(refs->property("count").toInt(), 2);
-    const QList<QQuickItem *> problemRows = shownRows(refs, QStringLiteral("referenceRow"));
-    QCOMPARE(problemRows.count(), 2);
     QVERIFY(ed.item(QStringLiteral("referencesProblems"))->property("text").toString().contains(QLatin1String("(2)")));
     if (!kDiagArtifacts.isEmpty())
         ed.rig.app->grabWindow().save(kDiagArtifacts + QStringLiteral("/debug-panel-references.png"));
 
-    // only presentation changed
-    QCOMPARE(ed.show->commandTrackRevision(), revision);
-    QCOMPARE(ed.show->commandTrack().commands(), authored.commands());
+    // only presentation changed after UI inspection interactions above
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforeUiInspection);
+    QCOMPARE(ed.show->commandTrack().commands(), commandsBeforeUiInspection);
+    QCOMPARE(revisionBeforeUiInspection, revisionBeforePress + 82);
+    QCOMPARE(commandsBeforeUiInspection.count(), authoredBeforePress.count() + 82);
     QVERIFY(ed.rig.recorder->isAuthoring());
 
     // hiding the window ends the observation; showing it again starts empty
@@ -12481,8 +20332,17 @@ void ShowCommandRecorder_Test::debugPanel_directProgrammaticRequestsAreObservedO
 
     QCOMPARE(button->state(), VCButton::Active);
     QCOMPARE(slider->value(), 77);
-    QCOMPARE(show->commandTrack().count(), 1);
-    QCOMPARE(show->commandTrack().commands().first().position, 77.0 / 255.0);
+    QCOMPARE(show->commandTrack().count(), 3);
+    const QVector<ShowCommand> commands = show->commandTrack().commands();
+    QCOMPARE(int(commands.at(0).action), int(ShowCommandAction::SetSliderPosition));
+    QCOMPARE(commands.at(0).position, 77.0 / 255.0);
+    QCOMPARE(int(commands.at(1).action), int(ShowCommandAction::SetButtonState));
+    QCOMPARE(int(commands.at(2).action), int(ShowCommandAction::SetButtonState));
+    QCOMPARE(int(commands.at(1).role), int(ShowControlRole::FlashButton));
+    QCOMPARE(int(commands.at(2).role), int(ShowControlRole::FlashButton));
+    QVERIFY(commands.at(1).on);
+    QVERIFY(!commands.at(2).on);
+    QCOMPARE(commands.at(1).controlId, commands.at(2).controlId);
     if (!open)
     {
         QCOMPARE(ShowEventLog::stats().offered, quint64(0));
@@ -13020,7 +20880,7 @@ void ShowCommandRecorder_Test::accessibleVcControls_actAsUserInput_data()
     QTest::newRow("toggle press") << QStringLiteral("toggle") << press << false << 1 << int(VCButton::Active);
     QTest::newRow("disabled toggle press") << QStringLiteral("toggle") << press << true << 0 << int(VCButton::Inactive);
     // a flash is momentary: pressed and released, reported as not recordable
-    QTest::newRow("flash press") << QStringLiteral("flash") << press << false << 0 << int(VCButton::Inactive);
+    QTest::newRow("flash press") << QStringLiteral("flash") << press << false << 2 << int(VCButton::Inactive);
     QTest::newRow("fader increase") << QStringLiteral("fader") << increase << false << 1 << 101;
     QTest::newRow("fader decrease") << QStringLiteral("fader") << decrease << false << 1 << 99;
     QTest::newRow("disabled fader increase") << QStringLiteral("fader") << increase << true << 0 << 100;
@@ -13113,9 +20973,18 @@ void ShowCommandRecorder_Test::accessibleVcControls_actAsUserInput()
         {
             QCOMPARE(int(records.first().action), int(ShowCommandAction::SetButtonState));
             QCOMPARE(records.first().controlId, button->recordingId());
-            QVERIFY(records.first().on);
+            if (control == QLatin1String("flash"))
+            {
+                QCOMPARE(records.count(), 2);
+                QCOMPARE(int(records.at(0).role), int(ShowControlRole::FlashButton));
+                QCOMPARE(int(records.at(1).role), int(ShowControlRole::FlashButton));
+                QVERIFY(records.at(0).on);
+                QVERIFY(!records.at(1).on);
+            }
+            else
+                QVERIFY(records.first().on);
         }
-        QCOMPARE(errors.count(), control == QLatin1String("flash") ? 1 : 0);
+        QCOMPARE(errors.count(), 0);
     }
     QCOMPARE(r.show->commandTrack().count(), commands);
     QVERIFY(r.recorder.setRecording(false));
@@ -16378,6 +24247,2017 @@ void ShowCommandRecorder_Test::recordingsTab_undoBacktabWithoutPassage()
     QCOMPARE(ed.command(2).time, 1700u);
 }
 
+void ShowCommandRecorder_Test::recordingsEditor_nativeFields_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("arguments");
+    QTest::newRow("ranges") << QStringLiteral("SetXYPadRanges")
+        << QStringLiteral("{\"horizontal\":[10,200],\"vertical\":[30,240]}");
+    QTest::newRow("matrix color") << QStringLiteral("SetAnimationColor")
+        << QStringLiteral("{\"index\":0,\"operation\":\"replace\",\"rgb\":[10,20,30]}");
+    QTest::newRow("channel") << QStringLiteral("SetSliderChannel")
+        << QStringLiteral("{\"binding\":\"Intensity\",\"value\":64}");
+    QTest::newRow("Pan/Tilt") << QStringLiteral("SetXYPadPosition") << QStringLiteral("64.5,192.25");
+    QTest::newRow("metre floor") << QStringLiteral("SetXYPadFloor") << QStringLiteral("7.25,1.75,4.125");
+    QTest::newRow("RGB/WAUV") << QStringLiteral("SetSliderColors") << QStringLiteral("12,34,56;78,90,123");
+    QTest::newRow("position choice") << QStringLiteral("SetXYPadPositionPreset")
+        << QStringLiteral("{\"choice\":2,\"active\":true,\"point\":[64.5,192.25]}");
+    QTest::newRow("Function choice") << QStringLiteral("SetXYPadFunctionPreset")
+        << QStringLiteral("{\"choice\":2,\"active\":true}");
+    QTest::newRow("head choice") << QStringLiteral("SetXYPadGroupPreset")
+        << QStringLiteral("{\"choice\":2,\"active\":true}");
+    QTest::newRow("Matrix reset") << QStringLiteral("SetAnimationColor")
+        << QStringLiteral("{\"index\":2,\"operation\":\"reset\"}");
+    QTest::newRow("Matrix component") << QStringLiteral("SetAnimationColor")
+        << QStringLiteral("{\"index\":2,\"operation\":\"component\",\"component\":1,\"value\":128}");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_nativeFields()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, arguments);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommand command;
+    command.id = 40;
+    command.time = 1700;
+    command.controlId = ed.fader->ensureRecordingId();
+    QVERIFY(ShowCommand::actionFromString(action, &command.action));
+    command.role = action == "SetSliderColors" ? ShowControlRole::LevelSlider :
+                   action == "SetSliderChannel" ? ShowControlRole::AdjustSlider :
+                   action == "SetAnimationColor" ? ShowControlRole::AnimationFader : ShowControlRole::XYPad;
+    if (action == "SetSliderColors")
+        command.position = 0.5;
+    QVERIFY(ShowCommandPayload::decode(command.action, arguments, &command.payload));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40}));
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    // App startup leaves Universe workers alive after its MasterTimer stops.
+    // Manual rendering must have one writer, not race those workers.
+    const QList<Universe *> universes = ed.rig.doc->inputOutputMap()->claimUniverses();
+    for (Universe *universe : universes)
+    {
+        universe->m_running = false;
+        universe->m_semaphore.release();
+        universe->wait();
+    }
+    ed.rig.doc->inputOutputMap()->releaseUniverses(false);
+    auto *fixture = addRgbTarget(ed.rig.doc, &definitions, QStringLiteral("Independent draft output"), 32, true);
+    QVERIFY(fixture);
+    auto *independent = new Scene(ed.rig.doc);
+    independent->setValue(SceneValue(fixture->id(), 0, 200));
+    QVERIFY(ed.rig.doc->addFunction(independent));
+    const FunctionParent owner(FunctionParent::ManualVCWidget, ed.button->id());
+    independent->start(ed.rig.doc->masterTimer(), owner);
+    tickAndRenderUniverses(ed.rig.doc, 2);
+    const auto output = [&]()
+    {
+        const auto universes = ed.rig.doc->inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&]() { ed.rig.doc->inputOutputMap()->releaseUniverses(false); });
+        return universes.first()->preGMValues();
+    };
+    const QByteArray independentOutput = output();
+    QVERIFY(independentOutput != QByteArray(independentOutput.size(), '\0'));
+    const int history = ed.settledHistory();
+    const int nativeValue = ed.fader->value();
+    const quint32 elapsed = ed.show->elapsed();
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QVERIFY(ed.item(QStringLiteral("recordingsView"))->property("editingTyped").toBool());
+    const auto draft = [&]() {
+        const QVariant value = ed.item(QStringLiteral("recordingsView"))->property("typedValue");
+        return value.metaType() == QMetaType::fromType<QJSValue>() ? qvariant_cast<QJSValue>(value).toVariant() : value;
+    };
+    if (action == "SetXYPadRanges")
+    {
+        QQuickItem *range = nullptr;
+        QTRY_VERIFY((range = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedDraftRange"))) != nullptr);
+        const QVariant beforeDraft = draft();
+        ed.click(range);
+        QVERIFY(draft() != beforeDraft);
+        QCOMPARE(ed.command(40), command);
+        tickAndRenderUniverses(ed.rig.doc, 2);
+        QCOMPARE(output(), independentOutput);
+        QCOMPARE(ed.show->elapsed(), elapsed);
+        QCOMPARE(ed.settledHistory(), history);
+    }
+    if (action == "SetSliderColors" || arguments.contains(QStringLiteral("\"rgb\"")))
+    {
+        QQuickItem *colors = nullptr;
+        QTRY_VERIFY((colors = ed.item(QStringLiteral("typedDraftColors"))) != nullptr);
+        colors->forceActiveFocus();
+        QTest::qWait(100);
+        const QVariant beforeDraft = draft();
+        auto *canvas = findVisualItem(colors, QStringLiteral("colorToolCanvas"));
+        QVERIFY(canvas);
+        const QPoint point = canvas->mapToScene(QPointF(canvas->width() * 0.2, canvas->height() * 0.3)).toPoint();
+        QTest::mousePress(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseMove(ed.rig.app.get(), point + QPoint(30, 15), 50);
+        QTest::mouseRelease(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, point + QPoint(30, 15));
+        QTRY_VERIFY(draft() != beforeDraft);
+        QCOMPARE(ed.command(40), command);
+        tickAndRenderUniverses(ed.rig.doc, 2);
+        QCOMPARE(output(), independentOutput);
+        QCOMPARE(ed.show->elapsed(), elapsed);
+        QCOMPARE(ed.settledHistory(), history);
+    }
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY((field = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedArgumentField"))) != nullptr);
+    field->forceActiveFocus();
+    ed.type(QStringLiteral("123"), Qt::Key_unknown);
+    QTRY_COMPARE(findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedArgumentField"))->property("text").toString(),
+                 QStringLiteral("123"));
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(ed.fader->value(), nativeValue);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    QCOMPARE(ed.settledHistory(), history);
+    tickAndRenderUniverses(ed.rig.doc, 2);
+    QCOMPARE(output(), independentOutput);
+    QVERIFY(independent->hasSource(owner));
+    field = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedArgumentField"));
+    field->forceActiveFocus();
+    ed.type(QStringLiteral("bad"));
+    QVERIFY(ed.rig.recorder->editSessionActive());
+    QCOMPARE(ed.command(40), command);
+    QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(ed.settledHistory(), history);
+    tickAndRenderUniverses(ed.rig.doc, 2);
+    QCOMPARE(output(), independentOutput);
+    QVERIFY(independent->hasSource(owner));
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QTRY_VERIFY((field = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedArgumentField"))) != nullptr);
+    field->forceActiveFocus();
+    ed.type(QStringLiteral("1"));
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    QVERIFY(!(ed.command(40) == command));
+    QCOMPARE(ed.command(40).id, command.id);
+    QCOMPARE(ed.command(40).time, command.time);
+    QCOMPARE(ed.fader->value(), nativeValue);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    QCOMPARE(ed.settledHistory(), history + 1);
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(ed.command(40), command);
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_floorNativeBounds_data()
+{
+    QTest::addColumn<QString>("axis");
+    QTest::addColumn<QString>("value");
+    QTest::addColumn<bool>("valid");
+    QTest::addColumn<bool>("changeMetadata");
+    for (const auto &row : QList<QPair<QString, QString>>{
+             {"y", "20"}, {"x", "8"}, {"x", "16"}, {"z", "4"}, {"z", "8"},
+             {"x", "12.375"}, {"y", "2.125"}, {"z", "6.375"}})
+        QTest::newRow(qPrintable(row.first + "=" + row.second)) << row.first << row.second << true << false;
+    for (const auto &row : QList<QPair<QString, QString>>{
+             {"y", "21"}, {"y", "-1"}, {"y", "NaN"}, {"y", "Infinity"},
+             {"x", "7.999"}, {"x", "16.001"}, {"z", "3.999"}, {"z", "8.001"}})
+        QTest::newRow(qPrintable(row.first + "=" + row.second)) << row.first << row.second << false << false;
+    QTest::newRow("changed floor metadata while open") << QStringLiteral("y") << QStringLiteral("2")
+                                                       << false << true;
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_floorNativeBounds()
+{
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("(ShowCommandList|VCAnimationItem|ColorToolFull)\\.qml.*(TypeError|ReferenceError)|CustomComboBox\\.qml.*Binding loop")));
+    QFETCH(QString, axis);
+    QFETCH(QString, value);
+    QFETCH(bool, valid);
+    QFETCH(bool, changeMetadata);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    VCBridgeV5 bridge(ed.rig.doc, vc);
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Floor proof"), false);
+    auto *pad = addXYPad(bridge, vc, frame);
+    QVERIFY(pad);
+    ed.rig.doc->monitorProperties()->setGridUnits(MonitorProperties::Meters);
+    ed.rig.doc->monitorProperties()->setGridSize(QVector3D(24, 8, 12));
+    pad->setFloorControl(true);
+    pad->setHorizontalRange(QPointF(85, 170));
+    pad->setVerticalRange(QPointF(85, 170));
+    QCOMPARE(pad->floorRangeArea(), QRectF(8, 4, 8, 4));
+    QCOMPARE(pad->floorHeightMax(), qreal(20));
+    pad->setFloorPosition(QVector3D(12.25f, 1.75f, 6.125f));
+    const QVector3D nativeBefore = pad->floorPosition();
+    ShowCommand command;
+    command.id = 40;
+    command.time = 1700;
+    command.action = ShowCommandAction::SetXYPadFloor;
+    command.role = ShowControlRole::XYPad;
+    command.controlId = pad->ensureRecordingId();
+    command.payload.value = ShowCommandFloor{12.25, 1.75, 6.125};
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40}));
+    QVERIFY(ed.startIndependentPlayback());
+    const int history = ed.settledHistory();
+    const int serial = ed.rig.recorder->lastEditSerial();
+    const quint32 elapsed = ed.show->elapsed();
+    QSignalSpy writes(pad, &VCXYPad::floorPositionChanged);
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY((field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", axis)));
+    field->forceActiveFocus();
+    ed.type(value, Qt::Key_unknown);
+    ed.advanceIndependentPlayback(150);
+    QCOMPARE(ed.independentOutput(), 50);
+    QVERIFY(ed.rig.recorder->setRecording(true));
+    ed.rig.manager->setCurrentTime(9000);
+    ed.button->requestUserStateChange(true);
+    ed.settleNative(2);
+    QVERIFY(ed.rig.recorder->setRecording(false));
+    QCOMPARE(ed.show->commandTrack().count(), 2);
+    const ShowCommand duringDraftCapture = ed.show->commandTrack().commands().last();
+    QCOMPARE(duringDraftCapture.controlId, ed.button->recordingId());
+    QVERIFY(duringDraftCapture.controlId != pad->recordingId());
+    QCOMPARE(duringDraftCapture.time, quint32(9000));
+    ed.advanceIndependentPlayback(250);
+    QCOMPARE(ed.independentOutput(), 150);
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(writes.count(), 0);
+    QCOMPARE(ed.settledHistory(), history);
+    if (changeMetadata)
+        pad->setHorizontalRange(QPointF(0, 255));
+    const QVector3D beforeCommit = pad->floorPosition();
+    const int nativeChanges = writes.count();
+    field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", axis);
+    QVERIFY(field);
+    field->forceActiveFocus();
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    QCoreApplication::processEvents();
+    if (valid)
+    {
+        QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+        ShowCommand expected = command;
+        auto point = std::get<ShowCommandFloor>(expected.payload.value);
+        if (axis == "x") point.x = value.toDouble();
+        if (axis == "y") point.y = value.toDouble();
+        if (axis == "z") point.z = value.toDouble();
+        expected.payload.value = point;
+        QCOMPARE(ed.command(40), expected);
+        QCOMPARE(ed.command(40).order, command.order);
+        QCOMPARE(ed.settledHistory(), history + 1);
+        QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + 1);
+        ed.tardis()->undoAction();
+        QTRY_COMPARE(ed.command(40), command);
+        ed.tardis()->redoAction();
+        QTRY_COMPARE(ed.command(40), expected);
+    }
+    else
+    {
+        QVERIFY2(ed.rig.recorder->editSessionActive(), "invalid native floor candidate must stay correctable");
+        QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+        QCOMPARE(ed.command(40), command);
+        QCOMPARE(ed.settledHistory(), history);
+        QCOMPARE(ed.rig.recorder->lastEditSerial(), serial);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+        QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+        QCOMPARE(ed.command(40), command);
+    }
+    QCOMPARE(pad->floorPosition(), beforeCommit);
+    if (!changeMetadata)
+        QCOMPARE(pad->floorPosition(), nativeBefore);
+    QCOMPARE(writes.count(), nativeChanges);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    QCOMPARE(ed.command(duringDraftCapture.id), duringDraftCapture);
+    QCOMPARE(ed.independentOutput(), 150);
+    QCOMPARE(ed.independentShow->externalElapsedTime(), quint32(250));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_colorCanvasReopens()
+{
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("ColorToolFull\\.qml.*TypeError")));
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    VCBridgeV5 bridge(ed.rig.doc, vc);
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Canvas proof"), false);
+    auto *matrix = new RGBMatrix(ed.rig.doc);
+    QVERIFY(ed.rig.doc->addFunction(matrix));
+    auto *animation = addAnimation(bridge, vc, frame, matrix->id());
+    QVERIFY(animation);
+    animation->setColorAt(0, QColor(10, 20, 30));
+    ShowCommand command;
+    command.id = 40;
+    command.time = 1700;
+    command.controlId = animation->ensureRecordingId();
+    command.role = ShowControlRole::AnimationFader;
+    command.action = ShowCommandAction::SetAnimationColor;
+    ShowCommandMatrixColor color;
+    color.index = 0;
+    color.color = {10, 20, 30, 0, 0, 0};
+    command.payload.value = color;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command) && ed.show->setCommandTrack(track));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40}));
+    const int history = ed.settledHistory();
+    for (int cycle = 0; cycle < 3; ++cycle)
+    {
+        QVERIFY(ed.doubleClick(40, "valueCell"));
+        auto *colors = ed.item(QStringLiteral("typedDraftColors"));
+        QVERIFY(colors);
+        QQuickItem *canvas = nullptr;
+        QTRY_VERIFY((canvas = findVisualItem(colors, QStringLiteral("colorToolCanvas"))));
+        QVERIFY(QMetaObject::invokeMethod(canvas, "requestPaint"));
+        QTest::qWait(100);
+        const QImage image = ed.rig.app->grabWindow();
+        QVERIFY(!image.isNull());
+        const auto pixel = [&](qreal x) {
+            const QPointF scene = canvas->mapToScene(QPointF(canvas->width() * x, canvas->height() * .5));
+            return image.pixelColor(qRound(scene.x() * image.width() / ed.rig.app->width()),
+                                    qRound(scene.y() * image.height() / ed.rig.app->height()));
+        };
+        QVERIFY2(pixel(.2) != pixel(.6), "reopened Canvas must render its color gradient");
+        const QPoint point = canvas->mapToScene(QPointF(canvas->width() * .2, canvas->height() * .3)).toPoint();
+        const QVariant before = ed.item(QStringLiteral("recordingsView"))->property("typedValue");
+        QTest::mousePress(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseMove(ed.rig.app.get(), point + QPoint(30, 15), 50);
+        QTest::mouseRelease(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, point + QPoint(30, 15));
+        QVERIFY(ed.item(QStringLiteral("recordingsView"))->property("typedValue") != before);
+        QCOMPARE(ed.command(40), command);
+        QCOMPARE(animation->colorAt(0), QColor(10, 20, 30));
+        colors->forceActiveFocus();
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+        QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+        QTest::qWait(100);
+        QCOMPARE(ed.command(40), command);
+        QCOMPARE(ed.settledHistory(), history);
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_boundContent_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QString>("replacement");
+    QTest::addColumn<QString>("edge");
+    for (const auto &row : QList<QPair<QString, QString>>{
+             {"mode", "B"}, {"amount", "7"}, {"spread", "1.25"},
+             {"caption", "frozen caption"}, {"text", "frozen\ntext"}, {"algorithm", "Plain Color"}})
+        QTest::newRow(qPrintable(row.first)) << row.first << row.second << QStringLiteral("valid");
+    QTest::newRow("Range outside metadata") << QStringLiteral("amount") << QStringLiteral("11") << QStringLiteral("invalid");
+    QTest::newRow("Float outside metadata") << QStringLiteral("spread") << QStringLiteral("2.5") << QStringLiteral("invalid");
+    QTest::newRow("typed content no-op") << QStringLiteral("caption") << QStringLiteral("before") << QStringLiteral("noop");
+    QTest::newRow("typed content conflict") << QStringLiteral("caption") << QStringLiteral("changed") << QStringLiteral("conflict");
+    QTest::newRow("List options changed while open") << QStringLiteral("mode") << QStringLiteral("B") << QStringLiteral("metadata");
+    QTest::newRow("Range bounds changed while open") << QStringLiteral("amount") << QStringLiteral("7") << QStringLiteral("metadata");
+    QTest::newRow("Float bounds changed while open") << QStringLiteral("spread") << QStringLiteral("1.25") << QStringLiteral("metadata");
+    QTest::newRow("optional algorithm choice") << QStringLiteral("choice") << QStringLiteral("31") << QStringLiteral("valid");
+    QTest::newRow("optional Text choice") << QStringLiteral("text choice") << QStringLiteral("31") << QStringLiteral("valid");
+    QTest::newRow("passed typed content later live") << QStringLiteral("caption")
+        << QStringLiteral("frozen caption") << QStringLiteral("passed");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_boundContent()
+{
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("(ShowCommandList|VCAnimationItem|ColorToolFull)\\.qml.*(TypeError|ReferenceError)|CustomComboBox\\.qml.*Binding loop")));
+    QFETCH(QString, name);
+    QFETCH(QString, replacement);
+    QFETCH(QString, edge);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QVERIFY(ed.propertyScripts.isValid());
+    QVERIFY(loadEditorProperties(ed.rig.doc, ed.propertyScripts.path()));
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    VCBridgeV5 bridge(ed.rig.doc, vc);
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Content proof"), false);
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *matrix = new RGBMatrix(ed.rig.doc);
+    QVERIFY(configureMatrixForPlayback(ed.rig.doc, matrix, &definitions));
+    matrix->setControlMode(RGBMatrix::ControlModeRgb);
+    auto *mode = definitions.last()->mode(QStringLiteral("Basic"));
+    QLCFixtureHead rgbHead;
+    for (quint32 channel = 0; channel < 4; ++channel)
+    {
+        rgbHead.addChannel(channel);
+        if (channel != 0)
+            mode->channel(channel)->setGroup(QLCChannel::Intensity);
+    }
+    rgbHead.cacheChannels(mode);
+    mode->replaceHead(0, rgbHead);
+    mode->cacheHeads();
+    QCOMPARE(mode->heads().first().rgbChannels(), (QVector<quint32>{1, 2, 3}));
+    matrix->setDuration(100);
+    matrix->setFadeInSpeed(0);
+    matrix->setFadeOutSpeed(0);
+    matrix->setRunOrder(Function::Loop);
+    QVERIFY(ed.rig.doc->addFunction(matrix));
+    auto *animation = addAnimation(bridge, vc, frame, matrix->id());
+    QVERIFY(animation);
+    ShowCommand command;
+    command.id = 40;
+    command.time = 1700;
+    command.controlId = animation->ensureRecordingId();
+    command.role = ShowControlRole::AnimationFader;
+    command.action = ShowCommandAction::SetAnimationContent;
+    const QString payload = name == "text" || name == "text choice"
+        ? QStringLiteral("{\"algorithm\":\"Text\",\"text\":\"before\",\"properties\":[]}")
+        : QStringLiteral("{\"algorithm\":\"Editor properties\",\"text\":\"\",\"properties\":["
+          "{\"name\":\"amount\",\"type\":\"Range\",\"value\":1},"
+          "{\"name\":\"caption\",\"type\":\"String\",\"value\":\"before\"},"
+          "{\"name\":\"mode\",\"type\":\"List\",\"value\":\"A\"},"
+          "{\"name\":\"spread\",\"type\":\"Float\",\"value\":0.5}]}");
+    QVERIFY(ShowCommandPayload::decode(command.action, payload, &command.payload));
+    if (name == "choice" || name == "text choice")
+    {
+        auto &content = std::get<ShowCommandContent>(command.payload.value);
+        content.choice = name == "text choice" ? animation->addTextPreset(QStringLiteral("before"))
+            : animation->addAlgorithmPreset(content.algorithm, {});
+        QCOMPARE(content.choice, 30);
+        QCOMPARE(name == "text choice" ? animation->addTextPreset(QStringLiteral("other"))
+            : animation->addAlgorithmPreset(content.algorithm, {}), 31);
+    }
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    if (edge == "passed")
+        QVERIFY(track.setExtent(12000));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40}));
+    QVERIFY2(ShowControlAction::readiness(animation, command).isEmpty(),
+             qPrintable(ShowControlAction::readiness(animation, command)));
+    const auto &acceptedContent = std::get<ShowCommandContent>(command.payload.value);
+    QVariantMap nativeProperties;
+    for (auto it = acceptedContent.properties.cbegin(); it != acceptedContent.properties.cend(); ++it)
+        nativeProperties.insert(it.key(), it->type == ShowCommandProperty::Type::Range || it->type == ShowCommandProperty::Type::Float
+            ? QString::number(it->number, 'g', 17) : it->text);
+    const int nativeChoice = acceptedContent.choice >= 0 ? acceptedContent.choice
+        : acceptedContent.algorithm == "Text" ? animation->addTextPreset(acceptedContent.text)
+        : animation->addAlgorithmPreset(acceptedContent.algorithm, nativeProperties);
+    QVERIFY(nativeChoice >= 0);
+    animation->applyPreset(quint8(nativeChoice));
+    QVERIFY(ed.startIndependentPlayback());
+    animation->requestUserFaderLevel(255);
+    ed.settleNative(10);
+    QVERIFY(matrix->isRunning());
+    QCOMPARE(animation->activePresetId(), nativeChoice);
+    if (edge == "passed")
+    {
+        ed.show->setSyncSource(ShowRunner::External);
+        playExternalFromZero(ed.show, ed.rig.doc);
+        ed.show->setExternalElapsedTime(1800);
+        ed.settleNative(10);
+        QCOMPARE(matrix->property("caption"), QStringLiteral("before"));
+        const int live = animation->addAlgorithmPreset("Editor properties",
+            {{"mode", "B"}, {"amount", 2}, {"spread", 0.25}, {"caption", "later live"}});
+        QVERIFY(live >= 0);
+        animation->requestUserPreset(live);
+        ed.settleNative(10);
+        QCOMPARE(matrix->property("caption"), QStringLiteral("later live"));
+    }
+    const auto nativeContent = ShowControlAction::observe(animation);
+    const QString nativeAlgorithm = matrix->algorithm()->name();
+    const QVector<QColor> nativeFrameColors = matrix->getColors();
+    const QString nativeText = dynamic_cast<RGBText *>(matrix->algorithm())
+        ? dynamic_cast<RGBText *>(matrix->algorithm())->text() : QString();
+    QMap<QString, QString> nativeFrameProperties;
+    for (auto it = nativeProperties.cbegin(); it != nativeProperties.cend(); ++it)
+        nativeFrameProperties.insert(it.key(), matrix->property(it.key()));
+    const auto verifyNativeFrame = [&]() {
+        qInfo() << "Content boundary draft open" << ed.rig.recorder->editSessionActive()
+                << "field" << name;
+        QCOMPARE(matrix->algorithm()->name(), nativeAlgorithm);
+        QCOMPARE(matrix->getColors(), nativeFrameColors);
+        const auto observed = ShowControlAction::observe(animation);
+        QCOMPARE(observed.algorithm, nativeContent.algorithm);
+        QCOMPARE(observed.text, nativeContent.text);
+        QCOMPARE(observed.properties, nativeContent.properties);
+        QCOMPARE(observed.choice, nativeContent.choice);
+        for (auto it = nativeFrameProperties.cbegin(); it != nativeFrameProperties.cend(); ++it)
+            QCOMPARE(matrix->property(it.key()), it.value());
+        if (nativeAlgorithm == "Text")
+        {
+            const auto *text = dynamic_cast<RGBText *>(matrix->algorithm());
+            QVERIFY(text);
+            QCOMPARE(text->text(), nativeText);
+        }
+        else
+        {
+            const auto universes = ed.rig.doc->inputOutputMap()->claimUniverses();
+            const auto release = qScopeGuard([&]() { ed.rig.doc->inputOutputMap()->releaseUniverses(false); });
+            QMutexLocker locker(&universes.first()->m_outputMutex);
+            const auto &output = universes.first()->m_lastPublishedFrame;
+            const QColor actual(quint8(output.at(65)), quint8(output.at(66)), quint8(output.at(67)));
+            qInfo() << "Native content Matrix" << matrix->id() << "Widget" << animation->recordingId()
+                    << "active output" << actual;
+            QCOMPARE(actual, QColor(16, 32, 48));
+        }
+    };
+    verifyNativeFrame();
+    const auto effects = ed.draftEffectSignals(animation);
+    QVERIFY(!effects.empty());
+    const int history = ed.settledHistory(), native = animation->algorithmIndex();
+    const quint32 elapsed = ed.show->elapsed();
+    const int serial = ed.rig.recorder->lastEditSerial();
+    QString path = name == "text choice" ? QStringLiteral("choice") : name;
+    if (name != "text" && name != "algorithm" && name != "choice" && name != "text choice")
+    {
+        const QVariantList properties = ed.rig.recorder->typedDraft(ed.show->id(), 40).value("properties").toList();
+        for (int i = 0; i < properties.count(); ++i)
+            if (properties[i].toMap().value("name").toString() == name)
+                path = QStringLiteral("properties.%1.value").arg(i);
+    }
+    const auto editField = [&]() {
+        auto *field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path);
+        if (field == nullptr)
+            return false;
+        field->forceActiveFocus();
+        if (name == "mode" || name == "algorithm")
+        {
+            if (field->property("count").toInt() < 2)
+                return false;
+            if (name == "mode")
+                QTest::keyClick(ed.rig.app.get(), Qt::Key_Down);
+            else
+            {
+                const QStringList names = animation->runtimeAlgorithms();
+                const int desired = names.indexOf(replacement);
+                if (desired < 0)
+                    return false;
+                QTest::keyClick(ed.rig.app.get(), Qt::Key_Home);
+                for (int i = 0; i < desired; ++i)
+                    QTest::keyClick(ed.rig.app.get(), Qt::Key_Down);
+            }
+        }
+        else
+            ed.type(replacement, Qt::Key_unknown);
+        return true;
+    };
+    const auto verifyShape = [&]() {
+        if (name != "algorithm")
+            return;
+        QTRY_VERIFY(!findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", QStringLiteral("properties.0.value")));
+        auto *algorithm = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", QStringLiteral("algorithm"));
+        QVERIFY(algorithm && algorithm->isEnabled());
+        QCOMPARE(algorithm->property("currentText").toString(), replacement);
+        auto *view = ed.item(QStringLiteral("recordingsView"));
+        const auto draft = [&]() { return view->property("typedValue").value<QJSValue>().toVariant(); };
+        const QVariant before = draft();
+        QVERIFY(QMetaObject::invokeMethod(view, "setTypedArgument",
+            Q_ARG(QVariant, QVariant(QVariantList{QStringLiteral("properties"), 0, QStringLiteral("value")})),
+            Q_ARG(QVariant, QVariant(9))));
+        QCOMPARE(draft(), before);
+        QVERIFY(draft().toMap().value("properties").toList().isEmpty());
+    };
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY((field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path)));
+    if (name == "mode")
+    {
+        QCOMPARE(field->property("count").toInt(), 2);
+        QCOMPARE(field->property("currentText").toString(), QStringLiteral("A"));
+    }
+    if (name == "amount" || name == "spread")
+    {
+        auto *stepper = findVisualItem(field->parentItem(), QStringLiteral("typedArgumentStepper"));
+        QVERIFY(stepper);
+        QCOMPARE(stepper->property("realFrom").toDouble(), name == "amount" ? 1.0 : 0.0);
+        QCOMPARE(stepper->property("realTo").toDouble(), name == "amount" ? 10.0 : 2.0);
+    }
+    QVERIFY(editField());
+    verifyShape();
+    ed.settleNative(10);
+    QVERIFY(ed.rig.recorder->editSessionActive());
+    verifyNativeFrame();
+    const quint64 draftRevision = ed.show->commandTrackRevision();
+    ed.advanceIndependentPlayback(150);
+    QCOMPARE(ed.independentOutput(), 50);
+    QVERIFY(ed.rig.recorder->setRecording(true));
+    ed.rig.manager->setCurrentTime(9000);
+    ed.button->requestUserStateChange(true);
+    ed.settleNative(2);
+    QVERIFY(ed.rig.recorder->setRecording(false));
+    QCOMPARE(ed.show->commandTrack().count(), 2);
+    const ShowCommand duringDraftCapture = ed.show->commandTrack().commands().last();
+    QCOMPARE(duringDraftCapture.controlId, ed.button->recordingId());
+    QVERIFY(duringDraftCapture.controlId != animation->recordingId());
+    QCOMPARE(duringDraftCapture.time, quint32(edge == "passed" ? 1800 : 9000));
+    QCOMPARE(duringDraftCapture.action, ShowCommandAction::SetButtonState);
+    QCOMPARE(ed.show->commandTrackRevision(), draftRevision + 1);
+    ed.advanceIndependentPlayback(250);
+    QCOMPARE(ed.independentOutput(), 150);
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(animation->algorithmIndex(), native);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    QCOMPARE(ed.settledHistory(), history);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(ed.command(duringDraftCapture.id), duringDraftCapture);
+    QCOMPARE(ed.independentOutput(), 150);
+    QCOMPARE(ed.independentShow->externalElapsedTime(), quint32(250));
+    QCOMPARE(ed.rig.recorder->lastEditSerial(), serial);
+    QCOMPARE(matrix->algorithm()->name(), nativeAlgorithm);
+    QCOMPARE(matrix->getColors(), nativeFrameColors);
+    verifyNativeFrame();
+    for (auto it = nativeFrameProperties.cbegin(); it != nativeFrameProperties.cend(); ++it)
+        QCOMPARE(matrix->property(it.key()), it.value());
+    for (const auto &effect : effects)
+        QCOMPARE(effect->count(), 0);
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QTRY_VERIFY(findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path));
+    QVERIFY(editField());
+    verifyShape();
+    ed.settleNative(10);
+    QVERIFY(ed.rig.recorder->editSessionActive());
+    verifyNativeFrame();
+    ShowCommand concurrent = command;
+    if (edge == "conflict")
+    {
+        std::get<ShowCommandContent>(concurrent.payload.value).text = QStringLiteral("independent selected edit");
+        ShowCommandTrack updated = ed.show->commandTrack();
+        QVERIFY(updated.replace(concurrent) && ed.show->setCommandTrack(updated));
+    }
+    if (edge == "metadata")
+    {
+        QFile metadata(QDir(ed.propertyScripts.path()).filePath(QStringLiteral("properties.js")));
+        QVERIFY(metadata.open(QIODevice::ReadOnly));
+        QByteArray script = metadata.readAll();
+        metadata.close();
+        if (name == "mode") script.replace("values:A,B", "values:A,B,C");
+        if (name == "amount") script.replace("values:1,10", "values:0,12");
+        if (name == "spread") script.replace("values:0,2", "values:-1,3");
+        QVERIFY(metadata.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(metadata.write(script), qint64(script.size()));
+        metadata.close();
+        QVERIFY2(ShowControlAction::readiness(animation, command).isEmpty(),
+                 "the old values still fit the changed current metadata");
+    }
+    auto *commit = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit"));
+    QVERIFY(commit);
+    if (edge == "invalid")
+    {
+        field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path);
+        QVERIFY(field);
+        field->forceActiveFocus();
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Return);
+    }
+    else
+        ed.click(commit);
+    if (edge == "invalid" || edge == "conflict" || edge == "metadata")
+    {
+        QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+        QCOMPARE(ed.command(40), concurrent);
+        QCOMPARE(ed.command(40).order, concurrent.order);
+        QCOMPARE(ed.settledHistory(), history);
+        QCOMPARE(ed.rig.recorder->lastEditSerial(), serial);
+        ed.settleNative(10);
+        if (edge == "conflict")
+        {
+            QCOMPARE(ed.rig.recorder->lastError(), QStringLiteral("Event 40 changed during this edit"));
+            QVERIFY(!ed.rig.recorder->editSessionActive());
+        }
+        else
+            QVERIFY(ed.rig.recorder->editSessionActive());
+        verifyNativeFrame();
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+        QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+        if (edge == "invalid" || edge == "metadata" || edge == "conflict")
+        {
+            QVERIFY(ed.doubleClick(40, "valueCell"));
+            QTRY_VERIFY((field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path)));
+            const QString corrected = edge == "invalid" ? name == "amount" ? QStringLiteral("7")
+                : QStringLiteral("1.25") : replacement;
+            if (edge == "invalid")
+            {
+                field->forceActiveFocus();
+                ed.type(corrected);
+            }
+            else
+            {
+                QVERIFY(editField());
+                ed.click(findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit")));
+            }
+            QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+            ShowCommand expected = concurrent;
+            auto &property = std::get<ShowCommandContent>(expected.payload.value).properties[name];
+            if (name == "amount" || name == "spread") property.number = corrected.toDouble();
+            else property.text = corrected;
+            QCOMPARE(ed.command(40), expected);
+            QCOMPARE(ed.command(40).order, concurrent.order);
+            QCOMPARE(ed.settledHistory(), history + 1);
+            QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + 1);
+            ed.tardis()->undoAction();
+            QTRY_COMPARE(ed.command(40), concurrent);
+            QCOMPARE(ed.command(40).order, concurrent.order);
+            ed.tardis()->redoAction();
+            QTRY_COMPARE(ed.command(40), expected);
+            QVERIFY(ed.doubleClick(40, "valueCell"));
+            ed.click(findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit")));
+            QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+            QCOMPARE(ed.command(40), expected);
+            QCOMPARE(ed.settledHistory(), history + 1);
+            QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + 1);
+        }
+    }
+    else
+    {
+        QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+        ShowCommand expected = command;
+        auto &content = std::get<ShowCommandContent>(expected.payload.value);
+        if (name == "algorithm")
+        {
+            content.algorithm = replacement;
+            content.properties.clear();
+        }
+        else if (name == "choice" || name == "text choice")
+            content.choice = 31;
+        else if (name == "text")
+            content.text = replacement;
+        else if (name == "amount" || name == "spread")
+            content.properties[name].number = replacement.toDouble();
+        else
+            content.properties[name].text = replacement;
+        QCOMPARE(ed.command(40), expected);
+        QCOMPARE(ed.command(40).order, command.order);
+        QCOMPARE(ed.settledHistory(), history + (edge == "noop" ? 0 : 1));
+        QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + (edge == "noop" ? 0 : 1));
+        if (edge != "noop")
+        {
+            ed.tardis()->undoAction();
+            QTRY_COMPARE(ed.command(40), command);
+            ed.tardis()->redoAction();
+            QTRY_COMPARE(ed.command(40), expected);
+        }
+        const int committedHistory = ed.settledHistory();
+        const int committedSerial = ed.rig.recorder->lastEditSerial();
+        QVERIFY(ed.doubleClick(40, "valueCell"));
+        auto *noopCommit = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit"));
+        QVERIFY(noopCommit);
+        ed.click(noopCommit);
+        QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+        QCOMPARE(ed.command(40), expected);
+        QCOMPARE(ed.settledHistory(), committedHistory);
+        QCOMPARE(ed.rig.recorder->lastEditSerial(), committedSerial);
+    }
+    QCOMPARE(animation->algorithmIndex(), native);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    const auto afterContent = ShowControlAction::observe(animation);
+    QCOMPARE(afterContent.algorithm, nativeContent.algorithm);
+    QCOMPARE(afterContent.text, nativeContent.text);
+    QCOMPARE(afterContent.properties, nativeContent.properties);
+    QCOMPARE(afterContent.choice, nativeContent.choice);
+    QCOMPARE(afterContent.colors, nativeContent.colors);
+    QCOMPARE(matrix->algorithm()->name(), nativeAlgorithm);
+    QCOMPARE(matrix->getColors(), nativeFrameColors);
+    verifyNativeFrame();
+    for (auto it = nativeFrameProperties.cbegin(); it != nativeFrameProperties.cend(); ++it)
+        QCOMPARE(matrix->property(it.key()), it.value());
+    for (const auto &effect : effects)
+        QCOMPARE(effect->count(), 0);
+    QCOMPARE(ed.command(duringDraftCapture.id), duringDraftCapture);
+    QCOMPARE(ed.independentOutput(), 150);
+    if (edge == "passed")
+    {
+        QCOMPARE(matrix->property("caption"), QStringLiteral("later live"));
+        ed.show->stop(FunctionParent::master());
+        ed.settleNative(10);
+        QCOMPARE(matrix->property("caption"), QStringLiteral("later live"));
+        auto future = ed.show->commandTrack();
+        QVERIFY(future.setExtent(12000) && ed.show->setCommandTrack(future));
+        playExternalFromZero(ed.show, ed.rig.doc);
+        ed.settleNative(10);
+        QVERIFY(ed.show->isRunning());
+        ed.show->setExternalElapsedTime(1800);
+        ed.settleNative(10);
+        QCOMPARE(matrix->property("caption"), QStringLiteral("frozen caption"));
+        QCOMPARE(matrix->property("amount"), QStringLiteral("1"));
+        QCOMPARE(matrix->property("spread").toDouble(), 0.5);
+        QCOMPARE(matrix->property("mode"), QStringLiteral("A"));
+        QCOMPARE(ed.command(duringDraftCapture.id), duringDraftCapture);
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_boundFields_data()
+{
+    QTest::addColumn<QString>("domain");
+    QTest::addColumn<QString>("path");
+    QTest::addColumn<QString>("replacement");
+    for (const QString &path : {QStringLiteral("pan"), QStringLiteral("tilt")})
+        QTest::newRow(qPrintable("fractional XY " + path)) << QStringLiteral("xy") << path << QStringLiteral("127.375");
+    for (const QString &path : {QStringLiteral("horizontal.0"), QStringLiteral("horizontal.1"),
+                               QStringLiteral("vertical.0"), QStringLiteral("vertical.1")})
+        QTest::newRow(qPrintable("range " + path)) << QStringLiteral("ranges") << path << QStringLiteral("127.375");
+    for (const QString &path : {QStringLiteral("rgb.0"), QStringLiteral("rgb.1"), QStringLiteral("rgb.2"),
+                               QStringLiteral("wauv.0"), QStringLiteral("wauv.1"), QStringLiteral("wauv.2"),
+                               QStringLiteral("brightness")})
+        QTest::newRow(qPrintable("compound color " + path)) << QStringLiteral("color") << path
+            << (path == "brightness" ? QStringLiteral("37.5") : QStringLiteral("127"));
+    for (const QString &path : {QStringLiteral("index"), QStringLiteral("rgb.0"), QStringLiteral("rgb.1"),
+                               QStringLiteral("rgb.2")})
+        QTest::newRow(qPrintable("Matrix replace " + path)) << QStringLiteral("matrix") << path
+            << (path == "index" ? QStringLiteral("4") : QStringLiteral("127"));
+    for (const QString &path : {QStringLiteral("index"), QStringLiteral("component"), QStringLiteral("value")})
+        QTest::newRow(qPrintable("Matrix component " + path)) << QStringLiteral("component") << path
+            << (path == "index" ? QStringLiteral("4") : path == "component" ? QStringLiteral("2") : QStringLiteral("127"));
+    QTest::newRow("Matrix reset slot") << QStringLiteral("reset") << QStringLiteral("index") << QStringLiteral("4");
+    QTest::newRow("Matrix reset operation") << QStringLiteral("matrix") << QStringLiteral("operation") << QStringLiteral("reset");
+    QTest::newRow("Matrix valid black") << QStringLiteral("reset") << QStringLiteral("operation") << QStringLiteral("replace");
+    QTest::newRow("Matrix optional choice") << QStringLiteral("matrixChoice") << QStringLiteral("choice") << QStringLiteral("31");
+    for (const QString &domain : {QStringLiteral("position"), QStringLiteral("function"), QStringLiteral("group")})
+    {
+        QTest::newRow(qPrintable(domain + " choice")) << domain << QStringLiteral("choice") << QStringLiteral("17");
+        QTest::newRow(qPrintable(domain + " active")) << domain << QStringLiteral("active") << QStringLiteral("false");
+    }
+    QTest::newRow("position choice pan") << QStringLiteral("position") << QStringLiteral("point.0") << QStringLiteral("127.375");
+    QTest::newRow("position choice tilt") << QStringLiteral("position") << QStringLiteral("point.1") << QStringLiteral("127.375");
+    QTest::newRow("passed typed XY later live") << QStringLiteral("xyPassed") << QStringLiteral("pan") << QStringLiteral("127.375");
+    QTest::newRow("passed typed color later live") << QStringLiteral("colorPassed") << QStringLiteral("rgb.0") << QStringLiteral("127");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_boundFields()
+{
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("(ShowCommandList|VCAnimationItem|ColorToolFull)\\.qml.*(TypeError|ReferenceError)|CustomComboBox\\.qml.*Binding loop")));
+    QFETCH(QString, domain);
+    QFETCH(QString, path);
+    QFETCH(QString, replacement);
+    const bool passed = domain.endsWith("Passed");
+    if (passed)
+        domain.chop(6);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    const auto drainCapture = qScopeGuard([&]() {
+        ed.button->requestUserStateChange(false);
+        ed.settleNative(5);
+    });
+    auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+    VCBridgeV5 bridge(ed.rig.doc, vc);
+    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Bound fields"), false);
+    VCWidget *control = nullptr;
+    ShowCommand command;
+    command.id = 40;
+    command.time = 1700;
+    if (domain == "color")
+    {
+        auto *fixture = addRgbTarget(ed.rig.doc, &definitions, QStringLiteral("Color fixture"), 32, true);
+        QVERIFY(fixture);
+        auto *slider = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(100, 10, 60, 200),
+            QStringLiteral("level"), QStringLiteral("Native color"), Function::invalidId(), {})));
+        QVERIFY(slider);
+        slider->setClickAndGoType(VCSlider::CnGColors);
+        for (quint32 channel = 0; channel < fixture->channels(); ++channel)
+            slider->addLevelChannel(fixture->id(), channel);
+        control = slider;
+        command.action = ShowCommandAction::SetSliderColors;
+        command.role = ShowControlRole::LevelSlider;
+        command.position = .5;
+        command.payload.value = ShowCommandColors{12, 34, 56, 78, 90, 123};
+    }
+    else if (domain == "matrix" || domain == "component" || domain == "reset" || domain == "matrixChoice")
+    {
+        auto *matrix = new RGBMatrix(ed.rig.doc);
+        if (domain == "matrixChoice")
+        {
+            QVERIFY(configureMatrixForPlayback(ed.rig.doc, matrix, &definitions));
+            matrix->setControlMode(RGBMatrix::ControlModeRgb);
+            auto *mode = definitions.last()->mode(QStringLiteral("Basic"));
+            QLCFixtureHead rgbHead;
+            for (quint32 channel = 0; channel < 4; ++channel)
+            {
+                rgbHead.addChannel(channel);
+                if (channel != 0)
+                    mode->channel(channel)->setGroup(QLCChannel::Intensity);
+            }
+            rgbHead.cacheChannels(mode);
+            mode->replaceHead(0, rgbHead);
+            mode->cacheHeads();
+            QCOMPARE(mode->heads().first().rgbChannels(), (QVector<quint32>{1, 2, 3}));
+            matrix->setDuration(100);
+            matrix->setFadeInSpeed(0);
+            matrix->setFadeOutSpeed(0);
+            matrix->setRunOrder(Function::Loop);
+        }
+        QVERIFY(ed.rig.doc->addFunction(matrix));
+        control = addAnimation(bridge, vc, frame, matrix->id());
+        QVERIFY(control);
+        command.action = ShowCommandAction::SetAnimationColor;
+        command.role = ShowControlRole::AnimationFader;
+        ShowCommandMatrixColor color;
+        color.index = 0;
+        color.color = {12, 34, 56, 0, 0, 0};
+        if (domain == "matrixChoice")
+        {
+            auto *animation = qobject_cast<VCAnimation *>(control);
+            color.choice = animation->addColorPreset(0, QColor(12, 34, 56));
+            QCOMPARE(color.choice, 30);
+            QCOMPARE(animation->addColorPreset(0, QColor(56, 34, 12)), 31);
+        }
+        if (domain == "reset")
+        {
+            color.operation = ShowCommandMatrixColor::Operation::Reset;
+            color.color = {};
+        }
+        if (domain == "component")
+        {
+            color.operation = ShowCommandMatrixColor::Operation::Component;
+            color.color = {};
+            color.component = 1;
+            color.value = 128;
+        }
+        command.payload.value = color;
+    }
+    else
+    {
+        auto *pad = addXYPad(bridge, vc, frame);
+        QVERIFY(pad);
+        auto *fixture = addMoverTarget(ed.rig.doc, &definitions, QStringLiteral("Native mover"), 64);
+        QVERIFY(fixture);
+        pad->addFixture(QVariant::fromValue(fixture));
+        control = pad;
+        command.role = ShowControlRole::XYPad;
+        if (domain == "xy")
+        {
+            command.action = ShowCommandAction::SetXYPadPosition;
+            command.payload.value = ShowCommandPanTilt{64.5, 192.25};
+        }
+        else if (domain == "ranges")
+        {
+            command.action = ShowCommandAction::SetXYPadRanges;
+            command.payload.value = ShowCommandRanges{{200.5, 40.25}, {30.125, 180.75}};
+        }
+        else
+        {
+            ShowCommandChoice choice;
+            choice.active = true;
+            if (domain == "position")
+            {
+                command.action = ShowCommandAction::SetXYPadPositionPreset;
+                choice.point = {64.5, 192.25};
+                choice.choice = pad->addPositionPreset();
+                QCOMPARE(pad->addPositionPreset(), 17);
+            }
+            else if (domain == "function")
+            {
+                command.action = ShowCommandAction::SetXYPadFunctionPreset;
+                ed.scene->setValue(SceneValue(fixture->id(), 0, 100));
+                choice.choice = pad->addFunctionPreset(ed.scene->id());
+                auto *other = new Scene(ed.rig.doc);
+                other->setValue(SceneValue(fixture->id(), 0, 150));
+                QVERIFY(ed.rig.doc->addFunction(other));
+                QCOMPARE(pad->addFunctionPreset(other->id()), 17);
+            }
+            else
+            {
+                command.action = ShowCommandAction::SetXYPadGroupPreset;
+                choice.choice = pad->addFixtureGroupHeadPreset(fixture->id(), 0);
+                auto *other = addMoverTarget(ed.rig.doc, &definitions, QStringLiteral("Other mover"), 80);
+                QVERIFY(other);
+                pad->addFixture(QVariant::fromValue(other));
+                QCOMPARE(pad->addFixtureGroupHeadPreset(other->id(), 0), 17);
+            }
+            QCOMPARE(choice.choice, 16);
+            command.payload.value = choice;
+        }
+    }
+    command.controlId = control->ensureRecordingId();
+    QVERIFY2(ShowControlAction::readiness(control, command).isEmpty(),
+             qPrintable(ShowControlAction::readiness(control, command)));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    if (passed)
+        QVERIFY(track.setExtent(12000));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40}));
+    QVERIFY(ed.startIndependentPlayback());
+    if (auto *pad = qobject_cast<VCXYPad *>(control))
+    {
+        if (const auto *choice = std::get_if<ShowCommandChoice>(&command.payload.value))
+            pad->applyPreset(quint8(choice->choice));
+    }
+    else if (auto *animation = qobject_cast<VCAnimation *>(control))
+    {
+        if (const auto *color = std::get_if<ShowCommandMatrixColor>(&command.payload.value); color->choice >= 0)
+        {
+            animation->applyPreset(quint8(color->choice));
+            animation->requestUserFaderLevel(255);
+        }
+    }
+    ed.settleNative(5);
+    if (passed)
+    {
+        ed.show->setSyncSource(ShowRunner::External);
+        playExternalFromZero(ed.show, ed.rig.doc);
+        ed.show->setExternalElapsedTime(1800);
+        ed.settleNative(10);
+        if (domain == "xy")
+        {
+            auto *pad = qobject_cast<VCXYPad *>(control);
+            QCOMPARE(pad->currentPosition(), QPointF(64.5, 192.25));
+            pad->requestUserCurrentPosition(QPointF(200.5, 201.25));
+        }
+        else
+        {
+            auto *slider = qobject_cast<VCSlider *>(control);
+            QCOMPARE(slider->cngPrimaryColor(), QColor(12, 34, 56));
+            slider->requestUserClickAndGoColors(QColor(80, 90, 100), QColor(110, 120, 130));
+        }
+        ed.settleNative(10);
+    }
+    const auto native = ShowControlAction::observe(control);
+    const auto verifyMatrixFrame = [&]() {
+        if (domain != "matrixChoice")
+            return;
+        auto *animation = qobject_cast<VCAnimation *>(control);
+        auto *matrix = qobject_cast<RGBMatrix *>(ed.rig.doc->function(animation->functionID()));
+        QVERIFY(matrix && matrix->isRunning());
+        QCOMPARE(animation->activePresetId(), 30);
+        QCOMPARE(animation->colorAt(0), QColor(12, 34, 56));
+        QCOMPARE(matrix->getColors().first(), QColor(12, 34, 56));
+        const auto universes = ed.rig.doc->inputOutputMap()->claimUniverses();
+        const auto release = qScopeGuard([&]() { ed.rig.doc->inputOutputMap()->releaseUniverses(false); });
+        QMutexLocker locker(&universes.first()->m_outputMutex);
+        const auto &output = universes.first()->m_lastPublishedFrame;
+        const QColor actual(quint8(output.at(65)), quint8(output.at(66)), quint8(output.at(67)));
+        qInfo() << "Matrix choice boundary draft open" << ed.rig.recorder->editSessionActive()
+                << "published output" << actual;
+        QCOMPARE(actual, QColor(12, 34, 56));
+    };
+    verifyMatrixFrame();
+    const auto effects = ed.draftEffectSignals(control);
+    QVERIFY(!effects.empty());
+    const quint32 elapsed = ed.show->elapsed();
+    const int history = ed.settledHistory();
+    const auto edit = [&]() {
+        auto *field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path);
+        if (field == nullptr)
+            return false;
+        field->forceActiveFocus();
+        if (path == "active")
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+        else if (path == "operation")
+            QTest::keyClick(ed.rig.app.get(), replacement == "reset" ? Qt::Key_Down : Qt::Key_Up);
+        else
+            ed.type(replacement, Qt::Key_unknown);
+        return true;
+    };
+    const auto verifyShape = [&]() {
+        if (path != "operation")
+            return;
+        if (replacement == "reset")
+            QTRY_VERIFY(!findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", QStringLiteral("rgb.0")));
+        auto *view = ed.item(QStringLiteral("recordingsView"));
+        const auto draft = [&]() { return view->property("typedValue").value<QJSValue>().toVariant(); };
+        const QVariant before = draft();
+        QList<QVariantList> removed{{QStringLiteral("component")}, {QStringLiteral("value")}};
+        if (replacement == "reset")
+            removed.append(QVariantList{QStringLiteral("rgb"), 0});
+        for (const auto &argument : removed)
+        {
+            QVERIFY(QMetaObject::invokeMethod(view, "setTypedArgument",
+                Q_ARG(QVariant, QVariant(argument)), Q_ARG(QVariant, QVariant(127))));
+            QCOMPARE(draft(), before);
+        }
+        auto *index = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", QStringLiteral("index"));
+        QVERIFY(index && index->isEnabled());
+        index->forceActiveFocus();
+        ed.type(QStringLiteral("4"), Qt::Key_unknown);
+        QCOMPARE(draft().toMap().value("index").toInt(), 4);
+    };
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QTRY_VERIFY(findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path));
+    const quint64 draftRevision = ed.show->commandTrackRevision();
+    const quint32 draftExtent = ed.show->commandTrack().extent();
+    const int draftSerial = ed.rig.recorder->lastEditSerial();
+    ed.advanceIndependentPlayback(150);
+    QCOMPARE(ed.independentShow->externalElapsedTime(), quint32(150));
+    QCOMPARE(ed.independentOutput(), 50);
+    if (domain == "ranges" && path == "horizontal.0")
+    {
+        auto *range = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedDraftRange"));
+        QVERIFY(range);
+        ed.click(range);
+    }
+    if ((domain == "color" || domain == "matrix") && path == "rgb.0")
+    {
+        auto *colors = ed.item(QStringLiteral("typedDraftColors"));
+        QVERIFY(colors);
+        auto *canvas = findVisualItem(colors, QStringLiteral("colorToolCanvas"));
+        QVERIFY(canvas);
+        const QPoint point = canvas->mapToScene(QPointF(canvas->width() * .2, canvas->height() * .3)).toPoint();
+        const QVariant before = ed.item(QStringLiteral("recordingsView"))->property("typedValue").value<QJSValue>().toVariant();
+        QTest::mousePress(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, point);
+        QTest::mouseMove(ed.rig.app.get(), point + QPoint(30, 15), 50);
+        QTest::mouseRelease(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, point + QPoint(30, 15));
+        QVERIFY(ed.item(QStringLiteral("recordingsView"))->property("typedValue").value<QJSValue>().toVariant() != before);
+    }
+    QVERIFY(edit());
+    verifyShape();
+    if (domain == "matrixChoice")
+    {
+        ed.settleNative(10);
+        QVERIFY(ed.rig.recorder->editSessionActive());
+        verifyMatrixFrame();
+    }
+    QCOMPARE(ed.show->commandTrackRevision(), draftRevision);
+    QCOMPARE(ed.show->commandTrack().extent(), draftExtent);
+    QCOMPARE(ed.rig.recorder->lastEditSerial(), draftSerial);
+    for (const auto &effect : effects)
+        QCOMPARE(effect->count(), 0);
+    QVERIFY(ed.rig.recorder->setRecording(true));
+    ed.rig.manager->setCurrentTime(9000);
+    ed.button->requestUserStateChange(true);
+    ed.settleNative(2);
+    QVERIFY(ed.rig.recorder->setRecording(false));
+    QCOMPARE(ed.show->commandTrack().count(), 2);
+    const ShowCommand duringDraftCapture = ed.show->commandTrack().commands().last();
+    QCOMPARE(duringDraftCapture.controlId, ed.button->recordingId());
+    QVERIFY(duringDraftCapture.controlId != control->recordingId());
+    QCOMPARE(duringDraftCapture.time, quint32(passed ? 1800 : 9000));
+    QCOMPARE(duringDraftCapture.action, ShowCommandAction::SetButtonState);
+    QCOMPARE(ed.show->commandTrackRevision(), draftRevision + 1);
+    ed.advanceIndependentPlayback(250);
+    QCOMPARE(ed.independentOutput(), 150);
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(ed.settledHistory(), history);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    QCOMPARE(ShowControlAction::observe(control).point, native.point);
+    QCOMPARE(ShowControlAction::observe(control).colors, native.colors);
+    QCOMPARE(ShowControlAction::observe(control).choice, native.choice);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    verifyMatrixFrame();
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(ed.command(duringDraftCapture.id), duringDraftCapture);
+    QCOMPARE(ed.independentOutput(), 150);
+    QCOMPARE(ed.independentShow->externalElapsedTime(), quint32(250));
+    QCOMPARE(ed.rig.recorder->lastEditSerial(), draftSerial);
+    ed.button->requestUserStateChange(false);
+    ed.settleNative(2);
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QTRY_VERIFY(findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path));
+    QVERIFY(edit());
+    verifyShape();
+    if (domain == "matrixChoice")
+    {
+        ed.settleNative(10);
+        QVERIFY(ed.rig.recorder->editSessionActive());
+        verifyMatrixFrame();
+    }
+    auto *commit = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit"));
+    QVERIFY(commit);
+    ed.click(commit);
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    verifyMatrixFrame();
+    ShowCommand expected = command;
+    const double value = replacement.toDouble();
+    if (auto *point = std::get_if<ShowCommandPanTilt>(&expected.payload.value))
+    {
+        if (path == "pan") point->pan = value;
+        else point->tilt = value;
+    }
+    if (auto *ranges = std::get_if<ShowCommandRanges>(&expected.payload.value))
+    {
+        if (path == "horizontal.0") ranges->horizontal.pan = value;
+        if (path == "horizontal.1") ranges->horizontal.tilt = value;
+        if (path == "vertical.0") ranges->vertical.pan = value;
+        if (path == "vertical.1") ranges->vertical.tilt = value;
+    }
+    if (auto *color = std::get_if<ShowCommandColors>(&expected.payload.value))
+    {
+        if (path == "rgb.0") color->red = 127;
+        if (path == "rgb.1") color->green = 127;
+        if (path == "rgb.2") color->blue = 127;
+        if (path == "wauv.0") color->white = 127;
+        if (path == "wauv.1") color->amber = 127;
+        if (path == "wauv.2") color->ultraviolet = 127;
+        if (path == "brightness") expected.position = .375;
+    }
+    if (auto *color = std::get_if<ShowCommandMatrixColor>(&expected.payload.value))
+    {
+        if (path == "choice") color->choice = 31;
+        if (path == "index") color->index = 4;
+        if (path == "component") color->component = 2;
+        if (path == "value") color->value = 127;
+        if (path == "rgb.0") color->color.red = 127;
+        if (path == "rgb.1") color->color.green = 127;
+        if (path == "rgb.2") color->color.blue = 127;
+        if (path == "operation")
+        {
+            color->index = 4;
+            color->operation = replacement == "reset" ? ShowCommandMatrixColor::Operation::Reset
+                                                     : ShowCommandMatrixColor::Operation::Replace;
+            color->color = {};
+        }
+    }
+    if (auto *choice = std::get_if<ShowCommandChoice>(&expected.payload.value))
+    {
+        if (path == "choice") choice->choice = 17;
+        if (path == "active") choice->active = false;
+        if (path == "point.0") choice->point.pan = value;
+        if (path == "point.1") choice->point.tilt = value;
+    }
+    QCOMPARE(ed.command(40), expected);
+    QCOMPARE(ed.command(40).order, command.order);
+    QCOMPARE(ed.settledHistory(), history + 1);
+    QVERIFY(ed.rig.recorder->setRecording(true));
+    ed.rig.manager->setCurrentTime(9000);
+    ed.button->requestUserStateChange(true);
+    ed.settleNative(2);
+    QVERIFY(ed.rig.recorder->setRecording(false));
+    const ShowCommand capture = ed.show->commandTrack().commands().last();
+    QVERIFY(capture.id != 40);
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(ed.command(40), command);
+    QCOMPARE(ed.command(capture.id), capture);
+    ed.tardis()->redoAction();
+    QTRY_COMPARE(ed.command(40), expected);
+    QCOMPARE(ed.command(capture.id), capture);
+    const int committedHistory = ed.settledHistory();
+    const int committedSerial = ed.rig.recorder->lastEditSerial();
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    auto *noopCommit = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit"));
+    QVERIFY(noopCommit);
+    ed.click(noopCommit);
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    QCOMPARE(ed.command(40), expected);
+    QCOMPARE(ed.settledHistory(), committedHistory);
+    QCOMPARE(ed.rig.recorder->lastEditSerial(), committedSerial);
+    if (path != "operation" && path != "active")
+    {
+        QVERIFY(ed.doubleClick(40, "valueCell"));
+        QQuickItem *field = nullptr;
+        QTRY_VERIFY((field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path)));
+        field->forceActiveFocus();
+        ed.type(QStringLiteral("bad"));
+        QVERIFY(ed.rig.recorder->editSessionActive());
+        QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+        QCOMPARE(ed.command(40), expected);
+        QCOMPARE(ed.command(capture.id), capture);
+        QCOMPARE(ed.settledHistory(), committedHistory);
+        QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+        QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    }
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    QCOMPARE(ShowControlAction::observe(control).point, native.point);
+    QCOMPARE(ShowControlAction::observe(control).colors, native.colors);
+    QCOMPARE(ShowControlAction::observe(control).choice, native.choice);
+    QCOMPARE(ShowControlAction::observe(control).horizontal, native.horizontal);
+    QCOMPARE(ShowControlAction::observe(control).vertical, native.vertical);
+    QCOMPARE(ShowControlAction::observe(control).floor, native.floor);
+    QCOMPARE(ShowControlAction::observe(control).headEnabled, native.headEnabled);
+    QCOMPARE(ed.command(duringDraftCapture.id), duringDraftCapture);
+    QCOMPARE(ed.independentOutput(), 150);
+    QCOMPARE(ShowControlAction::observe(control).scalar, native.scalar);
+    QCOMPARE(ShowControlAction::observe(control).floorMode, native.floorMode);
+    QCOMPARE(ShowControlAction::observe(control).floorSize, native.floorSize);
+    QCOMPARE(ShowControlAction::observe(control).choiceOwner, native.choiceOwner);
+    for (const auto &effect : effects)
+        QCOMPARE(effect->count(), 0);
+    if (passed)
+    {
+        ed.show->stop(FunctionParent::master());
+        ed.settleNative(10);
+        QCOMPARE(ShowControlAction::observe(control).point, native.point);
+        QCOMPARE(ShowControlAction::observe(control).colors, native.colors);
+        auto future = ed.show->commandTrack();
+        QVERIFY(future.setExtent(12000) && ed.show->setCommandTrack(future));
+        playExternalFromZero(ed.show, ed.rig.doc);
+        ed.settleNative(10);
+        QVERIFY(ed.show->isRunning());
+        ed.show->setExternalElapsedTime(1800);
+        ed.settleNative(10);
+        if (domain == "xy")
+            QCOMPARE(qobject_cast<VCXYPad *>(control)->currentPosition(), QPointF(127.375, 192.25));
+        else
+        {
+            auto *slider = qobject_cast<VCSlider *>(control);
+            QCOMPARE(slider->cngPrimaryColor(), QColor(127, 34, 56));
+            QCOMPARE(slider->cngSecondaryColor(), QColor(78, 90, 123));
+        }
+        QCOMPARE(ed.command(duringDraftCapture.id), duringDraftCapture);
+    }
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_typedHistoryKeepsPayload_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("payload");
+    QTest::addColumn<bool>("nativeBound");
+    const auto row = [](const char *name, const QString &action, const QString &payload) {
+        QTest::newRow(name) << action << payload << false;
+        QTest::newRow(qPrintable(QString::fromLatin1(name) + " native bound")) << action << payload << true;
+    };
+    row("RGB/WAUV", QStringLiteral("SetSliderColors"), QStringLiteral("10,20,30;40,50,60"));
+    row("fractional Pan/Tilt", QStringLiteral("SetXYPadPosition"), QStringLiteral("64.5,192.25"));
+    row("precise Pan/Tilt", QStringLiteral("SetXYPadPosition"),
+        QStringLiteral("64.12345678901234,192.1234567890123"));
+    row("metre XYZ", QStringLiteral("SetXYPadFloor"), QStringLiteral("7.25,1.75,4.125"));
+    row("reversed ranges", QStringLiteral("SetXYPadRanges"),
+        QStringLiteral("{\"horizontal\":[200.5,40.25],\"vertical\":[30.125,180.75]}"));
+    row("native choice", QStringLiteral("SetXYPadPositionPreset"),
+        QStringLiteral("{\"choice\":3,\"active\":true,\"point\":[64.5,192.25]}"));
+    row("inactive position choice", QStringLiteral("SetXYPadPositionPreset"),
+        QStringLiteral("{\"choice\":3,\"active\":false,\"point\":[64.12345678901234,192.1234567890123]}"));
+    row("Function choice", QStringLiteral("SetXYPadFunctionPreset"),
+        QStringLiteral("{\"choice\":3,\"active\":true}"));
+    row("inactive Function choice", QStringLiteral("SetXYPadFunctionPreset"),
+        QStringLiteral("{\"choice\":3,\"active\":false}"));
+    row("group choice", QStringLiteral("SetXYPadGroupPreset"),
+        QStringLiteral("{\"choice\":4,\"active\":true}"));
+    row("inactive group choice", QStringLiteral("SetXYPadGroupPreset"),
+        QStringLiteral("{\"choice\":4,\"active\":false}"));
+    row("Matrix component", QStringLiteral("SetAnimationColor"),
+        QStringLiteral("{\"index\":3,\"operation\":\"component\",\"component\":2,\"value\":128}"));
+    row("Matrix black choice", QStringLiteral("SetAnimationColor"),
+        QStringLiteral("{\"index\":2,\"operation\":\"replace\",\"rgb\":[0,0,0],\"choice\":3}"));
+    row("Matrix reset", QStringLiteral("SetAnimationColor"),
+        QStringLiteral("{\"index\":4,\"operation\":\"reset\"}"));
+    row("complete content", QStringLiteral("SetAnimationContent"),
+        QStringLiteral("{\"algorithm\":\"Unresolved\",\"text\":\"line\\n<two>\",\"properties\":["
+                          "{\"name\":\"Mode\",\"type\":\"List\",\"value\":\"named\"},"
+                          "{\"name\":\"Amount\",\"type\":\"Range\",\"value\":7},"
+                          "{\"name\":\"Spread\",\"type\":\"Float\",\"value\":1.25},"
+                          "{\"name\":\"Caption\",\"type\":\"String\",\"value\":\"<escaped>\"}]}"));
+    row("channel", QStringLiteral("SetSliderChannel"),
+        QStringLiteral("{\"binding\":\"Intensity\",\"value\":128}"));
+    row("raw channel zero", QStringLiteral("SetSliderChannel"),
+        QStringLiteral("{\"binding\":\"Intensity\",\"value\":0}"));
+    row("raw channel full", QStringLiteral("SetSliderChannel"),
+        QStringLiteral("{\"binding\":\"Intensity\",\"value\":255}"));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_typedHistoryKeepsPayload()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, payload);
+    QFETCH(bool, nativeBound);
+    QTest::failOnWarning(QRegularExpression(QStringLiteral("(ShowCommandList|VCAnimationItem|ColorToolFull)\\.qml.*(TypeError|ReferenceError)|CustomComboBox\\.qml.*Binding loop")));
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    ShowCommand command;
+    command.id = 40;
+    command.time = 600;
+    command.controlId = QUuid::createUuid();
+    command.role = action == "SetSliderColors" ? ShowControlRole::LevelSlider :
+                   action == "SetSliderChannel" ? ShowControlRole::AdjustSlider :
+                   action.startsWith("SetAnimation") ? ShowControlRole::AnimationFader : ShowControlRole::XYPad;
+    command.position = action == "SetSliderColors" ? qreal(128) / 255 : 0;
+    QVERIFY(ShowCommand::actionFromString(action, &command.action));
+    QVERIFY(ShowCommandPayload::decode(command.action, payload, &command.payload));
+    VCWidget *nativeControl = nullptr;
+    if (nativeBound)
+    {
+        nativeControl = bindEditorCommand(ed, &command, &definitions);
+        QVERIFY(nativeControl);
+        QVERIFY2(ShowControlAction::readiness(nativeControl, command).isEmpty(),
+                 qPrintable(ShowControlAction::readiness(nativeControl, command)));
+    }
+    ShowCommand on = ShowCommand::setButtonState(50, 500, QUuid::createUuid(), true);
+    on.role = ShowControlRole::FlashButton;
+    if (nativeBound)
+    {
+        auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
+        VCBridgeV5 bridge(ed.rig.doc, vc);
+        auto *flash = qobject_cast<VCButton *>(vc->widget(bridge.addButton(0, QRect(10, 10, 80, 40),
+            ed.scene->id(), QStringLiteral("History hold"), QStringLiteral("flash"))));
+        QVERIFY(flash);
+        on.controlId = flash->ensureRecordingId();
+    }
+    ShowCommand off = on;
+    on.pairId = 1;
+    off.id = 51;
+    off.time = 800;
+    off.on = false;
+    off.pairId = 1;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(on) && track.insert(command) && track.insert(off));
+    QVERIFY(ed.show->setCommandTrack(track));
+    QVERIFY(ed.openRecordings());
+    const quint32 show = ed.show->id();
+    auto *recorder = ed.rig.recorder;
+    command.order = ed.command(40).order;
+    const ShowCommand beforeUi = command;
+    if (nativeBound)
+    {
+        ed.rig.realTimer = true;
+        ed.rig.doc->masterTimer()->start();
+        const auto native = ShowControlAction::observe(nativeControl);
+        QString path, replacement;
+        if (auto *colors = std::get_if<ShowCommandColors>(&command.payload.value))
+        {
+            path = "wauv.2"; replacement = "127"; colors->ultraviolet = 127;
+        }
+        else if (auto *point = std::get_if<ShowCommandPanTilt>(&command.payload.value))
+        {
+            path = "tilt"; replacement = "127.1234567890123"; point->tilt = 127.1234567890123;
+        }
+        else if (auto *point = std::get_if<ShowCommandFloor>(&command.payload.value))
+        {
+            path = "y"; replacement = "2.125"; point->y = 2.125;
+        }
+        else if (auto *ranges = std::get_if<ShowCommandRanges>(&command.payload.value))
+        {
+            path = "vertical.1"; replacement = "127.375"; ranges->vertical.tilt = 127.375;
+        }
+        else if (auto *choice = std::get_if<ShowCommandChoice>(&command.payload.value))
+        {
+            path = "active"; choice->active = !choice->active;
+        }
+        else if (auto *color = std::get_if<ShowCommandMatrixColor>(&command.payload.value))
+        {
+            path = "index"; replacement = "1"; color->index = 1;
+            if (color->choice >= 0)
+            {
+                path = "rgb.0"; replacement = "127"; color->index = 2; color->color.red = 127;
+            }
+        }
+        else if (auto *content = std::get_if<ShowCommandContent>(&command.payload.value))
+        {
+            path = "properties.1.value"; replacement = "typed <caption>";
+            content->properties["caption"].text = replacement;
+        }
+        else if (auto *channel = std::get_if<ShowCommandChannel>(&command.payload.value))
+        {
+            path = "value"; replacement = "64"; channel->value = 64;
+        }
+        QVERIFY(!path.isEmpty());
+        const int uiHistory = ed.settledHistory(), uiSerial = recorder->lastEditSerial();
+        QVERIFY(ed.doubleClick(40, "valueCell"));
+        QQuickItem *field = nullptr;
+        QTRY_VERIFY((field = findVisualItemWith(ed.rig.app->contentItem(), "argumentPath", path)));
+        field->forceActiveFocus();
+        if (path == "active")
+            QTest::keyClick(ed.rig.app.get(), Qt::Key_Space);
+        else
+            ed.type(replacement, Qt::Key_unknown);
+        auto *commit = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit"));
+        QVERIFY(commit);
+        ed.click(commit);
+        QTRY_VERIFY(!recorder->editSessionActive());
+        QCOMPARE(ed.command(40), command);
+        QCOMPARE(ed.command(40).order, command.order);
+        QCOMPARE(ed.settledHistory(), uiHistory + 1);
+        QCOMPARE(recorder->lastEditSerial(), uiSerial + 1);
+        QVERIFY(ed.doubleClick(40, "valueCell"));
+        commit = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit"));
+        QVERIFY(commit);
+        ed.click(commit);
+        QTRY_VERIFY(!recorder->editSessionActive());
+        QCOMPARE(ed.settledHistory(), uiHistory + 1);
+        QCOMPARE(recorder->lastEditSerial(), uiSerial + 1);
+        const auto after = ShowControlAction::observe(nativeControl);
+        QCOMPARE(after.point, native.point);
+        QCOMPARE(after.floor, native.floor);
+        QCOMPARE(after.horizontal, native.horizontal);
+        QCOMPARE(after.vertical, native.vertical);
+        QCOMPARE(after.colors, native.colors);
+        QCOMPARE(after.choice, native.choice);
+        QCOMPARE(after.algorithm, native.algorithm);
+        QCOMPARE(after.text, native.text);
+        QCOMPARE(after.properties, native.properties);
+    }
+    const int history = ed.settledHistory();
+    QVERIFY(recorder->copyCommands(show, {40, 50, 51}));
+    const QVariantList pasted = recorder->pasteCommands(show, 5000);
+    QCOMPARE(pasted.count(), 3);
+    QCOMPARE(ed.settledHistory(), history + 1);
+    const ShowCommandTrack copied = ed.show->commandTrack();
+    const quint32 contentId = pasted[1].toUInt();
+    ShowCommand expected = command;
+    expected.id = contentId;
+    expected.time = 5100;
+    expected.order = ed.command(contentId).order;
+    QCOMPARE(ed.command(contentId), expected);
+    QVERIFY(ed.command(pasted.first().toUInt()).pairId != on.pairId);
+    QCOMPARE(ed.command(pasted.first().toUInt()).pairId, ed.command(pasted.last().toUInt()).pairId);
+    QVERIFY(recorder->setRecording(true));
+    ed.rig.manager->setCurrentTime(9000);
+    ed.button->requestUserStateChange(true);
+    QVERIFY(recorder->setRecording(false));
+    const ShowCommand capture = ed.show->commandTrack().commands().last();
+    QVERIFY(capture.id != contentId);
+    ed.tardis()->undoAction();
+    QVERIFY(ed.show->commandTrack().indexOfId(contentId) < 0);
+    QCOMPARE(ed.command(capture.id), capture);
+    if (nativeBound)
+    {
+        ed.tardis()->undoAction();
+        QTRY_COMPARE(ed.command(40), beforeUi);
+        QCOMPARE(ed.command(40).order, beforeUi.order);
+        QCOMPARE(ed.command(capture.id), capture);
+        ed.tardis()->redoAction();
+        QTRY_COMPARE(ed.command(40), command);
+        QCOMPARE(ed.command(capture.id), capture);
+    }
+    ed.tardis()->redoAction();
+    QCOMPARE(ed.command(contentId), copied.commands()[copied.indexOfId(contentId)]);
+    QCOMPARE(ed.command(capture.id), capture);
+    QVERIFY(recorder->moveCommands(show, pasted, 1, 250));
+    expected.time = 5350;
+    QCOMPARE(ed.command(contentId), expected);
+    QCOMPARE(ed.settledHistory(), history + 2);
+    QVERIFY(recorder->beginEditSession(show, pasted));
+    const QVariantMap preview = recorder->previewRetime(1, 300);
+    QVERIFY(!preview.contains("reason"));
+    const ShowCommand beforeStretch = ed.command(contentId);
+    QCOMPARE(ed.command(contentId).payload, command.payload);
+    QVERIFY(recorder->commitRetime(1, 300));
+    QCOMPARE(ed.command(contentId).payload, command.payload);
+    QCOMPARE(ed.command(contentId).order, expected.order);
+    QCOMPARE(ed.command(contentId).nativeArgument(), command.nativeArgument());
+    QCOMPARE(ed.command(capture.id), capture);
+    QCOMPARE(ed.settledHistory(), history + 3);
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(ed.command(contentId), beforeStretch);
+    ed.tardis()->redoAction();
+    QCOMPARE(ed.command(contentId).nativeArgument(), command.nativeArgument());
+    QCOMPARE(ed.command(contentId).payload, command.payload);
+    QCOMPARE(ed.command(contentId).order, expected.order);
+    QCOMPARE(ed.command(capture.id), capture);
+    const ShowCommandTrack stretched = ed.show->commandTrack();
+    QVERIFY(recorder->removeCommands(show, pasted));
+    QVERIFY(!ed.show->commandTrack().contains(contentId));
+    QCOMPARE(ed.command(capture.id), capture);
+    QCOMPARE(ed.settledHistory(), history + 4);
+    ed.tardis()->undoAction();
+    for (const QVariant &id : pasted)
+    {
+        const auto &beforeDelete = stretched.commands()[stretched.indexOfId(id.toUInt())];
+        QCOMPARE(ed.command(id.toUInt()), beforeDelete);
+        QCOMPARE(ed.command(id.toUInt()).order, beforeDelete.order);
+        QCOMPARE(ed.command(id.toUInt()).payload, beforeDelete.payload);
+    }
+    QCOMPARE(ed.command(capture.id), capture);
+    ed.tardis()->redoAction();
+    QVERIFY(!ed.show->commandTrack().contains(contentId));
+    QCOMPARE(ed.command(capture.id), capture);
+}
+
+void ShowCommandRecorder_Test::typedDraft_boundCompound_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("payload");
+    QTest::addColumn<QString>("field");
+    QTest::addColumn<QVariant>("valid");
+    QTest::addColumn<QVariant>("invalid");
+    QTest::addColumn<QString>("edge");
+    const auto row = [](const char *name, const char *action, const char *payload,
+                        const char *field, const QVariant &valid, const QVariant &invalid) {
+        for (const char *edge : {"invalid second", "metadata second", "selected Order", "selected payload"})
+            QTest::newRow(qPrintable(QString::fromLatin1(name) + ": " + edge))
+                << QString::fromLatin1(action) << QString::fromLatin1(payload)
+                << QString::fromLatin1(field) << valid << invalid << QString::fromLatin1(edge);
+    };
+    row("coordinate", "SetXYPadPosition", "64.5,192.25", "pan", 127.375, -1);
+    row("metre", "SetXYPadFloor", "7.25,1.75,4.125", "y", 2.125, 21);
+    row("range", "SetXYPadRanges", R"({"horizontal":[200.5,40.25],"vertical":[30.125,180.75]})",
+        "horizontal", QVariantList{128.125, 40.25}, QVariantList{128.125});
+    row("WAUV", "SetSliderColors", "10,20,30;40,50,60", "wauv",
+        QVariantList{40, 50, 127}, QVariantList{40, 50, 256});
+    row("indexed color", "SetAnimationColor", R"({"index":2,"operation":"replace","rgb":[10,20,30]})",
+        "rgb", QVariantList{127, 20, 30}, QVariantList{-1, 20, 30});
+    row("reset", "SetAnimationColor", R"({"index":4,"operation":"reset"})", "index", 1, 5);
+    row("black", "SetAnimationColor", R"({"index":2,"operation":"replace","rgb":[0,0,0]})",
+        "index", 1, 5);
+    row("component", "SetAnimationColor", R"({"index":3,"operation":"component","component":2,"value":128})",
+        "value", 64, 256);
+    row("position choice", "SetXYPadPositionPreset", R"({"choice":3,"active":true,"point":[64.5,192.25]})",
+        "active", false, QStringLiteral("not a boolean"));
+    row("Function choice", "SetXYPadFunctionPreset", R"({"choice":3,"active":true})",
+        "active", false, QStringLiteral("not a boolean"));
+    row("group choice", "SetXYPadGroupPreset", R"({"choice":4,"active":true})",
+        "active", false, QStringLiteral("not a boolean"));
+    row("content", "SetAnimationContent", R"({"algorithm":"Unresolved","text":"before","properties":[]})",
+        "text", QStringLiteral("frozen\n<text>"), 127);
+}
+
+void ShowCommandRecorder_Test::typedDraft_boundCompound()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, payload);
+    QFETCH(QString, field);
+    QFETCH(QVariant, valid);
+    QFETCH(QVariant, invalid);
+    QFETCH(QString, edge);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    ShowCommand first;
+    first.id = 40;
+    first.time = 1700;
+    QVERIFY(ShowCommand::actionFromString(action, &first.action));
+    first.role = action == "SetSliderColors" ? ShowControlRole::LevelSlider
+        : action.startsWith("SetAnimation") ? ShowControlRole::AnimationFader : ShowControlRole::XYPad;
+    first.position = action == "SetSliderColors" ? .5 : 0;
+    QVERIFY(ShowCommandPayload::decode(first.action, payload, &first.payload));
+    ShowCommand second = first;
+    second.id = 41;
+    auto *firstControl = bindEditorCommand(ed, &first, &definitions);
+    auto *secondControl = bindEditorCommand(ed, &second, &definitions);
+    QVERIFY(firstControl && secondControl && firstControl != secondControl);
+    QVERIFY2(ShowControlAction::readiness(firstControl, first).isEmpty(),
+             qPrintable(ShowControlAction::readiness(firstControl, first)));
+    QVERIFY2(ShowControlAction::readiness(secondControl, second).isEmpty(),
+             qPrintable(ShowControlAction::readiness(secondControl, second)));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(first) && track.insert(second) && track.setExtent(10000));
+    QVERIFY(ed.show->setCommandTrack(track));
+    first = ed.command(40);
+    second = ed.command(41);
+    QVERIFY(ed.startIndependentPlayback());
+    for (const auto &target : {qMakePair(firstControl, first), qMakePair(secondControl, second)})
+    {
+        ShowCommandInput input;
+        input.action = target.second.action;
+        input.role = target.second.role;
+        input.position = target.second.position;
+        input.payload = target.second.payload;
+        const auto effect = ShowControlAction::apply(ed.rig.doc, target.first, input,
+            FunctionParent(FunctionParent::ManualVCWidget, target.first->id()), false);
+        QVERIFY2(effect.refusal.isEmpty(), qPrintable(effect.refusal));
+    }
+    ed.settleNative(5);
+    auto *recorder = ed.rig.recorder;
+    QVERIFY(recorder->beginEditSession(ed.show->id(), {40, 41}));
+    QVariantMap firstDraft = recorder->typedDraft(ed.show->id(), 40);
+    QVariantMap secondDraft = recorder->typedDraft(ed.show->id(), 41);
+    firstDraft[field] = valid;
+    secondDraft[field] = edge == "invalid second" ? invalid : valid;
+    QVERIFY(recorder->setRecording(true));
+    ed.rig.manager->setCurrentTime(9000);
+    ed.button->requestUserStateChange(true);
+    ed.settleNative(2);
+    QVERIFY(recorder->setRecording(false));
+    const ShowCommand capture = ed.show->commandTrack().commands().last();
+    QCOMPARE(capture.controlId, ed.button->recordingId());
+    QVERIFY(capture.id != 40 && capture.id != 41);
+    QCOMPARE(ed.command(40), first);
+    QCOMPARE(ed.command(41), second);
+    if (edge == "metadata second")
+        secondControl->setDisabled(true);
+    if (edge == "selected Order")
+    {
+        ShowCommandTrack concurrent;
+        ShowCommand changedFirst = first, changedSecond = second;
+        std::swap(changedFirst.order, changedSecond.order);
+        QVERIFY(concurrent.restore(changedFirst) && concurrent.restore(changedSecond) &&
+                concurrent.restore(capture) && concurrent.setExtent(10000));
+        QVERIFY(ed.show->setCommandTrack(concurrent));
+    }
+    if (edge == "selected payload")
+    {
+        ShowCommand changed = second;
+        if (auto *point = std::get_if<ShowCommandPanTilt>(&changed.payload.value)) point->tilt = 12.5;
+        if (auto *point = std::get_if<ShowCommandFloor>(&changed.payload.value)) point->z = 3.25;
+        if (auto *ranges = std::get_if<ShowCommandRanges>(&changed.payload.value)) ranges->vertical.pan = 31.375;
+        if (auto *colors = std::get_if<ShowCommandColors>(&changed.payload.value)) colors->red = 9;
+        if (auto *color = std::get_if<ShowCommandMatrixColor>(&changed.payload.value))
+        {
+            if (color->operation == ShowCommandMatrixColor::Operation::Reset) color->index = 0;
+            else if (color->operation == ShowCommandMatrixColor::Operation::Component) color->component = 1;
+            else color->color.green = 9;
+        }
+        if (auto *choice = std::get_if<ShowCommandChoice>(&changed.payload.value)) choice->active = false;
+        if (auto *content = std::get_if<ShowCommandContent>(&changed.payload.value))
+            content->properties["caption"].text = QStringLiteral("concurrent caption");
+        ShowCommandTrack concurrent = ed.show->commandTrack();
+        QVERIFY(concurrent.replace(changed) && ed.show->setCommandTrack(concurrent));
+    }
+    const ShowCommandTrack before = ed.show->commandTrack();
+    const quint64 revision = ed.show->commandTrackRevision();
+    const int serial = recorder->lastEditSerial(), history = ed.settledHistory();
+    const auto nativeFirst = ShowControlAction::observe(firstControl);
+    const auto nativeSecond = ShowControlAction::observe(secondControl);
+    const QVariantMap candidates{{"40", firstDraft}, {"41", secondDraft}};
+    QSignalSpy publication(ed.show, &Show::commandTrackChanged);
+    const QVariantMap preview = recorder->previewTypedEdit(candidates);
+    QVERIFY(preview.contains("reason"));
+    QVERIFY(!recorder->commitTypedEdit(candidates));
+    QVERIFY(!recorder->lastError().isEmpty());
+    QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+    QCOMPARE(ed.show->commandTrack().extent(), before.extent());
+    QCOMPARE(ed.show->commandTrackRevision(), revision);
+    QCOMPARE(publication.count(), 0);
+    QCOMPARE(recorder->lastEditSerial(), serial);
+    QCOMPARE(ed.settledHistory(), history);
+    for (const ShowCommand &command : before.commands())
+        QCOMPARE(ed.command(command.id).order, command.order);
+    const auto unchangedNative = [](const ShowControlAction::State &before, const ShowControlAction::State &after) {
+        QCOMPARE(after.scalar, before.scalar);
+        QCOMPARE(after.point, before.point);
+        QCOMPARE(after.floor, before.floor);
+        QCOMPARE(after.horizontal, before.horizontal);
+        QCOMPARE(after.vertical, before.vertical);
+        QCOMPARE(after.colors, before.colors);
+        QCOMPARE(after.choice, before.choice);
+        QCOMPARE(after.headEnabled, before.headEnabled);
+        QCOMPARE(after.algorithm, before.algorithm);
+        QCOMPARE(after.text, before.text);
+        QCOMPARE(after.properties, before.properties);
+        QCOMPARE(after.overriding, before.overriding);
+        QCOMPARE(after.floorMode, before.floorMode);
+        QCOMPARE(after.floorSize, before.floorSize);
+        QCOMPARE(after.choiceOwner, before.choiceOwner);
+        QCOMPARE(after.nativeColorValue, before.nativeColorValue);
+        QCOMPARE(after.algorithmOverride, before.algorithmOverride);
+        QCOMPARE(after.contentOverride, before.contentOverride);
+    };
+    unchangedNative(nativeFirst, ShowControlAction::observe(firstControl));
+    unchangedNative(nativeSecond, ShowControlAction::observe(secondControl));
+    if (edge == "metadata second")
+        secondControl->setDisabled(false);
+    if (!recorder->editSessionActive())
+    {
+        QVERIFY(recorder->beginEditSession(ed.show->id(), {40, 41}));
+        secondDraft = recorder->typedDraft(ed.show->id(), 41);
+    }
+    secondDraft[field] = valid;
+    QVERIFY(recorder->commitTypedEdit({{"40", firstDraft}, {"41", secondDraft}}));
+    QCOMPARE(recorder->lastEditSerial(), serial + 1);
+    QCOMPARE(ed.settledHistory(), history + 1);
+    QCOMPARE(ed.command(capture.id), capture);
+    QCOMPARE(ed.command(40).order, before.commands().at(before.indexOfId(40)).order);
+    QCOMPARE(ed.command(41).order, before.commands().at(before.indexOfId(41)).order);
+    QCOMPARE(recorder->typedDraft(ed.show->id(), 40), firstDraft);
+    QCOMPARE(recorder->typedDraft(ed.show->id(), 41), secondDraft);
+    QVERIFY(recorder->beginEditSession(ed.show->id(), {40, 41}));
+    QVERIFY(recorder->commitTypedEdit({{"40", firstDraft}, {"41", secondDraft}}));
+    QCOMPARE(recorder->lastEditSerial(), serial + 1);
+    QCOMPARE(ed.settledHistory(), history + 1);
+    unchangedNative(nativeFirst, ShowControlAction::observe(firstControl));
+    unchangedNative(nativeSecond, ShowControlAction::observe(secondControl));
+}
+
+void ShowCommandRecorder_Test::typedDraft_boundCompatibility_data()
+{
+    QTest::addColumn<QString>("edge");
+    for (const char *edge : {"List unavailable", "property type changed", "content choice missing",
+                            "content choice wrong type", "Matrix choice wrong slot",
+                            "Matrix choice wrong type", "component choice wrong component",
+                            "head removed", "group head removed", "Function missing",
+                            "compatible Matrix replacement"})
+        QTest::newRow(edge) << QString::fromLatin1(edge);
+}
+
+void ShowCommandRecorder_Test::typedDraft_boundCompatibility()
+{
+    QFETCH(QString, edge);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    ShowCommand command;
+    command.id = 40;
+    command.time = 1700;
+    if (edge.startsWith("head"))
+    {
+        command.action = ShowCommandAction::SetXYPadPosition;
+        command.role = ShowControlRole::XYPad;
+        command.payload.value = ShowCommandPanTilt{64.5, 192.25};
+    }
+    else if (edge.startsWith("group") || edge.startsWith("Function"))
+    {
+        command.action = edge.startsWith("group") ? ShowCommandAction::SetXYPadGroupPreset
+                                                  : ShowCommandAction::SetXYPadFunctionPreset;
+        command.role = ShowControlRole::XYPad;
+        ShowCommandChoice choice;
+        choice.choice = 3;
+        choice.active = true;
+        command.payload.value = choice;
+    }
+    else if (edge.startsWith("Matrix") || edge.startsWith("component") || edge.startsWith("compatible"))
+    {
+        command.action = ShowCommandAction::SetAnimationColor;
+        command.role = ShowControlRole::AnimationFader;
+        ShowCommandMatrixColor color;
+        color.index = 0;
+        color.color = {12, 34, 56, 0, 0, 0};
+        command.payload.value = color;
+    }
+    else
+    {
+        command.action = ShowCommandAction::SetAnimationContent;
+        command.role = ShowControlRole::AnimationFader;
+        command.payload.value = ShowCommandContent{QStringLiteral("Unresolved"), QStringLiteral("before"), {}, -1};
+    }
+    auto *control = bindEditorCommand(ed, &command, &definitions);
+    QVERIFY(control);
+    auto *animation = qobject_cast<VCAnimation *>(control);
+    auto *pad = qobject_cast<VCXYPad *>(control);
+    int choice = -1;
+    if (edge.startsWith("content choice"))
+    {
+        choice = animation->addAlgorithmPreset(QStringLiteral("Editor properties"), {});
+        std::get<ShowCommandContent>(command.payload.value).choice = choice;
+    }
+    QVERIFY2(ShowControlAction::readiness(control, command).isEmpty(),
+             qPrintable(ShowControlAction::readiness(control, command)));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command) && track.setExtent(10000) && ed.show->setCommandTrack(track));
+    const int serial = ed.rig.recorder->lastEditSerial(), history = ed.settledHistory();
+    QVERIFY(ed.rig.recorder->beginEditSession(ed.show->id(), {40}));
+    QVariantMap draft = ed.rig.recorder->typedDraft(ed.show->id(), 40);
+    if (edge == "List unavailable")
+    {
+        auto properties = draft.value("properties").toList();
+        QVariantMap mode = properties[2].toMap();
+        QCOMPARE(mode.value("name").toString(), QStringLiteral("mode"));
+        mode["value"] = QStringLiteral("not a current option");
+        properties[2] = mode;
+        draft["properties"] = properties;
+    }
+    if (edge == "property type changed")
+    {
+        QFile file(QDir(ed.propertyScripts.path()).filePath(QStringLiteral("properties.js")));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QByteArray script = file.readAll();
+        file.close();
+        script.replace("name:amount|type:range", "name:amount|type:float");
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QCOMPARE(file.write(script), qint64(script.size()));
+        file.close();
+        QVERIFY(!ShowControlAction::readiness(control, command).isEmpty());
+    }
+    if (edge == "content choice missing")
+        animation->removePreset(choice);
+    if (edge == "content choice wrong type")
+        draft["choice"] = animation->addTextPreset(QStringLiteral("other"));
+    if (edge == "Matrix choice wrong slot")
+        draft["choice"] = animation->addColorPreset(1, QColor(1, 2, 3));
+    if (edge == "Matrix choice wrong type")
+        draft["choice"] = animation->addTextPreset(QStringLiteral("other"));
+    if (edge == "component choice wrong component")
+    {
+        choice = animation->addColorKnobsPreset(0);
+        draft.remove("rgb");
+        draft["operation"] = QStringLiteral("component");
+        draft["component"] = 1;
+        draft["value"] = 128;
+        draft["choice"] = choice;
+    }
+    if (edge == "head removed" || edge == "group head removed")
+    {
+        const auto head = pad->fixtures().first().m_head;
+        QVERIFY(ed.rig.doc->deleteFixture(head.fxi));
+        if (edge == "group head removed")
+        {
+            QVERIFY(!ShowControlAction::readiness(control, command).isEmpty());
+            const auto resolution = ShowControlAction::resolve(ed.rig.doc,
+                qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole")), command);
+            QCOMPARE(resolution.status, ShowControlStatus::Incompatible);
+            QCOMPARE(resolution.reason, ShowControlAction::readiness(control, command));
+            const auto row = referenceRow(ed.rig.recorder->referencedControls(), command.controlId);
+            QCOMPARE(roleStatus(row, QStringLiteral("XYPad")), QStringLiteral("Incompatible"));
+            QCOMPARE(row.value("roles").toList().size(), 1);
+            QCOMPARE(row.value("roles").toList().first().toMap().value("reason").toString(), resolution.reason);
+        }
+    }
+    if (edge == "Function missing")
+    {
+        QVERIFY(ed.rig.doc->deleteFunction(ed.scene->id()));
+        QVERIFY(!ShowControlAction::readiness(control, command).isEmpty());
+    }
+    const bool compatible = edge == "compatible Matrix replacement";
+    if (compatible)
+    {
+        const quint32 id = animation->functionID();
+        QVERIFY(ed.rig.doc->deleteFunction(id));
+        auto *replacement = new RGBMatrix(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(replacement, id));
+        QVERIFY2(ShowControlAction::readiness(control, command).isEmpty(),
+                 qPrintable(ShowControlAction::readiness(control, command)));
+        draft["rgb"] = QVariantList{127, 34, 56};
+    }
+    const auto native = ShowControlAction::observe(control);
+    const ShowCommandTrack before = ed.show->commandTrack();
+    const quint64 revision = ed.show->commandTrackRevision();
+    const QVariantMap candidate{{"40", draft}};
+    QCOMPARE(ed.rig.recorder->previewTypedEdit(candidate).contains("reason"), !compatible);
+    QCOMPARE(ed.rig.recorder->commitTypedEdit(candidate), compatible);
+    QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + (compatible ? 1 : 0));
+    QCOMPARE(ed.settledHistory(), history + (compatible ? 1 : 0));
+    if (!compatible)
+    {
+        QVERIFY(!ed.rig.recorder->lastError().isEmpty());
+        QCOMPARE(ed.show->commandTrack().commands(), before.commands());
+        QCOMPARE(ed.show->commandTrack().extent(), before.extent());
+        QCOMPARE(ed.show->commandTrackRevision(), revision);
+    }
+    const auto after = ShowControlAction::observe(control);
+    QCOMPARE(after.scalar, native.scalar);
+    QCOMPARE(after.point, native.point);
+    QCOMPARE(after.floor, native.floor);
+    QCOMPARE(after.colors, native.colors);
+    QCOMPARE(after.choice, native.choice);
+    QCOMPARE(after.headEnabled, native.headEnabled);
+    QCOMPARE(after.algorithm, native.algorithm);
+    QCOMPARE(after.text, native.text);
+    QCOMPARE(after.properties, native.properties);
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_contentFields_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QString>("replacement");
+    QTest::newRow("named List value") << QStringLiteral("Mode") << QStringLiteral("changed mode");
+    QTest::newRow("integer Range value") << QStringLiteral("Amount") << QStringLiteral("9");
+    QTest::newRow("fractional Float value") << QStringLiteral("Spread") << QStringLiteral("1.25");
+    QTest::newRow("String value") << QStringLiteral("Caption") << QStringLiteral("changed caption");
+    QTest::newRow("multiline text") << QStringLiteral("text") << QStringLiteral("changed\n<text>");
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_contentFields()
+{
+    QFETCH(QString, name);
+    QFETCH(QString, replacement);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommand command;
+    command.id = 40;
+    command.time = 1700;
+    command.action = ShowCommandAction::SetAnimationContent;
+    command.role = ShowControlRole::AnimationFader;
+    command.controlId = QUuid::createUuid();
+    QVERIFY(ShowCommandPayload::decode(command.action, QStringLiteral(
+        "{\"algorithm\":\"Unresolved algorithm\",\"text\":\"before text\",\"properties\":["
+        "{\"name\":\"Amount\",\"type\":\"Range\",\"value\":3},"
+        "{\"name\":\"Caption\",\"type\":\"String\",\"value\":\"before caption\"},"
+        "{\"name\":\"Mode\",\"type\":\"List\",\"value\":\"before mode\"},"
+        "{\"name\":\"Spread\",\"type\":\"Float\",\"value\":0.5}]}"), &command.payload));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command) && ed.show->setCommandTrack(track));
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{40}));
+    const int history = ed.settledHistory(), native = ed.fader->value();
+    const quint32 elapsed = ed.show->elapsed();
+    const QVariantMap before = ed.rig.recorder->typedDraft(ed.show->id(), 40);
+    QString path = QStringLiteral("text");
+    if (name != "text")
+    {
+        const auto properties = before.value("properties").toList();
+        for (int index = 0; index < properties.count(); ++index)
+            if (properties[index].toMap().value("name").toString() == name)
+                path = QStringLiteral("properties.%1.value").arg(index);
+        QVERIFY(path != "text");
+    }
+    const auto findField = [&]()
+    {
+        std::function<QQuickItem *(QQuickItem *)> find = [&](QQuickItem *item) -> QQuickItem *
+        {
+            if (item->property("argumentPath").toString() == path)
+                return item;
+            for (QQuickItem *child : item->childItems())
+                if (auto *match = find(child))
+                    return match;
+            return nullptr;
+        };
+        return find(ed.rig.app->contentItem());
+    };
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QQuickItem *field = nullptr;
+    QTRY_VERIFY((field = findField()) != nullptr);
+    field->forceActiveFocus();
+    ed.type(replacement, Qt::Key_unknown);
+    QCOMPARE(ed.command(40), command);
+    QCOMPARE(ed.fader->value(), native);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    QCOMPARE(ed.settledHistory(), history);
+    QTest::keyClick(ed.rig.app.get(), Qt::Key_Escape);
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    QCOMPARE(ed.command(40), command);
+    QVERIFY(ed.doubleClick(40, "valueCell"));
+    QTRY_VERIFY((field = findField()) != nullptr);
+    field->forceActiveFocus();
+    ed.type(replacement, Qt::Key_unknown);
+    QQuickItem *commit = findVisualItem(ed.rig.app->contentItem(), QStringLiteral("typedCommit"));
+    QVERIFY(commit);
+    ed.click(commit);
+    QTRY_VERIFY(!ed.rig.recorder->editSessionActive());
+    ShowCommand expected = command;
+    auto &changed = std::get<ShowCommandContent>(expected.payload.value);
+    if (name == "text")
+        changed.text = replacement;
+    else
+    {
+        if (name == "Amount" || name == "Spread")
+            changed.properties[name].number = replacement.toDouble();
+        else
+            changed.properties[name].text = replacement;
+    }
+    QCOMPARE(ed.command(40), expected);
+    QCOMPARE(ed.settledHistory(), history + 1);
+    QCOMPARE(ed.fader->value(), native);
+    QCOMPARE(ed.show->elapsed(), elapsed);
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(ed.command(40), command);
+}
+
 void ShowCommandRecorder_Test::recordingsSplit_viewChangeKeepsTypedDraft()
 {
     AccessibilityOn accessibility;
@@ -17001,6 +26881,48 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteKeepsUnreadyReferences()
     QCOMPARE(ed.command(8).controlId, ed.missing);
     QCOMPARE(ed.shownText("timelineKeyboardFeedback"),
              QStringLiteral("Pasted 2 event(s); 1 of 2 refer to a control that is not ready"));
+}
+
+void ShowCommandRecorder_Test::recordingsEditor_holdPairPasteUndoRedoKeepsFreshPairIds()
+{
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    ShowCommandTrack track;
+    ShowCommand on = ShowCommand::setButtonState(10, 1000, ed.button->ensureRecordingId(), true);
+    on.role = ShowControlRole::FlashButton;
+    on.pairId = 50;
+    ShowCommand off = ShowCommand::setButtonState(11, 2000, ed.button->ensureRecordingId(), false);
+    off.role = ShowControlRole::FlashButton;
+    off.pairId = 50;
+    QVERIFY(track.insert(on));
+    QVERIFY(track.insert(off));
+    QVERIFY(track.setExtent(2000));
+    QVERIFY(ed.show->setCommandTrack(track));
+
+    QVERIFY(ed.openRecordings());
+    QTRY_COMPARE(ed.rowIds(), (QVector<quint32>{10, 11}));
+    const quint32 showId = ed.show->id();
+    QVERIFY(ed.rig.recorder->copyCommands(showId, {10u, 11u}));
+    const QVariantList pasted = ed.rig.recorder->pasteCommands(showId, 5000);
+    QCOMPARE(pasted.size(), 2);
+    const quint32 pastedOnId = pasted.at(0).toUInt();
+    const quint32 pastedOffId = pasted.at(1).toUInt();
+    const quint32 pastedPairId = ed.command(pastedOnId).pairId;
+    QVERIFY(pastedPairId != ShowCommand::InvalidId);
+    QVERIFY(pastedPairId != 50u);
+    QCOMPARE(ed.command(pastedOffId).pairId, pastedPairId);
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{10, 11, pastedOnId, pastedOffId}));
+
+    const int historyAfterPaste = ed.settledHistory();
+    ed.tardis()->undoAction();
+    QTRY_COMPARE(ed.tardis()->m_historyIndex, historyAfterPaste - 1);
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{10, 11}));
+
+    ed.tardis()->redoAction();
+    QTRY_COMPARE(ed.tardis()->m_historyIndex, historyAfterPaste);
+    QCOMPARE(ed.trackIds(), (QVector<quint32>{10, 11, pastedOnId, pastedOffId}));
+    QCOMPARE(ed.command(pastedOnId).pairId, pastedPairId);
+    QCOMPARE(ed.command(pastedOffId).pairId, pastedPairId);
 }
 
 void ShowCommandRecorder_Test::recordingsEditor_pasteRefusesADeletedCopiedTarget_data()

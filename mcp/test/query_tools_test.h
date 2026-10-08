@@ -18,7 +18,13 @@ private slots:
     void queryPalettes_invalidTypeFilterReturnsError();
     void palettes_createQueryRoundTrip_data();
     void palettes_createQueryRoundTrip();
+    void palettes_zoomValue_data();
+    void deletePalettes_perSelectorRecords();
+    void palettes_zoomValue();
     void palettes_createInvalidTypeReturnsError();
+    void palettes_updateModifiedAndFloatReadback();
+    void palettes_invalidValueKind_data();
+    void palettes_invalidValueKind();
     void queryRgbAlgorithms_invalidTypeReturnsError();
     void queryRgbAlgorithms_matrixTypeSchema();
     void queryRgbAlgorithms_matrixType_data();
@@ -37,6 +43,18 @@ private slots:
     void patchFixtures_schemaDescribesExactMatch();
     void patchFixtures_invalidBounds_data();
     void patchFixtures_invalidBounds();
+    void patchFixtures_quantityIsAtomicPerItem();
+    void queryFixtureChannels_invalidFixtureID_data();
+    void queryFixtureChannels_invalidFixtureID();
+    void configureChannels_invalidReference_data();
+    void configureChannels_invalidReference();
+    void configureChannels_precedenceAndModified_data();
+    void configureChannels_precedenceAndModified();
+    void setChannelModifiers_marksModified();
+    void channelConfig_survivesSaveReload_data();
+    void channelConfig_survivesSaveReload();
+    void transport_toolResultEncoding_data();
+    void transport_toolResultEncoding();
 
 private:
     class Doc *m_doc = nullptr;

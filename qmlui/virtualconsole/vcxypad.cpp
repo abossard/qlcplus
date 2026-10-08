@@ -41,6 +41,8 @@
 #include "scene.h"
 #include "efx.h"
 #include "doc.h"
+#include "showcommandrecorder.h"
+#include "showcontrolaction.h"
 
 /** ************** XML Tags and Attributes ************** */
 
@@ -137,11 +139,19 @@ VCXYPad::VCXYPad(Doc *doc, QObject *parent)
     m_doc->masterTimer()->registerDMXSource(this);
     connect(m_doc->inputOutputMap(), SIGNAL(universeWritten(quint32,QByteArray)),
             this, SLOT(slotUniverseWritten(quint32,QByteArray)));
+    connect(m_doc, &Doc::fixtureChanged, this, &VCXYPad::invalidateFixtureBinding);
+    connect(m_doc, &Doc::fixtureRemoved, this, &VCXYPad::invalidateFixtureBinding);
+    connect(m_doc, &Doc::fixtureGroupChanged, this, &VCXYPad::invalidateGroupBinding);
+    connect(m_doc, &Doc::fixtureGroupRemoved, this, &VCXYPad::invalidateGroupBinding);
+    connect(m_doc->monitorProperties(), &MonitorProperties::floorProjectionChanged,
+            this, &VCXYPad::invalidateFloorProjection, Qt::DirectConnection);
 }
 
 VCXYPad::~VCXYPad()
 {
     m_doc->masterTimer()->unregisterDMXSource(this);
+    cancelPendingRecordedWrite();
+    reportRecordedWrites();
     foreach (QSharedPointer<GenericFader> fader, m_fadersMap)
     {
         if (!fader.isNull())
@@ -304,7 +314,12 @@ void VCXYPad::setInvertedAppearance(bool newInvertedAppearance)
     if (m_invertedAppearance == newInvertedAppearance)
         return;
 
-    m_invertedAppearance = newInvertedAppearance;
+    if (!m_floorControl)
+        cancelPendingRecordedWrite();
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        m_invertedAppearance = newInvertedAppearance;
+    }
     emit invertedAppearanceChanged();
 }
 
@@ -362,20 +377,36 @@ QPointF VCXYPad::currentPosition() const
 
 void VCXYPad::setCurrentPosition(QPointF newCurrentPosition)
 {
-    if (m_currentPosition == newCurrentPosition)
-        return;
-
     newCurrentPosition.setX(clampPos(newCurrentPosition.x()));
     newCurrentPosition.setY(clampPos(newCurrentPosition.y()));
 
-    QPointF previousPosition = m_currentPosition;
+    QPointF previousPosition;
+    bool reportRetired = false;
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        if (m_currentPosition == newCurrentPosition && m_positionApplied &&
+            m_pendingRecordedWriteGeneration == 0)
+            return;
 
-    m_currentPosition = newCurrentPosition;
+        if (m_pendingRecordedWriteGeneration != 0)
+        {
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteSuperseded)));
+            m_pendingRecordedWriteGeneration = 0;
+            reportRetired = true;
+        }
 
-    m_x16 = posToU16(m_currentPosition.x());
-    m_y16 = posToU16(m_currentPosition.y());
+        previousPosition = m_currentPosition;
+        m_currentPosition = newCurrentPosition;
+        m_x16 = posToU16(m_currentPosition.x());
+        m_y16 = posToU16(m_currentPosition.y());
+        prepareWriteFixtures();
+        m_positionChanged = true;
+    }
 
-    m_positionChanged = true;
+    if (reportRetired)
+        QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+
     emit currentPositionChanged();
 
     // If the position was changed by something other than external input
@@ -385,8 +416,316 @@ void VCXYPad::setCurrentPosition(QPointF newCurrentPosition)
     if (m_handlingExternalInput == false)
         updateFeedback();
 
-    Tardis::instance()->enqueueAction(Tardis::VCXYPadSetPosition, id(),
-                                      previousPosition, m_currentPosition);
+    if (previousPosition != m_currentPosition)
+        Tardis::instance()->enqueueAction(Tardis::VCXYPadSetPosition, id(),
+                                          previousPosition, m_currentPosition);
+}
+
+quint64 VCXYPad::applyRecordedPosition(QPointF position)
+{
+    position.setX(clampPos(position.x()));
+    position.setY(clampPos(position.y()));
+    QPointF previousPosition;
+    bool reportRetired = false;
+    quint64 generation = 0;
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        if (m_currentPosition == position && m_positionApplied &&
+            m_pendingRecordedWriteGeneration == 0)
+            return 0;
+
+        if (m_pendingRecordedWriteGeneration != 0)
+        {
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteSuperseded)));
+            reportRetired = true;
+        }
+
+        previousPosition = m_currentPosition;
+        m_currentPosition = position;
+        m_x16 = posToU16(m_currentPosition.x());
+        m_y16 = posToU16(m_currentPosition.y());
+        prepareWriteFixtures();
+        m_positionChanged = true;
+        generation = ++m_lastRecordedWriteGeneration;
+        m_pendingRecordedWriteGeneration = generation;
+    }
+
+    if (reportRetired)
+        QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+
+    emit currentPositionChanged();
+
+    if (m_handlingExternalInput == false)
+        updateFeedback();
+
+    if (previousPosition != m_currentPosition)
+        Tardis::instance()->enqueueAction(Tardis::VCXYPadSetPosition, id(), previousPosition, m_currentPosition);
+
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+    return generation;
+}
+
+quint64 VCXYPad::awaitPendingWrite() const
+{
+    QMutexLocker locker(&m_positionValueMutex);
+    return m_pendingRecordedWriteGeneration;
+}
+
+QList<VCXYPad::XYPadFixture> VCXYPad::resolvedWriteFixtures() const
+{
+    QList<XYPadFixture> resolved;
+    VCXYPadPreset *preset = m_activePresetId >= 0 ? findPreset(m_activePresetId) : nullptr;
+    const bool restrict = preset != nullptr && preset->m_type == VCXYPadPreset::FixtureGroup;
+    const QList<GroupHead> selected = restrict ? presetHeads(preset) : QList<GroupHead>();
+    for (const XYPadFixture &entry : m_fixtures)
+    {
+        if (!entry.m_enabled)
+            continue;
+        for (const GroupHead &head : entryHeads(entry))
+        {
+            if (restrict && !selected.contains(head))
+                continue;
+            Fixture *fixture = m_doc->fixture(head.fxi);
+            if (fixture == nullptr || head.head >= fixture->heads())
+                continue;
+            XYPadFixture target = entry;
+            target.m_groupID = FixtureGroup::invalidId();
+            target.m_head = head;
+            target.m_universe = fixture->universe();
+            target.m_xMSB = fixture->channelNumber(QLCChannel::Pan, QLCChannel::MSB, head.head);
+            target.m_xLSB = fixture->channelNumber(QLCChannel::Pan, QLCChannel::LSB, head.head);
+            target.m_yMSB = fixture->channelNumber(QLCChannel::Tilt, QLCChannel::MSB, head.head);
+            target.m_yLSB = fixture->channelNumber(QLCChannel::Tilt, QLCChannel::LSB, head.head);
+            resolved.append(target);
+        }
+    }
+    return resolved;
+}
+
+void VCXYPad::prepareWriteFixtures()
+{
+    m_positionApplied = false;
+    m_writeFixtures = resolvedWriteFixtures();
+    m_writeLifetimes.clear();
+    for (const XYPadFixture &fixture : m_writeFixtures)
+        m_writeLifetimes.append(m_doc->fixture(fixture.m_head.fxi));
+    QMutexLocker projectionLocker(&m_doc->monitorProperties()->m_floorProjectionMutex);
+    m_writeProjectionRevisions.clear();
+    m_writeUsesBeamOffset = false;
+    if (m_floorControl)
+        for (const XYPadFixture &fixture : m_writeFixtures)
+        {
+            m_writeProjectionRevisions.insert(fixture.m_head.fxi,
+                m_doc->monitorProperties()->m_fixtureProjectionRevisions.value(fixture.m_head.fxi));
+            const Fixture *target = m_doc->fixture(fixture.m_head.fxi);
+            m_writeUsesBeamOffset = m_writeUsesBeamOffset ||
+                (target != nullptr && target->type() == QLCFixtureDef::MovingHead);
+        }
+    m_writeEnvironmentRevision = m_doc->monitorProperties()->m_environmentProjectionRevision;
+    m_writeBeamRevision = m_doc->monitorProperties()->m_beamProjectionRevision;
+}
+
+bool VCXYPad::floorProjectionCompatible() const
+{
+    const auto *properties = m_doc->monitorProperties();
+    if (m_writeEnvironmentRevision != properties->m_environmentProjectionRevision)
+        return false;
+    if (m_writeUsesBeamOffset && m_writeBeamRevision != properties->m_beamProjectionRevision)
+        return false;
+    for (auto it = m_writeProjectionRevisions.cbegin(); it != m_writeProjectionRevisions.cend(); ++it)
+        if (it.value() != properties->m_fixtureProjectionRevisions.value(it.key()))
+            return false;
+    return true;
+}
+
+void VCXYPad::invalidateFloorProjection()
+{
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        QMutexLocker projectionLocker(&m_doc->monitorProperties()->m_floorProjectionMutex);
+        if (!m_floorControl || floorProjectionCompatible())
+            return;
+        m_positionApplied = false;
+        if (m_pendingRecordedWriteGeneration == 0)
+            return;
+        m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                 int(RecordedWriteCancelled)));
+        m_recordedWriteReasons.insert(m_pendingRecordedWriteGeneration,
+                                      tr("XY floor projection changed after publication"));
+        m_pendingRecordedWriteGeneration = 0;
+        m_positionChanged = false;
+    }
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+}
+
+void VCXYPad::invalidateFixtureBinding(quint32 fixtureId)
+{
+    bool used = false;
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        for (const XYPadFixture &fixture : m_writeFixtures)
+            used = used || fixture.m_head.fxi == fixtureId;
+    }
+    if (used)
+        cancelPendingRecordedWrite(awaitPendingWrite());
+}
+
+void VCXYPad::invalidateGroupBinding(quint32 groupId)
+{
+    bool used = false;
+    for (const XYPadFixture &fixture : m_fixtures)
+        used = used || fixture.m_groupID == groupId;
+    VCXYPadPreset *preset = m_activePresetId >= 0 ? findPreset(m_activePresetId) : nullptr;
+    used = used || (preset != nullptr && preset->m_type == VCXYPadPreset::FixtureGroup &&
+                    preset->m_fxGroupID == groupId);
+    if (used)
+        cancelPendingRecordedWrite(awaitPendingWrite());
+}
+
+quint64 VCXYPad::updateSelection(const QVector<bool> &enabled, bool recorded, int choice)
+{
+    quint64 generation = 0;
+    bool choiceChanged = false;
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        if (enabled.count() != m_fixtures.count())
+            return 0;
+        if (m_pendingRecordedWriteGeneration != 0)
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteSuperseded)));
+        for (int index = 0; index < enabled.count(); ++index)
+            m_fixtures[index].m_enabled = enabled[index];
+        if (choice != -2)
+        {
+            choiceChanged = m_activePresetId != choice;
+            m_activePresetId = choice;
+        }
+        prepareWriteFixtures();
+        m_positionChanged = true;
+        if (recorded)
+            generation = ++m_lastRecordedWriteGeneration;
+        m_pendingRecordedWriteGeneration = generation;
+    }
+    if (choiceChanged)
+        emit activePresetIdChanged();
+    m_fixturePositions.clear();
+    emit fixturePositionsChanged();
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+    return generation;
+}
+
+void VCXYPad::cancelPendingRecordedWrite(quint64 expectedGeneration)
+{
+    bool reportRetired = false;
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        if (m_pendingRecordedWriteGeneration == 0)
+        {
+            if (m_retiredRecordedWrites.isEmpty())
+                return;
+            reportRetired = true;
+        }
+        else if (expectedGeneration != 0 && m_pendingRecordedWriteGeneration != expectedGeneration)
+            return;
+        else
+        {
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteCancelled)));
+            m_pendingRecordedWriteGeneration = 0;
+            m_positionChanged = false;
+            reportRetired = true;
+        }
+    }
+
+    if (reportRetired)
+        reportRecordedWrites();
+}
+
+void VCXYPad::reportRecordedWrites()
+{
+    QVector<QPair<quint64, int>> reports;
+    QHash<quint64, QString> reasons;
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        if (m_retiredRecordedWrites.isEmpty())
+            return;
+        reports = m_retiredRecordedWrites;
+        m_retiredRecordedWrites.clear();
+        reasons.swap(m_recordedWriteReasons);
+    }
+
+    for (const auto &report : reports)
+        emit recordedWriteRetired(report.first, report.second, Function::invalidId(),
+                                  int(RecordedWriteNoEffect),
+                                  reasons.value(report.first,
+                                      report.second == RecordedWriteApplied ? QString()
+                                      : report.second == RecordedWriteSuperseded
+                                          ? tr("XY output superseded by newer native intent")
+                                          : tr("XY output cancelled before native delivery")));
+}
+
+void VCXYPad::requestUserCurrentPosition(QPointF newCurrentPosition)
+{
+    requestUserCurrentPosition(newCurrentPosition, ShowCommandOrigin::Pointer);
+}
+
+void VCXYPad::requestUserCurrentPosition(QPointF newCurrentPosition, ShowCommandOrigin origin)
+{
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    if (recorder == nullptr)
+    {
+        setCurrentPosition(newCurrentPosition);
+        return;
+    }
+
+    ShowControlRequest request;
+    request.control = this;
+    request.role = ShowControlRole::XYPad;
+    request.xyPadPosition = true;
+    request.xyPosition = newCurrentPosition;
+    request.origin = origin;
+    recorder->requestUserControl(request);
+}
+
+void VCXYPad::requestUserRanges(QPointF horizontal, QPointF vertical)
+{
+    requestUserRanges(horizontal, vertical, ShowCommandOrigin::Pointer);
+}
+
+void VCXYPad::requestUserRanges(QPointF horizontal, QPointF vertical, ShowCommandOrigin origin)
+{
+    if (ShowCommandRecorder::instance() == nullptr)
+    {
+        setHorizontalRange(horizontal);
+        setVerticalRange(vertical);
+        return;
+    }
+    ShowCommandInput input;
+    input.action = ShowCommandAction::SetXYPadRanges;
+    input.role = ShowControlRole::XYPad;
+    input.origin = origin;
+    input.payload.value = ShowCommandRanges{{horizontal.x(), horizontal.y()}, {vertical.x(), vertical.y()}};
+    ShowControlAction::submit(m_doc, this, input);
+}
+
+void VCXYPad::requestUserPreset(int choice)
+{
+    requestUserPreset(choice, ShowCommandOrigin::Pointer);
+}
+
+void VCXYPad::requestUserPreset(int choice, ShowCommandOrigin origin)
+{
+    if (choice < 0 || choice > 255)
+        return;
+    if (ShowCommandRecorder::instance() == nullptr)
+    {
+        applyPreset(quint8(choice));
+        return;
+    }
+    ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice);
+    input.origin = origin;
+    ShowControlAction::submit(m_doc, this, input);
 }
 
 QPointF VCXYPad::horizontalRange() const
@@ -396,28 +735,7 @@ QPointF VCXYPad::horizontalRange() const
 
 void VCXYPad::setHorizontalRange(QPointF newHorizontalRange)
 {
-    if (m_horizontalRange == newHorizontalRange)
-        return;
-
-    // Geometry (rubber band) is carried as a QRectF: horizontal range on x/width,
-    // vertical range on y/height
-    QRectF oldGeometry(m_horizontalRange.x(), m_verticalRange.x(),
-                       m_horizontalRange.y(), m_verticalRange.y());
-
-    m_horizontalRange = newHorizontalRange;
-    emit horizontalRangeChanged();
-    emit floorRangeAreaChanged();
-
-    // pull the floor target back inside the window if it just moved out
-    if (m_floorControl)
-        setFloorPosition(m_floorPosition);
-
-    // squeeze a running EFX preset into the new window
-    updateEFXGeometry();
-
-    QRectF newGeometry(m_horizontalRange.x(), m_verticalRange.x(),
-                       m_horizontalRange.y(), m_verticalRange.y());
-    Tardis::instance()->enqueueAction(Tardis::VCXYPadSetGeometry, id(), oldGeometry, newGeometry);
+    updateRanges(newHorizontalRange, m_verticalRange, false);
 }
 
 QPointF VCXYPad::verticalRange() const
@@ -427,28 +745,68 @@ QPointF VCXYPad::verticalRange() const
 
 void VCXYPad::setVerticalRange(QPointF newVerticalRange)
 {
-    if (m_verticalRange == newVerticalRange)
-        return;
+    updateRanges(m_horizontalRange, newVerticalRange, false);
+}
 
-    // Geometry (rubber band) is carried as a QRectF: horizontal range on x/width,
-    // vertical range on y/height
-    QRectF oldGeometry(m_horizontalRange.x(), m_verticalRange.x(),
-                       m_horizontalRange.y(), m_verticalRange.y());
+quint64 VCXYPad::applyRecordedRanges(QPointF horizontal, QPointF vertical)
+{
+    return updateRanges(horizontal, vertical, true);
+}
 
-    m_verticalRange = newVerticalRange;
-    emit verticalRangeChanged();
+quint64 VCXYPad::updateRanges(QPointF horizontal, QPointF vertical, bool recorded)
+{
+    QRectF previous;
+    QVector3D previousFloor;
+    bool horizontalChanged, verticalChanged, floorChanged;
+    quint64 generation = 0;
+    const QVector3D stage = floorSize();
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        horizontalChanged = m_horizontalRange != horizontal;
+        verticalChanged = m_verticalRange != vertical;
+        if (!horizontalChanged && !verticalChanged && m_positionApplied &&
+            m_pendingRecordedWriteGeneration == 0)
+            return 0;
+        previous = QRectF(m_horizontalRange.x(), m_verticalRange.x(),
+                          m_horizontalRange.y(), m_verticalRange.y());
+        previousFloor = m_floorPosition;
+        m_horizontalRange = horizontal;
+        m_verticalRange = vertical;
+        if (m_floorControl)
+        {
+            m_floorPosition.setX(qBound(float(qMin(horizontal.x(), horizontal.y()) * stage.x() / 255),
+                                       m_floorPosition.x(),
+                                       float(qMax(horizontal.x(), horizontal.y()) * stage.x() / 255)));
+            m_floorPosition.setZ(qBound(float(qMin(vertical.x(), vertical.y()) * stage.z() / 255),
+                                       m_floorPosition.z(),
+                                       float(qMax(vertical.x(), vertical.y()) * stage.z() / 255)));
+        }
+        floorChanged = previousFloor != m_floorPosition;
+        if (m_pendingRecordedWriteGeneration != 0)
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteSuperseded)));
+        m_pendingRecordedWriteGeneration = recorded ? ++m_lastRecordedWriteGeneration : 0;
+        generation = m_pendingRecordedWriteGeneration;
+        prepareWriteFixtures();
+        m_positionChanged = true;
+    }
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+    if (horizontalChanged)
+        emit horizontalRangeChanged();
+    if (verticalChanged)
+        emit verticalRangeChanged();
     emit floorRangeAreaChanged();
-
-    // pull the floor target back inside the window if it just moved out
-    if (m_floorControl)
-        setFloorPosition(m_floorPosition);
-
-    // squeeze a running EFX preset into the new window
+    if (floorChanged)
+    {
+        emit floorPositionChanged();
+        if (!m_handlingExternalInput)
+            updateFeedback();
+        Tardis::instance()->enqueueAction(Tardis::VCXYPadSetFloorPosition, id(), previousFloor, m_floorPosition);
+    }
     updateEFXGeometry();
-
-    QRectF newGeometry(m_horizontalRange.x(), m_verticalRange.x(),
-                       m_horizontalRange.y(), m_verticalRange.y());
-    Tardis::instance()->enqueueAction(Tardis::VCXYPadSetGeometry, id(), oldGeometry, newGeometry);
+    Tardis::instance()->enqueueAction(Tardis::VCXYPadSetGeometry, id(), previous,
+                                      QRectF(horizontal.x(), vertical.x(), horizontal.y(), vertical.y()));
+    return generation;
 }
 
 bool VCXYPad::floorControl() const
@@ -458,30 +816,34 @@ bool VCXYPad::floorControl() const
 
 void VCXYPad::setFloorControl(bool enable)
 {
-    if (m_floorControl == enable)
-        return;
-
-    m_floorControl = enable;
-
-    // forget where the heads were pointing: on re-entering floor mode the
-    // Pan wrap is resolved from scratch
-    m_lastFloorPan.clear();
-
-    // the environment may have been resized since this pad was last used:
-    // re-clamp the target so it always sits on the stage
-    if (m_floorControl)
+    const QVector3D envSize = floorSize();
     {
-        QVector3D envSize = floorSize();
-        m_floorPosition = QVector3D(qBound(0.0f, m_floorPosition.x(), envSize.x()),
-                                    m_floorPosition.y(),
-                                    qBound(0.0f, m_floorPosition.z(), envSize.z()));
+        QMutexLocker locker(&m_positionValueMutex);
+        if (m_floorControl == enable)
+            return;
+        const quint64 cancelled = m_pendingRecordedWriteGeneration;
+        if (cancelled != 0)
+        {
+            m_retiredRecordedWrites.append(qMakePair(cancelled, int(RecordedWriteCancelled)));
+            m_recordedWriteReasons.insert(cancelled, tr("XY floor mode changed after publication"));
+            m_pendingRecordedWriteGeneration = 0;
+        }
+        m_floorControl = enable;
+        m_lastFloorPan.clear();
+        if (enable)
+            m_floorPosition = QVector3D(qBound(0.0f, m_floorPosition.x(), envSize.x()),
+                                        m_floorPosition.y(),
+                                        qBound(0.0f, m_floorPosition.z(), envSize.z()));
+        prepareWriteFixtures();
+        m_positionChanged = true;
+    }
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+    if (enable)
+    {
         emit floorSizeChanged();
         emit floorRangeAreaChanged();
         emit floorPositionChanged();
     }
-
-    // force a DMX write so that the fixtures follow the mode change
-    m_positionChanged = true;
 
     emit floorControlChanged();
     m_doc->setModified();
@@ -494,27 +856,82 @@ QVector3D VCXYPad::floorPosition() const
 
 void VCXYPad::setFloorPosition(QVector3D newFloorPosition)
 {
+    updateFloorPosition(newFloorPosition, false);
+}
+
+quint64 VCXYPad::applyRecordedFloorPosition(QVector3D position)
+{
+    return updateFloorPosition(position, true);
+}
+
+void VCXYPad::requestUserFloorPosition(QVector3D position)
+{
+    requestUserFloorPosition(position, ShowCommandOrigin::Pointer);
+}
+
+void VCXYPad::requestUserFloorPosition(QVector3D position, ShowCommandOrigin origin)
+{
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    if (recorder == nullptr)
+    {
+        setFloorPosition(position);
+        return;
+    }
+    const QRectF area = floorRangeArea();
+    position = QVector3D(qBound(float(area.left()), position.x(), float(area.right())),
+                         qBound(0.0f, position.y(), float(kFloorHeightMax)),
+                         qBound(float(area.top()), position.z(), float(area.bottom())));
+    ShowControlRequest request;
+    request.control = this;
+    request.role = ShowControlRole::XYPad;
+    request.xyPadFloor = true;
+    request.floorPosition = {position.x(), position.y(), position.z()};
+    request.origin = origin;
+    recorder->requestUserControl(request);
+}
+
+quint64 VCXYPad::updateFloorPosition(QVector3D newFloorPosition, bool recorded)
+{
     QRectF area = floorRangeArea();
 
     newFloorPosition = QVector3D(qBound(float(area.left()), newFloorPosition.x(), float(area.right())),
                                  qBound(0.0f, newFloorPosition.y(), float(kFloorHeightMax)),
                                  qBound(float(area.top()), newFloorPosition.z(), float(area.bottom())));
 
-    if (m_floorPosition == newFloorPosition)
-        return;
-
-    QVector3D previousPosition = m_floorPosition;
-
-    m_floorPosition = newFloorPosition;
-    m_positionChanged = true;
+    QVector3D previousPosition;
+    quint64 generation = 0;
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        if (m_floorPosition == newFloorPosition && m_positionApplied &&
+            m_pendingRecordedWriteGeneration == 0)
+            return 0;
+        if (m_pendingRecordedWriteGeneration != 0)
+        {
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteSuperseded)));
+            m_pendingRecordedWriteGeneration = 0;
+        }
+        previousPosition = m_floorPosition;
+        m_floorPosition = newFloorPosition;
+        prepareWriteFixtures();
+        m_positionChanged = true;
+        if (recorded)
+        {
+            generation = ++m_lastRecordedWriteGeneration;
+            m_pendingRecordedWriteGeneration = generation;
+        }
+    }
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
 
     emit floorPositionChanged();
 
     if (m_handlingExternalInput == false)
         updateFeedback();
 
-    Tardis::instance()->enqueueAction(Tardis::VCXYPadSetFloorPosition, id(),
-                                      previousPosition, m_floorPosition);
+    if (previousPosition != m_floorPosition)
+        Tardis::instance()->enqueueAction(Tardis::VCXYPadSetFloorPosition, id(),
+                                          previousPosition, m_floorPosition);
+    return generation;
 }
 
 QRectF VCXYPad::floorRangeArea() const
@@ -1207,7 +1624,7 @@ void VCXYPad::applyPreset(quint8 presetId)
         if (m_activePresetId >= 0)
             deactivatePreset(findPreset(m_activePresetId));
 
-        if (activatePreset(preset))
+        if (activatePreset(preset, functionParent()))
             setActivePresetId(presetId);
         else
             setActivePresetId(-1);
@@ -1370,7 +1787,7 @@ bool VCXYPad::sceneHasPanTilt(quint32 functionID) const
     return false;
 }
 
-bool VCXYPad::activatePreset(VCXYPadPreset *preset)
+bool VCXYPad::activatePreset(VCXYPadPreset *preset, const FunctionParent &owner, bool recorded)
 {
     if (preset == nullptr)
         return false;
@@ -1393,7 +1810,8 @@ bool VCXYPad::activatePreset(VCXYPadPreset *preset)
         if (preset->m_type == VCXYPadPreset::EFX)
             attachEFX(function);
 
-        function->start(m_doc->masterTimer(), functionParent());
+        function->start(m_doc->masterTimer(), owner);
+        m_presetOwner = owner;
         emit functionStarting(this, function->id(), intensity());
         return true;
     }
@@ -1405,30 +1823,28 @@ bool VCXYPad::activatePreset(VCXYPadPreset *preset)
         // be matched through the heads they resolve to.
         QList<GroupHead> selected = presetHeads(preset);
 
-        for (XYPadFixture &fixture : m_fixtures)
+        QVector<bool> enabled;
+        for (const XYPadFixture &fixture : std::as_const(m_fixtures))
         {
-            fixture.m_enabled = false;
-
+            bool selectedEntry = false;
             for (const GroupHead &head : entryHeads(fixture))
             {
                 if (selected.contains(head))
                 {
-                    fixture.m_enabled = true;
+                    selectedEntry = true;
                     break;
                 }
             }
+            enabled.append(selectedEntry);
         }
-
-        m_fixturePositions.clear();
-        emit fixturePositionsChanged();
-        m_positionChanged = true;
+        updateSelection(enabled, recorded, preset->m_id);
         return true;
     }
 
     return false;
 }
 
-void VCXYPad::deactivatePreset(VCXYPadPreset *preset)
+void VCXYPad::deactivatePreset(VCXYPadPreset *preset, bool recorded)
 {
     if (preset == nullptr)
         return;
@@ -1436,8 +1852,8 @@ void VCXYPad::deactivatePreset(VCXYPadPreset *preset)
     if (preset->m_type == VCXYPadPreset::EFX || preset->m_type == VCXYPadPreset::Scene)
     {
         Function *function = m_doc->function(preset->m_funcID);
-        if (function != nullptr && function->isRunning())
-            function->stop(functionParent());
+        if (function != nullptr)
+            function->stop(m_presetOwner);
 
         if (preset->m_type == VCXYPadPreset::EFX)
             detachEFX();
@@ -1446,12 +1862,7 @@ void VCXYPad::deactivatePreset(VCXYPadPreset *preset)
 
     if (preset->m_type == VCXYPadPreset::FixtureGroup)
     {
-        for (XYPadFixture &fixture : m_fixtures)
-            fixture.m_enabled = true;
-
-        m_fixturePositions.clear();
-        emit fixturePositionsChanged();
-        m_positionChanged = true;
+        updateSelection(QVector<bool>(m_fixtures.count(), true), recorded, -1);
     }
 }
 
@@ -1521,7 +1932,7 @@ QRectF VCXYPad::efxGeometry() const
 
 void VCXYPad::updateEFXGeometry()
 {
-    if (m_efx.isNull() || m_efx->isRunning() == false)
+    if (m_efx.isNull())
         return;
 
     QRectF rect = efxGeometry();
@@ -1854,25 +2265,81 @@ void VCXYPad::writeDMX(MasterTimer *timer, QList<Universe *> universes)
 {
     Q_UNUSED(timer)
 
-    if (m_positionChanged == false)
-        return;
-
-    if (m_floorControl)
+    QMutexLocker positionLocker(&m_positionValueMutex);
+    QMutexLocker projectionLocker(&m_doc->monitorProperties()->m_floorProjectionMutex);
+    QPointF pt;
+    bool floorControl = false;
+    QVector3D floorPosition;
+    QPointF horizontalRange, verticalRange;
+    QList<XYPadFixture> fixtures;
+    QList<QPointer<Fixture>> lifetimes;
+    bool inverted = false;
+    quint64 pendingGeneration = 0;
     {
-        writeDMXFloor(universes);
+        if (m_positionChanged == false)
+            return;
+        if (m_floorControl && m_pendingRecordedWriteGeneration != 0 && !floorProjectionCompatible())
+        {
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteCancelled)));
+            m_recordedWriteReasons.insert(m_pendingRecordedWriteGeneration,
+                                          tr("XY floor projection changed after publication"));
+            m_pendingRecordedWriteGeneration = 0;
+            m_positionChanged = false;
+            m_positionApplied = false;
+            QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+            return;
+        }
+        pt = m_currentPosition;
+        floorControl = m_floorControl;
+        floorPosition = m_floorPosition;
+        horizontalRange = m_horizontalRange;
+        verticalRange = m_verticalRange;
+        fixtures = m_writeFixtures;
+        lifetimes = m_writeLifetimes;
+        inverted = invertedAppearance();
+        pendingGeneration = m_pendingRecordedWriteGeneration;
+        if (pendingGeneration != 0)
+            m_pendingRecordedWriteGeneration = 0;
         m_positionChanged = false;
+    }
+    for (int index = 0; index < lifetimes.count(); ++index)
+    {
+        if (lifetimes[index].isNull() ||
+            m_doc->fixture(fixtures[index].m_head.fxi) != lifetimes[index].data())
+        {
+            if (pendingGeneration != 0)
+            {
+                m_retiredRecordedWrites.append(qMakePair(pendingGeneration, int(RecordedWriteCancelled)));
+            }
+            QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+            return;
+        }
+    }
+
+    if (floorControl)
+    {
+        const bool wrote = writeDMXFloor(universes, floorPosition, fixtures);
+        {
+            if (wrote && !m_positionChanged)
+                m_positionApplied = true;
+            if (pendingGeneration != 0)
+                m_retiredRecordedWrites.append(qMakePair(
+                    pendingGeneration,
+                    int(wrote ? RecordedWriteApplied : RecordedWriteCancelled)));
+        }
+        QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
         return;
     }
 
     // Read current position
-    QPointF pt = currentPosition();
     quint16 x16 = posToU16(pt.x());
     quint16 y16 = posToU16(pt.y());
 
-    int hMinMSB = clampMSB(m_horizontalRange.x());
-    int hMaxMSB = clampMSB(m_horizontalRange.y());
-    int vMinMSB = clampMSB(m_verticalRange.x());
-    int vMaxMSB = clampMSB(m_verticalRange.y());
+    int hMinMSB = clampMSB(horizontalRange.x());
+    int hMaxMSB = clampMSB(horizontalRange.y());
+    int vMinMSB = clampMSB(verticalRange.x());
+    int vMaxMSB = clampMSB(verticalRange.y());
 
     if (hMaxMSB < hMinMSB)
         qSwap(hMinMSB, hMaxMSB);
@@ -1892,37 +2359,22 @@ void VCXYPad::writeDMX(MasterTimer *timer, QList<Universe *> universes)
     qreal x = qreal(x16) / qreal(USHRT_MAX);
     qreal y = qreal(y16) / qreal(USHRT_MAX);
 
-    if (invertedAppearance())
+    if (inverted)
         y = 1.0 - y;
 
+    bool wrote = false;
     // Write DMX values
-    for (XYPadFixture &fixture : m_fixtures)
+    for (XYPadFixture &fixture : fixtures)
     {
         if (fixture.m_enabled == false)
             continue;
 
-        const bool isGroup = fixture.m_groupID != FixtureGroup::invalidId();
-
-        // A fixture entry drives its own cached channels, while a group entry
-        // is resolved to its member heads on the fly
+        // Group membership and head selection were frozen with this write.
         for (const GroupHead &head : entryHeads(fixture))
         {
             quint32 universe = fixture.m_universe;
             quint32 xMSB = fixture.m_xMSB, xLSB = fixture.m_xLSB;
             quint32 yMSB = fixture.m_yMSB, yLSB = fixture.m_yLSB;
-
-            if (isGroup)
-            {
-                Fixture *fxi = m_doc->fixture(head.fxi);
-                if (fxi == nullptr || head.head >= fxi->heads())
-                    continue;
-
-                universe = fxi->universe();
-                xMSB = fxi->channelNumber(QLCChannel::Pan, QLCChannel::MSB, head.head);
-                xLSB = fxi->channelNumber(QLCChannel::Pan, QLCChannel::LSB, head.head);
-                yMSB = fxi->channelNumber(QLCChannel::Tilt, QLCChannel::MSB, head.head);
-                yLSB = fxi->channelNumber(QLCChannel::Tilt, QLCChannel::LSB, head.head);
-            }
 
             if (universe == Universe::invalid())
                 continue;
@@ -1951,25 +2403,36 @@ void VCXYPad::writeDMX(MasterTimer *timer, QList<Universe *> universes)
 
             FadeChannel *fc = fader->getChannelFader(m_doc, pUniverse, head.fxi, xMSB);
             updateChannel(fc, uchar(xVal >> 8));
+            wrote = true;
 
             fc = fader->getChannelFader(m_doc, pUniverse, head.fxi, yMSB);
             updateChannel(fc, uchar(yVal >> 8));
+            wrote = true;
 
             if (xLSB != QLCChannel::invalid())
             {
                 fc = fader->getChannelFader(m_doc, pUniverse, head.fxi, xLSB);
                 updateChannel(fc, uchar(xVal & 0xFF));
+                wrote = true;
             }
 
             if (yLSB != QLCChannel::invalid())
             {
                 fc = fader->getChannelFader(m_doc, pUniverse, head.fxi, yLSB);
                 updateChannel(fc, uchar(yVal & 0xFF));
+                wrote = true;
             }
         }
     }
 
-    m_positionChanged = false;
+    {
+        if (wrote && !m_positionChanged)
+            m_positionApplied = true;
+        if (pendingGeneration != 0)
+            m_retiredRecordedWrites.append(qMakePair(
+                pendingGeneration, int(wrote ? RecordedWriteApplied : RecordedWriteCancelled)));
+    }
+    QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
 }
 
 qreal VCXYPad::resolvePanDegrees(const Fixture *fixture, qreal panDeg)
@@ -2013,38 +2476,28 @@ qreal VCXYPad::resolvePanDegrees(const Fixture *fixture, qreal panDeg)
     return best;
 }
 
-void VCXYPad::writeDMXFloor(QList<Universe *> universes)
+bool VCXYPad::writeDMXFloor(QList<Universe *> universes, const QVector3D &floorPosition,
+                          const QList<XYPadFixture> &fixtures)
 {
     // Collect the fixtures currently driven by this pad. The Position3D
     // aiming math works per fixture, so heads of the same fixture collapse
     // into a single entry.
     QList<quint32> fixtureIDs;
 
-    // While a Fixture Group preset is active, only the heads it selects are
-    // tracked, even when they come from a wider group entry
-    VCXYPadPreset *activePreset = m_activePresetId >= 0 ? findPreset(m_activePresetId) : nullptr;
-    bool restrictToPreset = activePreset != nullptr &&
-                            activePreset->m_type == VCXYPadPreset::FixtureGroup;
-    QList<GroupHead> presetSelection = restrictToPreset ? presetHeads(activePreset)
-                                                        : QList<GroupHead>();
-
-    for (const XYPadFixture &fixture : m_fixtures)
+    for (const XYPadFixture &fixture : fixtures)
     {
         if (fixture.m_enabled == false)
             continue;
 
         for (const GroupHead &head : entryHeads(fixture))
         {
-            if (restrictToPreset && presetSelection.contains(head) == false)
-                continue;
-
             if (fixtureIDs.contains(head.fxi) == false)
                 fixtureIDs.append(head.fxi);
         }
     }
 
     if (fixtureIDs.isEmpty())
-        return;
+        return false;
 
     // This runs only on an actual position change, not on every tick, so
     // recomputing the aiming values here is affordable.
@@ -2053,7 +2506,7 @@ void VCXYPad::writeDMXFloor(QList<Universe *> universes)
     // values: it already knows about fixture position, rotation, inverted
     // Pan/Tilt flags and physical ranges.
     QLCPalette palette(QLCPalette::Position3D);
-    palette.setValue(m_floorPosition.x(), m_floorPosition.y(), m_floorPosition.z());
+    palette.setValue(floorPosition.x(), floorPosition.y(), floorPosition.z());
 
     QList<SceneValue> values = palette.valuesFromFixtures(m_doc, fixtureIDs);
 
@@ -2110,8 +2563,22 @@ void VCXYPad::writeDMXFloor(QList<Universe *> universes)
             values[lsbIdx].value = uchar(newPan16 & 0xFF);
     }
 
+    bool wrote = false;
     for (const SceneValue &scv : values)
     {
+        bool selected = false;
+        for (const XYPadFixture &fixture : fixtures)
+        {
+            if (fixture.m_head.fxi == scv.fxi &&
+                (scv.channel == fixture.m_xMSB || scv.channel == fixture.m_xLSB ||
+                 scv.channel == fixture.m_yMSB || scv.channel == fixture.m_yLSB))
+            {
+                selected = true;
+                break;
+            }
+        }
+        if (!selected)
+            continue;
         Fixture *fxi = m_doc->fixture(scv.fxi);
         if (fxi == nullptr)
             continue;
@@ -2132,7 +2599,10 @@ void VCXYPad::writeDMXFloor(QList<Universe *> universes)
 
         FadeChannel *fc = fader->getChannelFader(m_doc, universes[universe], scv.fxi, scv.channel);
         updateChannel(fc, scv.value);
+        wrote = true;
     }
+
+    return wrote;
 }
 
 /*********************************************************************
@@ -2177,7 +2647,7 @@ void VCXYPad::slotInputValueChanged(quint8 id, uchar value)
         {
             quint8 presetId = id - INPUT_PRESETS_BASE_ID;
             if (findPreset(presetId) != nullptr)
-                applyPreset(presetId);
+                requestUserPreset(presetId, inputOrigin());
         }
         return;
     }
@@ -2195,19 +2665,19 @@ void VCXYPad::slotInputValueChanged(quint8 id, uchar value)
         switch (id)
         {
             case INPUT_PAN_ID:
-                setFloorPosition(QVector3D(SCALE(qreal(value), 0.0, 255.0, 0.0, qreal(envSize.x())),
-                                           m_floorPosition.y(), m_floorPosition.z()));
+                requestUserFloorPosition(QVector3D(SCALE(qreal(value), 0.0, 255.0, 0.0, qreal(envSize.x())),
+                                           m_floorPosition.y(), m_floorPosition.z()), inputOrigin());
             break;
             case INPUT_TILT_ID:
-                setFloorPosition(QVector3D(m_floorPosition.x(), m_floorPosition.y(),
-                                           SCALE(qreal(value), 0.0, 255.0, 0.0, qreal(envSize.z()))));
+                requestUserFloorPosition(QVector3D(m_floorPosition.x(), m_floorPosition.y(),
+                                           SCALE(qreal(value), 0.0, 255.0, 0.0, qreal(envSize.z()))), inputOrigin());
             break;
             case INPUT_FLOOR_HEIGHT_ID:
             {
                 // snap the height to the fader step
                 qreal height = SCALE(qreal(value), 0.0, 255.0, 0.0, kFloorHeightMax);
                 height = qRound(height / kFloorHeightStep) * kFloorHeightStep;
-                setFloorPosition(QVector3D(m_floorPosition.x(), height, m_floorPosition.z()));
+                requestUserFloorPosition(QVector3D(m_floorPosition.x(), height, m_floorPosition.z()), inputOrigin());
             }
             break;
         }
@@ -2221,28 +2691,28 @@ void VCXYPad::slotInputValueChanged(quint8 id, uchar value)
         case INPUT_PAN_ID:
             value = SCALE(value, 0, 255, m_horizontalRange.x(), m_horizontalRange.y());
             m_x16 = quint16((quint16(value) << 8) | (m_x16 & 0x00FF));
-            setCurrentPosition(QPointF(u16ToPos(m_x16), m_currentPosition.y()));
+            requestUserCurrentPosition(QPointF(u16ToPos(m_x16), m_currentPosition.y()), inputOrigin());
         break;
         case INPUT_PAN_FINE_ID:
             m_x16 = quint16((m_x16 & 0xFF00) | quint16(value));
-            setCurrentPosition(QPointF(u16ToPos(m_x16), m_currentPosition.y()));
+            requestUserCurrentPosition(QPointF(u16ToPos(m_x16), m_currentPosition.y()), inputOrigin());
         break;
         case INPUT_TILT_ID:
             value = SCALE(value, 0, 255, m_verticalRange.x(), m_verticalRange.y());
             m_y16 = quint16((quint16(value) << 8) | (m_y16 & 0x00FF));
-            setCurrentPosition(QPointF(m_currentPosition.x(), u16ToPos(m_y16)));
+            requestUserCurrentPosition(QPointF(m_currentPosition.x(), u16ToPos(m_y16)), inputOrigin());
         break;
         case INPUT_TILT_FINE_ID:
             m_y16 = quint16((m_y16 & 0xFF00) | quint16(value));
-            setCurrentPosition(QPointF(m_currentPosition.x(), u16ToPos(m_y16)));
+            requestUserCurrentPosition(QPointF(m_currentPosition.x(), u16ToPos(m_y16)), inputOrigin());
         break;
         case INPUT_WIDTH_ID:
             // resize the range window (and with it a running EFX preset)
             // by moving the horizontal upper limit
-            setHorizontalRange(QPointF(m_horizontalRange.x(), value));
+            requestUserRanges(QPointF(m_horizontalRange.x(), value), m_verticalRange, inputOrigin());
         break;
         case INPUT_HEIGHT_ID:
-            setVerticalRange(QPointF(m_verticalRange.x(), value));
+            requestUserRanges(m_horizontalRange, QPointF(m_verticalRange.x(), value), inputOrigin());
         break;
     }
 

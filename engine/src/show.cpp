@@ -599,6 +599,13 @@ ShowCommandTrack Show::commandTrack() const
     return m_commandTrack;
 }
 
+void Show::armCommandTrackSaveProjection(const ShowCommandTrack &track)
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    m_commandTrackSaveProjection = track;
+    m_commandTrackSaveProjectionArmed = true;
+}
+
 QString Show::commandTargetError(const ShowCommandTrack &track) const
 {
     Doc *document = doc();
@@ -691,6 +698,7 @@ bool Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> 
         if (onlyStopped && m_startsEnded != m_startsAccepted)
             return false;
         m_commandTrack = track;
+        m_commandTrackSaveProjectionArmed = false;
         /** Ids published earlier in this traversal are still waiting for the
          *  cursor to reach them, so they must survive a newer publication.
          *  A stopped Show has no traversal: accepting a start begins the next
@@ -979,7 +987,12 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
     foreach (Track *track, m_tracks)
         track->saveXML(doc);
 
-    const ShowCommandTrack commands = commandTrack();
+    ShowCommandTrack commands;
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        commands = m_commandTrackSaveProjectionArmed ? m_commandTrackSaveProjection : m_commandTrack;
+        m_commandTrackSaveProjectionArmed = false;
+    }
     if (commands.isEmpty() == false || commands.extent() > 0)
         commands.saveXML(doc);
 

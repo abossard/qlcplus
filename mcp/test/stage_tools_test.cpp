@@ -372,7 +372,7 @@ void McpStageTools_Test::createChannelGroups_upsertsByNameKeepingId()
             {{"fixtureID", (int)fxi->id()}, {"channel", 0}}
         })}}
     })}});
-    QCOMPARE(first[0].value("status", std::string()), std::string("created"));
+    QCOMPARE(first[0].value("outcome", std::string()), std::string("created"));
     const int id = first[0].value("id", -1);
 
     Json second = invoke(m_doc, "create_channel_groups", Json{{"items", Json::array({
@@ -381,7 +381,7 @@ void McpStageTools_Test::createChannelGroups_upsertsByNameKeepingId()
         })}}
     })}});
 
-    QCOMPARE(second[0].value("status", std::string()), std::string("updated"));
+    QCOMPARE(second[0].value("outcome", std::string()), std::string("updated"));
     QCOMPARE(second[0].value("id", -1), id);
     QCOMPARE(m_doc->channelsGroups().count(), 1);
 }
@@ -494,6 +494,36 @@ void McpStageTools_Test::createChannelGroups_unknownFixture_rejected()
     QCOMPARE(m_doc->channelsGroups().count(), 0);
 }
 
+void McpStageTools_Test::stage_wrappingFixtureId_rejected_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QString>("item");
+    QTest::newRow("placement 2^32") << "set_fixture_placement"
+        << R"({"fixtureID":4294967296,"position":{"x":1.0}})";
+    QTest::newRow("placement -4294967296") << "set_fixture_placement"
+        << R"({"fixtureID":-4294967296,"position":{"x":1.0}})";
+    QTest::newRow("channel group member 2^32") << "create_channel_groups"
+        << R"({"name":"Bad","channels":[{"fixtureID":4294967296,"channel":0}]})";
+    QTest::newRow("channel group channel 2^32") << "create_channel_groups"
+        << R"({"name":"Bad","channels":[{"fixtureID":0,"channel":4294967296}]})";
+}
+
+void McpStageTools_Test::stage_wrappingFixtureId_rejected()
+{
+    QFETCH(QString, tool);
+    QFETCH(QString, item);
+    Fixture *fxi = patchFixture(m_doc, "Par 1", 0, 4);
+    QCOMPARE(fxi->id(), quint32(0));
+
+    Json result = invoke(m_doc, tool.toUtf8().constData(),
+                         Json{{"items", Json::array({Json::parse(item.toStdString())})}});
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+    QCOMPARE(result[0].value("index", -1), 0);
+    QVERIFY(!m_doc->monitorProperties()->containsItem(0, 0, 0));
+    QCOMPARE(m_doc->channelsGroups().count(), 0);
+}
+
 void McpStageTools_Test::queryChannelGroups_reportsMembers()
 {
     Fixture *a = patchFixture(m_doc, "A", 0, 4);
@@ -537,7 +567,7 @@ void McpStageTools_Test::deleteChannelGroups_removesGroupKeepsFixtures()
 
     Json result = invoke(m_doc, "delete_channel_groups", Json{{"ids", Json::array({id})}});
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(m_doc->channelsGroups().count(), 0);
     QCOMPARE(m_doc->fixtures().count(), 1);
 }

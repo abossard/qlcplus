@@ -117,6 +117,9 @@ public:
 
     QStringList syntaxErrorsLines() const;
 
+    /** Compiles a script body as the runner does, without running it */
+    static QStringList syntaxErrors(const QString &content);
+
 private:
     QString m_data;
 

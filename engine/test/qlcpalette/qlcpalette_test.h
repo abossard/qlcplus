@@ -39,6 +39,10 @@ private slots:
     void load();
     void loadWrongRoot();
     void save();
+    void xmlRoundTrip_data();
+    void xmlRoundTrip();
+    void positionValues_data();
+    void positionValues();
 };
 
 #endif

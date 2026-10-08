@@ -33,6 +33,8 @@
 #include "rgbmatrix.h"
 #include "mastertimer.h"
 #include "functionparent.h"
+#include "sequence.h"
+#include "inputoutputmap.h"
 
 #include <fastmcpp/tools/manager.hpp>
 
@@ -137,6 +139,7 @@ void McpDeleteTools_Test::init()
 
 void McpDeleteTools_Test::cleanup()
 {
+    m_doc->masterTimer()->stop();
     delete m_doc;
     m_doc = nullptr;
 }
@@ -153,7 +156,7 @@ void McpDeleteTools_Test::deleteFixtures_removesFromDocAndFreesAddress()
     Json result = deleteFixtures(m_doc, Json::array({(int)dropID}));
 
     QCOMPARE(result.size(), (size_t)1);
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(result[0].value("name", std::string()), std::string("Drop"));
     QCOMPARE(m_doc->fixtures().count(), 1);
     QVERIFY(m_doc->fixture(dropID) == NULL);
@@ -194,8 +197,41 @@ void McpDeleteTools_Test::deleteFixtures_batchWithUnknownId_reportsPerItemError(
     Json result = deleteFixtures(m_doc, Json::array({(int)real->id(), 9999}));
 
     QCOMPARE(result.size(), (size_t)2);
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
-    QCOMPARE(result[1].value("status", std::string()), std::string("not found"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
+    QCOMPARE(result[1].value("status", std::string()), std::string("error"));
+    QCOMPARE(m_doc->fixtures().count(), 0);
+}
+
+void McpDeleteTools_Test::deleteFixtures_wrappingId_deletesNothing()
+{
+    Fixture *real = patchFixture(m_doc, "Real", 0, 6);
+
+    // 2^32 + id would wrap onto the real fixture if narrowed unchecked.
+    Json result = deleteFixtures(m_doc, Json::array({4294967296LL + real->id(), -1, 0.5}));
+
+    QCOMPARE(result.size(), (size_t)3);
+    for (const Json &r : result)
+        QVERIFY2(r.value("status", std::string()) == "error" && r.contains("error"), result.dump().c_str());
+    QCOMPARE(m_doc->fixtures().count(), 1);
+}
+
+void McpDeleteTools_Test::deleteFixtures_perInputRecords()
+{
+    Fixture *real = patchFixture(m_doc, "Real", 0, 6);
+    const int id = int(real->id());
+
+    Json result = deleteFixtures(m_doc, Json::array({9999, id, id, 0.5}));
+
+    QVERIFY2(result.size() == 4, result.dump().c_str());
+    const char *expected[][2] = {{"error", "not found"}, {"ok", "deleted"}, {"ok", "duplicate"}, {"error", "integer"}};
+    for (int i = 0; i < 4; i++)
+    {
+        QCOMPARE(result[i].value("index", -1), i);
+        QCOMPARE(result[i].value("status", std::string()), std::string(expected[i][0]));
+        const std::string got = result[i].value(expected[i][0] == std::string("ok") ? "outcome" : "error", std::string());
+        QVERIFY2(got.find(expected[i][1]) != std::string::npos, result.dump().c_str());
+    }
+    QCOMPARE(result[2].value("duplicateOf", -1), 1);
     QCOMPARE(m_doc->fixtures().count(), 0);
 }
 
@@ -234,6 +270,97 @@ void McpDeleteTools_Test::deleteFixtures_savedXmlHasNoOrphanReference()
     QVERIFY(xml.contains("Keep"));
 }
 
+void McpDeleteTools_Test::deleteFixtures_admission_data()
+{
+    QTest::addColumn<QString>("state");
+    QTest::addColumn<QString>("targetCode");
+    QTest::addColumn<QString>("freeCode");
+
+    // Input is always [target, free]; empty code means outcome deleted.
+    QTest::newRow("stopped unreferenced") << "idle" << "" << "";
+    QTest::newRow("user scene queued") << "queued" << "functions_running" << "functions_running";
+    QTest::newRow("user scene running") << "running" << "functions_running" << "functions_running";
+    QTest::newRow("unrelated running") << "otherRunning" << "functions_running" << "functions_running";
+    QTest::newRow("scene bound by sequence") << "bound" << "bound_scene" << "";
+}
+
+void McpDeleteTools_Test::deleteFixtures_admission()
+{
+    QFETCH(QString, state);
+    QFETCH(QString, targetCode);
+    QFETCH(QString, freeCode);
+
+    Fixture *target = patchFixture(m_doc, "Target", 0, 4);
+    Fixture *free = patchFixture(m_doc, "Free", 10, 4);
+    Fixture *other = patchFixture(m_doc, "Other", 20, 4);
+    const quint32 targetId = target->id(), freeId = free->id();
+
+    Scene *user = new Scene(m_doc);
+    user->setValue(SceneValue(targetId, 0, 200));
+    QVERIFY(m_doc->addFunction(user));
+    Scene *unrelated = new Scene(m_doc);
+    unrelated->setValue(SceneValue(other->id(), 0, 100));
+    QVERIFY(m_doc->addFunction(unrelated));
+    FixtureGroup *group = new FixtureGroup(m_doc);
+    group->setName("Pair");
+    group->assignFixture(targetId);
+    group->assignFixture(other->id());
+    m_doc->addFixtureGroup(group);
+
+    if (state == "bound")
+    {
+        Sequence *seq = new Sequence(m_doc);
+        seq->setBoundSceneID(user->id());
+        QVERIFY(m_doc->addFunction(seq));
+    }
+    Function *started = state == "otherRunning" ? unrelated
+                      : (state == "queued" || state == "running") ? user : nullptr;
+    if (started)
+        started->start(m_doc->masterTimer(), FunctionParent::master());
+    if (state == "running" || state == "otherRunning")
+    {
+        // Universes must run or the MasterTimer thread blocks on its first tick
+        m_doc->inputOutputMap()->startUniverses();
+        m_doc->masterTimer()->start();
+        QTRY_VERIFY(started->isRunning());
+    }
+    m_doc->resetModified();
+
+    Json result = deleteFixtures(m_doc, Json::array({(int)targetId, (int)freeId}));
+
+    QVERIFY2(result.is_array() && result.size() == 2, result.dump().c_str());
+    const QString codes[] = { targetCode, freeCode };
+    const quint32 ids[] = { targetId, freeId };
+    bool anyDeleted = false;
+    for (int i = 0; i < 2; i++)
+    {
+        const Json &r = result[i];
+        QCOMPARE(r.value("index", -1), i);
+        if (codes[i].isEmpty())
+        {
+            QVERIFY2(r.value("outcome", "") == "deleted", r.dump().c_str());
+            QVERIFY(m_doc->fixture(ids[i]) == nullptr);
+            anyDeleted = true;
+        }
+        else
+        {
+            QVERIFY2(r.value("status", "") == "error", r.dump().c_str());
+            QCOMPARE(QString::fromStdString(r.value("code", "")), codes[i]);
+            QVERIFY(m_doc->fixture(ids[i]) != nullptr);
+        }
+    }
+    const bool targetKept = !targetCode.isEmpty();
+    QCOMPARE(user->values().count(), targetKept ? 1 : 0);
+    QCOMPARE(group->fixtureList().contains(targetId), targetKept);
+    QCOMPARE(m_doc->isModified(), anyDeleted);
+    if (!started)
+    {
+        // Every admitted item released its registry edit
+        QVERIFY(m_doc->masterTimer()->beginRegistryEdit());
+        m_doc->masterTimer()->endFunctionEdit();
+    }
+}
+
 // ─── delete_fixture_groups ─────────────────────────────────────────────────
 
 void McpDeleteTools_Test::deleteFixtureGroups_removesGroupButKeepsFixtures()
@@ -251,7 +378,8 @@ void McpDeleteTools_Test::deleteFixtureGroups_removesGroupButKeepsFixtures()
 
     Json result = deleteFixtureGroups(m_doc, Json::array({(int)groupID}));
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(result[0].value("name", std::string()), std::string("Backline"));
     QCOMPARE(m_doc->fixtureGroups().count(), 0);
 
@@ -312,7 +440,8 @@ void McpDeleteTools_Test::deleteFixtureGroups_unboundGroup_deleted()
     // matrix exists.
     Json result = deleteFixtureGroups(m_doc, Json::array({(int)free_->id()}));
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(m_doc->fixtureGroups().count(), 1);
     QCOMPARE(m_doc->fixtureGroups().first()->name(), QString("Bound"));
 }
@@ -340,7 +469,9 @@ void McpDeleteTools_Test::deleteFixtures_emptiedGroup_isRemoved()
     QCOMPARE(m_doc->fixtureGroups().count(), 1);
     QCOMPARE(m_doc->fixtureGroups().first()->name(), QString("Keeps One"));
 
-    const Json &last = result[result.size() - 1];
+    // Nested in the item that emptied the group, not an extra top-level record.
+    QCOMPARE(result.size(), (size_t)1);
+    const Json &last = result[0];
     QVERIFY2(last.contains("removedEmptyGroups"), result.dump().c_str());
     QCOMPARE(last["removedEmptyGroups"].size(), (size_t)1);
     QCOMPARE(last["removedEmptyGroups"][0].value("name", std::string()), std::string("Solo"));
@@ -350,7 +481,8 @@ void McpDeleteTools_Test::deleteFixtureGroups_unknownId_notFound()
 {
     Json result = deleteFixtureGroups(m_doc, Json::array({4242}));
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("not found"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+    QCOMPARE(result[0].value("code", std::string()), std::string("not_found"));
 }
 
 // ─── vc_delete_pages ───────────────────────────────────────────────────────
@@ -363,7 +495,8 @@ void McpDeleteTools_Test::vcDeletePages_removesPage()
 
     Json result = deletePages(m_doc, &bridge, Json::array({1}));
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(bridge.pageNames, QStringList{"Intro"});
 }
 
@@ -381,7 +514,7 @@ void McpDeleteTools_Test::vcDeletePages_batchAscending_deletesHighestFirst()
 
     QCOMPARE(result.size(), (size_t)2);
     for (auto &entry : result)
-        QVERIFY2(entry.value("status", std::string()) == "deleted", entry.dump().c_str());
+        QVERIFY2(entry.value("outcome", std::string()) == "deleted", entry.dump().c_str());
     QCOMPARE(bridge.pageNames, (QStringList{"Intro", "Outro"}));
 }
 
@@ -407,10 +540,11 @@ void McpDeleteTools_Test::vcDeletePages_batchDownToLastPage_keepsOne()
 
     Json result = deletePages(m_doc, &bridge, Json::array({0, 1}));
 
-    // Page 1 goes, page 0 is refused once it is the only one left.
+    // Page 1 goes, page 0 is refused once it is the only one left; outcomes
+    // keep the caller's order.
     QCOMPARE(result.size(), (size_t)2);
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
-    QVERIFY2(result[1].contains("error"), result[1].dump().c_str());
+    QVERIFY2(result[0].contains("error"), result[0].dump().c_str());
+    QCOMPARE(result[1].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(bridge.pageNames, QStringList{"Intro"});
 }
 
@@ -424,7 +558,7 @@ void McpDeleteTools_Test::vcDeletePages_outOfRange_notFound()
 
     QCOMPARE(result.size(), (size_t)2);
     for (auto &entry : result)
-        QVERIFY2(entry.value("status", std::string()) == "not found", entry.dump().c_str());
+        QVERIFY2(entry.value("status", std::string()) == "error", entry.dump().c_str());
     QCOMPARE(bridge.pagesCount(), 2);
 }
 

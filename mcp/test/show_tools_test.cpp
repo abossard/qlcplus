@@ -30,6 +30,9 @@
 #include "show.h"
 #include "showfunction.h"
 #include "track.h"
+#include "chaser.h"
+#include "chaserstep.h"
+#include "collection.h"
 #include <QSet>
 
 #include <fastmcpp/tools/manager.hpp>
@@ -79,8 +82,12 @@ void McpShowTools_Test::init()
 
 void McpShowTools_Test::cleanup()
 {
+    // Every tool call, admitted or refused, must leave no edit admission behind
+    const bool leaked = !m_doc->masterTimer()->beginFunctionEdit(QList<Function*>());
+    m_doc->masterTimer()->endFunctionEdit();
     delete m_doc;
     m_doc = nullptr;
+    QVERIFY2(!leaked, "an MCP call left a MasterTimer edit admission held");
 }
 
 // ─── create_shows ──────────────────────────────────────────────────────────
@@ -93,7 +100,7 @@ void McpShowTools_Test::createShows_createsShowWithTracks()
     })}});
 
     QVERIFY2(!result[0].contains("error"), result[0].dump().c_str());
-    QCOMPARE(result[0].value("status", std::string()), std::string("created"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("created"));
     QCOMPARE(result[0]["tracks"].size(), (size_t)3);
 
     Show *show = qobject_cast<Show*>(m_doc->function((quint32)result[0].value("id", -1)));
@@ -114,7 +121,7 @@ void McpShowTools_Test::createShows_upsertsByNameKeepingId()
         {{"name", "Set"}, {"tracks", Json::array({{{"name", "Beams"}}})}}
     })}});
 
-    QCOMPARE(second[0].value("status", std::string()), std::string("updated"));
+    QCOMPARE(second[0].value("outcome", std::string()), std::string("updated"));
     QCOMPARE(second[0].value("id", -1), id);
 
     // One show, and the second call added a track rather than replacing the show.
@@ -135,7 +142,7 @@ void McpShowTools_Test::createShows_existingTracksNotDuplicated()
         {{"name", "Set"}, {"tracks", Json::array({{{"name", "Wash"}, {"mute", true}}})}}
     })}});
 
-    QCOMPARE(again[0]["tracks"][0].value("status", std::string()), std::string("updated"));
+    QCOMPARE(again[0]["tracks"][0].value("outcome", std::string()), std::string("updated"));
 
     Show *show = qobject_cast<Show*>(m_doc->function((quint32)again[0].value("id", -1)));
     QCOMPARE(show->getTracksCount(), 1);
@@ -169,7 +176,7 @@ void McpShowTools_Test::addShowItems_placesOnTimeline()
         })}
     });
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("added"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("added"));
     QCOMPARE(result[0].value("startTime", -1), 5000);
     QCOMPARE(result[0].value("duration", -1), 3000);
 
@@ -425,6 +432,58 @@ void McpShowTools_Test::queryShows_tempoTypeFeedsBackIntoCreate()
     QVERIFY2(!again[0].contains("error"), again[0].dump().c_str());
 }
 
+void McpShowTools_Test::addShowItems_containmentCycle_data()
+{
+    QTest::addColumn<QString>("item");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("chaser that plays this show") << "PlaysShow" << false;
+    QTest::newRow("collection leading into an existing cycle") << "IntoLoop" << false;
+    QTest::newRow("acyclic chaser") << "Plain" << true;
+}
+
+void McpShowTools_Test::addShowItems_containmentCycle()
+{
+    QFETCH(QString, item);
+    QFETCH(bool, accepted);
+
+    Show *show = makeShow(m_doc, "Set");
+    Scene *wash = makeScene(m_doc, "Wash");
+    Chaser *playsShow = new Chaser(m_doc);
+    playsShow->setName("PlaysShow");
+    QVERIFY(playsShow->addStep(ChaserStep(show->id())));
+    QVERIFY(m_doc->addFunction(playsShow));
+    Chaser *plain = new Chaser(m_doc);
+    plain->setName("Plain");
+    QVERIFY(plain->addStep(ChaserStep(wash->id())));
+    QVERIFY(m_doc->addFunction(plain));
+    // LoopA and LoopB already contain each other; IntoLoop leads into them
+    Chaser *loopA = new Chaser(m_doc);
+    loopA->setName("LoopA");
+    QVERIFY(m_doc->addFunction(loopA));
+    Collection *loopB = new Collection(m_doc);
+    loopB->setName("LoopB");
+    QVERIFY(m_doc->addFunction(loopB));
+    QVERIFY(loopA->addStep(ChaserStep(loopB->id())));
+    QVERIFY(loopB->addFunction(loopA->id()));
+    Collection *intoLoop = new Collection(m_doc);
+    intoLoop->setName("IntoLoop");
+    QVERIFY(intoLoop->addFunction(loopA->id()));
+    QVERIFY(m_doc->addFunction(intoLoop));
+    m_doc->resetModified();
+
+    const Json result = invoke(m_doc, "add_show_items", Json{
+        {"showID", (int)show->id()}, {"trackName", "Track 1"},
+        {"items", Json::array({{{"functionName", item.toStdString()}, {"startTime", 0}, {"duration", 1000}}})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result[0].value("status", std::string()), std::string(accepted ? "ok" : "error"));
+    QCOMPARE(show->tracks().first()->showFunctions().count(), accepted ? 1 : 0);
+    QCOMPARE(m_doc->isModified(), accepted);
+    if (!accepted)
+        QVERIFY2(result[0].value("error", std::string()).find("cycle") != std::string::npos, result.dump().c_str());
+}
+
 void McpShowTools_Test::addShowItems_ambiguousFunctionName_rejected()
 {
     Show *show = makeShow(m_doc, "Set");
@@ -457,7 +516,8 @@ void McpShowTools_Test::deleteShowItems_removesItemKeepsFunction()
         {"showID", (int)show->id()}, {"itemIDs", Json::array({itemID})}
     });
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(show->tracks().first()->showFunctions().count(), 0);
     // The Scene itself must survive — only the timeline placement was removed.
     QVERIFY(m_doc->function(scene->id()) != NULL);
@@ -478,7 +538,8 @@ void McpShowTools_Test::deleteShowItems_removesWholeTrack()
         {"showID", (int)show->id()}, {"trackNames", Json::array({"Doomed"})}
     });
 
-    QCOMPARE(result[0].value("status", std::string()), std::string("deleted"));
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("deleted"));
     QCOMPARE(show->getTracksCount(), 1);
     QVERIFY(m_doc->function(scene->id()) != NULL);
 }
@@ -638,7 +699,7 @@ void McpShowTools_Test::exactBeatMilliseconds()
         QVERIFY(invoke(m_doc, "query_shows", {}) == before);
         return;
     }
-    QCOMPARE(result[0].value("status", std::string()), std::string("added"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("added"));
     QCOMPARE(result[0].value("startTime", -1), start);
     QCOMPARE(result[0].value("duration", -1), duration);
     result = invoke(m_doc, "add_show_items", args);
@@ -648,7 +709,7 @@ void McpShowTools_Test::exactBeatMilliseconds()
     Scene *time = makeScene(m_doc, "Adjacent time");
     args["items"][0] = {{"functionID", time->id()}, {"startTime", start + duration}, {"duration", 3}};
     result = invoke(m_doc, "add_show_items", args);
-    QCOMPARE(result[0].value("status", std::string()), std::string("added"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("added"));
     const Json queried = invoke(m_doc, "query_shows", {{"showID", show->id()}});
     QCOMPARE(queried[0]["tracks"][1]["items"].size(), size_t(2));
     QCOMPARE(queried[0]["tracks"][1]["items"][0].value("startTime", -1), start);
@@ -686,6 +747,147 @@ void McpShowTools_Test::invalidBeatConversion()
     QCOMPARE(show->getTracksCount(), 1);
     QVERIFY(!m_doc->isModified());
     QCOMPARE(beat->tempoType(), Function::Beats);
+}
+
+void McpShowTools_Test::createShows_preflightAndAdmission_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QString>("defect");
+    QTest::addColumn<QString>("code");
+
+    QTest::newRow("valid upsert") << "Existing" << "" << "";
+    QTest::newRow("invalid track mute leaves show unchanged") << "Existing" << "mute" << "invalid";
+    QTest::newRow("target queued") << "Existing" << "queued" << "running";
+    QTest::newRow("create while another function queued") << "Fresh" << "otherQueued" << "functions_running";
+}
+
+void McpShowTools_Test::createShows_preflightAndAdmission()
+{
+    QFETCH(QString, name);
+    QFETCH(QString, defect);
+    QFETCH(QString, code);
+
+    Show *existing = makeShow(m_doc, "Existing");
+    QVERIFY(existing != NULL);
+    existing->setPath("Keep");
+    if (defect == "queued")
+        existing->start(m_doc->masterTimer(), FunctionParent::master());
+    if (defect == "otherQueued")
+        makeScene(m_doc, "Other")->start(m_doc->masterTimer(), FunctionParent::master());
+    m_doc->resetModified();
+    const int functionCount = m_doc->functions().size();
+
+    Json track = {{"name", "Added"}};
+    if (defect == "mute") track["mute"] = "yes";
+    Json result = invoke(m_doc, "create_shows", Json{{"items", Json::array({
+        {{"name", name.toStdString()}, {"path", "New"}, {"tracks", Json::array({track})}}
+    })}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result[0].value("index", -1), 0);
+    QVERIFY2(QString::fromStdString(result[0].value("code", "")) == code, result.dump().c_str());
+    if (code.isEmpty())
+    {
+        QCOMPARE(result[0].value("outcome", std::string()), std::string("updated"));
+        QCOMPARE(existing->getTracksCount(), 2);
+        return;
+    }
+    QCOMPARE(existing->path(true), QString("Keep"));
+    QCOMPARE(existing->getTracksCount(), 1);
+    QCOMPARE(m_doc->functions().size(), functionCount);
+    QVERIFY(!m_doc->isModified());
+}
+
+void McpShowTools_Test::addShowItems_admission_data()
+{
+    QTest::addColumn<bool>("queueShow");
+    QTest::addColumn<QString>("code");
+
+    QTest::newRow("idle show") << false << "";
+    QTest::newRow("show queued") << true << "running";
+}
+
+void McpShowTools_Test::addShowItems_admission()
+{
+    QFETCH(bool, queueShow);
+    QFETCH(QString, code);
+
+    Show *show = makeShow(m_doc, "Set");
+    Scene *scene = makeScene(m_doc, "Look");
+    if (queueShow)
+        show->start(m_doc->masterTimer(), FunctionParent::master());
+    m_doc->resetModified();
+
+    Json result = invoke(m_doc, "add_show_items", Json{{"showID", show->id()}, {"trackName", "Track 1"},
+        {"items", Json::array({{{"functionID", scene->id()}, {"startTime", 0}}})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result[0].value("index", -1), 0);
+    QVERIFY2(QString::fromStdString(result[0].value("code", "")) == code, result.dump().c_str());
+    QCOMPARE(show->tracks().first()->showFunctions().size(), code.isEmpty() ? 1 : 0);
+    QCOMPARE(m_doc->isModified(), code.isEmpty());
+}
+
+void McpShowTools_Test::deleteShowItems_preflightAndAdmission_data()
+{
+    QTest::addColumn<bool>("queueShow");
+    QTest::addColumn<QString>("args");
+    QTest::addColumn<QString>("codes");
+    QTest::addColumn<int>("itemsLeft");
+    QTest::addColumn<int>("tracksLeft");
+
+    // ITEM is the placed item's id; Keep holds it, Track 1 is empty
+    QTest::newRow("idle item and track") << false << R"({"itemIDs":[ITEM],"trackNames":["Track 1"]})" << "," << 0 << 1;
+    QTest::newRow("unknown item and track") << false << R"({"itemIDs":[999],"trackNames":["Nope"]})" << "not_found,not_found" << 1 << 2;
+    QTest::newRow("show queued") << true << R"({"itemIDs":[ITEM],"trackNames":["Track 1"]})" << "running,running" << 1 << 2;
+    QTest::newRow("malformed later item id") << false << R"({"itemIDs":[ITEM,"x"]})" << "request" << 1 << 2;
+    QTest::newRow("negative later item id") << false << R"({"itemIDs":[ITEM,-1]})" << "request" << 1 << 2;
+    QTest::newRow("malformed later track name") << false << R"({"itemIDs":[ITEM],"trackNames":["Track 1",5]})" << "request" << 1 << 2;
+}
+
+void McpShowTools_Test::deleteShowItems_preflightAndAdmission()
+{
+    QFETCH(bool, queueShow);
+    QFETCH(QString, args);
+    QFETCH(QString, codes);
+    QFETCH(int, itemsLeft);
+    QFETCH(int, tracksLeft);
+
+    Show *show = makeShow(m_doc, "Set");
+    Scene *scene = makeScene(m_doc, "Look");
+    Json added = invoke(m_doc, "add_show_items", Json{{"showID", show->id()}, {"trackName", "Keep"},
+        {"items", Json::array({{{"functionID", scene->id()}, {"startTime", 0}, {"duration", 1000}}})}});
+    QCOMPARE(show->getTracksCount(), 2);
+    QCOMPARE(show->tracks().last()->showFunctions().size(), 1);
+    if (queueShow)
+        show->start(m_doc->masterTimer(), FunctionParent::master());
+    m_doc->resetModified();
+
+    Json request = Json::parse(args.replace("ITEM", QString::number(added[0].value("id", -1))).toStdString());
+    request["showID"] = show->id();
+    Json result = invoke(m_doc, "delete_show_items", request);
+
+    if (codes == "request")
+    {
+        QVERIFY2(result.is_object() && result.contains("error"), result.dump().c_str());
+    }
+    else
+    {
+        const QStringList expected = codes.split(',');
+        QVERIFY2(result.is_array() && int(result.size()) == expected.size(), result.dump().c_str());
+        for (int i = 0; i < expected.size(); ++i)
+        {
+            QCOMPARE(result[i].value("index", -1), i);
+            QVERIFY2(QString::fromStdString(result[i].value("code", "")) == expected[i], result.dump().c_str());
+            QCOMPARE(result[i].value("status", std::string()), std::string(expected[i].isEmpty() ? "ok" : "error"));
+            if (expected[i].isEmpty())
+                QCOMPARE(result[i].value("outcome", std::string()), std::string("deleted"));
+        }
+    }
+    QCOMPARE(show->getTracksCount(), tracksLeft);
+    QCOMPARE(show->tracks().last()->name(), QString("Keep"));
+    QCOMPARE(show->tracks().last()->showFunctions().size(), itemsLeft);
+    QCOMPARE(m_doc->isModified(), itemsLeft == 0);
 }
 
 QTEST_MAIN(McpShowTools_Test)

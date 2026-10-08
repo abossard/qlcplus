@@ -27,6 +27,8 @@
 #include "qlcfixturemode.h"
 #include "qlcpalette.h"
 #include "scene.h"
+#include "sequence.h"
+#include "mastertimer.h"
 #include "rgbmatrix.h"
 #include "huematrix.h"
 #include "rgbalgorithm.h"
@@ -43,6 +45,8 @@
 #include <fastmcpp/tools/tool.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <map>
 
 using Json = nlohmann::json;
 
@@ -242,6 +246,11 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             {
                 auto err = validateFields(item, {"manufacturer", "model", "mode", "name", "universe", "address", "quantity"});
                 if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+                std::string kindErr;
+                for (const char *key : {"manufacturer", "model", "mode", "name"})
+                    if (!item.contains(key) || !item.at(key).is_string())
+                        kindErr = std::string(key) + " must be a string";
+                if (!kindErr.empty()) { results.push_back({{"error", kindErr}}); continue; }
                 if (!item["universe"].is_number_integer() ||
                     item["universe"].get<int>() < 0 || item["universe"].get<int>() > 127)
                 {
@@ -277,43 +286,67 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 }
 
                 QLCFixtureDef *mutableDef = const_cast<QLCFixtureDef*>(def);
-                QLCFixtureMode *mode = nullptr;
                 QString modeName = QString::fromStdString(item.at("mode").get<std::string>());
-                mode = mutableDef->mode(modeName);
+                QLCFixtureMode *mode = mutableDef->mode(modeName);
                 if (!mode)
                 {
                     results.push_back({{"error", "Mode not found: " + modeName.toStdString() +
                         " for fixture " + mfg.toStdString() + " " + model.toStdString()}});
                     continue;
                 }
-                if (address + quantity * mode->channels().size() > 512)
+                const int width = mode->channels().size();
+                if (address + quantity * width > 512)
                 {
                     results.push_back({
                         {"error", "fixture quantity and footprint exceed DMX address 511"},
                         {"address", address}, {"quantity", quantity},
-                        {"channelsPerFixture", mode->channels().size()}
+                        {"channelsPerFixture", width}
                     });
                     continue;
                 }
 
-                for (int i = 0; i < quantity; i++)
+                // Preflight every generated fixture so an item is created entirely or not at all.
+                QList<Fixture *> existing;
+                Json conflict;
+                for (int i = 0; i < quantity && conflict.is_null(); i++)
                 {
                     QString fxName = quantity > 1 ? QString("%1 %2").arg(name).arg(i + 1) : name;
-                    int fxAddr = address + (mode ? i * mode->channels().size() : i);
-
-                    Fixture *existing = mcp::findFixture(doc, fxName, universe, fxAddr);
-                    if (existing)
+                    int fxAddr = address + i * width;
+                    Fixture *match = mcp::findFixture(doc, fxName, universe, fxAddr);
+                    existing.append(match);
+                    if (match)
+                        continue;
+                    for (int c = 0; c < width; c++)
                     {
-                        results.push_back({
-                            {"id", (int)existing->id()},
-                            {"name", existing->name().toStdString()},
-                            {"address", (int)existing->address()},
+                        quint32 owner = doc->fixtureForAddress((quint32(universe) << 9) + quint32(fxAddr + c));
+                        if (owner != Fixture::invalidId())
+                        {
+                            conflict = {{"error", "address overlap with existing fixture"},
+                                        {"name", fxName.toStdString()}, {"address", fxAddr},
+                                        {"universe", universe}, {"conflictingFixtureID", (int)owner}};
+                            break;
+                        }
+                    }
+                }
+                if (!conflict.is_null()) { results.push_back(conflict); continue; }
+
+                Json fixtures = Json::array();
+                Json failure;
+                for (int i = 0; i < quantity; i++)
+                {
+                    if (existing[i])
+                    {
+                        fixtures.push_back({
+                            {"id", (int)existing[i]->id()},
+                            {"name", existing[i]->name().toStdString()},
+                            {"address", (int)existing[i]->address()},
                             {"universe", universe},
-                            {"status", "existing"}
+                            {"outcome", "existing"}
                         });
                         continue;
                     }
-
+                    QString fxName = quantity > 1 ? QString("%1 %2").arg(name).arg(i + 1) : name;
+                    int fxAddr = address + i * width;
                     Fixture *fxi = new Fixture(doc);
                     fxi->setFixtureDefinition(mutableDef, mode);
                     fxi->setName(fxName);
@@ -321,31 +354,34 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     fxi->setAddress(fxAddr);
                     if (!doc->addFixture(fxi))
                     {
+                        // Preflight passed, so this is an engine refusal; undo this item's additions.
                         delete fxi;
-                        results.push_back({
-                            {"name", fxName.toStdString()},
-                            {"address", fxAddr},
-                            {"universe", universe},
-                            {"error", "address overlap with existing fixture"}
-                        });
-                        continue;
+                        for (const Json &f : fixtures)
+                            if (f["outcome"] == "created")
+                                doc->deleteFixture(f["id"].get<int>());
+                        failure = {{"error", "engine refused fixture " + fxName.toStdString()},
+                                   {"address", fxAddr}, {"universe", universe}};
+                        break;
                     }
-
-                    results.push_back({
+                    fixtures.push_back({
                         {"id", (int)fxi->id()},
                         {"name", fxi->name().toStdString()},
                         {"address", (int)fxi->address()},
                         {"universe", universe},
-                        {"status", "created"}
+                        {"outcome", "created"}
                     });
                 }
+                if (!failure.is_null()) { results.push_back(failure); continue; }
+                results.push_back({{"status", "ok"}, {"fixtures", fixtures}});
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
-        std::string("Create fixtures in the project. Returns status 'existing' only for an exact name, universe, and address match; "
-                    "a changed address creates a separate fixture rather than updating an existing one. Batch."),
+        std::string("Create fixtures in the project. Returns one indexed record per input item; its fixtures[] carries each generated "
+                    "fixture with outcome 'existing' (status 'ok') only for an exact name, universe, and address match. "
+                    "A changed address creates a separate fixture rather than updating an existing one. "
+                    "Each item is all-or-nothing: an address overlap creates none of its fixtures. Batch."),
         std::nullopt
     )
     .set_annotations(mcp::kAnnotIdempotent));
@@ -474,46 +510,99 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 return Json({{"error", "ids must be an array of integers"}}).dump();
 
             Json results = Json::array();
-            for (auto &v : args.at("ids"))
+            std::map<quint32, size_t> deletedAt;
+            const Json &input = args.at("ids");
+            for (size_t i = 0; i < input.size(); ++i)
             {
-                if (!v.is_number_integer())
+                const auto idOpt = mcp::jsonInteger(input[i], 0, mcp::kMaxId);
+                if (!idOpt)
                 {
-                    results.push_back({{"error", "ids must be an array of integers"}});
+                    results.push_back(mcp::itemError(i, mcp::integerError("ids[]", 0, mcp::kMaxId)));
                     continue;
                 }
-                quint32 id = v.get<quint32>();
+                const quint32 id = quint32(*idOpt);
+                if (deletedAt.count(id))
+                {
+                    results.push_back(mcp::itemOk(i, {{"id", (int)id}, {"outcome", "duplicate"},
+                                                      {"duplicateOf", deletedAt.at(id)}}));
+                    continue;
+                }
                 Fixture *fixture = doc->fixture(id);
                 if (fixture == NULL)
                 {
-                    results.push_back({{"id", (int)id}, {"status", "not found"}});
+                    Json r = mcp::itemError(i, "fixture not found");
+                    r["id"] = (int)id;
+                    results.push_back(r);
+                    continue;
+                }
+                // fixtureRemoved would shrink a Scene whose channel set a Sequence's
+                // steps are aligned to, so refuse instead of reshaping the binding.
+                Json bound;
+                for (Function *f : doc->functions())
+                {
+                    Sequence *seq = qobject_cast<Sequence*>(f);
+                    Scene *scene = seq ? qobject_cast<Scene*>(doc->function(seq->boundSceneID())) : nullptr;
+                    if (scene && scene->fixtures().contains(id))
+                    {
+                        bound = mcp::itemError(i, "fixture is used by scene " + std::to_string(scene->id()) +
+                                               " bound to sequence " + std::to_string(seq->id()));
+                        bound["code"] = "bound_scene";
+                        bound["id"] = (int)id;
+                        bound["sceneId"] = scene->id();
+                        bound["sequenceId"] = seq->id();
+                        break;
+                    }
+                }
+                if (!bound.is_null())
+                {
+                    results.push_back(bound);
+                    continue;
+                }
+                // fixtureRemoved makes running Scene/EFX/Matrix state mutate under the
+                // timer thread, so the whole removal and cleanup is a registry edit.
+                MasterTimer::EditAdmission admission(doc->masterTimer(), doc->masterTimer()->beginRegistryEdit());
+                if (!admission)
+                {
+                    Json r = mcp::itemError(i, "Functions are running, starting or queued; stop them before deleting fixtures");
+                    r["code"] = "functions_running";
+                    r["id"] = (int)id;
+                    results.push_back(r);
                     continue;
                 }
                 const std::string name = fixture->name().toStdString();
+                QList<FixtureGroup *> holders;
+                for (FixtureGroup *group : doc->fixtureGroups())
+                    if (group != NULL && group->fixtureList().contains(id))
+                        holders.append(group);
 
                 // Doc::deleteFixture frees the address range, drops the monitor
                 // entry and signals fixtureRemoved, which Scene, EFX, Sequence,
                 // FixtureGroup and ChannelsGroup each scrub themselves on.
-                if (doc->deleteFixture(id))
-                    results.push_back({{"id", (int)id}, {"name", name}, {"status", "deleted"}});
-                else
-                    results.push_back({{"id", (int)id}, {"error", "could not delete fixture"}});
-            }
+                if (!doc->deleteFixture(id))
+                {
+                    Json r = mcp::itemError(i, "could not delete fixture");
+                    r["id"] = (int)id;
+                    results.push_back(r);
+                    continue;
+                }
+                deletedAt[id] = i;
+                Json r = mcp::itemOk(i, {{"id", (int)id}, {"name", name}, {"outcome", "deleted"}});
 
-            // Drop groups the removal left empty, matching FixtureManager: a
-            // stale empty group lingers in the project and blocks creating a new
-            // group with the same name (see #2063).
-            Json emptied = Json::array();
-            for (FixtureGroup *group : doc->fixtureGroups())
-            {
-                if (group != NULL && group->fixtureList().isEmpty())
-                    emptied.push_back({{"id", (int)group->id()},
-                                       {"name", group->name().toStdString()}});
+                // Drop groups this removal left empty, matching FixtureManager: a
+                // stale empty group lingers in the project and blocks creating a new
+                // group with the same name (see #2063).
+                Json emptied = Json::array();
+                for (FixtureGroup *group : holders)
+                {
+                    if (!group->fixtureList().isEmpty())
+                        continue;
+                    emptied.push_back({{"id", (int)group->id()}, {"name", group->name().toStdString()}});
+                    doc->deleteFixtureGroup(group->id());
+                }
+                if (!emptied.empty())
+                    r["removedEmptyGroups"] = emptied;
+                results.push_back(r);
             }
-            for (auto &entry : emptied)
-                doc->deleteFixtureGroup((quint32)entry.at("id").get<int>());
-
-            if (!emptied.empty())
-                results.push_back({{"removedEmptyGroups", emptied}});
 
             return results.dump();
             });
@@ -522,7 +611,11 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
         std::string("Delete (unpatch) fixtures by ID. Batch: wrap entries in {\"ids\": [...]}. "
                      "Frees the DMX address range and removes the fixture's channels from every "
                      "scene, EFX, sequence, fixture group and channel group that referenced it, "
-                     "then drops any group left empty (reported as removedEmptyGroups). "
+                     "then drops any group that removal left empty (reported as removedEmptyGroups inside that "
+                     "id's record). One record per input id, in input order; a repeated id reports outcome "
+                     "\"duplicate\" with duplicateOf. "
+                     "Refused per id (code bound_scene) when a Sequence-bound scene uses the fixture, and "
+                     "(code functions_running) while any function is running, starting or queued; nothing is stopped. "
                      "Virtual Console widgets bound to the fixture (slider level channels, XY pad "
                      "fixtures) are NOT scrubbed — re-check them with vc_query_widgets."),
         std::nullopt
@@ -557,8 +650,14 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 {"nameFilter", {{"type", "string"},
                     {"description", "Glob pattern to match widget captions (case-insensitive, e.g. 'Wash*', '*left*'). Supports * and ?."}}},
                 {"typeFilter", {{"type", "string"},
-                    {"description", "Widget type(s) to include. Also accepts a JSON array of strings. "
-                     "Valid: button, slider, xypad, frame, soloframe, speedDial, cuelist, label, audioTrigger, matrix, clock."}}},
+                    {"description", "Widget type(s) to include. Also accepts a JSON array of strings. Valid: "
+                     + [] {
+                           // Built from the validator's set so the advertised list cannot drift.
+                           std::string valid;
+                           for (const std::string &t : VCQueryPages::kValidWidgetTypes)
+                               valid += (valid.empty() ? "" : ", ") + t;
+                           return valid + ".";
+                       }()}}},
                 {"functionID", {{"type", "integer"},
                     {"description", "Only widgets bound to this function ID."}}},
                 {"fixtureID", {{"type", "integer"},
@@ -793,7 +892,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                         break;
                     case QLCPalette::PanTilt:
                         entry["panDegrees"] = p->floatValue1();
-                        entry["tiltDegrees"] = (double)p->intValue2();
+                        entry["tiltDegrees"] = p->floatValue2();
                         break;
                     case QLCPalette::Position3D:
                         entry["x"] = p->floatValue1();
@@ -805,9 +904,17 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                         entry["value2"] = p->intValue2();
                         break;
                     case QLCPalette::Gobo:
-                    case QLCPalette::Zoom:
                         entry["value"] = p->intValue1();
                         break;
+                    case QLCPalette::Zoom:
+                    {
+                        const double zoom = p->value().toDouble();
+                        if (zoom == std::floor(zoom))
+                            entry["value"] = int(zoom);
+                        else
+                            entry["value"] = zoom;
+                    }
+                    break;
                     default:
                         break;
                 }

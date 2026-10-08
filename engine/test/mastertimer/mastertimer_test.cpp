@@ -28,6 +28,9 @@
 #include "universe.h"
 #include "qlcfile.h"
 #include "doc.h"
+#include "chaser.h"
+#include "scene.h"
+#include "fixture.h"
 #undef private
 
 #include "../common/resource_paths.h"
@@ -69,6 +72,7 @@ void MasterTimer_Test::init()
 
 void MasterTimer_Test::cleanup()
 {
+    m_doc->masterTimer()->endFunctionEdit();
     m_doc->clearContents();
 }
 
@@ -546,6 +550,370 @@ void MasterTimer_Test::diagDisabledPreservesBehavior()
     QCOMPARE(g_timingMsgs.size(), 0);   // disabled path is silent
     QVERIFY(writes > 0);                // function still ran
     QVERIFY(running == 1);
+}
+
+void MasterTimer_Test::functionEditAdmission_data()
+{
+    QTest::addColumn<QString>("state");
+    QTest::addColumn<bool>("admitted");
+
+    QTest::newRow("idle") << "idle" << true;
+    QTest::newRow("start queued") << "queued" << false;
+    QTest::newRow("running") << "running" << false;
+    QTest::newRow("registry edit active") << "registryEdit" << false;
+    QTest::newRow("other function edit active") << "functionEdit" << false;
+}
+
+void MasterTimer_Test::functionEditAdmission()
+{
+    QFETCH(QString, state);
+    QFETCH(bool, admitted);
+
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub fs(m_doc);
+    Function_Stub other(m_doc);
+    if (state == "queued" || state == "running")
+        fs.start(mt, FunctionParent::master());
+    if (state == "running")
+        mt->timerTick();
+    if (state == "registryEdit")
+        QVERIFY(mt->beginRegistryEdit());
+    if (state == "functionEdit")
+        QVERIFY(mt->beginFunctionEdit(QList<Function*>() << &other));
+
+    QCOMPARE(mt->beginFunctionEdit(QList<Function*>() << &fs), admitted);
+    if (admitted || state.endsWith("Edit"))
+        mt->endFunctionEdit();
+
+    fs.stop(FunctionParent::master());
+    mt->timerTick();
+    mt->timerTick();
+}
+
+void MasterTimer_Test::functionEditRefusedWhileStarting()
+{
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub first(m_doc);
+    Function_Stub second(m_doc);
+    bool admittedDuringStart = true;
+    first.m_preRunHook = [&]() {
+        admittedDuringStart = mt->beginFunctionEdit(QList<Function*>() << &second);
+        if (admittedDuringStart)
+            mt->endFunctionEdit();
+    };
+
+    first.start(mt, FunctionParent::master());
+    second.start(mt, FunctionParent::master());
+    mt->timerTick();
+    QCOMPARE(first.m_preRunCalls, 1);
+    QCOMPARE(second.m_preRunCalls, 1);
+    QCOMPARE(admittedDuringStart, false);
+
+    first.stop(FunctionParent::master());
+    second.stop(FunctionParent::master());
+    mt->timerTick();
+}
+
+void MasterTimer_Test::functionEditDefersStartUntilEnd()
+{
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub edited(m_doc);
+    Function_Stub other(m_doc);
+
+    QVERIFY(mt->beginFunctionEdit(QList<Function*>() << &edited));
+    edited.start(mt, FunctionParent::master());
+    other.start(mt, FunctionParent::master());
+    mt->timerTick();
+    QCOMPARE(edited.m_preRunCalls, 0);
+    QCOMPARE(other.m_preRunCalls, 1);
+    QVERIFY(mt->isStartQueued(&edited));
+
+    mt->endFunctionEdit();
+    mt->timerTick();
+    QCOMPARE(edited.m_preRunCalls, 1);
+    QVERIFY(mt->runningFunctionIds().count() == 2);
+
+    edited.stop(FunctionParent::master());
+    other.stop(FunctionParent::master());
+    mt->timerTick();
+}
+
+void MasterTimer_Test::registryEditAdmission_data()
+{
+    QTest::addColumn<QString>("state");
+    QTest::addColumn<bool>("admitted");
+
+    QTest::newRow("idle") << "idle" << true;
+    QTest::newRow("any start queued") << "queued" << false;
+    QTest::newRow("any running") << "running" << false;
+    QTest::newRow("any starting") << "starting" << false;
+    QTest::newRow("any stopping (postRun cleanup)") << "stopping" << false;
+    QTest::newRow("function edit active") << "editing" << false;
+}
+
+void MasterTimer_Test::registryEditAdmission()
+{
+    QFETCH(QString, state);
+    QFETCH(bool, admitted);
+
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub first(m_doc);
+    Function_Stub second(m_doc);
+    bool result = !admitted;
+    auto probe = [&]() {
+        result = mt->beginRegistryEdit();
+        if (result)
+            mt->endFunctionEdit();
+    };
+
+    if (state == "starting")
+    {
+        // second is already drained from the queue but not appended yet
+        first.m_preRunHook = probe;
+        first.start(mt, FunctionParent::master());
+        second.start(mt, FunctionParent::master());
+        mt->timerTick();
+        first.stop(FunctionParent::master());
+        mt->timerTick();
+    }
+    else if (state == "stopping")
+    {
+        // probe after Function::postRun cleanup, before the timer drops the function
+        second.m_postRunHook = probe;
+        second.start(mt, FunctionParent::master());
+        mt->timerTick();
+        second.stop(FunctionParent::master());
+        mt->timerTick();
+        QCOMPARE(second.m_postRunCalls, 1);
+    }
+    else
+    {
+        if (state == "queued" || state == "running")
+            second.start(mt, FunctionParent::master());
+        if (state == "running")
+            mt->timerTick();
+        if (state == "editing")
+            QVERIFY(mt->beginFunctionEdit(QList<Function*>() << &first));
+        probe();
+        if (state == "editing")
+            mt->endFunctionEdit();
+    }
+    QCOMPARE(result, admitted);
+
+    second.stop(FunctionParent::master());
+    mt->timerTick();
+    mt->timerTick();
+}
+
+void MasterTimer_Test::registryEditDefersEveryStart()
+{
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub fs(m_doc);
+
+    QVERIFY(mt->beginRegistryEdit());
+    fs.start(mt, FunctionParent::master());
+    mt->timerTick();
+    QCOMPARE(fs.m_preRunCalls, 0);
+
+    mt->endFunctionEdit();
+    mt->timerTick();
+    QCOMPARE(fs.m_preRunCalls, 1);
+
+    fs.stop(FunctionParent::master());
+    mt->timerTick();
+}
+
+void MasterTimer_Test::editAdmissionReleasedOnUnwind_data()
+{
+    QTest::addColumn<bool>("registry");
+    QTest::addColumn<QString>("exit");
+
+    for (bool registry : { false, true })
+    {
+        const char *kind = registry ? "registry" : "function";
+        QTest::newRow(QString("%1, exception").arg(kind).toUtf8()) << registry << "throw";
+        QTest::newRow(QString("%1, early end then scope exit").arg(kind).toUtf8()) << registry << "end";
+        QTest::newRow(QString("%1, refused leaves holder admitted").arg(kind).toUtf8()) << registry << "refused";
+    }
+}
+
+void MasterTimer_Test::editAdmissionReleasedOnUnwind()
+{
+    QFETCH(bool, registry);
+    QFETCH(QString, exit);
+
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub edited(m_doc);
+    Function_Stub other(m_doc);
+    auto begin = [&]() {
+        return registry ? mt->beginRegistryEdit() : mt->beginFunctionEdit(QList<Function*>() << &edited);
+    };
+
+    if (exit == "refused")
+    {
+        QVERIFY(begin());       // another owner holds admission
+        {
+            MasterTimer::EditAdmission admission(mt, begin());
+            QVERIFY(!admission);
+        }
+        edited.start(mt, FunctionParent::master());
+        mt->timerTick();
+        QCOMPARE(edited.m_preRunCalls, 0);  // still deferred: the holder was not released
+        mt->endFunctionEdit();
+    }
+    else
+    {
+        try
+        {
+            MasterTimer::EditAdmission admission(mt, begin());
+            QVERIFY(admission);
+            if (exit == "end")
+            {
+                admission.end();
+                admission.end();
+                QVERIFY(!admission);
+                QVERIFY(begin());   // a new owner takes admission after the early end
+            }
+            else
+                throw std::runtime_error("unexpected failure inside an admitted edit");
+        }
+        catch (const std::runtime_error &) {}
+        if (exit == "end")
+        {
+            // the new owner's admission survives the first guard's scope exit
+            edited.start(mt, FunctionParent::master());
+            mt->timerTick();
+            QCOMPARE(edited.m_preRunCalls, 0);
+            mt->endFunctionEdit();
+        }
+    }
+
+    edited.start(mt, FunctionParent::master());
+    other.start(mt, FunctionParent::master());
+    mt->timerTick();
+    QCOMPARE(edited.m_preRunCalls, 1);
+    QCOMPARE(other.m_preRunCalls, 1);
+    QCOMPARE(mt->runningFunctions(), 2);
+    edited.stop(FunctionParent::master());
+    other.stop(FunctionParent::master());
+    mt->timerTick();
+    QVERIFY(begin());
+    mt->endFunctionEdit();
+}
+
+void MasterTimer_Test::startTempoResolution_data()
+{
+    QTest::addColumn<int>("startOverride");
+    QTest::addColumn<bool>("editTempoWhileDeferred");
+    QTest::addColumn<int>("expected");
+
+    QTest::newRow("original, no edit") << int(Function::Original) << false << int(Function::Time);
+    QTest::newRow("original, tempo committed before preRun")
+        << int(Function::Original) << true << int(Function::Beats);
+    QTest::newRow("explicit time override kept")
+        << int(Function::Time) << true << int(Function::Time);
+}
+
+void MasterTimer_Test::startTempoResolution()
+{
+    QFETCH(int, startOverride);
+    QFETCH(bool, editTempoWhileDeferred);
+    QFETCH(int, expected);
+
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub fs(m_doc);
+    fs.setTempoType(Function::Time);
+    auto stopRow = qScopeGuard([&]() {
+        mt->endFunctionEdit();
+        fs.stop(FunctionParent::master());
+        mt->timerTick();
+    });
+
+    QVERIFY(mt->beginFunctionEdit(QList<Function*>() << &fs));
+    fs.start(mt, FunctionParent::master(), 0, Function::defaultSpeed(), Function::defaultSpeed(),
+             Function::defaultSpeed(), Function::TempoType(startOverride));
+    if (editTempoWhileDeferred)
+        fs.setTempoType(Function::Beats);
+    mt->endFunctionEdit();
+    mt->timerTick();
+
+    QCOMPARE(fs.m_preRunCalls, 1);
+    QCOMPARE(int(fs.overrideTempoType()), expected);
+}
+
+void MasterTimer_Test::secondOwnerKeepsRunningOverrideTempo()
+{
+    MasterTimer *mt = m_doc->masterTimer();
+    Function_Stub fs(m_doc);
+    fs.setTempoType(Function::Time);
+    auto stopRow = qScopeGuard([&]() {
+        fs.stop(FunctionParent::master());
+        fs.stop(FunctionParent(FunctionParent::Function, 42));
+        mt->timerTick();
+    });
+
+    fs.start(mt, FunctionParent(FunctionParent::Function, 42), 0, Function::defaultSpeed(),
+             Function::defaultSpeed(), Function::defaultSpeed(), Function::Beats);
+    mt->timerTick();
+    fs.start(mt, FunctionParent::master());
+    mt->timerTick();
+
+    QCOMPARE(fs.m_preRunCalls, 1);
+    QCOMPARE(fs.overrideTempoType(), Function::Beats);
+}
+
+void MasterTimer_Test::functionEditCoordinatesReferrers_data()
+{
+    QTest::addColumn<QString>("state");
+    QTest::addColumn<bool>("admitted");
+
+    QTest::newRow("idle") << "idle" << true;
+    QTest::newRow("unrelated function queued") << "unrelatedQueued" << true;
+    QTest::newRow("referring chaser queued") << "referrerQueued" << false;
+    QTest::newRow("scene using a fixture with the target's id queued") << "fixtureIdQueued" << true;
+    QTest::newRow("target flashing") << "flashing" << false;
+}
+
+void MasterTimer_Test::functionEditCoordinatesReferrers()
+{
+    QFETCH(QString, state);
+    QFETCH(bool, admitted);
+
+    MasterTimer *mt = m_doc->masterTimer();
+    Scene *scene = new Scene(m_doc);
+    QVERIFY(m_doc->addFunction(scene));
+    Chaser *chaser = new Chaser(m_doc);
+    QVERIFY(m_doc->addFunction(chaser));
+    QVERIFY(chaser->addStep(ChaserStep(scene->id())));
+    Scene *unrelated = new Scene(m_doc);
+    QVERIFY(m_doc->addFunction(unrelated));
+    auto stopRow = qScopeGuard([&]() {
+        mt->endFunctionEdit();
+        if (scene->flashing())
+            scene->unFlash(mt);
+        chaser->stop(FunctionParent::master());
+        unrelated->stop(FunctionParent::master());
+        mt->timerTick();
+        mt->timerTick();
+    });
+
+    if (state == "unrelatedQueued")
+        unrelated->start(mt, FunctionParent::master());
+    if (state == "referrerQueued")
+        chaser->start(mt, FunctionParent::master());
+    if (state == "flashing")
+        scene->flash(mt, false, false);
+    if (state == "fixtureIdQueued")
+    {
+        // Scene::components() lists fixture IDs, a different ID space from functions
+        Fixture *fxi = new Fixture(m_doc);
+        fxi->setChannels(1);
+        QVERIFY(m_doc->addFixture(fxi, scene->id()));
+        unrelated->setValue(SceneValue(fxi->id(), 0, 255));
+        unrelated->start(mt, FunctionParent::master());
+    }
+
+    QCOMPARE(mt->beginFunctionEdit(scene), admitted);
 }
 
 QTEST_MAIN(MasterTimer_Test)

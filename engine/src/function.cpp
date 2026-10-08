@@ -83,6 +83,7 @@ Function::Function(QObject *parent)
     , m_direction(Forward)
     , m_tempoType(Time)
     , m_overrideTempoType(Original)
+    , m_startsOriginalTempo(false)
     , m_beatResyncNeeded(false)
     , m_fadeInSpeed(0)
     , m_fadeOutSpeed(0)
@@ -112,6 +113,7 @@ Function::Function(Doc* doc, Type t)
     , m_direction(Forward)
     , m_tempoType(Time)
     , m_overrideTempoType(Original)
+    , m_startsOriginalTempo(false)
     , m_beatResyncNeeded(false)
     , m_fadeInSpeed(0)
     , m_fadeOutSpeed(0)
@@ -725,9 +727,16 @@ Function::TempoType Function::overrideTempoType() const
     return m_overrideTempoType;
 }
 
+void Function::resolveOriginalTempoType()
+{
+    if (m_startsOriginalTempo)
+        m_overrideTempoType = tempoType();
+}
+
 void Function::setOverrideTempoType(Function::TempoType type)
 {
     m_overrideTempoType = type;
+    m_startsOriginalTempo = false;
 }
 
 void Function::slotBPMChanged(int bpmNumber)
@@ -1363,7 +1372,8 @@ void Function::start(MasterTimer* timer, FunctionParent source, quint32 startTim
     m_overrideFadeInSpeed = overrideFadeIn;
     m_overrideFadeOutSpeed = overrideFadeOut;
     m_overrideDuration = overrideDuration;
-    m_overrideTempoType = overrideTempoType == Original ? tempoType() : overrideTempoType;
+    m_startsOriginalTempo = overrideTempoType == Original;
+    m_overrideTempoType = m_startsOriginalTempo ? tempoType() : overrideTempoType;
 
     startRequested();
     m_stop = false;
@@ -1405,6 +1415,23 @@ void Function::stop(FunctionParent source, bool preserveAttributes)
     stopRequested();
 }
 
+void Function::stopSource(FunctionParent source, bool preserveAttributes)
+{
+    qDebug() << "Function stopSource(). Name:" << m_name << "ID:" << m_id << "source:" << source.type() << source.id();
+
+    {
+        QMutexLocker sourcesLocker(&m_sourcesMutex);
+
+        const int removed = m_sources.removeAll(source);
+        if (removed == 0 || m_sources.size() != 0)
+            return;
+
+        m_stop = true;
+        m_preserveAttributes = preserveAttributes;
+    }
+    stopRequested();
+}
+
 bool Function::stopped() const
 {
     return m_stop;
@@ -1419,6 +1446,12 @@ bool Function::startedAsChild() const
             return true;
     }
     return false;
+}
+
+bool Function::hasSource(const FunctionParent &source) const
+{
+    QMutexLocker sourcesLocker(const_cast<QMutex*>(&m_sourcesMutex));
+    return m_sources.contains(source);
 }
 
 int Function::invalidAttributeId()

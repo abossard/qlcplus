@@ -32,6 +32,8 @@
 #include <QIcon>
 #include <QMap>
 
+#include <atomic>
+
 #include "universe.h"
 #include "functionparent.h"
 
@@ -494,6 +496,11 @@ public:
     /** Get the override speed type (done by a Chaser) */
     TempoType overrideTempoType() const;
 
+    /** Called by MasterTimer right before preRun(): a start that asked for the
+     *  Original tempo follows the tempo type committed by then, not the one read
+     *  when start() was requested */
+    void resolveOriginalTempoType();
+
     /** Set the override speed type (done by a Chaser) */
     void setOverrideTempoType(TempoType type);
 
@@ -516,8 +523,9 @@ protected slots:
     virtual void slotBPMChanged(int bpmNumber);
 
 private:
-    TempoType m_tempoType;
+    std::atomic<TempoType> m_tempoType;
     TempoType m_overrideTempoType;
+    bool m_startsOriginalTempo;
     bool m_beatResyncNeeded;
 
     /*********************************************************************
@@ -858,6 +866,10 @@ public:
      * normally.
      */
     void stop(FunctionParent parent, bool preserveAttributes = false);
+    /** Release one exact start source without ManualVCWidget's broad-stop
+     *  behavior. Used by scoped cleanup paths that must not clear unrelated
+     *  live owners. */
+    void stopSource(FunctionParent source, bool preserveAttributes = false);
 
     /**
      * Check, whether the function should be stopped ASAP. Functions can use this
@@ -892,6 +904,7 @@ public:
     bool isPaused() const;
 
     bool startedAsChild() const;
+    bool hasSource(const FunctionParent &source) const;
 
 protected:
     /** Called by start() on the calling thread when it accepts a start from

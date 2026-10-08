@@ -60,6 +60,14 @@ private slots:
     void createShows_updatePath_marksModified();
     void createShows_invalidField_leavesNothingBehind();
     void createShows_missingName_isPerItemError();
+    void createShows_preflightAndAdmission_data();
+    void createShows_preflightAndAdmission();
+    void addShowItems_admission_data();
+    void addShowItems_admission();
+    void deleteShowItems_preflightAndAdmission_data();
+    void deleteShowItems_preflightAndAdmission();
+    void addShowItems_containmentCycle_data();
+    void addShowItems_containmentCycle();
     void addShowItems_ambiguousFunctionName_rejected();
     void deleteShowItems_removesItemKeepsFunction();
     void deleteShowItems_removesWholeTrack();

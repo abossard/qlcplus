@@ -16,6 +16,9 @@
 #include <QString>
 #include <QVariant>
 
+#include "showcommandrecorder.h"
+#include "showcontrolaction.h"
+
 class Doc;
 class TreeModel;
 class SceneValue;
@@ -48,4 +51,23 @@ public:
 void FixtureManager::updateGroupsTree(Doc *, TreeModel *, QString, int, QList<SceneValue>)
 {
     // Only reached by VCXYPad::groupsTreeModel(), which is QML-only.
+}
+
+ShowCommandRecorder *ShowCommandRecorder::instance()
+{
+    return nullptr;
+}
+
+void ShowCommandRecorder::requestUserControl(ShowControlRequest)
+{
+}
+
+ShowCommandInput ShowControlAction::acceptedPreset(VCWidget *, int, int)
+{
+    return ShowCommandInput();
+}
+
+bool ShowControlAction::submit(Doc *, VCWidget *, const ShowCommandInput &)
+{
+    return false;
 }

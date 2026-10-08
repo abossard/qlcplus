@@ -36,8 +36,12 @@ private slots:
     void deleteFixtures_removesFromDocAndFreesAddress();
     void deleteFixtures_referencedByScene_scrubsSceneValues();
     void deleteFixtures_batchWithUnknownId_reportsPerItemError();
+    void deleteFixtures_wrappingId_deletesNothing();
+    void deleteFixtures_perInputRecords();
     void deleteFixtures_savedXmlHasNoOrphanReference();
     void deleteFixtures_emptiedGroup_isRemoved();
+    void deleteFixtures_admission_data();
+    void deleteFixtures_admission();
 
     // delete_fixture_groups
     void deleteFixtureGroups_removesGroupButKeepsFixtures();

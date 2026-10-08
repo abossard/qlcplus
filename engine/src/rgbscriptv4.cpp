@@ -180,6 +180,8 @@ bool RGBScript::evaluate()
     m_rgbMap = QJSValue();
     m_rgbMapStepCount = QJSValue();
     m_rgbMapSetColors = QJSValue();
+    m_rgbMapGetColors = QJSValue();
+    m_callbackError.clear();
     m_apiVersion = 0;
 
     if (m_fileName.isEmpty() || m_contents.isEmpty())
@@ -216,6 +218,7 @@ bool RGBScript::evaluate()
     {
         if (m_apiVersion >= 3)
         {
+            m_rgbMapGetColors = m_script.property(QStringLiteral("rgbMapGetColors"));
             m_rgbMapSetColors = m_script.property(QStringLiteral("rgbMapSetColors"));
             if (m_rgbMapSetColors.isCallable() == false)
             {
@@ -268,11 +271,15 @@ int RGBScript::rgbMapStepCount(const QSize& size)
     if (value.isError())
     {
         displayError(value, m_fileName);
+        if (m_callbackError.isEmpty())
+            m_callbackError = QStringLiteral("rgbMapStepCount: ") + value.toString();
         return -1;
     }
     else
     {
         int ret = value.isNumber() ? value.toInt() : -1;
+        if (ret < 0 && m_callbackError.isEmpty())
+            m_callbackError = QStringLiteral("rgbMapStepCount returned an invalid count");
         return ret;
     }
 }
@@ -306,7 +313,11 @@ void RGBScript::rgbMapSetColors(const QVector<uint> &colors)
 
     QJSValue value = m_rgbMapSetColors.call(args);
     if (value.isError())
+    {
         displayError(value, m_fileName);
+        if (m_callbackError.isEmpty())
+            m_callbackError = QStringLiteral("rgbMapSetColors: ") + value.toString();
+    }
 }
 
 QVector<uint> RGBScript::rgbMapGetColors()
@@ -323,7 +334,16 @@ QVector<uint> RGBScript::rgbMapGetColors()
     if (m_rgbMap.isUndefined() == true)
         return colArray;
 
+    if (!m_rgbMapGetColors.isCallable())
+        return colArray;
+
     QJSValue colors = m_rgbMapGetColors.call();
+    if (colors.isError())
+    {
+        displayError(colors, m_fileName);
+        if (m_callbackError.isEmpty())
+            m_callbackError = QStringLiteral("rgbMapGetColors: ") + colors.toString();
+    }
     if (!colors.isError() && colors.isArray())
     {
         QVariantList arr = colors.toVariant().toList();
@@ -483,10 +503,16 @@ QHash<QString, QString> RGBScript::propertiesAsStrings()
             QJSValueList args;
             QJSValue value = readMethod.call(args);
             if (value.isError())
+            {
                 displayError(value, m_fileName);
+                if (m_callbackError.isEmpty())
+                    m_callbackError = cap.m_readMethod + ": " + value.toString();
+            }
             else if (!value.isUndefined())
                 properties.insert(cap.m_name, value.toString());
         }
+        else if (m_callbackError.isEmpty())
+            m_callbackError = QStringLiteral("property reader is unavailable: ") + cap.m_name;
     }
     return properties;
 }
@@ -508,6 +534,8 @@ bool RGBScript::setProperty(QString propertyName, QString value)
             if (writeMethod.isCallable() == false)
             {
                 qWarning() << name() << "doesn't have a write function for" << propertyName;
+                if (m_callbackError.isEmpty())
+                    m_callbackError = QStringLiteral("property writer is unavailable: ") + propertyName;
                 return false;
             }
             QJSValueList args;
@@ -516,6 +544,8 @@ bool RGBScript::setProperty(QString propertyName, QString value)
             if (written.isError())
             {
                 displayError(written, m_fileName);
+                if (m_callbackError.isEmpty())
+                    m_callbackError = cap.m_writeMethod + ": " + written.toString();
                 return false;
             }
             else
@@ -544,6 +574,8 @@ QString RGBScript::property(QString propertyName) const
             if (readMethod.isCallable() == false)
             {
                 qWarning() << name() << "doesn't have a read function for" << propertyName;
+                if (m_callbackError.isEmpty())
+                    m_callbackError = QStringLiteral("property reader is unavailable: ") + propertyName;
                 return QString();
             }
             QJSValueList args;
@@ -551,6 +583,8 @@ QString RGBScript::property(QString propertyName) const
             if (value.isError())
             {
                 displayError(value, m_fileName);
+                if (m_callbackError.isEmpty())
+                    m_callbackError = cap.m_readMethod + ": " + value.toString();
                 return QString();
             }
             else if (!value.isUndefined())
@@ -564,6 +598,20 @@ QString RGBScript::property(QString propertyName) const
         }
     }
     return QString();
+}
+
+QString RGBScript::takeCallbackError()
+{
+    if (s_jsThread != NULL && QThread::currentThread() != s_jsThread)
+    {
+        QString error;
+        QMetaObject::invokeMethod(s_jsThread->engine, [this]{ return takeCallbackError(); },
+                                  Qt::BlockingQueuedConnection, &error);
+        return error;
+    }
+    const QString error = m_callbackError;
+    m_callbackError.clear();
+    return error;
 }
 
 bool RGBScript::loadProperties()

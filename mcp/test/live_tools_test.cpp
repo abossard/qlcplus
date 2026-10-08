@@ -297,6 +297,28 @@ void McpLiveTools_Test::writeDmx_unknownFixture_rejected()
     QVERIFY2(result[0].contains("error"), result[0].dump().c_str());
 }
 
+void McpLiveTools_Test::writeDmx_wrappingReference_rejected_data()
+{
+    QTest::addColumn<QString>("item");
+    QTest::newRow("fixtureID 2^32") << R"({"fixtureID":4294967296,"channel":0,"value":100})";
+    QTest::newRow("channel 2^32") << R"({"fixtureID":0,"channel":4294967296,"value":100})";
+    QTest::newRow("value 2^32+100") << R"({"fixtureID":0,"channel":0,"value":4294967396})";
+}
+
+void McpLiveTools_Test::writeDmx_wrappingReference_rejected()
+{
+    QFETCH(QString, item);
+    patchFixture(m_doc, "Par 1", 0, 4);
+    startEngine(m_doc);
+
+    Json result = invoke(m_doc, "write_dmx", Json{{"items", Json::array({Json::parse(item.toStdString())})}});
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+    QCOMPARE(result[0].value("index", -1), 0);
+    QTest::qWait(100);
+    QCOMPARE(int(preGmValue(m_doc, 0)), 0);
+}
+
 void McpLiveTools_Test::writeDmx_release_clearsHeldChannels()
 {
     Fixture *fxi = patchFixture(m_doc, "Par 1", 0, 4);

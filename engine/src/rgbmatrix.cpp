@@ -242,6 +242,7 @@ QList<quint32> RGBMatrix::components() const
 
 void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
 {
+    QMutexLocker nativeLocker(&m_algorithmMutex);
     {
         QMutexLocker algorithmLocker(&m_algorithmMutex);
 
@@ -249,8 +250,10 @@ void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
          *  still around, since their names come from its properties */
         unregisterScriptPropertyAttributes();
 
+        callbackError();
         delete m_algorithm;
         m_algorithm = algo;
+        ++m_algorithmGeneration;
 
         m_requestEngineCreation = true;
 
@@ -274,13 +277,16 @@ void RGBMatrix::setAlgorithm(RGBAlgorithm *algo)
 
             QVector<uint> colors = script->rgbMapGetColors();
             for (int i = 0; i < colors.count(); i++)
-                m_rgbColors.replace(i, QColor::fromRgb(colors.at(i)));
+                if (i >= ColorAttributeCount || !attributes().at(Color1Attr + i).m_isOverridden)
+                    m_rgbColors.replace(i, QColor::fromRgb(colors.at(i)));
         }
     }
     m_stepsCount = algorithmStepsCount();
 
     /** Expose the properties of the new algorithm as Function attributes */
     registerScriptPropertyAttributes();
+    setMapColors(m_algorithm);
+    callbackError();
 
     if (m_applyingStyleAttributes == false)
         Function::adjustAttribute(algorithmIndex(), PatternAttr);
@@ -309,6 +315,30 @@ QRecursiveMutex& RGBMatrix::algorithmMutex()
 int RGBMatrix::stepsCount() const
 {
     return m_stepsCount;
+}
+
+quint64 RGBMatrix::algorithmGeneration() const
+{
+    return m_algorithmGeneration;
+}
+
+void RGBMatrix::beginCallbackOperation()
+{
+    QMutexLocker locker(&m_algorithmMutex);
+    callbackError();
+    m_callbackError.clear();
+}
+
+QString RGBMatrix::callbackError()
+{
+    QMutexLocker locker(&m_algorithmMutex);
+    if (m_algorithm != nullptr && m_algorithm->type() == RGBAlgorithm::Script)
+    {
+        const QString error = static_cast<RGBScript *>(m_algorithm)->takeCallbackError();
+        if (m_callbackError.isEmpty())
+            m_callbackError = error;
+    }
+    return m_callbackError;
 }
 
 int RGBMatrix::algorithmStepsCount()
@@ -424,9 +454,10 @@ void RGBMatrix::setMapColors(RGBAlgorithm *algorithm)
  * Properties
  ************************************************************************/
 
-void RGBMatrix::setProperty(QString propName, QString value)
+bool RGBMatrix::setProperty(QString propName, QString value)
 {
     QMutexLocker algoLocker(&m_algorithmMutex);
+    bool applied = true;
 
     // Remember the old step count before changing it (used to scale the step index)
     int oldStepsCount = m_stepsCount;
@@ -435,11 +466,12 @@ void RGBMatrix::setProperty(QString propName, QString value)
     if (m_algorithm != NULL && m_algorithm->type() == RGBAlgorithm::Script)
     {
         RGBScript *script = static_cast<RGBScript*> (m_algorithm);
-        script->setProperty(propName, value);
+        applied = script->setProperty(propName, value);
 
         QVector<uint> colors = script->rgbMapGetColors();
         for (int i = 0; i < colors.count(); i++)
-            setColor(i, QColor::fromRgb(colors.at(i)));
+            if (i >= ColorAttributeCount || !attributes().at(Color1Attr + i).m_isOverridden)
+                setColor(i, QColor::fromRgb(colors.at(i)));
     }
     m_stepsCount = algorithmStepsCount();
 
@@ -467,6 +499,19 @@ void RGBMatrix::setProperty(QString propName, QString value)
             newStepIndex = 0;
         m_stepHandler->setCurrentStepIndex(newStepIndex);
     }
+    if (m_algorithm != nullptr && m_algorithm->type() == RGBAlgorithm::Script)
+    {
+        const QString error = static_cast<RGBScript *>(m_algorithm)->takeCallbackError();
+        if (!error.isEmpty())
+        {
+            applied = false;
+            if (m_callbackError.isEmpty())
+                m_callbackError = error;
+        }
+    }
+    if (!applied && m_callbackError.isEmpty())
+        m_callbackError = QStringLiteral("property writer failed: ") + propName;
+    return applied;
 }
 
 QString RGBMatrix::property(QString propName)
@@ -1163,11 +1208,11 @@ void RGBMatrix::registerScriptPropertyAttributes()
     }
 }
 
-void RGBMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
+bool RGBMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
 {
     QList<RGBScriptProperty> props = scriptPropertyAttributes();
     if (attrIndex < 0 || attrIndex >= props.count())
-        return;
+        return true;
 
     const RGBScriptProperty prop = props.at(attrIndex);
     QString strValue;
@@ -1186,7 +1231,8 @@ void RGBMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
     }
 
     if (property(prop.m_name) != strValue)
-        setProperty(prop.m_name, strValue);
+        return setProperty(prop.m_name, strValue);
+    return true;
 }
 
 void RGBMatrix::applyColorAttribute(int colorIndex, qreal packedColor)

@@ -351,12 +351,12 @@ VCWidgetItem
                     function onToolColorChanged(r, g, b, w, a, uv)
                     {
                         if (sliderObj)
-                            sliderObj.setClickAndGoColors(Qt.rgba(r, g, b, 1.0), Qt.rgba(w, a, uv, 1.0))
+                            sliderObj.requestUserClickAndGoColors(Qt.rgba(r, g, b, 1.0), Qt.rgba(w, a, uv, 1.0))
                     }
                     function onPresetSelected(cap, fxID, chIdx, value)
                     {
                         if (sliderObj)
-                            sliderObj.setClickAndGoPresetValue(value)
+                            sliderObj.requestUserClickAndGoPresetValue(value)
                     }
                     function onClose()
                     {

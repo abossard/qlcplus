@@ -261,6 +261,11 @@ public:
     /** Thread-safe copy of the authored command track */
     ShowCommandTrack commandTrack() const;
 
+    /** One-shot save-time command projection. The next saveXML() uses this
+     *  track instead of the live one, then discards it. Runtime playback and
+     *  commandTrack() reads are unchanged. */
+    void armCommandTrackSaveProjection(const ShowCommandTrack &track);
+
     /**
      * Validate and publish a command track. The candidate is rejected as a
      * whole, so a failed edit never replaces valid data.
@@ -437,6 +442,8 @@ private:
 
     mutable QMutex m_commandTrackMutex;
     ShowCommandTrack m_commandTrack;
+    mutable bool m_commandTrackSaveProjectionArmed = false;
+    mutable ShowCommandTrack m_commandTrackSaveProjection;
     /** Live occurrences of the current traversal: id -> the time the capture
      *  publication gave it, set once and never retagged by a later publication.
      *  Only the end of the traversal (stop, seek, loop, a consumed requested

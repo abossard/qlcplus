@@ -21,15 +21,17 @@
 #define VCSLIDER_H
 
 #include <atomic>
+#include <QHash>
+#include <QSet>
 
 #include "vcwidget.h"
 #include "treemodel.h"
 #include "dmxsource.h"
 #include "grandmaster.h"
+#include "functionparent.h"
 
 #define KXMLQLCVCSlider QStringLiteral("Slider")
 
-class FunctionParent;
 class GenericFader;
 
 class VCSlider : public VCWidget, public DMXSource
@@ -220,13 +222,20 @@ public:
      *  write, reported once through recordedWriteRetired(), or 0 when nothing
      *  is left to wait for. */
     quint64 applyRecordedPosition(qreal position);
+    quint64 applyRecordedPosition(qreal position, const FunctionParent &owner);
 
     /** The same for a raw value of this slider, as a rollback restores it */
     quint64 applyRecordedValue(int value);
+    quint64 applyRecordedValue(int value, const FunctionParent &owner, bool strictOwnerRelease = false);
+    quint64 applyRecordedColors(QColor rgb, QColor wauv, int value, const FunctionParent &owner,
+                                 bool nativeColorValue = true, bool strictOwnerRelease = false);
+    bool usesNativeColorValue() const;
+    bool applyRecordedReset();
 
     /** No action: the generation of a write this slider still owes, reported
      *  like a replayed one, or 0 when none is pending or none can come */
     quint64 awaitPendingWrite();
+    void cancelRecordedWrite(quint64 generation);
 
 signals:
     /** A generation returned by applyRecordedPosition() was written, Applied,
@@ -234,13 +243,15 @@ signals:
      *  effect: that write started or stopped functionId, the Function it
      *  captured, which takes native effect only once the timer ran it;
      *  otherwise RecordedWriteNoEffect and Function::invalidId(). */
-    void recordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect);
+    void recordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect,
+                              const QString &reason);
 
 private:
     /** setValue() without undo history. With replay, the new generation is
      *  published and awaited in one step and returned, so its write and the
      *  start it causes are always reported. */
-    quint64 applyValue(int value, bool setDMX, bool updateFeedback, bool replay = false);
+    quint64 applyValue(int value, bool setDMX, bool updateFeedback, bool replay = false,
+                       const QPair<QColor, QColor> *colors = nullptr, bool nativeColorValue = true);
 
     /** Report the replayed generations already written. With cancelPending
      *  the configuration they were bound to changed, so the ones still
@@ -381,6 +392,10 @@ protected:
     /** Replayed generations waiting for their write, and written ones not
      *  reported yet with their outcome, under m_levelValueMutex */
     QVector<quint64> m_replayGenerations;
+    /** Function parent to use when a replayed generation causes a start/stop */
+    QHash<quint64, FunctionParent> m_replayOwners;
+    /** Replayed generations whose stop must release only the exact owner */
+    QSet<quint64> m_strictReplayReleases;
     struct RecordedWrite
     {
         quint64 generation;
@@ -434,7 +449,9 @@ public:
     QString cngPresetResource() const;
 
     Q_INVOKABLE void setClickAndGoColors(QColor rgb, QColor wauv);
+    Q_INVOKABLE void requestUserClickAndGoColors(QColor rgb, QColor wauv);
     Q_INVOKABLE void setClickAndGoPresetValue(int value);
+    Q_INVOKABLE void requestUserClickAndGoPresetValue(int value);
 
 protected:
     void updateClickAndGoResource();
@@ -452,6 +469,7 @@ protected:
     /** RGB and WAUV colors when in CnGColors type */
     QColor m_cngPrimaryColor;
     QColor m_cngSecondaryColor;
+    bool m_cngColorValue = false;
     QString m_cngResource;
 
     /*********************************************************************
@@ -517,6 +535,7 @@ protected:
 
     bool m_adjustFlashEnabled;
     qreal m_adjustFlashPreviousValue;
+    bool m_userFlashHoldActive = false;
 
     /*********************************************************************
      * Submaster

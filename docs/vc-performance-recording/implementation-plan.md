@@ -37,7 +37,7 @@ Remove failed checkpoint D's projection model and projection-only hand-back mach
 
 Cursor movement while paused does no work. Resume without repositioning continues the current traversal. A forward jump skips original time gaps but waits for required native completion without blocking the GUI or lighting thread.
 
-`ShowManager::requestSeek` identifies local seeks; the VDJ connector exposes positions and Play/Pause, not seek intent. Keep that distinction at the adapter. Flash remains deferred until replay-owned press/release cleanup has a defined contract.
+`ShowManager::requestSeek` identifies local seeks; the VDJ connector exposes positions and Play/Pause, not seek intent. Keep that distinction at the adapter. The Flash/global recording extension adds paired momentary events and replay-owned cleanup; see the [recording guide](../show-command-recording.md).
 
 ## Work order
 

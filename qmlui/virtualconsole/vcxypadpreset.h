@@ -22,6 +22,7 @@
 
 #include <QSharedPointer>
 #include <QKeySequence>
+#include <QObject>
 
 #include "qlcinputsource.h"
 #include "grouphead.h"
@@ -43,7 +44,7 @@ class QXmlStreamWriter;
 #define KXMLQLCVCXYPadPresetGroup       QStringLiteral("Group")
 #define KXMLQLCVCXYPadPresetGroupID     QStringLiteral("ID")
 
-class VCXYPadPreset final
+class VCXYPadPreset final : public QObject
 {
 public:
     explicit VCXYPadPreset(quint8 id);

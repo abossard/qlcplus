@@ -27,6 +27,8 @@
 #include <QHash>
 #include <QSet>
 #include <QUuid>
+#include <QMap>
+#include <variant>
 
 class QXmlStreamReader;
 class QXmlStreamWriter;
@@ -62,7 +64,19 @@ enum class ShowCommandAction : quint8
     Stop,        //!< trigger: release this Show's playback of the target
     SetIntensity,     //!< persistent value: absolute normalized intensity
     SetButtonState,   //!< VC state: a Toggle button's desired On/Off
-    SetSliderPosition //!< VC state: a slider's absolute normalized position
+    SetSliderPosition, //!< VC state: a slider's absolute normalized position
+    SetSliderColors,   //!< VC state: Click & Go colors payload + brightness position
+    SetSliderReset,    //!< VC state: release monitor override
+    SetXYPadPosition,  //!< VC state: XY pad absolute position payload
+    SetAnimationFader, //!< VC state: Matrix/Animation fader normalized position
+    SetXYPadFloor,    //!< VC state: metre X/Y/Z floor target
+    SetXYPadRanges,
+    SetXYPadPositionPreset,
+    SetXYPadFunctionPreset,
+    SetXYPadGroupPreset,
+    SetAnimationColor,
+    SetAnimationContent,
+    SetSliderChannel
 };
 
 /** What a VC state record expects its control to be. None on function commands. */
@@ -70,10 +84,16 @@ enum class ShowControlRole : quint8
 {
     None,
     ToggleButton,
+    FlashButton,
+    BlackoutButton,
+    FreezeButton,
+    FreezeHoldButton,
     LevelSlider,
     AdjustSlider,     //!< drives the Function attribute keyed by ShowCommand::attribute
     SubmasterSlider,
-    GrandMasterSlider
+    GrandMasterSlider,
+    XYPad,
+    AnimationFader
 };
 
 /** Provenance of a control change. Only real user input may author commands. */
@@ -86,6 +106,91 @@ enum class ShowCommandOrigin : quint8
     Replay,       //!< playback feedback of this very track
     Keyboard,     //!< key sequence on a VC control: local user input, like the pointer
     Osc           //!< accepted OSC input
+};
+
+struct ShowCommandColors
+{
+    quint8 red = 0, green = 0, blue = 0;
+    quint8 white = 0, amber = 0, ultraviolet = 0;
+
+    static bool decode(const QString &payload, ShowCommandColors *value);
+    QString encode() const;
+};
+
+struct ShowCommandPanTilt
+{
+    qreal pan = 0.0;
+    qreal tilt = 0.0;
+
+    static bool decode(const QString &payload, ShowCommandPanTilt *value);
+    QString encode() const;
+};
+
+struct ShowCommandFloor
+{
+    qreal x = 0.0, y = 0.0, z = 0.0;
+
+    static bool decode(const QString &payload, ShowCommandFloor *value);
+    QString encode() const;
+};
+
+struct ShowCommandRanges
+{
+    ShowCommandPanTilt horizontal, vertical;
+};
+
+struct ShowCommandChoice
+{
+    int choice = -1;
+    bool active = false;
+    ShowCommandPanTilt point;
+};
+
+struct ShowCommandMatrixColor
+{
+    enum class Operation { Replace, Reset, Component };
+    int index = -1;
+    Operation operation = Operation::Replace;
+    ShowCommandColors color;
+    int component = -1;
+    int value = 0;
+    int choice = -1;
+};
+
+struct ShowCommandProperty
+{
+    enum class Type { List, Range, Float, String };
+    Type type = Type::String;
+    QString text;
+    qreal number = 0;
+};
+
+struct ShowCommandContent
+{
+    QString algorithm;
+    QString text;
+    QMap<QString, ShowCommandProperty> properties;
+    int choice = -1;
+};
+
+struct ShowCommandChannel
+{
+    int value = 0;
+    QString binding;
+};
+
+/** A closed native argument, without effect handles or mutable binding IDs. */
+struct ShowCommandPayload
+{
+    using Value = std::variant<std::monostate, ShowCommandRanges, ShowCommandChoice,
+                               ShowCommandMatrixColor, ShowCommandContent, ShowCommandChannel,
+                               ShowCommandColors, ShowCommandPanTilt, ShowCommandFloor>;
+    Value value;
+    static bool decode(ShowCommandAction action, const QString &text, ShowCommandPayload *out,
+                       QString *reason = nullptr);
+    QString encode(ShowCommandAction action) const;
+    QString validate(ShowCommandAction action) const;
+    bool operator==(const ShowCommandPayload &other) const;
 };
 
 /** One authored command. Plain value type: comparable, copyable, no identity. */
@@ -107,9 +212,13 @@ struct ShowCommand
     /** VC state records only: a persistent control identity instead of a Function */
     QUuid controlId;
     ShowControlRole role = ShowControlRole::None;
-    QString attribute;     //!< AdjustSlider only: stable nonlocalized attribute key, never a tr() label
+    QString attribute;     //!< AdjustSlider key; legacy complex text is normalized on ingress
     bool on = false;       //!< SetButtonState only
     qreal position = 0.0;  //!< SetSliderPosition only, finite, [0, 1]
+    quint32 pairId = InvalidId; //!< optional hold pair identity on SetButtonState edges
+    ShowCommandPayload payload;
+    ShowCommand canonicalized() const;
+    QString nativeArgument() const;
 
     /** Its place among commands sharing a time, issued by the track that holds
      *  it and kept through every edit, so an event moved away and back is in
@@ -123,6 +232,15 @@ struct ShowCommand
     static ShowCommand setSliderPosition(quint32 id, quint32 time, const QUuid &controlId,
                                          ShowControlRole role, const QString &attribute,
                                          qreal position);
+    static ShowCommand setSliderColors(quint32 id, quint32 time, const QUuid &controlId,
+                                       ShowControlRole role, const QString &payload,
+                                       qreal position);
+    static ShowCommand setSliderReset(quint32 id, quint32 time, const QUuid &controlId,
+                                      ShowControlRole role, const QString &attribute);
+    static ShowCommand setXYPadPosition(quint32 id, quint32 time, const QUuid &controlId,
+                                        const QString &payload);
+    static ShowCommand setAnimationFader(quint32 id, quint32 time, const QUuid &controlId,
+                                         qreal position);
 
     /** Empty when the command is valid, otherwise the reason */
     static QString validate(const ShowCommand &cmd);
@@ -130,6 +248,8 @@ struct ShowCommand
     static QString actionToString(ShowCommandAction action);
     /** false when the name is not a known action */
     static bool actionFromString(const QString &name, ShowCommandAction *action);
+    static bool isControlAction(ShowCommandAction action);
+    static bool hasTypedPayload(ShowCommandAction action);
 
     static QString roleToString(ShowControlRole role);
     /** false when the name is not a known role */
@@ -229,7 +349,7 @@ public:
     /** Serialization versions. A track without VC state records keeps writing the
      *  legacy version, which cannot hold them. Any other version fails to load. */
     static constexpr int LegacyVersion = 1;
-    static constexpr int Version = 2;
+    static constexpr int Version = 9;
 
     bool isEmpty() const;
     int count() const;
@@ -381,6 +501,7 @@ struct ShowCommandInput
     QString attribute;
     bool on = false;
     qreal position = 0.0;
+    ShowCommandPayload payload;
 };
 
 /** Result of one transition: the next state plus what the host must do with it */

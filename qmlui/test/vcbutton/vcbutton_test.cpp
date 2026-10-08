@@ -47,11 +47,54 @@
 #include "tardis.h"
 #undef private
 #include "vcbridgev5.h"
+#include "tools/vc_tools_common.h"
 #include "vcbutton.h"
 #include "vcframe.h"
 #include "vcpage.h"
 #include "vcslider.h"
+#include "vcxypad.h"
+#include "qlcfixturedef.h"
+#include "qlcfixturemode.h"
+#include "qlcchannel.h"
 #include "virtualconsole.h"
+#include "tools/tool_registry.h"
+
+#include <fastmcpp/tools/manager.hpp>
+#include <fastmcpp/mcp/handler.hpp>
+#include <fastmcpp/server/server.hpp>
+#include <fastmcpp/resources/manager.hpp>
+#include <fastmcpp/prompts/manager.hpp>
+#include <nlohmann/json.hpp>
+
+using Json = nlohmann::json;
+
+namespace
+{
+/** The registered MCP VC tools driving a real VCBridgeV5. */
+class McpTools
+{
+public:
+    McpTools(Doc *doc, VCBridge *bridge)
+    {
+        registerQueryTools(m_tm, doc, bridge);
+        registerVCCreateTools(m_tm, doc, bridge);
+        registerVCUpdateTools(m_tm, doc, bridge);
+        registerVCInputTools(m_tm, doc, bridge);
+        registerVCLayoutTools(m_tm, doc, bridge);
+    }
+
+    Json call(const std::string &name, const Json &args)
+    {
+        const Json value = m_tm.invoke(name, args);
+        return value.is_string() ? Json::parse(value.get<std::string>()) : value;
+    }
+
+    fastmcpp::tools::ToolManager &manager() { return m_tm; }
+
+private:
+    fastmcpp::tools::ToolManager m_tm;
+};
+}
 
 namespace
 {
@@ -303,6 +346,1078 @@ void VCButton_Test::mcpBridge_freezeAction()
 
     // The query surface derives its action text from the real widget.
     QCOMPARE(bridge.getWidgetDetails(buttonID).action, action);
+}
+
+void VCButton_Test::mcpBridge_machineTypeDrivesUpdateAndFilter_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<QByteArray>("createExtras");
+    QTest::addColumn<QByteArray>("update");
+    QTest::addColumn<QByteArray>("readback");
+
+    QTest::newRow("button") << "button" << QByteArray("{}") << QByteArray(R"({"flashOverride":true})") << QByteArray(R"({"flashOverride":true})");
+    QTest::newRow("slider") << "slider" << QByteArray("{}") << QByteArray(R"({"catchValues":true})") << QByteArray(R"({"catchValues":true})");
+    QTest::newRow("frame") << "frame" << QByteArray("{}") << QByteArray(R"({"multipageMode":true})") << QByteArray(R"({"multipageMode":true})");
+    QTest::newRow("soloframe") << "soloframe" << QByteArray("{}") << QByteArray(R"({"soloframeMixing":true})") << QByteArray(R"({"soloframeMixing":true})");
+    QTest::newRow("xypad") << "xypad" << QByteArray(R"({"fixtureIDs":[]})") << QByteArray(R"({"displayMode":"percentage"})") << QByteArray(R"({"displayMode":"percentage"})");
+    QTest::newRow("speedDial") << "speedDial" << QByteArray(R"({"functionIDs":[]})") << QByteArray(R"({"visibilityMask":3})") << QByteArray(R"({"speedDialVisibilityMask":3})");
+    QTest::newRow("cuelist") << "cuelist" << QByteArray("{}") << QByteArray(R"({"nextPrevBehavior":"select"})") << QByteArray(R"({"nextPrevBehavior":"select"})");
+    QTest::newRow("label") << "label" << QByteArray("{}") << QByteArray(R"({"caption":"Renamed"})") << QByteArray(R"({"caption":"Renamed"})");
+    QTest::newRow("audioTrigger") << "audioTrigger" << QByteArray("{}") << QByteArray(R"({"caption":"Renamed"})") << QByteArray(R"({"caption":"Renamed"})");
+    QTest::newRow("matrix") << "matrix" << QByteArray("{}") << QByteArray(R"({"visibilityMask":5})") << QByteArray(R"({"visibilityMask":5})");
+    QTest::newRow("clock") << "clock" << QByteArray("{}") << QByteArray(R"({"clockType":"stopwatch"})") << QByteArray(R"({"clockType":"stopwatch"})");
+    QTest::newRow("recordPanel") << "recordPanel" << QByteArray("{}") << QByteArray(R"({"scenePrefix":"Rec"})") << QByteArray(R"({"scenePrefix":"Rec"})");
+}
+
+void VCButton_Test::mcpBridge_machineTypeDrivesUpdateAndFilter()
+{
+    QFETCH(QString, type);
+    QFETCH(QByteArray, createExtras);
+    QFETCH(QByteArray, update);
+    QFETCH(QByteArray, readback);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    QVERIFY(frameID >= 0);
+
+    Json create = Json::parse(createExtras.constData());
+    create["type"] = type.toStdString();
+    create["parentID"] = frameID;
+    const Json created = tools.call("vc_create_widgets", {{"items", Json::array({create})}});
+    QVERIFY2(created[0].value("outcome", "") == "created", created.dump().c_str());
+    const int widgetID = created[0]["widgetID"].get<int>();
+
+    // Public `type` keeps the display rendering; `machineType` is the stable tag.
+    const QString display = VCWidget::typeToString(VCWidget::WidgetType(VCType::fromString(type.toStdString())));
+    QCOMPARE(bridge.getWidgetDetails(widgetID).type, display);
+    QCOMPARE(bridge.getWidgetDetails(widgetID).machineType, type);
+
+    Json updateItem = Json::parse(update.constData());
+    updateItem["widgetID"] = widgetID;
+    const Json updated = tools.call("vc_update_widgets", {{"items", Json::array({updateItem})}});
+    QVERIFY2(!updated[0].contains("error") && updated[0].contains("changes"), updated.dump().c_str());
+    for (const auto &change : updated[0]["changes"])
+        QVERIFY2(change["status"] == "ok", updated.dump().c_str());
+
+    const Json queried = tools.call("vc_query_widgets", {{"widgetIDs", Json::array({widgetID})}});
+    const Json expected = Json::parse(readback.constData());
+    for (auto it = expected.begin(); it != expected.end(); ++it)
+        QVERIFY2(queried[0][it.key()] == it.value(), queried.dump().c_str());
+
+    const Json filtered = tools.call("vc_query_pages",
+        {{"typeFilter", type.toStdString()}, {"parentID", frameID}, {"properties", {"type", "machineType"}}});
+    QVERIFY2(filtered.is_array() && filtered.size() == 1, filtered.dump().c_str());
+    QCOMPARE(filtered[0]["widgets"].size(), size_t(1));
+    QCOMPARE(filtered[0]["widgets"][0]["id"].get<int>(), widgetID);
+    QCOMPARE(QString::fromStdString(filtered[0]["widgets"][0]["type"].get<std::string>()), display);
+    QCOMPARE(QString::fromStdString(filtered[0]["widgets"][0]["machineType"].get<std::string>()), type);
+}
+
+void VCButton_Test::mcpBridge_sliderSparseUpdateAppliesEveryField_data()
+{
+    QTest::addColumn<QByteArray>("setup");
+    QTest::addColumn<QByteArray>("update");
+    QTest::addColumn<QByteArray>("expected"); // null = default, omitted from readback
+
+    QTest::newRow("functionName") << QByteArray("{}") << QByteArray(R"({"functionName":"Target"})") << QByteArray(R"({"functionID":1})");
+    QTest::newRow("limits") << QByteArray("{}") << QByteArray(R"({"rangeLowLimit":10,"rangeHighLimit":200})") << QByteArray(R"({"rangeLowLimit":10.0,"rangeHighLimit":200.0})");
+    QTest::newRow("limits-zero-and-full") << QByteArray(R"({"rangeLowLimit":10,"rangeHighLimit":200})") << QByteArray(R"({"rangeLowLimit":0,"rangeHighLimit":255})") << QByteArray(R"({"rangeLowLimit":null,"rangeHighLimit":null})");
+    QTest::newRow("inverted-true") << QByteArray("{}") << QByteArray(R"({"invertedAppearance":true})") << QByteArray(R"({"invertedAppearance":true})");
+    QTest::newRow("inverted-false") << QByteArray(R"({"invertedAppearance":true})") << QByteArray(R"({"invertedAppearance":false})") << QByteArray(R"({"invertedAppearance":null})");
+    QTest::newRow("monitor-true") << QByteArray("{}") << QByteArray(R"({"monitorEnabled":true})") << QByteArray(R"({"monitorEnabled":true})");
+    QTest::newRow("monitor-false") << QByteArray(R"({"monitorEnabled":true})") << QByteArray(R"({"monitorEnabled":false})") << QByteArray(R"({"monitorEnabled":null})");
+    QTest::newRow("grandmaster") << QByteArray(R"({"mode":"grandmaster"})") << QByteArray(R"({"gmValueMode":"reduce","gmChannelMode":"allchannels"})") << QByteArray(R"({"gmValueMode":"reduce","gmChannelMode":"allchannels"})");
+    QTest::newRow("display-and-cng") << QByteArray("{}") << QByteArray(R"({"valueDisplayStyle":"percentage","clickAndGoType":"preset"})") << QByteArray(R"({"valueDisplayStyle":"percentage","clickAndGoType":"preset"})");
+}
+
+void VCButton_Test::mcpBridge_sliderSparseUpdateAppliesEveryField()
+{
+    QFETCH(QByteArray, setup);
+    QFETCH(QByteArray, update);
+    QFETCH(QByteArray, expected);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    Scene *first = new Scene(&doc);
+    first->setName(QStringLiteral("First"));
+    QVERIFY(doc.addFunction(first));
+    Scene *target = new Scene(&doc);
+    target->setName(QStringLiteral("Target"));
+    QVERIFY(doc.addFunction(target));
+    QCOMPARE(target->id(), quint32(1));
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const Json created = tools.call("vc_create_widgets",
+        {{"items", Json::array({{{"type", "slider"}, {"parentID", frameID}, {"mode", "playback"}}})}});
+    QVERIFY2(created[0].value("outcome", "") == "created", created.dump().c_str());
+    const int widgetID = created[0]["widgetID"].get<int>();
+
+    for (const QByteArray &step : {setup, update})
+    {
+        Json item = Json::parse(step.constData());
+        if (item.empty())
+            continue;
+        item["widgetID"] = widgetID;
+        const Json updated = tools.call("vc_update_widgets", {{"items", Json::array({item})}});
+        QVERIFY2(!updated[0].contains("error") && !updated[0]["changes"].empty(), updated.dump().c_str());
+        for (const auto &change : updated[0]["changes"])
+            QVERIFY2(change["status"] == "ok", updated.dump().c_str());
+    }
+
+    const Json queried = tools.call("vc_query_widgets", {{"widgetIDs", Json::array({widgetID})}});
+    const Json want = Json::parse(expected.constData());
+    for (auto it = want.begin(); it != want.end(); ++it)
+    {
+        if (it.value().is_null())
+            QVERIFY2(!queried[0].contains(it.key()), queried.dump().c_str());
+        else
+            QVERIFY2(queried[0].value(it.key(), Json()) == it.value(), queried.dump().c_str());
+    }
+}
+
+void VCButton_Test::mcpBridge_geometryUpdateMovesWithoutResizing_data()
+{
+    QTest::addColumn<QByteArray>("update");
+    QTest::addColumn<QRect>("expected");
+
+    // Positions and sizes are multiples of the VC grid snap so the bridge keeps them as given.
+    QTest::newRow("x-only") << QByteArray(R"({"x":150})") << QRect(150, 50, 100, 60);
+    QTest::newRow("y-only") << QByteArray(R"({"y":10})") << QRect(50, 10, 100, 60);
+    QTest::newRow("x-and-y") << QByteArray(R"({"x":0,"y":0})") << QRect(0, 0, 100, 60);
+    QTest::newRow("width-only") << QByteArray(R"({"width":200})") << QRect(50, 50, 200, 60);
+}
+
+void VCButton_Test::mcpBridge_geometryUpdateMovesWithoutResizing()
+{
+    QFETCH(QByteArray, update);
+    QFETCH(QRect, expected);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const Json created = tools.call("vc_create_widgets",
+        {{"items", Json::array({{{"type", "button"}, {"parentID", frameID},
+                                 {"x", 50}, {"y", 50}, {"width", 100}, {"height", 60}}})}});
+    const int widgetID = created[0]["widgetID"].get<int>();
+    QCOMPARE(bridge.getWidgetDetails(widgetID).geometry, QRect(50, 50, 100, 60));
+
+    Json item = Json::parse(update.constData());
+    item["widgetID"] = widgetID;
+    const Json updated = tools.call("vc_update_widgets", {{"items", Json::array({item})}});
+    QVERIFY2(updated[0]["changes"][0]["status"] == "ok", updated.dump().c_str());
+
+    QCOMPARE(bridge.getWidgetDetails(widgetID).geometry, expected);
+}
+
+void VCButton_Test::mcpBridge_functionIdZeroIsABinding_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<bool>("bind");
+
+    QTest::newRow("button-bound-to-0") << "button" << true;
+    QTest::newRow("button-unbound") << "button" << false;
+    QTest::newRow("label-has-no-function") << "label" << false;
+}
+
+void VCButton_Test::mcpBridge_functionIdZeroIsABinding()
+{
+    QFETCH(QString, type);
+    QFETCH(bool, bind);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    Scene *scene = new Scene(&doc);
+    QVERIFY(doc.addFunction(scene));
+    QCOMPARE(scene->id(), quint32(0));
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    Json create = {{"type", type.toStdString()}, {"parentID", frameID}};
+    if (bind)
+        create["functionID"] = 0;
+    const Json created = tools.call("vc_create_widgets", {{"items", Json::array({create})}});
+    const int widgetID = created[0]["widgetID"].get<int>();
+
+    const Json queried = tools.call("vc_query_widgets", {{"widgetIDs", Json::array({widgetID})}});
+    QCOMPARE(queried[0].contains("functionID"), bind);
+    if (bind)
+        QCOMPARE(queried[0]["functionID"].get<int>(), 0);
+
+    const Json filtered = tools.call("vc_query_pages",
+        {{"functionID", 0}, {"parentID", frameID}, {"properties", {"functionID"}}});
+    const size_t matches = filtered.is_array() && !filtered.empty() ? filtered[0]["widgets"].size() : 0;
+    QCOMPARE(matches, size_t(bind ? 1 : 0));
+}
+
+void VCButton_Test::mcpBridge_gridLayoutReadsBack()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const Json set = tools.call("vc_set_grid_layout",
+        {{"items", Json::array({{{"frameID", frameID}, {"layoutMode", "grid"}, {"columns", 6},
+                                 {"rowHeight", 40}, {"compact", false}}})}});
+    QVERIFY2(!set.dump().empty() && set.dump().find("error") == std::string::npos, set.dump().c_str());
+
+    const Json queried = tools.call("vc_query_widgets", {{"widgetIDs", Json::array({frameID})}});
+    const Json want = {{"layoutMode", "grid"}, {"columns", 6}, {"rowHeight", 40}, {"compact", false}};
+    QVERIFY2(queried[0].value("grid", Json()) == want, queried.dump().c_str());
+}
+
+namespace
+{
+int widgetCount(VCBridgeV5 &bridge)
+{
+    int n = 0;
+    for (const auto &page : bridge.pages())
+        n += page.widgets.size();
+    return n;
+}
+}
+
+void VCButton_Test::mcpBridge_createRejectsUnusableParent_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<QByteArray>("createExtras");
+    QTest::addColumn<bool>("parentIsButton");
+
+    const QList<QPair<QString, QByteArray>> types = {
+        {"frame", "{}"}, {"soloframe", "{}"}, {"button", "{}"}, {"slider", "{}"},
+        {"xypad", R"({"fixtureIDs":[]})"}, {"speedDial", R"({"functionIDs":[]})"},
+        {"cuelist", "{}"}, {"label", "{}"}, {"audioTrigger", "{}"}, {"matrix", "{}"},
+        {"clock", "{}"}, {"recordPanel", "{}"}};
+    for (const auto &t : types)
+    {
+        QTest::newRow(qPrintable(t.first + "-missing-parent")) << t.first << t.second << false;
+        QTest::newRow(qPrintable(t.first + "-button-parent")) << t.first << t.second << true;
+    }
+}
+
+void VCButton_Test::mcpBridge_createRejectsUnusableParent()
+{
+    QFETCH(QString, type);
+    QFETCH(QByteArray, createExtras);
+    QFETCH(bool, parentIsButton);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+                                          QStringLiteral("NotAContainer"), QStringLiteral("toggle"), 0);
+    QVERIFY(buttonID >= 0);
+    const int before = widgetCount(bridge);
+
+    Json create = Json::parse(createExtras.constData());
+    create["type"] = type.toStdString();
+    create["parentID"] = parentIsButton ? buttonID : 99999;
+    create["caption"] = "Orphan";
+    const Json result = tools.call("vc_create_widgets", {{"items", Json::array({create})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QVERIFY2(result[0].value("index", -1) == 0, result.dump().c_str());
+    QVERIFY2(result[0].value("status", "") == "error", result.dump().c_str());
+    QVERIFY2(result[0].contains("error"), result.dump().c_str());
+    QCOMPARE(widgetCount(bridge), before);
+}
+
+void VCButton_Test::mcpBridge_createBatchReportsIndexedOutcomes()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const Json items = Json::array({
+        {{"type", "button"}, {"parentID", frameID}, {"caption", "A"}},
+        {{"type", "button"}, {"parentID", 99999}, {"caption", "B"}},
+        {{"type", "nonsense"}, {"parentID", frameID}},
+        {{"type", "button"}, {"parentID", frameID}, {"caption", "A"}},
+        {{"type", "slider"}, {"parentID", frameID}, {"caption", "S"}, {"channels", {{{"fixtureID", 0}}}}}});
+    const int before = widgetCount(bridge);
+    const Json result = tools.call("vc_create_widgets", {{"items", items}});
+
+    QVERIFY2(result.is_array() && result.size() == 5, result.dump().c_str());
+    for (size_t i = 0; i < 5; ++i)
+        QVERIFY2(result[i].value("index", -1) == int(i), result.dump().c_str());
+    QVERIFY2(result[0]["status"] == "ok" && result[0]["outcome"] == "created", result.dump().c_str());
+    QVERIFY2(result[1]["status"] == "error", result.dump().c_str());
+    QVERIFY2(result[2]["status"] == "error", result.dump().c_str());
+    QVERIFY2(result[3]["status"] == "ok" && result[3]["outcome"] == "existing"
+             && result[3]["widgetID"] == result[0]["widgetID"], result.dump().c_str());
+    QVERIFY2(result[4]["status"] == "error", result.dump().c_str());
+    QCOMPARE(widgetCount(bridge), before + 1);
+}
+
+void VCButton_Test::mcpBridge_mapInputsRejectsPartialFeedback_data()
+{
+    QTest::addColumn<QByteArray>("feedback");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("none") << QByteArray("{}") << true;
+    QTest::newRow("all-six") << QByteArray(R"({"idleValue":1,"activeValue":2,"monitorValue":3,"idleChannel":0,"activeChannel":1,"monitorChannel":2})") << true;
+    QTest::newRow("idleValue-only") << QByteArray(R"({"idleValue":5})") << false;
+    QTest::newRow("idleChannel-only") << QByteArray(R"({"idleChannel":1})") << false;
+    QTest::newRow("monitorValue-only") << QByteArray(R"({"monitorValue":0})") << false;
+    QTest::newRow("activeValue-only") << QByteArray(R"({"activeValue":2})") << false;
+    QTest::newRow("five-without-monitorChannel") << QByteArray(R"({"idleValue":1,"activeValue":2,"monitorValue":3,"idleChannel":0,"activeChannel":1})") << false;
+}
+
+void VCButton_Test::mcpBridge_mapInputsRejectsPartialFeedback()
+{
+    QFETCH(QByteArray, feedback);
+    QFETCH(bool, accepted);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+                                          QStringLiteral("Mapped"), QStringLiteral("toggle"), 0);
+
+    Json item = Json::parse(feedback.constData());
+    item["widgetID"] = buttonID;
+    item["inputUniverse"] = 0;
+    item["inputChannel"] = 7;
+    const Json result = tools.call("vc_map_inputs", {{"items", Json::array({item})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QVERIFY2(result[0].value("index", -1) == 0, result.dump().c_str());
+    QVERIFY2(result[0].value("status", "") == (accepted ? "ok" : "error"), result.dump().c_str());
+
+    const Json queried = tools.call("vc_query_widgets", {{"widgetIDs", Json::array({buttonID})}});
+    QCOMPARE(queried[0].contains("inputMappings"), accepted);
+    if (!accepted)
+        return;
+    const Json mapping = queried[0]["inputMappings"][0];
+    QCOMPARE(mapping["channel"].get<int>(), 7);
+    const Json want = Json::parse(feedback.constData());
+    for (auto it = want.begin(); it != want.end(); ++it)
+        QVERIFY2(mapping["feedback"][it.key()] == it.value(), queried.dump().c_str());
+}
+
+void VCButton_Test::mcpBridge_schemaAdvertisesHandledFields_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QString>("pointer");
+    QTest::addColumn<QString>("expected");
+
+    const QString createTypes = QStringLiteral("/properties/items/items/properties/type/enum");
+    for (const char *type : {"frame", "soloframe", "button", "slider", "xypad", "cuelist", "label",
+                             "speedDial", "audioTrigger", "matrix", "clock", "recordPanel"})
+        QTest::newRow(qPrintable(QStringLiteral("create-type-") + type))
+            << QStringLiteral("vc_create_widgets") << createTypes << QString::fromLatin1(type);
+
+    const QString presetProps = QStringLiteral("/properties/items/items/properties/presets/items/properties");
+    for (const char *key : {"name", "type", "x", "y", "functionID", "value"})
+        QTest::newRow(qPrintable(QStringLiteral("update-preset-") + key))
+            << QStringLiteral("vc_update_widgets") << presetProps << QString::fromLatin1(key);
+}
+
+void VCButton_Test::mcpBridge_schemaAdvertisesHandledFields()
+{
+    QFETCH(QString, tool);
+    QFETCH(QString, pointer);
+    QFETCH(QString, expected);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const Json schema = tools.manager().get(tool.toStdString()).input_schema();
+    const Json::json_pointer ptr(pointer.toStdString());
+    QVERIFY2(schema.contains(ptr), schema.dump().c_str());
+    const Json &node = schema.at(ptr);
+    const std::string key = expected.toStdString();
+    const bool advertised = node.is_array()
+        ? std::find(node.begin(), node.end(), key) != node.end()
+        : node.contains(key);
+    QVERIFY2(advertised, node.dump().c_str());
+}
+
+void VCButton_Test::mcpBridge_layoutEnumsApplyCanonicalSpelling_data()
+{
+    // FRAME is replaced by a real frame ID; pointer selects the applied value.
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("args");
+    QTest::addColumn<QString>("pointer");
+    QTest::addColumn<QString>("expected");
+
+    for (const char *spelling : {"gridCompact", "GridCompact", "GRIDCOMPACT"})
+        QTest::newRow(qPrintable(QStringLiteral("reflow-page-") + spelling))
+            << QStringLiteral("vc_reflow_frame")
+            << QByteArray(R"({"pageIndex":0,"algorithm":")") + spelling + QByteArray(R"("})")
+            << QStringLiteral("/error") << QStringLiteral("gridCompact requires frameID (not pageIndex)");
+    QTest::newRow("reflow-FLOW") << QStringLiteral("vc_reflow_frame")
+        << QByteArray(R"({"frameID":"FRAME","algorithm":"FLOW","dryRun":true})")
+        << QStringLiteral("/algorithm") << QStringLiteral("flow");
+    QTest::newRow("grid-Grid") << QStringLiteral("vc_set_grid_layout")
+        << QByteArray(R"({"items":[{"frameID":"FRAME","layoutMode":"Grid"}]})")
+        << QStringLiteral("/0/layoutMode") << QStringLiteral("grid");
+    QTest::newRow("grid-FREE") << QStringLiteral("vc_set_grid_layout")
+        << QByteArray(R"({"items":[{"frameID":"FRAME","layoutMode":"FREE"}]})")
+        << QStringLiteral("/0/layoutMode") << QStringLiteral("free");
+}
+
+void VCButton_Test::mcpBridge_layoutEnumsApplyCanonicalSpelling()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, args);
+    QFETCH(QString, pointer);
+    QFETCH(QString, expected);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+                     QStringLiteral("Child"), QStringLiteral("toggle"), 0);
+    args.replace("\"FRAME\"", QByteArray::number(frameID));
+
+    const Json result = tools.call(tool.toStdString(), Json::parse(args.constData()));
+    const Json::json_pointer ptr(pointer.toStdString());
+    QVERIFY2(result.contains(ptr), result.dump().c_str());
+    QCOMPARE(QString::fromStdString(result.at(ptr).get<std::string>()), expected);
+}
+
+void VCButton_Test::mcpBridge_updateBatchReportsIndexedOutcomes()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+                                          QStringLiteral("Btn"), QStringLiteral("toggle"), 0);
+    const int sliderID = bridge.addSlider(frameID, QRect(60, 0, 60, 200), QStringLiteral("level"),
+                                          QStringLiteral("Sld"), Function::invalidId(), {});
+
+    const Json items = Json::array({
+        {{"widgetID", buttonID}, {"caption", "Btn2"}},
+        {{"widgetID", 99999}, {"caption", "ghost"}},
+        {{"widgetID", buttonID}, {"bogus", 1}},
+        {{"widgetID", sliderID}, {"caption", "mutated"},
+         {"channels", Json::array({{{"fixtureID", 0}, {"channel", 0}, {"extra", 1}}})}},
+        {{"widgetID", sliderID}, {"caption", "Sld2"}, {"functionName", "no such function"}},
+        {{"widgetID", "not-an-id"}, {"caption", "x"}},
+    });
+    const Json result = tools.call("vc_update_widgets", {{"items", items}});
+
+    const std::vector<std::string> statuses = {"ok", "error", "error", "error", "error", "error"};
+    QVERIFY2(result.is_array() && result.size() == statuses.size(), result.dump().c_str());
+    for (size_t i = 0; i < statuses.size(); ++i)
+    {
+        QVERIFY2(result[i].value("index", -1) == int(i), result.dump().c_str());
+        QVERIFY2(result[i].value("status", "") == statuses[i], result.dump().c_str());
+    }
+    QCOMPARE(result[0].value("outcome", ""), std::string("updated"));
+    QVERIFY2(!result[4].contains("outcome"), result.dump().c_str());
+
+    // Rejected slider items must not have applied their valid captions.
+    QCOMPARE(bridge.getWidgetDetails(buttonID).caption, QStringLiteral("Btn2"));
+    QCOMPARE(bridge.getWidgetDetails(sliderID).caption, QStringLiteral("Sld"));
+}
+
+void VCButton_Test::mcpBridge_setterBatchesReportIndexedOutcomes_data()
+{
+    // BUTTON / FRAME are replaced with real IDs; expected lists one status per item.
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("items");
+    QTest::addColumn<QStringList>("expected");
+
+    QTest::newRow("feedback") << QStringLiteral("vc_configure_feedback")
+        << QByteArray(R"([{"widgetID":"BUTTON","activeValue":5},{"widgetID":99999,"activeValue":5},)"
+                      R"({"widgetID":"BUTTON"},{"widgetID":"BUTTON","activeValue":5,"activeMode":"blinking"},)"
+                      R"({"widgetID":"BUTTON","activeValue":5,"idleMode":"Flashing"}])")
+        << QStringList{"ok", "error", "error", "error", "ok"};
+    QTest::newRow("key-sequences") << QStringLiteral("vc_set_key_sequences")
+        << QByteArray(R"([{"widgetID":"BUTTON","keySequence":"F5"},{"widgetID":99999,"keySequence":"F6"},)"
+                      R"({"widgetID":"BUTTON"},{"widgetID":"BUTTON","keySequence":"F7","bogus":1}])")
+        << QStringList{"ok", "error", "error", "error"};
+    QTest::newRow("grid-layout") << QStringLiteral("vc_set_grid_layout")
+        << QByteArray(R"([{"frameID":"FRAME","layoutMode":"grid"},{"frameID":99999,"layoutMode":"grid"},)"
+                      R"({"frameID":"FRAME","bogus":1},{"frameID":"FRAME","layoutMode":"tiled"},{"columns":4}])")
+        << QStringList{"ok", "error", "error", "error", "error"};
+}
+
+void VCButton_Test::mcpBridge_setterBatchesReportIndexedOutcomes()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, items);
+    QFETCH(QStringList, expected);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+                                          QStringLiteral("Btn"), QStringLiteral("toggle"), 0);
+    // Feedback needs an input source to attach to.
+    QVERIFY(bridge.mapWidgetInputByName(buttonID, QStringLiteral("default"), 0, 3));
+    items.replace("\"BUTTON\"", QByteArray::number(buttonID));
+    items.replace("\"FRAME\"", QByteArray::number(frameID));
+
+    const Json result = tools.call(tool.toStdString(), {{"items", Json::parse(items.constData())}});
+    QVERIFY2(result.is_array() && result.size() == size_t(expected.size()), result.dump().c_str());
+    for (int i = 0; i < expected.size(); ++i)
+    {
+        QVERIFY2(result[i].value("index", -1) == i, result.dump().c_str());
+        QVERIFY2(result[i].value("status", "") == expected[i].toStdString(), result.dump().c_str());
+        if (expected[i] == QStringLiteral("ok"))
+            QVERIFY2(result[i].value("outcome", "") == "updated", result.dump().c_str());
+        else
+            QVERIFY2(result[i].contains("error"), result.dump().c_str());
+    }
+}
+
+void VCButton_Test::mcpBridge_childPageIndexRejectedBeforeMutation_data()
+{
+    // "existing" reuses the caption already on page 1 of the 3-page frame.
+    QTest::addColumn<QString>("caption");
+    QTest::addColumn<qint64>("childPageIndex");
+    QTest::addColumn<QString>("status");
+    QTest::addColumn<int>("expectedPage");
+
+    QTest::newRow("new, out of range") << QStringLiteral("Fresh") << qint64(3) << "error" << -1;
+    QTest::newRow("existing, out of range") << QStringLiteral("Existing") << qint64(3) << "error" << 1;
+    QTest::newRow("existing, wraps to page 0") << QStringLiteral("Existing") << qint64(4294967296LL) << "error" << 1;
+    QTest::newRow("new, wraps to page 0") << QStringLiteral("Fresh") << qint64(4294967296LL) << "error" << -1;
+    QTest::newRow("existing, valid move") << QStringLiteral("Existing") << qint64(2) << "ok" << 2;
+}
+
+void VCButton_Test::mcpBridge_childPageIndexRejectedBeforeMutation()
+{
+    QFETCH(QString, caption);
+    QFETCH(qint64, childPageIndex);
+    QFETCH(QString, status);
+    QFETCH(int, expectedPage);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Pages"), false);
+    VCBridge::FrameConfig cfg;
+    cfg.multipageMode = true;
+    cfg.totalPages = 3;
+    QVERIFY(bridge.configureFrame(frameID, cfg));
+    const int existingID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+                                            QStringLiteral("Existing"), QStringLiteral("toggle"), 0);
+    QVERIFY(bridge.setWidgetPage(existingID, 1));
+    const int childrenBefore = int(qobject_cast<VCFrame *>(ui.vc()->widget(frameID))->children().size());
+
+    const Json result = tools.call("vc_create_widgets", {{"items", Json::array({
+        {{"type", "button"}, {"parentID", frameID}, {"caption", caption.toStdString()},
+         {"childPageIndex", childPageIndex}}})}});
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QVERIFY2(result[0].value("status", "") == status.toStdString(), result.dump().c_str());
+
+    const int foundID = bridge.findWidgetByCaption(frameID, QStringLiteral("button"), caption);
+    if (expectedPage < 0)
+    {
+        QCOMPARE(foundID, -1);
+        QCOMPARE(int(qobject_cast<VCFrame *>(ui.vc()->widget(frameID))->children().size()), childrenBefore);
+    }
+    else
+    {
+        QCOMPARE(foundID, existingID);
+        QCOMPARE(bridge.getWidgetDetails(existingID).childPageIndex, expectedPage);
+    }
+}
+
+void VCButton_Test::mcpBridge_updateRejectsLateInvalidFieldBeforeMutation_data()
+{
+    // Each item edits caption and x first; the trailing field must reject the whole item.
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<QByteArray>("late");
+
+    QTest::newRow("font size kind") << "button" << QByteArray(R"({"font":{"size":"big"}})");
+    QTest::newRow("unknown functionName") << "button" << QByteArray(R"({"functionName":"No Such Function"})");
+    QTest::newRow("slider channel kind") << "slider" << QByteArray(R"({"channels":[{"fixtureID":"a","channel":0}]})");
+    QTest::newRow("xypad preset x kind") << "xypad" << QByteArray(R"({"presets":[{"name":"P","x":"left","y":0.5}]})");
+    QTest::newRow("xypad unwired position") << "xypad" << QByteArray(R"({"position":{"x":0.5,"y":0.5}})");
+    QTest::newRow("speedDial function missing id") << "speedDial" << QByteArray(R"({"functions":[{"fadeInMultiplier":"2x"}]})");
+    QTest::newRow("audio bar index range") << "audioTrigger" << QByteArray(R"({"bars":[{"barIndex":99,"type":"dmx"}]})");
+    QTest::newRow("audio bar type") << "audioTrigger" << QByteArray(R"({"bars":[{"barIndex":0,"type":"laser"}]})");
+    QTest::newRow("clock unknown schedule function") << "clock" << QByteArray(R"({"schedules":[{"functionName":"Nope","hour":1}]})");
+    QTest::newRow("cuelist unknown chaser") << "cuelist" << QByteArray(R"({"chaserName":"Nope"})");
+    QTest::newRow("frame page label kind") << "frame" << QByteArray(R"({"pageLabels":[1]})");
+    // SCENE and LABEL are replaced by a real Scene and Label; 4242 exists nowhere.
+    QTest::newRow("cuelist chaserID is a scene") << "cuelist" << QByteArray(R"({"chaserID":SCENE})");
+    QTest::newRow("cuelist chaserID missing") << "cuelist" << QByteArray(R"({"chaserID":4242})");
+    QTest::newRow("button functionID missing") << "button" << QByteArray(R"({"functionID":4242})");
+    QTest::newRow("slider channel fixture missing") << "slider" << QByteArray(R"({"channels":[{"fixtureID":4242,"channel":0}]})");
+    QTest::newRow("matrix functionID is a scene") << "matrix" << QByteArray(R"({"functionID":SCENE})");
+    QTest::newRow("audio bar function missing") << "audioTrigger" << QByteArray(R"({"bars":[{"barIndex":0,"type":"function","functionID":4242}]})");
+    QTest::newRow("audio bar widget missing") << "audioTrigger" << QByteArray(R"({"bars":[{"barIndex":0,"type":"widget","targetWidgetID":4242}]})");
+    QTest::newRow("audio bar widget is a label") << "audioTrigger" << QByteArray(R"({"bars":[{"barIndex":0,"type":"widget","targetWidgetID":LABEL}]})");
+    QTest::newRow("audio bar dmx fixture missing") << "audioTrigger" << QByteArray(R"({"bars":[{"barIndex":0,"type":"dmx","dmxChannels":[{"fixtureID":4242,"channel":0}]}]})");
+    QTest::newRow("clock schedule function missing") << "clock" << QByteArray(R"({"schedules":[{"functionID":4242,"hour":1}]})");
+    QTest::newRow("speedDial function missing") << "speedDial" << QByteArray(R"({"functions":[{"functionID":4242}]})");
+    QTest::newRow("xypad efx preset is a scene") << "xypad" << QByteArray(R"({"presets":[{"name":"P","type":"efx","functionID":SCENE}]})");
+}
+
+void VCButton_Test::mcpBridge_updateRejectsLateInvalidFieldBeforeMutation()
+{
+    QFETCH(QString, type);
+    QFETCH(QByteArray, late);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    Scene *scene = new Scene(&doc);
+    QVERIFY(doc.addFunction(scene));
+    const int labelID = bridge.addLabel(hostID, QRect(300, 300, 50, 20), QStringLiteral("Target"));
+    late.replace("SCENE", QByteArray::number(scene->id())).replace("LABEL", QByteArray::number(labelID));
+    int wid = -1;
+    if (type == "xypad")
+        wid = bridge.addXYPad(hostID, QRect(5, 5, 200, 200), {});
+    else if (type == "speedDial")
+        wid = bridge.addSpeedDial(hostID, QRect(5, 5, 200, 120), {});
+    else
+    {
+        const Json created = tools.call("vc_create_widgets", {{"items", Json::array({
+            {{"type", type.toStdString()}, {"parentID", hostID}, {"caption", "Orig"}}})}});
+        QVERIFY2(created.is_array() && created[0].value("status", "") == "ok", created.dump().c_str());
+        wid = created[0]["widgetID"].get<int>();
+    }
+    QVERIFY(wid >= 0);
+    const VCBridge::WidgetDetails before = bridge.getWidgetDetails(wid);
+    doc.resetModified();
+
+    Json item = Json::parse(late.constData());
+    item["widgetID"] = wid;
+    item["caption"] = "Changed";
+    item["x"] = before.geometry.x() + 37;
+    const Json result = tools.call("vc_update_widgets", {{"items", Json::array({item})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QVERIFY2(result[0].value("status", "") == "error" && result[0].contains("error"), result.dump().c_str());
+    QVERIFY2(!result[0].contains("outcome"), result.dump().c_str());
+    const VCBridge::WidgetDetails after = bridge.getWidgetDetails(wid);
+    QCOMPARE(after.caption, before.caption);
+    QCOMPARE(after.geometry, before.geometry);
+    QVERIFY(!doc.isModified());
+}
+
+void VCButton_Test::mcpBridge_createRejectsInvalidReferenceBeforeMutation_data()
+{
+    QTest::addColumn<QByteArray>("item");
+
+    QTest::newRow("button functionID missing") << QByteArray(R"({"type":"button","functionID":4242})");
+    QTest::newRow("button functionName missing") << QByteArray(R"({"type":"button","functionName":"Nope"})");
+    QTest::newRow("slider channel fixture missing") << QByteArray(R"({"type":"slider","channels":[{"fixtureID":4242,"channel":0}]})");
+    QTest::newRow("cuelist chaserID is a scene") << QByteArray(R"({"type":"cuelist","chaserID":SCENE})");
+    QTest::newRow("cuelist chaserName missing") << QByteArray(R"({"type":"cuelist","chaserName":"Nope"})");
+    QTest::newRow("xypad fixture missing") << QByteArray(R"({"type":"xypad","fixtureIDs":[4242]})");
+    QTest::newRow("speedDial functionIDs missing") << QByteArray(R"({"type":"speedDial","functionIDs":[4242]})");
+    QTest::newRow("clock schedule function missing") << QByteArray(R"({"type":"clock","schedules":[{"functionID":4242,"hour":1}]})");
+    QTest::newRow("matrix functionID is a scene") << QByteArray(R"({"type":"matrix","functionID":SCENE})");
+}
+
+void VCButton_Test::mcpBridge_createRejectsInvalidReferenceBeforeMutation()
+{
+    QFETCH(QByteArray, item);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    Scene *scene = new Scene(&doc);
+    QVERIFY(doc.addFunction(scene));
+    item.replace("SCENE", QByteArray::number(scene->id()));
+    const int childrenBefore = int(qobject_cast<VCFrame *>(ui.vc()->widget(hostID))->children().size());
+    doc.resetModified();
+
+    Json request = Json::parse(item.constData());
+    request["parentID"] = hostID;
+    request["caption"] = "Fresh";
+    const Json result = tools.call("vc_create_widgets", {{"items", Json::array({request})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QVERIFY2(result[0].value("status", "") == "error" && result[0].contains("error"), result.dump().c_str());
+    QCOMPARE(int(qobject_cast<VCFrame *>(ui.vc()->widget(hostID))->children().size()), childrenBefore);
+    QVERIFY(!doc.isModified());
+}
+
+void VCButton_Test::mcpBridge_updateAcceptsUnbindAndUnrelatedEdit_data()
+{
+    QTest::addColumn<QByteArray>("edit");
+
+    QTest::newRow("unbind with -1") << QByteArray(R"({"functionID":-1})");
+    QTest::newRow("caption only") << QByteArray(R"({"caption":"Renamed"})");
+}
+
+void VCButton_Test::mcpBridge_updateAcceptsUnbindAndUnrelatedEdit()
+{
+    QFETCH(QByteArray, edit);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    Scene *scene = new Scene(&doc);
+    QVERIFY(doc.addFunction(scene));
+    const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const int wid = bridge.addButton(hostID, QRect(0, 0, 50, 50), scene->id(),
+                                     QStringLiteral("Bound"), QStringLiteral("toggle"), 0);
+
+    Json item = Json::parse(edit.constData());
+    item["widgetID"] = wid;
+    const Json result = tools.call("vc_update_widgets", {{"items", Json::array({item})}});
+    QVERIFY2(result.is_array() && result[0].value("status", "") == "ok", result.dump().c_str());
+    if (item.contains("functionID"))
+        QCOMPARE(bridge.getWidgetDetails(wid).functionID, Function::invalidId());
+    else
+        QCOMPARE(bridge.getWidgetDetails(wid).functionID, scene->id());
+}
+
+void VCButton_Test::mcpBridge_xyPadScenePresetFollowsNativePanTilt_data()
+{
+    // Fixture channels: 0 dimmer, 1 pan, 2 tilt. The scene sets only `channel`.
+    QTest::addColumn<int>("channel");
+    QTest::addColumn<QString>("status");
+
+    QTest::newRow("dimmer only") << 0 << "error";
+    QTest::newRow("pan only") << 1 << "ok";
+    QTest::newRow("tilt only") << 2 << "ok";
+}
+
+void VCButton_Test::mcpBridge_xyPadScenePresetFollowsNativePanTilt()
+{
+    QFETCH(int, channel);
+    QFETCH(QString, status);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    QLCFixtureDef *def = new QLCFixtureDef();
+    def->setManufacturer("Test");
+    def->setModel("DPT");
+    QLCFixtureMode *mode = new QLCFixtureMode(def);
+    mode->setName("Standard");
+    const QLCChannel::Group groups[] = { QLCChannel::Intensity, QLCChannel::Pan, QLCChannel::Tilt };
+    for (int i = 0; i < 3; ++i)
+    {
+        QLCChannel *ch = new QLCChannel();
+        ch->setName(QString::number(i));
+        ch->setGroup(groups[i]);
+        def->addChannel(ch);
+        mode->insertChannel(ch, i);
+    }
+    def->addMode(mode);
+    Fixture *fxi = new Fixture(&doc);
+    fxi->setFixtureDefinition(def, mode);
+    QVERIFY(doc.addFixture(fxi));
+    Scene *scene = new Scene(&doc);
+    scene->setValue(fxi->id(), quint32(channel), 128);
+    QVERIFY(doc.addFunction(scene));
+
+    const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    const int wid = bridge.addXYPad(hostID, QRect(5, 5, 200, 200), {});
+    VCXYPad *pad = qobject_cast<VCXYPad *>(ui.vc()->widget(wid));
+    QVERIFY(pad);
+    const VCBridge::WidgetDetails before = bridge.getWidgetDetails(wid);
+    doc.resetModified();
+
+    const Json result = tools.call("vc_update_widgets", {{"items", Json::array({
+        {{"widgetID", wid}, {"caption", "Changed"}, {"x", before.geometry.x() + 37},
+         {"presets", Json::array({{{"name", "P"}, {"type", "scene"}, {"functionID", scene->id()}}})}}})}});
+    QVERIFY2(result.is_array() && result[0].value("status", "") == status.toStdString(), result.dump().c_str());
+    if (status == "ok")
+    {
+        QCOMPARE(pad->presetsList().size(), 1);
+        return;
+    }
+    QVERIFY2(!result[0].contains("outcome"), result.dump().c_str());
+    QCOMPARE(pad->presetsList().size(), 0);
+    QCOMPARE(bridge.getWidgetDetails(wid).caption, before.caption);
+    QCOMPARE(bridge.getWidgetDetails(wid).geometry, before.geometry);
+    QVERIFY(!doc.isModified());
+}
+
+void VCButton_Test::mcpBridge_createBatchRejectsInvalidParentIDPerItem_data()
+{
+    // HOST is the host frame ID; ALIAS is HOST + 2^32, which narrows back to HOST.
+    QTest::addColumn<QByteArray>("parentID");
+    QTest::addColumn<QString>("status");
+
+    QTest::newRow("string") << QByteArray(R"("7")") << "error";
+    QTest::newRow("fractional") << QByteArray("5.5") << "error";
+    QTest::newRow("aliases host") << QByteArray("ALIAS") << "error";
+    QTest::newRow("negative") << QByteArray("-1") << "error";
+    QTest::newRow("whole float") << QByteArray("HOST.0") << "ok";
+}
+
+void VCButton_Test::mcpBridge_createBatchRejectsInvalidParentIDPerItem()
+{
+    QFETCH(QByteArray, parentID);
+    QFETCH(QString, status);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+
+    const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
+    VCFrame *host = qobject_cast<VCFrame *>(ui.vc()->widget(hostID));
+    const int childrenBefore = int(host->children().size());
+    parentID.replace("ALIAS", QByteArray::number(qint64(hostID) + (qint64(1) << 32)))
+            .replace("HOST", QByteArray::number(hostID));
+
+    const Json result = tools.call("vc_create_widgets", {{"items", Json::array({
+        {{"type", "button"}, {"parentID", hostID}, {"caption", "First"}},
+        {{"type", "button"}, {"parentID", Json::parse(parentID.constData())}, {"caption", "Middle"}},
+        {{"type", "button"}, {"parentID", hostID}, {"caption", "Last"}}})}});
+
+    QVERIFY2(result.is_array() && result.size() == 3, result.dump().c_str());
+    for (int i = 0; i < 3; ++i)
+        QVERIFY2(result[i].value("index", -1) == i, result.dump().c_str());
+    QVERIFY2(result[0].value("status", "") == "ok" && result[2].value("status", "") == "ok", result.dump().c_str());
+    QVERIFY2(result[1].value("status", "") == status.toStdString(), result.dump().c_str());
+    const bool middleMade = bridge.findWidgetByCaption(hostID, QStringLiteral("button"), QStringLiteral("Middle")) >= 0;
+    QCOMPARE(middleMade, status == "ok");
+    QCOMPARE(int(host->children().size()), childrenBefore + (status == "ok" ? 3 : 2));
+}
+
+void VCButton_Test::mcpBridge_reparentBatchRejectsMalformedItemPerItem_data()
+{
+    // Z is the middle widget; B is the target frame.
+    QTest::addColumn<QByteArray>("middle");
+
+    QTest::newRow("missing widgetID") << QByteArray(R"({"newParentID": "B"})");
+    QTest::newRow("missing newParentID") << QByteArray(R"({"widgetID": "Z"})");
+    QTest::newRow("non-object") << QByteArray("7");
+    QTest::newRow("null widgetID") << QByteArray(R"({"widgetID": null, "newParentID": "B"})");
+}
+
+void VCButton_Test::mcpBridge_reparentBatchRejectsMalformedItemPerItem()
+{
+    QFETCH(QByteArray, middle);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+    auto parentOf = [&](int id) { return bridge.getWidgetDetails(id).parentID; };
+
+    const int host = bridge.addFrame(0, QRect(0, 0, 800, 600), QStringLiteral("Host"), false);
+    const int a = bridge.addFrameInFrame(host, QRect(0, 0, 300, 300), QStringLiteral("A"), false);
+    const int b = bridge.addFrameInFrame(host, QRect(400, 0, 300, 300), QStringLiteral("B"), false);
+    auto button = [&](const char *caption, int y) {
+        return bridge.addButton(a, QRect(10, y, 70, 40), Function::invalidId(),
+                                QString::fromLatin1(caption), QStringLiteral("toggle"));
+    };
+    const int x = button("X", 10), z = button("Z", 60), y = button("Y", 110);
+    QVERIFY(host >= 0 && a >= 0 && b >= 0 && x >= 0 && z >= 0 && y >= 0);
+    middle.replace("\"B\"", QByteArray::number(b)).replace("\"Z\"", QByteArray::number(z));
+
+    const Json result = tools.call("vc_reparent_widgets", {{"items", Json::array({
+        {{"widgetID", x}, {"newParentID", b}},
+        Json::parse(middle.constData()),
+        {{"widgetID", y}, {"newParentID", b}}})}});
+
+    QVERIFY2(result.is_array() && result.size() == 3, result.dump().c_str());
+    for (int i = 0; i < 3; ++i)
+        QVERIFY2(result[i].value("index", -1) == i, result.dump().c_str());
+    QVERIFY2(result[0].value("outcome", "") == "moved" && result[2].value("outcome", "") == "moved",
+             result.dump().c_str());
+    QVERIFY2(result[1].value("status", "") == "error" && !result[1].contains("outcome"), result.dump().c_str());
+    QCOMPARE(parentOf(x), b);
+    QCOMPARE(parentOf(z), a);
+    QCOMPARE(parentOf(y), b);
+
+    fastmcpp::server::Server server("qlcplus", "5.0.0");
+    fastmcpp::resources::ResourceManager rm;
+    fastmcpp::prompts::PromptManager pm;
+    auto handler = mcp::withToolResultEncoding(
+        fastmcpp::mcp::make_mcp_handler("qlcplus", "5.0.0", server, tools.manager(), rm, pm));
+    const Json response = handler({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/call"},
+        {"params", {{"name", "vc_reparent_widgets"}, {"arguments", {{"items", Json::array({
+            {{"widgetID", y}, {"newParentID", a}}, Json::parse(middle.constData())})}}}}}});
+    QVERIFY2(!response["result"].value("isError", true), response.dump().c_str());
+    QCOMPARE(parentOf(y), a);
+    QCOMPARE(parentOf(z), a);
+}
+
+void VCButton_Test::mcpBridge_layoutBatchesReportIndexedOutcomes()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    McpTools tools(&doc, &bridge);
+    auto parentOf = [&](int id) { return bridge.getWidgetDetails(id).parentID; };
+    auto verifyRecords = [](const Json &result, const std::vector<Json> &expected) {
+        QVERIFY2(result.is_array() && result.size() == expected.size(), result.dump().c_str());
+        for (size_t i = 0; i < expected.size(); ++i)
+        {
+            QVERIFY2(result[i].value("index", -1) == int(i), result.dump().c_str());
+            for (const auto &field : expected[i].items())
+                QVERIFY2(result[i].contains(field.key()) && result[i][field.key()] == field.value(),
+                         (std::to_string(i) + " " + field.key() + " " + result.dump()).c_str());
+        }
+    };
+    const Json error = {{"status", "error"}};
+
+    const int host = bridge.addFrame(0, QRect(0, 0, 800, 600), QStringLiteral("Host"), false);
+    const int a = bridge.addFrameInFrame(host, QRect(0, 0, 300, 300), QStringLiteral("A"), false);
+    const int b = bridge.addFrameInFrame(host, QRect(400, 0, 300, 300), QStringLiteral("B"), false);
+    const int c = bridge.addFrameInFrame(a, QRect(10, 10, 100, 100), QStringLiteral("C"), false);
+    const int x = bridge.addButton(a, QRect(150, 150, 70, 40), Function::invalidId(),
+                                   QStringLiteral("X"), QStringLiteral("toggle"));
+    QVERIFY(host >= 0 && a >= 0 && b >= 0 && c >= 0 && x >= 0);
+
+    verifyRecords(tools.call("vc_reparent_widgets", {{"items", Json::array({
+        {{"widgetID", x}, {"newParentID", b}, {"x", 20}, {"y", 30}},
+        {{"widgetID", "x"}, {"newParentID", b}},
+        {{"widgetID", c}, {"newParentID", x}},
+        {{"widgetID", a}, {"newParentID", c}},
+        {{"widgetID", c}, {"newParentID", qint64(b) + (qint64(1) << 32)}},
+        {{"widgetID", c}, {"newParentID", 5.5}}})}}),
+        {{{"status", "ok"}, {"outcome", "moved"}, {"widgetID", x}, {"newParentID", b}},
+         error, error, error, error, error});
+    QCOMPARE(parentOf(x), b);
+    QCOMPARE(parentOf(c), a);
+    QCOMPARE(parentOf(a), host);
+    QCOMPARE(bridge.getWidgetDetails(x).geometry.size(), QSize(70, 40));
+
+    verifyRecords(tools.call("vc_delete_widgets", {{"ids", Json::array({x, x, 999999, a, c, "bad"})}}),
+        {{{"status", "ok"}, {"outcome", "deleted"}, {"id", x}},
+         {{"status", "ok"}, {"outcome", "duplicate"}, {"id", x}, {"duplicateOf", 0}},
+         {{"status", "error"}, {"id", 999999}},
+         {{"status", "ok"}, {"outcome", "deleted"}, {"id", a}},
+         {{"status", "ok"}, {"outcome", "alreadyDeleted"}, {"id", c}, {"deletedWith", 3}},
+         error});
+    QCOMPARE(bridge.getWidgetDetails(x).id, -1);
+    QCOMPARE(bridge.getWidgetDetails(c).id, -1);
+    QCOMPARE(bridge.getWidgetDetails(b).id, b);
+
+    verifyRecords(tools.call("vc_delete_widgets", {{"ids", Json::array({999999, 999999})}}),
+        {{{"status", "error"}, {"id", 999999}},
+         {{"status", "error"}, {"id", 999999}, {"duplicateOf", 0}}});
+
+    while (bridge.pagesCount() < 4)
+        QVERIFY(bridge.addPage(QStringLiteral("P%1").arg(bridge.pagesCount())) >= 0);
+    verifyRecords(tools.call("vc_delete_pages", {{"pageIndexes", Json::array({1, 1.0, 99, 2, "x", 99})}}),
+        {{{"status", "ok"}, {"outcome", "deleted"}, {"pageIndex", 1}},
+         {{"status", "ok"}, {"outcome", "duplicate"}, {"pageIndex", 1}, {"duplicateOf", 0}},
+         {{"status", "error"}, {"pageIndex", 99}},
+         {{"status", "ok"}, {"outcome", "deleted"}, {"pageIndex", 2}},
+         error,
+         {{"status", "error"}, {"pageIndex", 99}, {"duplicateOf", 2}}});
+    QCOMPARE(bridge.pagesCount(), 2);
+    verifyRecords(tools.call("vc_delete_pages", {{"pageIndexes", Json::array({0, 1})}}),
+        {error, {{"status", "ok"}, {"outcome", "deleted"}, {"pageIndex", 1}}});
+    QCOMPARE(bridge.pagesCount(), 1);
+
+    fastmcpp::server::Server server("qlcplus", "5.0.0");
+    fastmcpp::resources::ResourceManager rm;
+    fastmcpp::prompts::PromptManager pm;
+    auto handler = mcp::withToolResultEncoding(
+        fastmcpp::mcp::make_mcp_handler("qlcplus", "5.0.0", server, tools.manager(), rm, pm));
+    const Json missing = handler({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "tools/call"},
+        {"params", {{"name", "vc_delete_widgets"}, {"arguments", {{"ids", Json::array({999999, 888888})}}}}}});
+    QVERIFY2(missing["result"].value("isError", false), missing.dump().c_str());
+    const Json partial = handler({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/call"},
+        {"params", {{"name", "vc_delete_widgets"}, {"arguments", {{"ids", Json::array({b, 888888})}}}}}});
+    QVERIFY2(!partial["result"].value("isError", true), partial.dump().c_str());
+}
+
+void VCButton_Test::mcpTransport_flowCreateIsAdditiveAndEncoded()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    FlowConsole flow(ui.view(), &doc);
+
+    fastmcpp::server::Server server("qlcplus", "5.0.0");
+    fastmcpp::tools::ToolManager tm;
+    fastmcpp::resources::ResourceManager rm;
+    fastmcpp::prompts::PromptManager pm;
+    registerFlowTools(tm, &doc, &flow);
+    auto handler = mcp::withToolResultEncoding(
+        fastmcpp::mcp::make_mcp_handler("qlcplus", "5.0.0", server, tm, rm, pm));
+    int rpcID = 1;
+    auto call = [&](const char *tool, const Json &arguments) {
+        return handler({{"jsonrpc", "2.0"}, {"id", rpcID++}, {"method", "tools/call"},
+                        {"params", {{"name", tool}, {"arguments", arguments}}}});
+    };
+
+    const Json listed = handler({{"jsonrpc", "2.0"}, {"id", rpcID++}, {"method", "tools/list"}});
+    std::map<std::string, Json> annotations;
+    for (const auto &tool : listed["result"]["tools"])
+        annotations[tool.value("name", "")] = tool.value("annotations", Json::object());
+    for (const char *tool : {"flow_create_section", "flow_create_widget"})
+    {
+        const Json &a = annotations[tool];
+        QVERIFY2(a.value("idempotentHint", true) == false, (std::string(tool) + " " + listed.dump()).c_str());
+        QVERIFY2(a.value("readOnlyHint", true) == false && a.value("destructiveHint", true) == false,
+                 (std::string(tool) + " " + a.dump()).c_str());
+    }
+    QVERIFY2(annotations["flow_query_layout"].value("readOnlyHint", false), listed.dump().c_str());
+
+    auto created = [&](const char *tool, const Json &arguments) -> int {
+        const Json response = call(tool, arguments);
+        const Json &result = response["result"];
+        if (result.value("isError", true) || !result.contains("structuredContent"))
+            return -1;
+        const Json payload = Json::parse(result["content"][0]["text"].get<std::string>());
+        if (result["structuredContent"] != payload || payload.value("status", "") != "created")
+            return -1;
+        return payload.value("id", -1);
+    };
+    const Json sectionArgs = {{"caption", "Same"}, {"pageIndex", 0}};
+    const int s1 = created("flow_create_section", sectionArgs);
+    const int s2 = created("flow_create_section", sectionArgs);
+    QVERIFY2(s1 >= 0 && s2 >= 0 && s1 != s2, QString("%1 %2").arg(s1).arg(s2).toUtf8().constData());
+    const Json widgetArgs = {{"sectionId", s1}, {"type", "button"}, {"caption", "Same"}};
+    const int w1 = created("flow_create_widget", widgetArgs);
+    const int w2 = created("flow_create_widget", widgetArgs);
+    QVERIFY2(w1 >= 0 && w2 >= 0 && w1 != w2, QString("%1 %2").arg(w1).arg(w2).toUtf8().constData());
+
+    const Json layoutResponse = call("flow_query_layout", {{"pageIndex", 0}});
+    QVERIFY2(!layoutResponse["result"].value("isError", true), layoutResponse.dump().c_str());
+    const Json layout = Json::parse(layoutResponse["result"]["content"][0]["text"].get<std::string>());
+    QVERIFY2(layout.is_array() && layout.size() == 1, layout.dump().c_str());
+    QCOMPARE(int(layout[0]["sections"].size()), 2);
+    int s1Widgets = -1;
+    for (const auto &section : layout[0]["sections"])
+        if (section.value("id", -1) == s1) s1Widgets = int(section["widgets"].size());
+    QCOMPARE(s1Widgets, 2);
 }
 
 void VCButton_Test::freezePress_togglesGlobalLatchOnce_data()

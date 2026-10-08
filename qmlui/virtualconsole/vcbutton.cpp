@@ -439,14 +439,14 @@ void VCButton::requestUserStateChange(bool pressed, ShowCommandOrigin origin)
     ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
     Function *f = m_doc->function(m_functionID);
 
-    if (actionType() != Toggle || f == nullptr)
+    if ((actionType() == Toggle && f == nullptr) || actionType() == StopAll)
     {
         {
             // traced below as this input, not as a direct code request
             const ShowCommandRecorder::TracedCall traced;
             requestStateChange(pressed);
         }
-        if (recorder != nullptr && actionType() != Toggle)
+        if (recorder != nullptr && actionType() == StopAll)
             recorder->reportUnsupported(tr("%1 buttons").arg(actionToString(actionType())), origin, this);
         else
             ShowCommandRecorder::traceInput(this, origin, ShowEventLog::Outcome::Ignored,
@@ -454,20 +454,50 @@ void VCButton::requestUserStateChange(bool pressed, ShowCommandOrigin origin)
         return;
     }
 
-    // The native click, resolved once from what the button shows now: a
-    // monitored Function gets the button's own activation, an Active button
-    // stops, unless inside a Solo Frame it takes over what a Collection started.
-    // A request that waits behind replay applies this state, not another click.
-    const bool on = state() != Active || (hasSoloParent() && f->startedAsChild());
+    bool on = pressed;
+    ShowControlRole role = ShowControlRole::None;
+    switch (actionType())
+    {
+        case Toggle:
+            // The native click, resolved once from what the button shows now: a
+            // monitored Function gets the button's own activation, an Active button
+            // stops, unless inside a Solo Frame it takes over what a Collection started.
+            // A request that waits behind replay applies this state, not another click.
+            on = state() != Active || (hasSoloParent() && f->startedAsChild());
+            role = ShowControlRole::ToggleButton;
+        break;
+        case Flash:
+            role = ShowControlRole::FlashButton;
+        break;
+        case Blackout:
+            if (!pressed)
+                return;
+            on = !m_doc->inputOutputMap()->blackout();
+            role = ShowControlRole::BlackoutButton;
+        break;
+        case Freeze:
+            if (!pressed)
+                return;
+            on = !m_doc->inputOutputMap()->frozenLatch();
+            role = ShowControlRole::FreezeButton;
+        break;
+        case FreezeHold:
+            role = ShowControlRole::FreezeHoldButton;
+        break;
+        case StopAll:
+        break;
+    }
+
     if (recorder == nullptr)
     {
-        applyUserState(on);
+        applyRecordedState(on);
         return;
     }
 
     ShowControlRequest request;
     request.control = this;
-    request.role = ShowControlRole::ToggleButton;
+    request.role = role;
+    request.buttonState = true;
     request.on = on;
     request.origin = origin;
     recorder->requestUserControl(request);
@@ -476,8 +506,15 @@ void VCButton::requestUserStateChange(bool pressed, ShowCommandOrigin origin)
 ShowCommandFsm::ShowButtonOp VCButton::applyUserState(bool on)
 {
     using ShowCommandFsm::ShowButtonOp;
+    if (actionType() != Toggle)
+    {
+        applyRecordedState(on);
+        Tardis::instance()->enqueueAction(Tardis::VCButtonSetPressed, id(), false, on);
+        return ShowButtonOp::None;
+    }
+
     Function *f = m_doc->function(m_functionID);
-    if (actionType() != Toggle || f == nullptr)
+    if (f == nullptr)
         return ShowButtonOp::None;
 
     ShowButtonOp op = ShowButtonOp::Start;
@@ -492,32 +529,68 @@ ShowCommandFsm::ShowButtonOp VCButton::applyUserState(bool on)
 
 ShowCommandFsm::ShowButtonOp VCButton::applyRecordedState(bool on)
 {
+    return applyRecordedState(on, functionParent(), false);
+}
+
+ShowCommandFsm::ShowButtonOp VCButton::applyRecordedState(bool on, const FunctionParent &owner, bool strictOwnerRelease)
+{
     using ShowCommandFsm::ShowButtonOp;
-    if (actionType() != Toggle)
-        return ShowButtonOp::None;
-
-    Function *f = m_doc->function(m_functionID);
-    if (f == nullptr)
-        return ShowButtonOp::None;
-
-    using ShowCommandFsm::ShowButtonNative;
-    const ShowButtonNative native = state() == Active ? ShowButtonNative::Active
-                                  : state() == Monitoring ? ShowButtonNative::Monitoring
-                                                          : ShowButtonNative::Inactive;
-    const ShowButtonOp op = ShowCommandFsm::buttonOp(native, on);
-    switch (op)
+    switch (actionType())
     {
-        case ShowButtonOp::Start: startToggleFunction(f); break;
-        case ShowButtonOp::Stop: stopToggleFunction(f); break;
-        case ShowButtonOp::None: break;
+        case Toggle:
+        {
+            Function *f = m_doc->function(m_functionID);
+            if (f == nullptr)
+                return ShowButtonOp::None;
+
+            using ShowCommandFsm::ShowButtonNative;
+            const ShowButtonNative native = state() == Active ? ShowButtonNative::Active
+                                          : state() == Monitoring ? ShowButtonNative::Monitoring
+                                                                  : ShowButtonNative::Inactive;
+            const ShowButtonOp op = ShowCommandFsm::buttonOp(native, on);
+            switch (op)
+            {
+                case ShowButtonOp::Start: startToggleFunction(f, owner); break;
+                case ShowButtonOp::Stop: stopToggleFunction(f, owner, strictOwnerRelease); break;
+                case ShowButtonOp::None: break;
+            }
+            return op;
+        }
+        case Flash:
+        {
+            Function *f = m_doc->function(m_functionID);
+            if (f == nullptr)
+                return ShowButtonOp::None;
+            if (on)
+                f->flash(m_doc->masterTimer(), flashOverrides(), flashForceLTP());
+            else
+                f->unFlash(m_doc->masterTimer());
+            setState(on ? Active : Inactive);
+            return ShowButtonOp::None;
+        }
+        case Blackout:
+            m_doc->inputOutputMap()->setBlackout(on);
+            setState(on ? Active : Inactive);
+            return ShowButtonOp::None;
+        case Freeze:
+            m_doc->inputOutputMap()->setFrozen(on);
+            setState(on ? Active : Inactive);
+            return ShowButtonOp::None;
+        case FreezeHold:
+            m_holdsMomentaryFreeze = on;
+            m_doc->inputOutputMap()->setFrozenMomentary(on);
+            setState(on ? Active : Inactive);
+            return ShowButtonOp::None;
+        case StopAll:
+            return ShowButtonOp::None;
     }
-    return op;
+    return ShowButtonOp::None;
 }
 
 bool VCButton::releaseToMonitoring()
 {
     Function *f = m_doc->function(m_functionID);
-    if (actionType() != Toggle || state() != Active || f == nullptr || f->isRunning() == false)
+    if (actionType() != Toggle || f == nullptr || f->isRunning() == false || state() == Monitoring)
         return false;
 
     resetIntensityOverrideAttribute();
@@ -526,6 +599,11 @@ bool VCButton::releaseToMonitoring()
 }
 
 void VCButton::startToggleFunction(Function *f)
+{
+    startToggleFunction(f, functionParent());
+}
+
+void VCButton::startToggleFunction(Function *f, const FunctionParent &owner)
 {
     adjustFunctionIntensity(f, intensity());
 
@@ -545,16 +623,37 @@ void VCButton::startToggleFunction(Function *f)
         chaser->setAction(action);
     }
 
-    f->start(m_doc->masterTimer(), functionParent());
+    f->start(m_doc->masterTimer(), owner);
     setState(Active);
     emit functionStarting(this, m_functionID);
 }
 
 void VCButton::stopToggleFunction(Function *f)
 {
-    f->stop(functionParent());
+    stopToggleFunction(f, functionParent(), false);
+}
+
+void VCButton::stopToggleFunction(Function *f, const FunctionParent &owner, bool strictOwnerRelease)
+{
+    if (strictOwnerRelease)
+    {
+        if (owner.type() == FunctionParent::ManualVCWidget)
+            f->stopSource(owner);
+        else
+            f->stop(owner);
+    }
+    else
+    {
+        FunctionParent stopOwner = owner;
+        if (owner.type() == FunctionParent::Function && f->startedAsChild() && !f->hasSource(owner))
+            stopOwner = functionParent();
+        f->stop(stopOwner);
+    }
     resetIntensityOverrideAttribute();
-    setState(Inactive);
+    if (owner.type() != FunctionParent::ManualVCWidget && f->isRunning())
+        setState(Monitoring);
+    else
+        setState(Inactive);
 }
 
 void VCButton::requestStateChange(bool pressed)
@@ -797,7 +896,12 @@ void VCButton::slotInputValueChanged(quint8 id, uchar value)
 
         m_inputPressed = pressed;
         if (pressed)
-            requestUserStateChange(state() != Active, inputOrigin());
+            requestUserStateChange(true, inputOrigin());
+    }
+    else if (actionType() == Blackout)
+    {
+        if (value > 0)
+            requestUserStateChange(true, inputOrigin());
     }
     else
     {

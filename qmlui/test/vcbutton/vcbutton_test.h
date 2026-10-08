@@ -35,6 +35,44 @@ private slots:
     void mcpBridge_freezeAction_data();
     void mcpBridge_freezeAction();
 
+    void mcpBridge_machineTypeDrivesUpdateAndFilter_data();
+    void mcpBridge_machineTypeDrivesUpdateAndFilter();
+    void mcpBridge_sliderSparseUpdateAppliesEveryField_data();
+    void mcpBridge_sliderSparseUpdateAppliesEveryField();
+    void mcpBridge_geometryUpdateMovesWithoutResizing_data();
+    void mcpBridge_geometryUpdateMovesWithoutResizing();
+    void mcpBridge_functionIdZeroIsABinding_data();
+    void mcpBridge_functionIdZeroIsABinding();
+    void mcpBridge_gridLayoutReadsBack();
+    void mcpBridge_createRejectsUnusableParent_data();
+    void mcpBridge_createRejectsUnusableParent();
+    void mcpBridge_createBatchReportsIndexedOutcomes();
+    void mcpBridge_mapInputsRejectsPartialFeedback_data();
+    void mcpBridge_mapInputsRejectsPartialFeedback();
+    void mcpBridge_schemaAdvertisesHandledFields_data();
+    void mcpBridge_schemaAdvertisesHandledFields();
+    void mcpBridge_layoutEnumsApplyCanonicalSpelling_data();
+    void mcpBridge_layoutEnumsApplyCanonicalSpelling();
+    void mcpBridge_updateBatchReportsIndexedOutcomes();
+    void mcpBridge_setterBatchesReportIndexedOutcomes_data();
+    void mcpBridge_setterBatchesReportIndexedOutcomes();
+    void mcpBridge_childPageIndexRejectedBeforeMutation_data();
+    void mcpBridge_childPageIndexRejectedBeforeMutation();
+    void mcpBridge_updateRejectsLateInvalidFieldBeforeMutation_data();
+    void mcpBridge_updateRejectsLateInvalidFieldBeforeMutation();
+    void mcpBridge_createRejectsInvalidReferenceBeforeMutation_data();
+    void mcpBridge_createRejectsInvalidReferenceBeforeMutation();
+    void mcpBridge_updateAcceptsUnbindAndUnrelatedEdit_data();
+    void mcpBridge_updateAcceptsUnbindAndUnrelatedEdit();
+    void mcpBridge_xyPadScenePresetFollowsNativePanTilt_data();
+    void mcpBridge_xyPadScenePresetFollowsNativePanTilt();
+    void mcpBridge_createBatchRejectsInvalidParentIDPerItem_data();
+    void mcpBridge_createBatchRejectsInvalidParentIDPerItem();
+    void mcpBridge_reparentBatchRejectsMalformedItemPerItem_data();
+    void mcpBridge_reparentBatchRejectsMalformedItemPerItem();
+    void mcpBridge_layoutBatchesReportIndexedOutcomes();
+    void mcpTransport_flowCreateIsAdditiveAndEncoded();
+
     void freezePress_togglesGlobalLatchOnce_data();
     void freezePress_togglesGlobalLatchOnce();
 

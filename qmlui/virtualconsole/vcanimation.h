@@ -34,9 +34,11 @@
 #define KXMLQLCVCAnimationVisibilityMask QStringLiteral("Visibility")
 
 class RGBMatrix;
+enum class ShowCommandOrigin : quint8;
 
 class VCAnimation : public VCWidget
 {
+    friend class ShowControlAction;
     Q_OBJECT
 
     static_assert(RGBAlgorithmColorDisplayCount >= 5,
@@ -140,6 +142,9 @@ public:
     /** Get/Set the fader level */
     int faderLevel() const;
     void setFaderLevel(int level);
+    Q_INVOKABLE void requestUserFaderLevel(int level);
+    void requestUserFaderLevel(int level, ShowCommandOrigin origin);
+    void applyRecordedFaderLevel(int level, const FunctionParent &owner, bool strictOwnerRelease = false);
 
     /** Get/Set a flag to instantly apply changes on property change */
     bool instantChanges() const;
@@ -192,6 +197,11 @@ public:
     /** Get/set a color by index */
     Q_INVOKABLE QColor colorAt(int index) const;
     Q_INVOKABLE void setColorAt(int index, QColor color);
+    Q_INVOKABLE void requestUserColor(int index, QColor color);
+    Q_INVOKABLE void requestUserPreset(int choice);
+    void requestUserPreset(int choice, ShowCommandOrigin origin);
+    Q_INVOKABLE void requestUserKnobValue(int choice, int value);
+    void requestUserKnobValue(int choice, int value, ShowCommandOrigin origin);
 
     /** Returns the list of available algorithms */
     QStringList algorithms() const;
@@ -199,8 +209,11 @@ public:
     /** Get/Set the algorithm index to run */
     int algorithmIndex() const;
     void setAlgorithmIndex(int index);
-    void setRuntimeAlgorithmIndex(int index);
+    Q_INVOKABLE void requestUserAlgorithm(int index, bool keyboard = false);
+    void setRuntimeAlgorithmIndex(int index, bool apply = true);
     QStringList runtimeAlgorithms() const;
+    bool setRuntimeContent(const QString &algorithm, const QString &text,
+                           const QMap<QString, QString> &properties, int choice = -1);
 
 signals:
     void color1Changed();
@@ -237,6 +250,7 @@ public:
      *  Each entry is a map with keys: name, displayName, type
      *  ("List"/"Range"/"Float"/"String"), listValues, min, max, value */
     Q_INVOKABLE QVariantList algorithmProperties(QString algoName) const;
+    QVariantList algorithmProperties(QString algoName, bool *available) const;
 
     /** Add a full-algorithm preset for the given script @a algoName, applying
      *  the customized @a properties (name -> value as strings) */
@@ -274,6 +288,9 @@ private:
     quint8 m_lastAssignedControlId;
     QList<VCAnimationPreset *> m_controls;
     int m_activePresetId;
+    QString m_localText;
+    QMap<QString, QString> m_localProperties;
+    bool m_localContent = false;
 
     /*********************************************************************
      * External input
@@ -297,10 +314,7 @@ public:
 
 private:
     RGBMatrix *currentMatrix() const;
-    void applyStyleOverrides(RGBMatrix *matrix);
-    /** Push text and/or script properties carried by a preset directly onto
-     *  the matrix algorithm (the attribute-override channel cannot carry them) */
-    void applyAlgorithmContent(RGBMatrix *matrix, VCAnimationPreset *control);
+    bool applyStyleOverrides(RGBMatrix *matrix);
     void releaseStyleOverrides(RGBMatrix *matrix);
     void releaseIntensityOverride(RGBMatrix *matrix);
     static int packColorForOverride(const QColor &color);

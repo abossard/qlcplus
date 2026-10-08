@@ -48,6 +48,21 @@ private slots:
     void diagNoWriteSlowCallbackIsNone();
     void diagDisabledPreservesBehavior();
 
+    void functionEditAdmission_data();
+    void functionEditAdmission();
+    void functionEditRefusedWhileStarting();
+    void functionEditDefersStartUntilEnd();
+    void registryEditAdmission_data();
+    void registryEditAdmission();
+    void registryEditDefersEveryStart();
+    void editAdmissionReleasedOnUnwind_data();
+    void editAdmissionReleasedOnUnwind();
+    void startTempoResolution_data();
+    void startTempoResolution();
+    void secondOwnerKeepsRunningOverrideTempo();
+    void functionEditCoordinatesReferrers_data();
+    void functionEditCoordinatesReferrers();
+
 private:
     Doc* m_doc;
 };

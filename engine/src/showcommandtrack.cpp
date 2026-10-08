@@ -24,8 +24,13 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <tuple>
+#include <type_traits>
 
 #include "showcommandtrack.h"
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #define KXMLShowCommand QStringLiteral("Command")
 #define KXMLShowCommandTrackVersion QStringLiteral("Version")
@@ -40,11 +45,21 @@
 #define KXMLShowCommandRole QStringLiteral("Role")
 #define KXMLShowCommandState QStringLiteral("State")
 #define KXMLShowCommandAttribute QStringLiteral("Attribute")
+#define KXMLShowCommandPair QStringLiteral("Pair")
 #define KXMLShowCommandStateOn QStringLiteral("On")
 #define KXMLShowCommandStateOff QStringLiteral("Off")
 
 namespace
 {
+    constexpr int kControlStateVersion = 2;
+    constexpr int kButtonPairVersion = 3;
+    constexpr int kSliderResetVersion = 4;
+    constexpr int kSliderColorsVersion = 5;
+    constexpr int kXYPadPositionVersion = 6;
+    constexpr int kAnimationFaderVersion = 7;
+    constexpr int kXYPadFloorVersion = 8;
+    constexpr int kNativeArgumentsVersion = 9;
+
     QString actionName(ShowCommandAction action)
     {
         switch (action)
@@ -54,6 +69,18 @@ namespace
             case ShowCommandAction::SetIntensity: return QStringLiteral("SetIntensity");
             case ShowCommandAction::SetButtonState: return QStringLiteral("SetButtonState");
             case ShowCommandAction::SetSliderPosition: return QStringLiteral("SetSliderPosition");
+            case ShowCommandAction::SetSliderColors: return QStringLiteral("SetSliderColors");
+            case ShowCommandAction::SetSliderReset: return QStringLiteral("SetSliderReset");
+            case ShowCommandAction::SetXYPadPosition: return QStringLiteral("SetXYPadPosition");
+            case ShowCommandAction::SetAnimationFader: return QStringLiteral("SetAnimationFader");
+            case ShowCommandAction::SetXYPadFloor: return QStringLiteral("SetXYPadFloor");
+            case ShowCommandAction::SetXYPadRanges: return QStringLiteral("SetXYPadRanges");
+            case ShowCommandAction::SetXYPadPositionPreset: return QStringLiteral("SetXYPadPositionPreset");
+            case ShowCommandAction::SetXYPadFunctionPreset: return QStringLiteral("SetXYPadFunctionPreset");
+            case ShowCommandAction::SetXYPadGroupPreset: return QStringLiteral("SetXYPadGroupPreset");
+            case ShowCommandAction::SetAnimationColor: return QStringLiteral("SetAnimationColor");
+            case ShowCommandAction::SetAnimationContent: return QStringLiteral("SetAnimationContent");
+            case ShowCommandAction::SetSliderChannel: return QStringLiteral("SetSliderChannel");
         }
         return QString();
     }
@@ -64,10 +91,16 @@ namespace
         {
             case ShowControlRole::None: return QStringLiteral("None");
             case ShowControlRole::ToggleButton: return QStringLiteral("ToggleButton");
+            case ShowControlRole::FlashButton: return QStringLiteral("FlashButton");
+            case ShowControlRole::BlackoutButton: return QStringLiteral("BlackoutButton");
+            case ShowControlRole::FreezeButton: return QStringLiteral("FreezeButton");
+            case ShowControlRole::FreezeHoldButton: return QStringLiteral("FreezeHoldButton");
             case ShowControlRole::LevelSlider: return QStringLiteral("LevelSlider");
             case ShowControlRole::AdjustSlider: return QStringLiteral("AdjustSlider");
             case ShowControlRole::SubmasterSlider: return QStringLiteral("SubmasterSlider");
             case ShowControlRole::GrandMasterSlider: return QStringLiteral("GrandMasterSlider");
+            case ShowControlRole::XYPad: return QStringLiteral("XYPad");
+            case ShowControlRole::AnimationFader: return QStringLiteral("AnimationFader");
         }
         return QString();
     }
@@ -88,14 +121,20 @@ namespace
 
     bool isControlAction(ShowCommandAction action)
     {
-        return action == ShowCommandAction::SetButtonState ||
-               action == ShowCommandAction::SetSliderPosition;
+        return ShowCommand::isControlAction(action);
     }
 
     bool isSliderRole(ShowControlRole role)
     {
         return role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
                role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
+    }
+
+    bool isButtonRole(ShowControlRole role)
+    {
+        return role == ShowControlRole::ToggleButton || role == ShowControlRole::FlashButton ||
+               role == ShowControlRole::BlackoutButton || role == ShowControlRole::FreezeButton ||
+               role == ShowControlRole::FreezeHoldButton;
     }
 
     /** A VC state record names a control and carries exactly its own value */
@@ -115,12 +154,90 @@ namespace
         if (cmd.intensity != 0.0)
             return QStringLiteral("%1 carries no intensity").arg(action);
 
+        if (ShowCommand::hasTypedPayload(cmd.action))
+        {
+            const bool matrix = cmd.action == ShowCommandAction::SetAnimationColor ||
+                                cmd.action == ShowCommandAction::SetAnimationContent;
+            const bool channel = cmd.action == ShowCommandAction::SetSliderChannel;
+            if (channel ? !isSliderRole(cmd.role)
+                        : cmd.role != (matrix ? ShowControlRole::AnimationFader : ShowControlRole::XYPad))
+                return QStringLiteral("%1 has an incompatible role").arg(action);
+            if (cmd.on || cmd.position != 0.0 || !cmd.attribute.isEmpty() ||
+                cmd.pairId != ShowCommand::InvalidId)
+                return QStringLiteral("%1 carries unrelated state").arg(action);
+            return cmd.payload.validate(cmd.action);
+        }
+        const bool legacyNative = cmd.action == ShowCommandAction::SetSliderColors ||
+                                  cmd.action == ShowCommandAction::SetXYPadPosition ||
+                                  cmd.action == ShowCommandAction::SetXYPadFloor;
+        if (!legacyNative && cmd.payload.value.index() != 0)
+            return QStringLiteral("%1 carries unrelated native arguments").arg(action);
+        if (legacyNative && !cmd.attribute.isEmpty())
+            return QStringLiteral("%1 carries duplicate or invalid native arguments").arg(action);
         if (cmd.action == ShowCommandAction::SetButtonState)
         {
-            if (cmd.role != ShowControlRole::ToggleButton)
+            if (!isButtonRole(cmd.role) && !isSliderRole(cmd.role))
                 return QStringLiteral("%1 needs a toggle button role").arg(action);
             if (!cmd.attribute.isEmpty() || cmd.position != 0.0)
                 return QStringLiteral("%1 carries no slider value").arg(action);
+            return QString();
+        }
+
+        if (cmd.action == ShowCommandAction::SetSliderReset)
+        {
+            if (!isSliderRole(cmd.role))
+                return QStringLiteral("%1 needs a slider role").arg(action);
+            if (cmd.on || cmd.position != 0.0)
+                return QStringLiteral("%1 carries no state or slider value").arg(action);
+            if (cmd.attribute.isEmpty() != (cmd.role != ShowControlRole::AdjustSlider))
+                return QStringLiteral("only an adjust slider names a function attribute");
+            return QString();
+        }
+
+        if (cmd.action == ShowCommandAction::SetXYPadFloor)
+        {
+            if (cmd.role != ShowControlRole::XYPad)
+                return QStringLiteral("%1 needs an XYPad role").arg(action);
+            if (cmd.on || cmd.position != 0.0 || cmd.pairId != ShowCommand::InvalidId)
+                return QStringLiteral("%1 carries no button state, slider value or pair").arg(action);
+            return cmd.payload.validate(cmd.action);
+        }
+
+        if (cmd.action == ShowCommandAction::SetXYPadPosition)
+        {
+            if (cmd.role != ShowControlRole::XYPad)
+                return QStringLiteral("%1 needs an XYPad role").arg(action);
+            if (cmd.on || cmd.position != 0.0)
+                return QStringLiteral("%1 carries no button state or slider value").arg(action);
+            return cmd.payload.validate(cmd.action);
+        }
+
+        if (cmd.action == ShowCommandAction::SetAnimationFader)
+        {
+            if (cmd.role != ShowControlRole::AnimationFader)
+                return QStringLiteral("%1 needs an AnimationFader role").arg(action);
+            if (cmd.on || !cmd.attribute.isEmpty())
+                return QStringLiteral("%1 carries no button state or attribute payload").arg(action);
+            if (!std::isfinite(cmd.position))
+                return QStringLiteral("position is not a finite number");
+            if (cmd.position < 0.0 || cmd.position > 1.0)
+                return QStringLiteral("position outside 0..1");
+            return QString();
+        }
+
+        if (cmd.action == ShowCommandAction::SetSliderColors)
+        {
+            if (!isSliderRole(cmd.role))
+                return QStringLiteral("%1 needs a slider role").arg(action);
+            if (cmd.on)
+                return QStringLiteral("%1 carries no button state").arg(action);
+            const QString invalid = cmd.payload.validate(cmd.action);
+            if (!invalid.isEmpty())
+                return invalid;
+            if (!std::isfinite(cmd.position))
+                return QStringLiteral("position is not a finite number");
+            if (cmd.position < 0.0 || cmd.position > 1.0)
+                return QStringLiteral("position outside 0..1");
             return QString();
         }
 
@@ -160,6 +277,9 @@ namespace
     /** Target and value of a function command. Empty when read, otherwise the reason. */
     QString readFunctionCommand(const QXmlStreamAttributes &attrs, ShowCommand *cmd)
     {
+        if (attrs.hasAttribute(KXMLShowCommandPair))
+            return QStringLiteral("%1 carries no pair id").arg(actionName(cmd->action));
+
         if (!readUInt(attrs, KXMLShowCommandFunction, &cmd->functionId))
             return QStringLiteral("invalid function target");
 
@@ -187,9 +307,12 @@ namespace
     }
 
     /** Control target and state of a VC state record. Empty when read, otherwise the reason. */
-    QString readControlState(const QXmlStreamAttributes &attrs, ShowCommand *cmd)
+    QString readControlState(const QXmlStreamAttributes &attrs, int version, ShowCommand *cmd)
     {
         const QString action = ShowCommand::actionToString(cmd->action);
+
+        if (cmd->action != ShowCommandAction::SetButtonState && attrs.hasAttribute(KXMLShowCommandPair))
+            return QStringLiteral("%1 carries no pair id").arg(action);
 
         if (attrs.hasAttribute(KXMLShowCommandFunction))
             return QStringLiteral("%1 carries a function target").arg(action);
@@ -201,7 +324,43 @@ namespace
 
         if (!ShowCommand::roleFromString(attrs.value(KXMLShowCommandRole).toString(), &cmd->role))
             return QStringLiteral("unknown role '%1'").arg(attrs.value(KXMLShowCommandRole).toString());
+        if (version < kButtonPairVersion && cmd->action == ShowCommandAction::SetButtonState &&
+            cmd->role != ShowControlRole::ToggleButton)
+        {
+            return QStringLiteral("%1 needs command track version 3")
+                .arg(ShowCommand::roleToString(cmd->role));
+        }
+        if (version < kSliderResetVersion && cmd->action == ShowCommandAction::SetSliderReset)
+            return QStringLiteral("%1 needs command track version %2")
+                .arg(action).arg(kSliderResetVersion);
+        if (version < kSliderColorsVersion && cmd->action == ShowCommandAction::SetSliderColors)
+            return QStringLiteral("%1 needs command track version %2")
+                .arg(action).arg(kSliderColorsVersion);
+        if (version < kXYPadPositionVersion && cmd->action == ShowCommandAction::SetXYPadPosition)
+            return QStringLiteral("%1 needs command track version %2")
+                .arg(action).arg(kXYPadPositionVersion);
+        if (version < kAnimationFaderVersion && cmd->action == ShowCommandAction::SetAnimationFader)
+            return QStringLiteral("%1 needs command track version %2")
+                .arg(action).arg(kAnimationFaderVersion);
+        if (version < kXYPadFloorVersion && cmd->action == ShowCommandAction::SetXYPadFloor)
+            return QStringLiteral("%1 needs command track version %2")
+                .arg(action).arg(kXYPadFloorVersion);
 
+        if (ShowCommand::hasTypedPayload(cmd->action))
+        {
+            if (version < kNativeArgumentsVersion)
+                return QStringLiteral("%1 needs command track version 9").arg(action);
+            if (attrs.hasAttribute(KXMLShowCommandState) || attrs.hasAttribute(KXMLShowCommandValue) ||
+                attrs.hasAttribute(KXMLShowCommandAttribute) || attrs.hasAttribute(KXMLShowCommandPair))
+                return QStringLiteral("%1 carries unrelated state").arg(action);
+            QString reason;
+            if (!ShowCommandPayload::decode(cmd->action, attrs.value("Arguments").toString(),
+                                            &cmd->payload, &reason))
+                return reason;
+            return QString();
+        }
+        if (attrs.hasAttribute("Arguments"))
+            return QStringLiteral("%1 carries unrelated native arguments").arg(action);
         if (cmd->action == ShowCommandAction::SetButtonState)
         {
             if (attrs.hasAttribute(KXMLShowCommandValue) || attrs.hasAttribute(KXMLShowCommandAttribute))
@@ -211,6 +370,60 @@ namespace
             if (state != KXMLShowCommandStateOn && state != KXMLShowCommandStateOff)
                 return QStringLiteral("invalid state '%1'").arg(state);
             cmd->on = state == KXMLShowCommandStateOn;
+            if (attrs.hasAttribute(KXMLShowCommandPair))
+            {
+                if (version < kButtonPairVersion)
+                    return QStringLiteral("pair id needs command track version 3");
+                if (!readUInt(attrs, KXMLShowCommandPair, &cmd->pairId) ||
+                    cmd->pairId == ShowCommand::InvalidId)
+                    return QStringLiteral("invalid pair id '%1'")
+                        .arg(attrs.value(KXMLShowCommandPair).toString());
+            }
+            return QString();
+        }
+
+        if (cmd->action == ShowCommandAction::SetSliderReset)
+        {
+            if (attrs.hasAttribute(KXMLShowCommandValue) || attrs.hasAttribute(KXMLShowCommandState))
+                return QStringLiteral("%1 carries no slider value or button state").arg(action);
+            cmd->attribute = attrs.value(KXMLShowCommandAttribute).toString();
+            return QString();
+        }
+
+        if (cmd->action == ShowCommandAction::SetSliderColors)
+        {
+            if (attrs.hasAttribute(KXMLShowCommandState))
+                return QStringLiteral("%1 carries no button state").arg(action);
+
+            bool ok = false;
+            cmd->position = attrs.value(KXMLShowCommandValue).toDouble(&ok);
+            if (!ok)
+                return QStringLiteral("invalid value '%1'").arg(attrs.value(KXMLShowCommandValue).toString());
+            cmd->attribute = attrs.value(KXMLShowCommandAttribute).toString();
+            if (cmd->attribute.isEmpty())
+                return QStringLiteral("missing color payload");
+            return QString();
+        }
+
+        if (cmd->action == ShowCommandAction::SetXYPadPosition ||
+            cmd->action == ShowCommandAction::SetXYPadFloor)
+        {
+            if (attrs.hasAttribute(KXMLShowCommandState) || attrs.hasAttribute(KXMLShowCommandValue))
+                return QStringLiteral("%1 carries no state or slider value").arg(action);
+            cmd->attribute = attrs.value(KXMLShowCommandAttribute).toString();
+            if (cmd->attribute.isEmpty())
+                return QStringLiteral("missing XY pad payload");
+            return QString();
+        }
+
+        if (cmd->action == ShowCommandAction::SetAnimationFader)
+        {
+            if (attrs.hasAttribute(KXMLShowCommandState) || attrs.hasAttribute(KXMLShowCommandAttribute))
+                return QStringLiteral("%1 carries no state or attribute payload").arg(action);
+            bool ok = false;
+            cmd->position = attrs.value(KXMLShowCommandValue).toDouble(&ok);
+            if (!ok)
+                return QStringLiteral("invalid value '%1'").arg(attrs.value(KXMLShowCommandValue).toString());
             return QString();
         }
 
@@ -248,11 +461,149 @@ namespace
         }
         return pending;
     }
+
+    bool isMomentaryHoldRole(ShowControlRole role)
+    {
+        return role == ShowControlRole::FlashButton || role == ShowControlRole::FreezeHoldButton ||
+               role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
+               role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
+    }
+
+    quint32 nextPairId(const ShowCommandTrack &track)
+    {
+        quint32 top = 0;
+        for (const ShowCommand &cmd : track.commands())
+        {
+            if (cmd.pairId != ShowCommand::InvalidId)
+                top = qMax(top, cmd.pairId);
+        }
+        if (top == std::numeric_limits<quint32>::max())
+            return ShowCommand::InvalidId;
+        return top + 1;
+    }
+
+    quint32 activePairId(const ShowCommandTrack &track, const QUuid &controlId, ShowControlRole role)
+    {
+        quint32 open = ShowCommand::InvalidId;
+        for (const ShowCommand &cmd : track.commands())
+        {
+            if (cmd.action != ShowCommandAction::SetButtonState || cmd.role != role || cmd.controlId != controlId ||
+                cmd.pairId == ShowCommand::InvalidId)
+            {
+                continue;
+            }
+            if (cmd.on)
+                open = cmd.pairId;
+            else if (open == cmd.pairId)
+                open = ShowCommand::InvalidId;
+        }
+        return open;
+    }
+
+    QString validatePairedHoldStructure(const ShowCommandTrack &track)
+    {
+        QHash<quint32, QVector<const ShowCommand *>> edgesByPair;
+        for (const ShowCommand &cmd : track.commands())
+        {
+            if (cmd.action == ShowCommandAction::SetButtonState && cmd.pairId != ShowCommand::InvalidId)
+                edgesByPair[cmd.pairId].append(&cmd);
+        }
+
+        for (auto it = edgesByPair.cbegin(); it != edgesByPair.cend(); ++it)
+        {
+            const QVector<const ShowCommand *> edges = it.value();
+            if (edges.count() != 2 || edges.at(0)->controlId != edges.at(1)->controlId ||
+                edges.at(0)->role != edges.at(1)->role || edges.at(0)->on == edges.at(1)->on)
+            {
+                return QStringLiteral("malformed hold pair '%1'").arg(it.key());
+            }
+        }
+        return QString();
+    }
 }
 
 /************************************************************************
  * ShowCommand
  ***********************************************************************/
+
+bool ShowCommandColors::decode(const QString &payload, ShowCommandColors *value)
+{
+    const auto groups = payload.split(QLatin1Char(';'));
+    if (groups.size() != 2)
+        return false;
+    const auto rgb = groups.at(0).split(QLatin1Char(','));
+    const auto secondary = groups.at(1).split(QLatin1Char(','));
+    if (rgb.size() != 3 || secondary.size() != 3)
+        return false;
+    ShowCommandColors parsed;
+    quint8 *components[] = {&parsed.red, &parsed.green, &parsed.blue,
+                            &parsed.white, &parsed.amber, &parsed.ultraviolet};
+    for (int i = 0; i < 6; ++i)
+    {
+        bool ok = false;
+        const int component = (i < 3 ? rgb.at(i) : secondary.at(i - 3)).toInt(&ok);
+        if (!ok || component < 0 || component > 255)
+            return false;
+        *components[i] = quint8(component);
+    }
+    if (value != nullptr)
+        *value = parsed;
+    return true;
+}
+
+QString ShowCommandColors::encode() const
+{
+    return QStringLiteral("%1,%2,%3;%4,%5,%6")
+        .arg(red).arg(green).arg(blue).arg(white).arg(amber).arg(ultraviolet);
+}
+
+bool ShowCommandPanTilt::decode(const QString &payload, ShowCommandPanTilt *value)
+{
+    const auto axes = payload.split(QLatin1Char(','));
+    if (axes.size() != 2)
+        return false;
+    bool panOk = false, tiltOk = false;
+    ShowCommandPanTilt parsed;
+    parsed.pan = QLocale::c().toDouble(axes.at(0), &panOk);
+    parsed.tilt = QLocale::c().toDouble(axes.at(1), &tiltOk);
+    if (!panOk || !tiltOk || !std::isfinite(parsed.pan) || !std::isfinite(parsed.tilt) ||
+        parsed.pan < 0.0 || parsed.pan > 255.0 || parsed.tilt < 0.0 || parsed.tilt > 255.0)
+        return false;
+    if (value != nullptr)
+        *value = parsed;
+    return true;
+}
+
+QString ShowCommandPanTilt::encode() const
+{
+    return intensityToString(pan) + QLatin1Char(',') + intensityToString(tilt);
+}
+
+bool ShowCommandFloor::decode(const QString &payload, ShowCommandFloor *value)
+{
+    const auto axes = payload.split(QLatin1Char(','));
+    if (axes.size() != 3)
+        return false;
+    ShowCommandFloor parsed;
+    qreal *coordinates[] = {&parsed.x, &parsed.y, &parsed.z};
+    for (int i = 0; i < 3; ++i)
+    {
+        bool ok = false;
+        const qreal coordinate = QLocale::c().toDouble(axes.at(i), &ok);
+        if (!ok || !std::isfinite(coordinate) || coordinate < 0.0)
+            return false;
+        *coordinates[i] = coordinate;
+    }
+    if (value != nullptr)
+        *value = parsed;
+    return true;
+}
+
+QString ShowCommandFloor::encode() const
+{
+    return intensityToString(x) + QLatin1Char(',') + intensityToString(y) +
+           QLatin1Char(',') + intensityToString(z);
+}
 
 ShowCommand ShowCommand::start(quint32 id, quint32 time, quint32 functionId)
 {
@@ -302,13 +653,84 @@ ShowCommand ShowCommand::setSliderPosition(quint32 id, quint32 time, const QUuid
     return cmd;
 }
 
-QString ShowCommand::validate(const ShowCommand &cmd)
+ShowCommand ShowCommand::setSliderColors(quint32 id, quint32 time, const QUuid &controlId,
+                                         ShowControlRole role, const QString &payload,
+                                         qreal position)
 {
+    ShowCommand cmd;
+    cmd.id = id;
+    cmd.time = time;
+    cmd.action = ShowCommandAction::SetSliderColors;
+    cmd.controlId = controlId;
+    cmd.role = role;
+    cmd.attribute = payload;
+    cmd.position = position;
+    return cmd.canonicalized();
+}
+
+ShowCommand ShowCommand::setSliderReset(quint32 id, quint32 time, const QUuid &controlId,
+                                        ShowControlRole role, const QString &attribute)
+{
+    ShowCommand cmd = start(id, time, InvalidId);
+    cmd.action = ShowCommandAction::SetSliderReset;
+    cmd.controlId = controlId;
+    cmd.role = role;
+    cmd.attribute = attribute;
+    return cmd;
+}
+
+ShowCommand ShowCommand::setXYPadPosition(quint32 id, quint32 time, const QUuid &controlId,
+                                          const QString &payload)
+{
+    ShowCommand cmd = start(id, time, InvalidId);
+    cmd.action = ShowCommandAction::SetXYPadPosition;
+    cmd.controlId = controlId;
+    cmd.role = ShowControlRole::XYPad;
+    cmd.attribute = payload;
+    return cmd.canonicalized();
+}
+
+ShowCommand ShowCommand::setAnimationFader(quint32 id, quint32 time, const QUuid &controlId,
+                                           qreal position)
+{
+    ShowCommand cmd;
+    cmd.id = id;
+    cmd.time = time;
+    cmd.action = ShowCommandAction::SetAnimationFader;
+    cmd.controlId = controlId;
+    cmd.role = ShowControlRole::AnimationFader;
+    cmd.position = position;
+    return cmd;
+}
+
+ShowCommand ShowCommand::canonicalized() const
+{
+    ShowCommand result = *this;
+    if (payload.value.index() == 0 && (action == ShowCommandAction::SetSliderColors ||
+        action == ShowCommandAction::SetXYPadPosition || action == ShowCommandAction::SetXYPadFloor))
+    {
+        if (ShowCommandPayload::decode(action, attribute, &result.payload))
+            result.attribute.clear();
+    }
+    return result;
+}
+
+QString ShowCommand::nativeArgument() const
+{
+    return payload.value.index() == 0 ? attribute : payload.encode(action);
+}
+
+QString ShowCommand::validate(const ShowCommand &original)
+{
+    const ShowCommand cmd = original.canonicalized();
     if (actionName(cmd.action).isEmpty())
         return QStringLiteral("unknown action %1").arg(int(cmd.action));
 
     if (cmd.id == InvalidId)
         return QStringLiteral("invalid event id");
+
+    if (cmd.action != ShowCommandAction::SetButtonState && cmd.pairId != InvalidId)
+        return QStringLiteral("%1 carries no pair id").arg(actionName(cmd.action));
 
     if (isControlAction(cmd.action))
         return validateControlState(cmd);
@@ -317,7 +739,7 @@ QString ShowCommand::validate(const ShowCommand &cmd)
         return QStringLiteral("invalid function target");
 
     if (!cmd.controlId.isNull() || cmd.role != ShowControlRole::None || !cmd.attribute.isEmpty()
-        || cmd.on || cmd.position != 0.0)
+        || cmd.on || cmd.position != 0.0 || cmd.payload.value.index() != 0)
         return QStringLiteral("%1 carries VC control state").arg(actionName(cmd.action));
 
     if (cmd.time > MaxTime)
@@ -338,6 +760,389 @@ QString ShowCommand::validate(const ShowCommand &cmd)
     return QString();
 }
 
+bool ShowCommandPayload::decode(ShowCommandAction action, const QString &text,
+                                ShowCommandPayload *out, QString *reason)
+{
+    ShowCommandPayload legacy;
+    bool isLegacy = true;
+    bool validLegacy = false;
+    if (action == ShowCommandAction::SetSliderColors)
+    {
+        ShowCommandColors colors;
+        validLegacy = ShowCommandColors::decode(text, &colors);
+        legacy.value = colors;
+    }
+    else if (action == ShowCommandAction::SetXYPadPosition)
+    {
+        ShowCommandPanTilt point;
+        validLegacy = ShowCommandPanTilt::decode(text, &point);
+        legacy.value = point;
+    }
+    else if (action == ShowCommandAction::SetXYPadFloor)
+    {
+        ShowCommandFloor point;
+        validLegacy = ShowCommandFloor::decode(text, &point);
+        legacy.value = point;
+    }
+    else
+        isLegacy = false;
+    if (isLegacy)
+    {
+        if (!validLegacy)
+            return fail(reason, QStringLiteral("invalid native value"));
+        if (out != nullptr)
+            *out = legacy;
+        return succeed(reason);
+    }
+    const QJsonDocument document = QJsonDocument::fromJson(text.toUtf8());
+    if (!document.isObject())
+        return fail(reason, QStringLiteral("native arguments must be an object"));
+    const QJsonObject object = document.object();
+    const auto keys = [](const QJsonObject &value, const QStringList &required,
+                         const QStringList &optional = QStringList()) {
+        for (const QString &key : required)
+            if (!value.contains(key))
+                return false;
+        for (const QString &key : value.keys())
+            if (!required.contains(key) && !optional.contains(key))
+                return false;
+        return true;
+    };
+    const auto integer = [](const QJsonValue &value, int *target) {
+        if (!value.isDouble() || !std::isfinite(value.toDouble()) ||
+            value.toDouble() != std::floor(value.toDouble()) ||
+            value.toDouble() < INT_MIN || value.toDouble() > INT_MAX)
+            return false;
+        *target = int(value.toDouble());
+        return true;
+    };
+    const auto point = [](const QJsonValue &value, ShowCommandPanTilt *target) {
+        if (!value.isArray())
+            return false;
+        const auto array = value.toArray();
+        if (array.count() != 2 || !array[0].isDouble() || !array[1].isDouble())
+            return false;
+        target->pan = array[0].toDouble();
+        target->tilt = array[1].toDouble();
+        return true;
+    };
+    ShowCommandPayload candidate;
+    bool valid = false;
+    if (action == ShowCommandAction::SetSliderChannel)
+    {
+        ShowCommandChannel channel;
+        valid = keys(object, {"value", "binding"}) && integer(object["value"], &channel.value) &&
+                object["binding"].isString();
+        channel.binding = object["binding"].toString();
+        candidate.value = channel;
+    }
+    else if (action == ShowCommandAction::SetXYPadRanges)
+    {
+        ShowCommandRanges ranges;
+        valid = keys(object, {"horizontal", "vertical"}) &&
+                point(object["horizontal"], &ranges.horizontal) &&
+                point(object["vertical"], &ranges.vertical);
+        candidate.value = ranges;
+    }
+    else if (action == ShowCommandAction::SetXYPadPositionPreset ||
+             action == ShowCommandAction::SetXYPadFunctionPreset ||
+             action == ShowCommandAction::SetXYPadGroupPreset)
+    {
+        ShowCommandChoice choice;
+        const bool position = action == ShowCommandAction::SetXYPadPositionPreset;
+        valid = keys(object, position ? QStringList{"choice", "active", "point"}
+                                     : QStringList{"choice", "active"}) &&
+                integer(object["choice"], &choice.choice) && object["active"].isBool();
+        choice.active = object["active"].toBool();
+        if (position)
+            valid = valid && point(object["point"], &choice.point);
+        candidate.value = choice;
+    }
+    else if (action == ShowCommandAction::SetAnimationColor)
+    {
+        ShowCommandMatrixColor color;
+        const QString operation = object["operation"].toString();
+        valid = object["operation"].isString() && integer(object["index"], &color.index);
+        if (operation == "replace")
+        {
+            color.operation = ShowCommandMatrixColor::Operation::Replace;
+            valid = valid && keys(object, {"index", "operation", "rgb"}, {"choice"}) &&
+                    object["rgb"].isArray();
+            const QJsonArray rgb = object["rgb"].toArray();
+            int red = 0, green = 0, blue = 0;
+            valid = valid && rgb.count() == 3 && integer(rgb[0], &red) &&
+                    integer(rgb[1], &green) && integer(rgb[2], &blue) &&
+                    red >= 0 && red <= 255 && green >= 0 && green <= 255 && blue >= 0 && blue <= 255;
+            color.color = {quint8(red), quint8(green), quint8(blue), 0, 0, 0};
+        }
+        else if (operation == "reset")
+        {
+            color.operation = ShowCommandMatrixColor::Operation::Reset;
+            valid = valid && keys(object, {"index", "operation"});
+        }
+        else if (operation == "component")
+        {
+            color.operation = ShowCommandMatrixColor::Operation::Component;
+            valid = valid && keys(object, {"index", "operation", "component", "value"}, {"choice"}) &&
+                    integer(object["component"], &color.component) &&
+                    integer(object["value"], &color.value);
+        }
+        else
+            valid = false;
+        if (object.contains("choice"))
+            valid = valid && integer(object["choice"], &color.choice);
+        candidate.value = color;
+    }
+    else if (action == ShowCommandAction::SetAnimationContent)
+    {
+        ShowCommandContent content;
+        valid = keys(object, {"algorithm", "text", "properties"}, {"choice"}) &&
+                object["algorithm"].isString() && object["text"].isString() &&
+                object["properties"].isArray();
+        content.algorithm = object["algorithm"].toString();
+        content.text = object["text"].toString();
+        if (object.contains("choice"))
+            valid = valid && integer(object["choice"], &content.choice);
+        for (const QJsonValue &entry : object["properties"].toArray())
+        {
+            const QJsonObject property = entry.toObject();
+            const QString name = property["name"].toString(), type = property["type"].toString();
+            ShowCommandProperty value;
+            valid = valid && entry.isObject() && keys(property, {"name", "type", "value"}) &&
+                    property["name"].isString() && !name.isEmpty() && !content.properties.contains(name);
+            if (type == "List" || type == "String")
+            {
+                value.type = type == "List" ? ShowCommandProperty::Type::List : ShowCommandProperty::Type::String;
+                valid = valid && property["value"].isString();
+                value.text = property["value"].toString();
+            }
+            else if (type == "Range" || type == "Float")
+            {
+                value.type = type == "Range" ? ShowCommandProperty::Type::Range : ShowCommandProperty::Type::Float;
+                valid = valid && property["value"].isDouble();
+                value.number = property["value"].toDouble();
+            }
+            else
+                valid = false;
+            content.properties.insert(name, value);
+        }
+        candidate.value = content;
+    }
+    const QString error = candidate.validate(action);
+    if (!valid || !error.isEmpty())
+        return fail(reason, error.isEmpty() ? QStringLiteral("invalid native argument fields") : error);
+    if (out != nullptr)
+        *out = candidate;
+    return succeed(reason);
+}
+
+QString ShowCommandPayload::validate(ShowCommandAction action) const
+{
+    const auto point = [](const ShowCommandPanTilt &value) {
+        return std::isfinite(value.pan) && std::isfinite(value.tilt) &&
+               value.pan >= 0 && value.pan <= 255 && value.tilt >= 0 && value.tilt <= 255;
+    };
+    if (action == ShowCommandAction::SetSliderColors)
+        return std::holds_alternative<ShowCommandColors>(value)
+            ? QString() : QStringLiteral("color needs six integer components in 0..255");
+    if (action == ShowCommandAction::SetXYPadPosition)
+    {
+        const auto *position = std::get_if<ShowCommandPanTilt>(&value);
+        return position != nullptr && point(*position)
+            ? QString() : QStringLiteral("position needs finite Pan/Tilt coordinates in 0..255");
+    }
+    if (action == ShowCommandAction::SetXYPadFloor)
+    {
+        const auto *point = std::get_if<ShowCommandFloor>(&value);
+        return point != nullptr && std::isfinite(point->x) && std::isfinite(point->y) &&
+               std::isfinite(point->z) && point->x >= 0 && point->y >= 0 && point->z >= 0
+            ? QString() : QStringLiteral("floor needs finite nonnegative metre X/Y/Z coordinates");
+    }
+    if (action == ShowCommandAction::SetSliderChannel)
+    {
+        const auto *channel = std::get_if<ShowCommandChannel>(&value);
+        return channel != nullptr && channel->value >= 0 && channel->value <= 255
+            ? QString() : QStringLiteral("channel value needs an integer in 0..255");
+    }
+    if (action == ShowCommandAction::SetXYPadRanges)
+    {
+        const auto *ranges = std::get_if<ShowCommandRanges>(&value);
+        if (ranges != nullptr && point(ranges->horizontal) && point(ranges->vertical))
+            return QString();
+        return QStringLiteral("range endpoints must be finite native values in 0..255");
+    }
+    if (action == ShowCommandAction::SetXYPadPositionPreset ||
+        action == ShowCommandAction::SetXYPadFunctionPreset ||
+        action == ShowCommandAction::SetXYPadGroupPreset)
+    {
+        const auto *choice = std::get_if<ShowCommandChoice>(&value);
+        if (choice != nullptr && choice->choice >= 0 && choice->choice <= 255 &&
+            (action == ShowCommandAction::SetXYPadPositionPreset ? point(choice->point)
+                : choice->point.pan == 0 && choice->point.tilt == 0))
+            return QString();
+        return QStringLiteral("invalid native choice or position");
+    }
+    if (action == ShowCommandAction::SetAnimationColor)
+    {
+        const auto *color = std::get_if<ShowCommandMatrixColor>(&value);
+        if (color == nullptr || color->index < 0 || color->index > 4 ||
+            color->choice < -1 || color->choice > 255 || color->color.white != 0 ||
+            color->color.amber != 0 || color->color.ultraviolet != 0)
+            return QStringLiteral("invalid Matrix color slot or choice");
+        const bool black = color->color.red == 0 && color->color.green == 0 && color->color.blue == 0;
+        if ((color->operation == ShowCommandMatrixColor::Operation::Replace &&
+             color->component == -1 && color->value == 0) ||
+            (color->operation == ShowCommandMatrixColor::Operation::Reset && black &&
+             color->component == -1 && color->value == 0 && color->choice == -1) ||
+            (color->operation == ShowCommandMatrixColor::Operation::Component && black &&
+             color->component >= 0 && color->component <= 2 && color->value >= 0 && color->value <= 255))
+            return QString();
+        return QStringLiteral("invalid Matrix color operation arguments");
+    }
+    if (action == ShowCommandAction::SetAnimationContent)
+    {
+        const auto *content = std::get_if<ShowCommandContent>(&value);
+        if (content == nullptr || content->algorithm.isEmpty() || content->choice < -1 || content->choice > 255)
+            return QStringLiteral("content needs a stable algorithm name");
+        for (auto it = content->properties.cbegin(); it != content->properties.cend(); ++it)
+        {
+            const auto &property = it.value();
+            if (it.key().isEmpty())
+                return QStringLiteral("content needs named properties");
+            switch (property.type)
+            {
+                case ShowCommandProperty::Type::List:
+                case ShowCommandProperty::Type::String:
+                    if (property.number != 0)
+                        return QStringLiteral("string property carries a numeric argument");
+                    break;
+                case ShowCommandProperty::Type::Range:
+                case ShowCommandProperty::Type::Float:
+                    if (!property.text.isEmpty() || !std::isfinite(property.number) ||
+                        (property.type == ShowCommandProperty::Type::Range &&
+                         property.number != std::floor(property.number)))
+                        return QStringLiteral("invalid numeric property argument");
+                    break;
+                default: return QStringLiteral("unknown property type");
+            }
+        }
+        return QString();
+    }
+    return value.index() == 0 ? QString() : QStringLiteral("unrelated native arguments");
+}
+
+QString ShowCommandPayload::encode(ShowCommandAction action) const
+{
+    if (const auto *colors = std::get_if<ShowCommandColors>(&value))
+        return colors->encode();
+    if (const auto *position = std::get_if<ShowCommandPanTilt>(&value))
+        return position->encode();
+    if (const auto *floor = std::get_if<ShowCommandFloor>(&value))
+        return floor->encode();
+    QJsonObject object;
+    const auto point = [](const ShowCommandPanTilt &value) { return QJsonArray{value.pan, value.tilt}; };
+    if (const auto *channel = std::get_if<ShowCommandChannel>(&value))
+        object = {{"value", channel->value}, {"binding", channel->binding}};
+    else if (const auto *ranges = std::get_if<ShowCommandRanges>(&value))
+        object = {{"horizontal", point(ranges->horizontal)}, {"vertical", point(ranges->vertical)}};
+    else if (const auto *choice = std::get_if<ShowCommandChoice>(&value))
+    {
+        object = {{"choice", choice->choice}, {"active", choice->active}};
+        if (action == ShowCommandAction::SetXYPadPositionPreset)
+            object["point"] = point(choice->point);
+    }
+    else if (const auto *color = std::get_if<ShowCommandMatrixColor>(&value))
+    {
+        object["index"] = color->index;
+        if (color->operation == ShowCommandMatrixColor::Operation::Replace)
+        {
+            object["operation"] = "replace";
+            object["rgb"] = QJsonArray{color->color.red, color->color.green, color->color.blue};
+        }
+        else if (color->operation == ShowCommandMatrixColor::Operation::Reset)
+            object["operation"] = "reset";
+        else
+        {
+            object["operation"] = "component";
+            object["component"] = color->component;
+            object["value"] = color->value;
+        }
+        if (color->choice >= 0)
+            object["choice"] = color->choice;
+    }
+    else if (const auto *content = std::get_if<ShowCommandContent>(&value))
+    {
+        object = {{"algorithm", content->algorithm}, {"text", content->text}};
+        if (content->choice >= 0)
+            object["choice"] = content->choice;
+        QJsonArray properties;
+        for (auto it = content->properties.cbegin(); it != content->properties.cend(); ++it)
+        {
+            const auto &property = it.value();
+            const bool numeric = property.type == ShowCommandProperty::Type::Range ||
+                                 property.type == ShowCommandProperty::Type::Float;
+            const QString type = property.type == ShowCommandProperty::Type::List ? "List"
+                : property.type == ShowCommandProperty::Type::Range ? "Range"
+                : property.type == ShowCommandProperty::Type::Float ? "Float" : "String";
+            properties.append(QJsonObject{{"name", it.key()}, {"type", type},
+                {"value", numeric ? QJsonValue(property.number) : QJsonValue(property.text)}});
+        }
+        object["properties"] = properties;
+    }
+    return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
+}
+
+bool ShowCommandPayload::operator==(const ShowCommandPayload &other) const
+{
+    if (value.index() != other.value.index())
+        return false;
+    return std::visit([&](const auto &own) {
+        using T = std::decay_t<decltype(own)>;
+        const auto &compared = std::get<T>(other.value);
+        if constexpr (std::is_same_v<T, std::monostate>)
+            return true;
+        else if constexpr (std::is_same_v<T, ShowCommandColors>)
+            return std::tie(own.red, own.green, own.blue, own.white, own.amber, own.ultraviolet) ==
+                   std::tie(compared.red, compared.green, compared.blue, compared.white,
+                            compared.amber, compared.ultraviolet);
+        else if constexpr (std::is_same_v<T, ShowCommandPanTilt>)
+            return std::tie(own.pan, own.tilt) == std::tie(compared.pan, compared.tilt);
+        else if constexpr (std::is_same_v<T, ShowCommandFloor>)
+            return std::tie(own.x, own.y, own.z) == std::tie(compared.x, compared.y, compared.z);
+        else if constexpr (std::is_same_v<T, ShowCommandRanges>)
+            return std::tie(own.horizontal.pan, own.horizontal.tilt, own.vertical.pan, own.vertical.tilt) ==
+                   std::tie(compared.horizontal.pan, compared.horizontal.tilt,
+                            compared.vertical.pan, compared.vertical.tilt);
+        else if constexpr (std::is_same_v<T, ShowCommandChoice>)
+            return std::tie(own.choice, own.active, own.point.pan, own.point.tilt) ==
+                   std::tie(compared.choice, compared.active, compared.point.pan, compared.point.tilt);
+        else if constexpr (std::is_same_v<T, ShowCommandMatrixColor>)
+            return std::tie(own.index, own.operation, own.color.red, own.color.green, own.color.blue,
+                            own.color.white, own.color.amber, own.color.ultraviolet,
+                            own.component, own.value, own.choice) ==
+                   std::tie(compared.index, compared.operation, compared.color.red, compared.color.green,
+                            compared.color.blue, compared.color.white, compared.color.amber,
+                            compared.color.ultraviolet, compared.component, compared.value, compared.choice);
+        else if constexpr (std::is_same_v<T, ShowCommandChannel>)
+            return std::tie(own.value, own.binding) == std::tie(compared.value, compared.binding);
+        else
+        {
+            if (std::tie(own.algorithm, own.text, own.choice) !=
+                std::tie(compared.algorithm, compared.text, compared.choice) ||
+                own.properties.keys() != compared.properties.keys())
+                return false;
+            for (auto it = own.properties.cbegin(); it != own.properties.cend(); ++it)
+            {
+                const auto &property = it.value(), &otherProperty = compared.properties[it.key()];
+                if (std::tie(property.type, property.text, property.number) !=
+                    std::tie(otherProperty.type, otherProperty.text, otherProperty.number))
+                    return false;
+            }
+            return true;
+        }
+    }, value);
+}
+
 QString ShowCommand::actionToString(ShowCommandAction action)
 {
     return actionName(action);
@@ -348,7 +1153,19 @@ bool ShowCommand::actionFromString(const QString &name, ShowCommandAction *actio
     for (ShowCommandAction candidate : {ShowCommandAction::Start, ShowCommandAction::Stop,
                                         ShowCommandAction::SetIntensity,
                                         ShowCommandAction::SetButtonState,
-                                        ShowCommandAction::SetSliderPosition})
+                                        ShowCommandAction::SetSliderPosition,
+                                        ShowCommandAction::SetSliderColors,
+                                        ShowCommandAction::SetSliderReset,
+                                        ShowCommandAction::SetXYPadPosition,
+                                        ShowCommandAction::SetAnimationFader,
+                                        ShowCommandAction::SetXYPadFloor,
+                                        ShowCommandAction::SetXYPadRanges,
+                                        ShowCommandAction::SetXYPadPositionPreset,
+                                        ShowCommandAction::SetXYPadFunctionPreset,
+                                        ShowCommandAction::SetXYPadGroupPreset,
+                                        ShowCommandAction::SetAnimationColor,
+                                        ShowCommandAction::SetAnimationContent,
+                                        ShowCommandAction::SetSliderChannel})
     {
         if (actionName(candidate) != name)
             continue;
@@ -360,6 +1177,18 @@ bool ShowCommand::actionFromString(const QString &name, ShowCommandAction *actio
     return false;
 }
 
+bool ShowCommand::hasTypedPayload(ShowCommandAction action)
+{
+    return action >= ShowCommandAction::SetXYPadRanges &&
+           action <= ShowCommandAction::SetSliderChannel;
+}
+
+bool ShowCommand::isControlAction(ShowCommandAction action)
+{
+    return action >= ShowCommandAction::SetButtonState &&
+           action <= ShowCommandAction::SetSliderChannel;
+}
+
 QString ShowCommand::roleToString(ShowControlRole role)
 {
     return roleName(role);
@@ -368,9 +1197,13 @@ QString ShowCommand::roleToString(ShowControlRole role)
 bool ShowCommand::roleFromString(const QString &name, ShowControlRole *role)
 {
     for (ShowControlRole candidate : {ShowControlRole::None, ShowControlRole::ToggleButton,
+                                      ShowControlRole::FlashButton, ShowControlRole::BlackoutButton,
+                                      ShowControlRole::FreezeButton, ShowControlRole::FreezeHoldButton,
                                       ShowControlRole::LevelSlider, ShowControlRole::AdjustSlider,
                                       ShowControlRole::SubmasterSlider,
-                                      ShowControlRole::GrandMasterSlider})
+                                      ShowControlRole::GrandMasterSlider,
+                                      ShowControlRole::XYPad,
+                                      ShowControlRole::AnimationFader})
     {
         if (roleName(candidate) != name)
             continue;
@@ -395,10 +1228,12 @@ QUuid ShowCommand::controlIdFromString(const QString &text)
 
 bool ShowCommand::operator==(const ShowCommand &other) const
 {
+    const auto own = canonicalized(), compared = other.canonicalized();
     return id == other.id && time == other.time && functionId == other.functionId
         && action == other.action && intensity == other.intensity
-        && controlId == other.controlId && role == other.role && attribute == other.attribute
-        && on == other.on && position == other.position;
+        && controlId == other.controlId && role == other.role && own.attribute == compared.attribute
+        && on == other.on && position == other.position && pairId == other.pairId
+        && own.payload == compared.payload;
 }
 
 /************************************************************************
@@ -423,8 +1258,10 @@ const QVector<ShowCommand> &ShowCommandTrack::commands() const
 QVector<ShowCommandGroup> ShowCommandTrack::groups() const
 {
     QVector<ShowCommandGroup> result;
-    for (const ShowCommand &command : m_commands)
+    QHash<quint32, int> holdPairGroups;
+    for (int i = 0; i < m_commands.count(); ++i)
     {
+        const ShowCommand &command = m_commands.at(i);
         if (!result.isEmpty() && command.action == ShowCommandAction::SetSliderPosition)
         {
             ShowCommandGroup &last = result.last();
@@ -436,8 +1273,26 @@ QVector<ShowCommandGroup> ShowCommandTrack::groups() const
                 continue;
             }
         }
+        if (command.action == ShowCommandAction::SetButtonState && command.pairId != ShowCommand::InvalidId)
+        {
+            const auto it = holdPairGroups.constFind(command.pairId);
+            if (it != holdPairGroups.constEnd())
+            {
+                ShowCommandGroup &group = result[it.value()];
+                if (group.action == ShowCommandAction::SetButtonState &&
+                    group.controlId == command.controlId && group.role == command.role)
+                {
+                    group.eventIds.append(command.id);
+                    group.startTime = qMin(group.startTime, command.time);
+                    group.endTime = qMax(group.endTime, command.time);
+                    continue;
+                }
+            }
+        }
         result.append({ { command.id }, command.action, command.controlId, command.role,
                         command.attribute, command.time, command.time });
+        if (command.action == ShowCommandAction::SetButtonState && command.pairId != ShowCommand::InvalidId)
+            holdPairGroups.insert(command.pairId, result.size() - 1);
     }
     return result;
 }
@@ -494,8 +1349,9 @@ void ShowCommandTrack::reserve(quint32 nextEventId, quint32 nextOrder)
         m_nextOrder = nextOrder;
 }
 
-bool ShowCommandTrack::place(const ShowCommand &cmd, QString *error)
+bool ShowCommandTrack::place(const ShowCommand &original, QString *error)
 {
+    const ShowCommand cmd = original.canonicalized();
     const QString reason = ShowCommand::validate(cmd);
     if (!reason.isEmpty())
         return fail(error, reason);
@@ -541,8 +1397,9 @@ bool ShowCommandTrack::restore(const ShowCommand &cmd, QString *error)
     return place(cmd, error);
 }
 
-bool ShowCommandTrack::replace(const ShowCommand &cmd, QString *error)
+bool ShowCommandTrack::replace(const ShowCommand &original, QString *error)
 {
+    const ShowCommand cmd = original.canonicalized();
     const int index = indexOfId(cmd.id);
     if (index < 0)
         return fail(error, QStringLiteral("unknown event id %1").arg(cmd.id));
@@ -705,7 +1562,11 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
     const QXmlStreamAttributes attrs = root.attributes();
     quint32 version = 0;
     if (!readUInt(attrs, KXMLShowCommandTrackVersion, &version) ||
-        (int(version) != LegacyVersion && int(version) != Version))
+        (int(version) != LegacyVersion && int(version) != kControlStateVersion &&
+         int(version) != kButtonPairVersion && int(version) != kSliderResetVersion &&
+         int(version) != kSliderColorsVersion && int(version) != kXYPadPositionVersion &&
+         int(version) != kAnimationFaderVersion && int(version) != kXYPadFloorVersion &&
+         int(version) != kNativeArgumentsVersion))
     {
         // still on the track element itself, so skipping it lands on its end element
         root.skipCurrentElement();
@@ -756,7 +1617,7 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
             reason = QStringLiteral("%1 needs command track version %2")
                          .arg(ShowCommand::actionToString(cmd.action)).arg(Version);
         else
-            reason = readControlState(cmdAttrs, &cmd);
+            reason = readControlState(cmdAttrs, int(version), &cmd);
 
         const bool hasOrder = cmdAttrs.hasAttribute(KXMLShowCommandOrder);
         if (parsed.isEmpty())
@@ -782,6 +1643,9 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
 
     if (root.hasError())
         return fail(error, root.errorString());
+    const QString pairError = validatePairedHoldStructure(parsed);
+    if (!pairError.isEmpty())
+        return fail(error, pairError);
 
     *this = parsed;
     return succeed(error);
@@ -795,10 +1659,43 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
     const bool controlStates = std::any_of(m_commands.cbegin(), m_commands.cend(),
                                            [](const ShowCommand &cmd)
                                            { return isControlAction(cmd.action); });
+    const bool requiresV4 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+                                        [](const ShowCommand &cmd)
+                                        { return cmd.action == ShowCommandAction::SetSliderReset; });
+    const bool requiresV5 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+                                        [](const ShowCommand &cmd)
+                                        { return cmd.action == ShowCommandAction::SetSliderColors; });
+    const bool requiresV6 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+                                        [](const ShowCommand &cmd)
+                                        { return cmd.action == ShowCommandAction::SetXYPadPosition; });
+    const bool requiresV7 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+                                        [](const ShowCommand &cmd)
+                                        { return cmd.action == ShowCommandAction::SetAnimationFader; });
+    const bool requiresV8 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+                                        [](const ShowCommand &cmd)
+                                        { return cmd.action == ShowCommandAction::SetXYPadFloor; });
+    const bool requiresV9 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+                                        [](const ShowCommand &cmd)
+                                        { return ShowCommand::hasTypedPayload(cmd.action); });
+    const bool requiresV3 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+                                        [](const ShowCommand &cmd)
+                                        {
+                                            return cmd.pairId != ShowCommand::InvalidId ||
+                                                   (cmd.action == ShowCommandAction::SetButtonState &&
+                                                    cmd.role != ShowControlRole::ToggleButton);
+                                        });
 
     doc->writeStartElement(KXMLShowCommandTrack);
     doc->writeAttribute(KXMLShowCommandTrackVersion,
-                        QString::number(controlStates ? Version : LegacyVersion));
+                        QString::number(requiresV9 ? kNativeArgumentsVersion
+                                                   : requiresV8 ? kXYPadFloorVersion
+                                                   : requiresV7 ? kAnimationFaderVersion
+                                                   : requiresV6 ? kXYPadPositionVersion
+                                                   : requiresV5 ? kSliderColorsVersion
+                                                   : requiresV4 ? kSliderResetVersion
+                                                   : requiresV3 ? kButtonPairVersion
+                                                   : controlStates ? kControlStateVersion
+                                                                   : LegacyVersion));
     doc->writeAttribute(KXMLShowCommandTrackExtent, QString::number(m_extent));
 
     // orders the file order gives back on loading are not written, so such a
@@ -819,16 +1716,34 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
         {
             doc->writeAttribute(KXMLShowCommandControl, cmd.controlId.toString());
             doc->writeAttribute(KXMLShowCommandRole, ShowCommand::roleToString(cmd.role));
-            if (cmd.action == ShowCommandAction::SetButtonState)
+            if (ShowCommand::hasTypedPayload(cmd.action))
+                doc->writeAttribute("Arguments", cmd.payload.encode(cmd.action));
+            else if (cmd.action == ShowCommandAction::SetButtonState)
             {
                 doc->writeAttribute(KXMLShowCommandState, cmd.on ? KXMLShowCommandStateOn
                                                                  : KXMLShowCommandStateOff);
+                if (cmd.pairId != ShowCommand::InvalidId)
+                    doc->writeAttribute(KXMLShowCommandPair, QString::number(cmd.pairId));
             }
-            else
+            else if (cmd.action == ShowCommandAction::SetSliderPosition ||
+                     cmd.action == ShowCommandAction::SetSliderColors)
             {
                 doc->writeAttribute(KXMLShowCommandValue, intensityToString(cmd.position));
-                if (!cmd.attribute.isEmpty())
-                    doc->writeAttribute(KXMLShowCommandAttribute, cmd.attribute);
+                if (!cmd.nativeArgument().isEmpty())
+                    doc->writeAttribute(KXMLShowCommandAttribute, cmd.nativeArgument());
+            }
+            else if (cmd.action == ShowCommandAction::SetXYPadPosition ||
+                     cmd.action == ShowCommandAction::SetXYPadFloor)
+            {
+                doc->writeAttribute(KXMLShowCommandAttribute, cmd.nativeArgument());
+            }
+            else if (cmd.action == ShowCommandAction::SetAnimationFader)
+            {
+                doc->writeAttribute(KXMLShowCommandValue, intensityToString(cmd.position));
+            }
+            else if (!cmd.attribute.isEmpty())
+            {
+                doc->writeAttribute(KXMLShowCommandAttribute, cmd.attribute);
             }
         }
         else
@@ -968,8 +1883,26 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     cmd.controlId = input.controlId;
     cmd.role = input.role;
     cmd.attribute = input.attribute;
+    cmd.payload = input.payload;
     cmd.on = input.on;
     cmd.position = input.position;
+
+    if (cmd.action == ShowCommandAction::SetButtonState && isMomentaryHoldRole(cmd.role))
+    {
+        const quint32 openPair = activePairId(track, cmd.controlId, cmd.role);
+        if (cmd.on)
+        {
+            if (openPair != ShowCommand::InvalidId)
+                return result;
+            cmd.pairId = nextPairId(track);
+        }
+        else
+        {
+            if (openPair == ShowCommand::InvalidId)
+                return result;
+            cmd.pairId = openPair;
+        }
+    }
 
     if (cmd.id == ShowCommand::InvalidId)
     {
@@ -977,6 +1910,7 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
         return result;
     }
 
+    cmd = cmd.canonicalized();
     result.error = ShowCommand::validate(cmd);
     if (!result.error.isEmpty())
         return result;
@@ -1050,15 +1984,27 @@ ShowControlStatus ShowCommandFsm::resolveControl(const ShowCommand &expected,
                       QStringLiteral("expected %1, found %2")
                           .arg(ShowCommand::roleToString(expected.role),
                                ShowCommand::roleToString(control.role)));
-    if (control.attribute != expected.attribute)
+    if (expected.action == ShowCommandAction::SetSliderPosition && control.attribute != expected.attribute)
         return status(ShowControlStatus::Incompatible,
                       QStringLiteral("expected attribute '%1', found '%2'")
                           .arg(expected.attribute, control.attribute));
+    if (expected.action == ShowCommandAction::SetSliderReset && control.attribute != expected.attribute)
+        return status(ShowControlStatus::Incompatible,
+                      QStringLiteral("expected attribute '%1', found '%2'")
+                          .arg(expected.attribute, control.attribute));
+    if (expected.action == ShowCommandAction::SetSliderChannel)
+    {
+        const auto *channel = std::get_if<ShowCommandChannel>(&expected.payload.value);
+        if (channel == nullptr || control.attribute != channel->binding)
+            return status(ShowControlStatus::Incompatible, QStringLiteral("channel binding is incompatible"));
+    }
     if (!control.enabled)
         return status(ShowControlStatus::Disabled, QStringLiteral("control is disabled"));
 
     const bool needsFunction = expected.role == ShowControlRole::ToggleButton ||
-                               expected.role == ShowControlRole::AdjustSlider;
+                               expected.role == ShowControlRole::FlashButton ||
+                               expected.role == ShowControlRole::AdjustSlider ||
+                               expected.role == ShowControlRole::AnimationFader;
     if (needsFunction && !control.bound)
         return status(ShowControlStatus::Unbound, QStringLiteral("control has no function"));
 

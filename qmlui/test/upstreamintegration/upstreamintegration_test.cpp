@@ -1804,9 +1804,16 @@ void UpstreamIntegration_Test::timelineViewport_data()
     QTest::addColumn<QString>("state");
     for (auto division : {Show::Time, Show::BPM_4_4, Show::VDJBeat})
         for (const QString &state : {QString("playing"), QString("paused"), QString("stopped"),
-                                    QString("external"), QString("held")})
+                                    QString("external"), QString("held"),
+                                    QString("queued-start"), QString("queued-resume")})
             QTest::newRow(qPrintable(QString("%1-%2").arg(int(division)).arg(state)))
                     << int(division) << state;
+    for (const QString &state : {QString("explicit-generic"), QString("generic-explicit"),
+                                QString("paused"), QString("stopped"), QString("held"),
+                                QString("collapsed"), QString("inactive-paused"),
+                                QString("inactive-stopped"), QString("manual")})
+        QTest::newRow(qPrintable("coalesced-" + state))
+                << int(Show::Time) << "coalesced-" + state;
 }
 
 void UpstreamIntegration_Test::timelineViewport()
@@ -1880,6 +1887,100 @@ void UpstreamIntegration_Test::timelineViewport()
     scrollbar->setProperty("visible", true);
     QVERIFY(qAbs(unobscuredWidth - panel->property("timelineViewportWidth").toReal()
                  - scrollbar->property("width").toReal()) < 0.01);
+    if (state.startsWith("queued-"))
+    {
+        QCoreApplication::processEvents();
+        manager->setCurrentTime(1000);
+        if (state == "queued-resume")
+        {
+            show->Function::preRun(doc->masterTimer());
+            manager->playShow();
+            QCoreApplication::processEvents();
+            QVERIFY(manager->isPaused());
+        }
+        const qreal width = panel->property("timelineViewportWidth").toReal();
+        QVERIFY(width > 0);
+        panel->setProperty("xViewOffset", width * 2);
+        lane->setProperty("pointerHeld", true);
+        if (state == "queued-start")
+            show->Function::preRun(doc->masterTimer());
+        else
+            manager->playShow();
+        QCoreApplication::sendPostedEvents(manager, QEvent::MetaCall);
+        QVERIFY(manager->isPlaying() && !manager->isPaused());
+        QCOMPARE(panel->property("xViewOffset").toReal(), width * 2);
+        lane->setProperty("pointerHeld", false);
+        QCoreApplication::processEvents();
+        QVERIFY2(cursor->isVisible(), "a queued generic release must not discard explicit playback reveal");
+        QCOMPARE(timeline->property("contentX").toReal(), items->property("contentX").toReal());
+        return;
+    }
+    if (state.startsWith("coalesced-"))
+    {
+        show->Function::preRun(doc->masterTimer());
+        QCoreApplication::processEvents();
+        manager->setCurrentTime(1000);
+        QCoreApplication::processEvents();
+        const qreal width = panel->property("timelineViewportWidth").toReal();
+        QVERIFY(width > 0);
+        panel->setProperty("xViewOffset", width * 2);
+        if (state == "coalesced-held")
+            lane->setProperty("pointerHeld", true);
+        if (state == "coalesced-collapsed")
+        {
+            container.setWidth(10);
+            QCOMPARE(panel->property("timelineViewportWidth").toReal(), 0);
+        }
+        if (state == "coalesced-inactive-paused")
+            manager->playShow();
+        if (state == "coalesced-inactive-stopped")
+            show->Function::postRun(doc->masterTimer(), {});
+        QCoreApplication::processEvents();
+        const bool requested = state != "coalesced-manual" && !state.startsWith("coalesced-inactive-");
+        const QString queue = state == "coalesced-manual"
+                ? "Qt.callLater(showMgrContainer.followPlayhead)"
+                : state == "coalesced-generic-explicit"
+                  ? "Qt.callLater(showMgrContainer.followPlayhead); requestPlayheadReveal()"
+                  : "requestPlayheadReveal(); Qt.callLater(showMgrContainer.followPlayhead)";
+        QQmlExpression expression(qmlContext(panel), panel, queue);
+        expression.evaluate();
+        QVERIFY2(!expression.hasError(), qPrintable(expression.error().toString()));
+        QCOMPARE(panel->property("playheadRevealRequested").toBool(), requested);
+        if (state == "coalesced-paused")
+            manager->playShow();
+        if (state == "coalesced-stopped")
+            show->Function::postRun(doc->masterTimer(), {});
+        QCoreApplication::processEvents();
+        const bool deferred = state == "coalesced-paused" || state == "coalesced-stopped"
+                || state == "coalesced-held" || state == "coalesced-collapsed";
+        if (deferred)
+        {
+            QCOMPARE(panel->property("xViewOffset").toReal(), width * 2);
+            QVERIFY(panel->property("playheadRevealRequested").toBool());
+            if (state == "coalesced-paused")
+                manager->playShow();
+            if (state == "coalesced-stopped")
+                show->Function::preRun(doc->masterTimer());
+            if (state == "coalesced-held")
+                lane->setProperty("pointerHeld", false);
+            if (state == "coalesced-collapsed")
+                container.setWidth(1200);
+            QCoreApplication::processEvents();
+        }
+        if (requested)
+            QVERIFY(cursor->isVisible());
+        else
+            QCOMPARE(panel->property("xViewOffset").toReal(), width * 2);
+        QVERIFY(!panel->property("playheadRevealRequested").toBool());
+        QCOMPARE(timeline->property("contentX").toReal(), items->property("contentX").toReal());
+        panel->setProperty("xViewOffset", width * 2);
+        expression.setExpression("Qt.callLater(showMgrContainer.followPlayhead)");
+        expression.evaluate();
+        QVERIFY2(!expression.hasError(), qPrintable(expression.error().toString()));
+        QCoreApplication::processEvents();
+        QCOMPARE(panel->property("xViewOffset").toReal(), width * 2);
+        return;
+    }
     if (state != "stopped")
         show->Function::preRun(doc->masterTimer());
     if (state == "paused")

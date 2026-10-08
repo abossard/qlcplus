@@ -208,38 +208,46 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             if (itemsErr) return *itemsErr;
 
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
+                const Json &item = items[i];
                 auto itemErr = validateFields(item, {"fixtureID", "channel", "value"});
-                if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
+                if (!itemErr.empty()) { results.push_back(mcp::itemErrorFromDump(i, itemErr)); continue; }
 
-                if (!item.contains("fixtureID") || !item.contains("channel") ||
-                    !item.contains("value") ||
-                    !item.at("fixtureID").is_number_integer() ||
-                    !item.at("channel").is_number_integer() ||
-                    !item.at("value").is_number_integer())
-                { results.push_back({{"error", "fixtureID, channel and value must be integers"}}); continue; }
+                if (!item.is_object() || !item.contains("fixtureID") || !item.contains("channel") || !item.contains("value"))
+                { results.push_back(mcp::itemError(i, "fixtureID, channel and value are required")); continue; }
+                const auto fxOpt = mcp::jsonInteger(item.at("fixtureID"), 0, mcp::kMaxId);
+                const auto chOpt = mcp::jsonInteger(item.at("channel"), 0, mcp::kMaxId);
+                const auto valOpt = mcp::jsonInteger(item.at("value"), 0, 255);
+                if (!fxOpt) { results.push_back(mcp::itemError(i, mcp::integerError("fixtureID", 0, mcp::kMaxId))); continue; }
+                if (!chOpt) { results.push_back(mcp::itemError(i, mcp::integerError("channel", 0, mcp::kMaxId))); continue; }
+                if (!valOpt) { results.push_back(mcp::itemError(i, "value must be from 0 to 255")); continue; }
 
-                const quint32 fxID = item.at("fixtureID").get<quint32>();
-                const quint32 channel = item.at("channel").get<quint32>();
-                const int value = item.at("value").get<int>();
+                const quint32 fxID = quint32(*fxOpt);
+                const quint32 channel = quint32(*chOpt);
+                const int value = int(*valOpt);
 
                 Fixture *fixture = doc->fixture(fxID);
                 if (fixture == NULL)
-                { results.push_back({{"fixtureID", (int)fxID}, {"error", "fixture not found"}}); continue; }
-                if (channel >= fixture->channels())
                 {
-                    results.push_back({{"fixtureID", (int)fxID}, {"channel", (int)channel},
-                                       {"error", "channel out of range for fixture"},
-                                       {"channels", (int)fixture->channels()}});
+                    Json e = mcp::itemError(i, "fixture not found");
+                    e["fixtureID"] = fxID;
+                    results.push_back(e);
                     continue;
                 }
-                if (value < 0 || value > 255)
-                { results.push_back({{"fixtureID", (int)fxID}, {"error", "value must be from 0 to 255"}}); continue; }
+                if (channel >= fixture->channels())
+                {
+                    Json e = mcp::itemError(i, "channel out of range for fixture");
+                    e["fixtureID"] = fxID;
+                    e["channel"] = channel;
+                    e["channels"] = (int)fixture->channels();
+                    results.push_back(e);
+                    continue;
+                }
 
                 source->set(fxID, channel, (uchar)value);
-                results.push_back({{"fixtureID", (int)fxID}, {"channel", (int)channel},
-                                   {"value", value}, {"status", "ok"}});
+                results.push_back(mcp::itemOk(i, {{"fixtureID", fxID}, {"channel", channel}, {"value", value}}));
             }
             return results.dump();
             });
@@ -300,23 +308,31 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             static const Json kEnums = {{"action", {{"enum", {"start", "stop"}}}}};
 
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
+                const Json &item = items[i];
                 auto err = validateFields(item, {"functionID", "action"});
-                if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
+                if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
                 auto enumErr = validateEnums(item, kEnums);
-                if (!enumErr.empty()) { results.push_back(Json::parse(enumErr)); continue; }
+                if (!enumErr.empty()) { results.push_back(mcp::itemErrorFromDump(i, enumErr)); continue; }
 
-                if (!item.contains("functionID") || !item.at("functionID").is_number_integer())
-                { results.push_back({{"error", "functionID is required and must be an integer"}}); continue; }
+                const auto fnOpt = item.is_object() && item.contains("functionID")
+                    ? mcp::jsonInteger(item.at("functionID"), 0, mcp::kMaxId) : std::nullopt;
+                if (!fnOpt)
+                { results.push_back(mcp::itemError(i, "functionID is required and must be an integer in [0, 4294967294]")); continue; }
                 if (!item.contains("action") || !item.at("action").is_string())
-                { results.push_back({{"error", "action is required and must be a string"}}); continue; }
+                { results.push_back(mcp::itemError(i, "action is required and must be a string")); continue; }
 
-                const quint32 fnID = item.at("functionID").get<quint32>();
+                const quint32 fnID = quint32(*fnOpt);
                 Function *function = doc->function(fnID);
                 if (function == NULL)
-                { results.push_back({{"functionID", (int)fnID},
-                                     {"error", "function not found"}}); continue; }
+                {
+                    Json e = mcp::itemError(i, "function not found");
+                    e["functionID"] = fnID;
+                    results.push_back(e);
+                    continue;
+                }
 
                 const std::string action = toLowerStd(item.at("action").get<std::string>());
                 if (action == "start")
@@ -324,10 +340,9 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 else
                     function->stop(FunctionParent::master());
 
-                results.push_back({{"functionID", (int)fnID},
+                results.push_back(mcp::itemOk(i, {{"functionID", fnID},
                                    {"name", function->name().toStdString()},
-                                   {"action", action},
-                                   {"status", "ok"}});
+                                   {"action", action}}));
             }
             return results.dump();
             });

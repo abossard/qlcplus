@@ -1897,6 +1897,51 @@ or installed release packages. No existing application was restarted and
 no live lighting was changed. All checks below await human review in a
 disposable workspace; keep saved originals unchanged.
 
+**2026-10-08 verification refresh (current working tree)**
+
+Fetching `mcallegari/qlcplus:master` through the `upstream` remote returned
+`9ddbc62d590c77a059397d9e2ce2357d69fbfd88`, already the second parent of
+`mcp-server` HEAD `7f92a3bebbd3071dc3e02359b1f30c66036fa4d9`.
+`git merge --ff-only upstream/master` reported `Already up to date.`;
+there were zero incoming commits. No new merge or refactor was needed.
+
+The following build passed from the repository root with Qt 6.11.2,
+Release, QML/MCP enabled, and the existing warning policy:
+
+```bash
+cmake --build build --target qlcplus5 upstreamintegration_test upstream3d_test rgbscript_test mcp_script_tool_test mcp_stage_tools_test -j8
+```
+
+Unlike the historical staged-tree run above, these results include the
+current uncommitted recording/MCP changes:
+
+| Fresh executable | Selection | Passed |
+|------------------|-----------|--------|
+| `build/qmlui/test/upstreamintegration/upstreamintegration_test` | Full suite, including start/resume and deferred playhead reveal | 171 |
+| `build/qmlui/test/upstream3d/upstream3d_test` | Full suite | 53 |
+| `build/engine/test/rgbscript/rgbscript_test` | Full suite, run from source `engine/test/rgbscript` | 39 |
+| `build/mcp/test/mcp_script_tool_test` | Full suite, including compile-only validation | 79 |
+| `build/mcp/test/mcp_stage_tools_test` | Nine placement/stage methods, including unknown fixture, out-of-range head and degenerate size rejection | 11 |
+
+All 353 QtTest passes include setup/cleanup; no failures or skips.
+The executables ran directly because this build's CTest inventory was empty.
+Each used `QT_QPA_PLATFORM=offscreen`, `QT_QUICK_BACKEND=software`,
+isolated home/settings/temp directories and an empty plugin directory.
+Loader traces confirmed the rebuilt `build/engine/src/libqlcplusengine.dylib`.
+
+From `tools/manual-review`,
+`npm test -- src/parser-real.test.ts src/parser.test.ts` passed all 41 tests.
+Both macOS plists passed `plutil -lint`. Section 33 still has eight cases,
+16 unsigned checks and the original blank sign-off table.
+
+Before/after hashes confirmed all 6,204 recorded repository paths were
+unchanged by the build and native tests; the index and HEAD also matched.
+Only this evidence block is added by the refresh. Commands, logs, executable
+hashes and preservation manifests are retained under
+`~/.copilot/session-state/67d6fdcb-0135-4bdc-8e15-89d551f10189/files/upstream-verification-2026-10-08/`.
+The manual, hardware, native-panel and installed-package checks below remain
+pending. No live application was restarted or lighting output changed.
+
 ### 33.1 Function tree and editor interaction
 
 - ☐ Rename root and nested functions from their editors, including a running function and a freshly duplicated function. Confirm the tree updates once, selection stays understandable, and running indicators remain visible.

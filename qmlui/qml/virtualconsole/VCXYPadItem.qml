@@ -103,8 +103,8 @@ VCWidgetItem
             bgColor: "turquoise"
             first.value: horizRange.x
             second.value: horizRange.y
-            first.onMoved: if (xyPadObj) xyPadObj.horizontalRange = Qt.point(first.value, second.value)
-            second.onMoved: if (xyPadObj) xyPadObj.horizontalRange = Qt.point(first.value, second.value)
+            first.onMoved: if (xyPadObj) xyPadObj.requestUserRanges(Qt.point(first.value, second.value), xyPadRoot.vertRange)
+            second.onMoved: if (xyPadObj) xyPadObj.requestUserRanges(Qt.point(first.value, second.value), xyPadRoot.vertRange)
         }
 
         Rectangle
@@ -132,8 +132,8 @@ VCWidgetItem
             bgColor: "turquoise"
             first.value: vertRange.x
             second.value: vertRange.y
-            first.onMoved: if (xyPadObj) xyPadObj.verticalRange = Qt.point(first.value, second.value)
-            second.onMoved: if (xyPadObj) xyPadObj.verticalRange = Qt.point(first.value, second.value)
+            first.onMoved: if (xyPadObj) xyPadObj.requestUserRanges(xyPadRoot.horizRange, Qt.point(first.value, second.value))
+            second.onMoved: if (xyPadObj) xyPadObj.requestUserRanges(xyPadRoot.horizRange, Qt.point(first.value, second.value))
         }
 
         // center area
@@ -429,9 +429,9 @@ VCWidgetItem
                         return
 
                     if (xyPadRoot.floorControl)
-                        xyPadObj.floorPosition = getFloorPosition(mouse)
+                        xyPadObj.requestUserFloorPosition(getFloorPosition(mouse))
                     else
-                        xyPadObj.currentPosition = getXYPosition(mouse)
+                        xyPadObj.requestUserCurrentPosition(getXYPosition(mouse))
                 }
 
                 onPressed: (mouse) =>
@@ -463,7 +463,7 @@ VCWidgetItem
             from: 0
             to: 255
             value: to - currPosition.y
-            onMoved: if (xyPadObj) xyPadObj.currentPosition = Qt.point(xSlider.value, to - ySlider.value)
+            onMoved: if (xyPadObj) xyPadObj.requestUserCurrentPosition(Qt.point(xSlider.value, to - ySlider.value))
         }
 
         // floor target height (Y axis), 0 .. 20 m with 0.5 m steps
@@ -497,9 +497,9 @@ VCWidgetItem
                 onMoved:
                 {
                     if (xyPadObj)
-                        xyPadObj.floorPosition = Qt.vector3d(xyPadRoot.floorPosition.x,
+                        xyPadObj.requestUserFloorPosition(Qt.vector3d(xyPadRoot.floorPosition.x,
                                                              value,
-                                                             xyPadRoot.floorPosition.z)
+                                                             xyPadRoot.floorPosition.z))
                 }
             }
         }
@@ -527,7 +527,7 @@ VCWidgetItem
             from: 0
             to: 255
             value: currPosition.x
-            onMoved: if (xyPadObj) xyPadObj.currentPosition = Qt.point(xSlider.value, ySlider.to - ySlider.value)
+            onMoved: if (xyPadObj) xyPadObj.requestUserCurrentPosition(Qt.point(xSlider.value, ySlider.to - ySlider.value))
         }
 
         Rectangle
@@ -564,7 +564,7 @@ VCWidgetItem
                     onClicked:
                     {
                         if (xyPadObj)
-                            xyPadObj.applyPreset(modelData.id)
+                            xyPadObj.requestUserPreset(modelData.id)
                     }
                 }
             }

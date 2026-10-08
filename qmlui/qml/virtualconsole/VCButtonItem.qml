@@ -159,7 +159,7 @@ VCWidgetItem
             buttonObj.actionType === VCButton.FreezeHold)
             buttonObj.requestUserStateChange(true)
         else if (buttonObj.actionType === VCButton.Freeze)
-            buttonObj.requestUserStateChange(btnState !== VCButton.Active)
+            buttonObj.requestUserStateChange(true)
     }
 
     function userReleased()
@@ -233,7 +233,7 @@ VCWidgetItem
                 buttonObj.actionType === VCButton.FreezeHold)
                 buttonObj.requestUserStateChange(true)
             else if (buttonObj.actionType === VCButton.Freeze)
-                buttonObj.requestUserStateChange(btnState !== VCButton.Active)
+                buttonObj.requestUserStateChange(true)
         }
         onReleased:
         {

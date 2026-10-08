@@ -170,9 +170,11 @@ void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                                                                "movement", "sensitivity"});
                     if (!channelErr.empty()) { failure = Json::parse(channelErr); break; }
 
-                    if (!channel.contains("number") || !channel.at("number").is_number_integer() ||
-                        channel.at("number").get<int>() < 1)
-                    { failure = Json({{"error", "channel number must be an integer of at least 1"}}); break; }
+                    // Channel 0 in the profile is UINT32_MAX-1 at most; UINT32_MAX is invalidChannel.
+                    auto numberOpt = channel.contains("number")
+                        ? mcp::jsonInteger(channel.at("number"), 1, mcp::kMaxId) : std::nullopt;
+                    if (!numberOpt)
+                    { failure = Json({{"error", "channel " + mcp::integerError("number", 1, mcp::kMaxId)}}); break; }
                     if (!channel.contains("name") || !channel.contains("type") ||
                         !channel.at("name").is_string() || !channel.at("type").is_string())
                     { failure = Json({{"error", "channel name and type must be strings"}}); break; }
@@ -184,7 +186,7 @@ void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     { failure = Json({{"error", "unknown channel type"}, {"type", channel.at("type")}}); break; }
 
                     // The UI numbers channels from 1; the profile stores them from 0.
-                    const quint32 number = (quint32)channel.at("number").get<int>() - 1;
+                    const quint32 number = quint32(*numberOpt - 1);
                     if (profile->channel(number) != NULL)
                     { failure = Json({{"error", "duplicate channel number"},
                                       {"number", channel.at("number")}}); break; }
@@ -211,10 +213,11 @@ void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     }
                     if (channel.contains("sensitivity"))
                     {
-                        if (!channel.at("sensitivity").is_number_integer() ||
-                            channel.at("sensitivity").get<int>() < 1)
-                        { delete ich; failure = Json({{"error", "sensitivity must be an integer of at least 1"}}); break; }
-                        ich->setMovementSensitivity(channel.at("sensitivity").get<int>());
+                        auto sensitivity = mcp::jsonInteger(channel.at("sensitivity"), 1,
+                                                            std::numeric_limits<int>::max());
+                        if (!sensitivity)
+                        { delete ich; failure = Json({{"error", mcp::integerError("sensitivity", 1, std::numeric_limits<int>::max())}}); break; }
+                        ich->setMovementSensitivity(int(*sensitivity));
                     }
 
                     profile->insertChannel(number, ich);
@@ -287,7 +290,8 @@ void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                                    {"model", model.toStdString()},
                                    {"path", path.toStdString()},
                                    {"channels", (int)item.at("channels").size()},
-                                   {"status", existed ? "updated" : "created"}});
+                                   {"status", "ok"},
+                                   {"outcome", existed ? "updated" : "created"}});
             }
             return results.dump();
             });

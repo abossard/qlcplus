@@ -509,14 +509,14 @@ QList<SceneValue> QLCPalette::valuesFromFixtures(Doc *doc, QList<quint32> fixtur
             break;
             case Pan:
             {
-                int degrees = value().toInt();
+                qreal degrees = value().toDouble();
 
                 if (fType != Flat)
                 {
                     int offset = int(qreal(intFanValue) * factor);
                     if (fLayout == XCentered || fLayout == YCentered || fLayout == ZCentered)
                         offset *= centeredSign;
-                    degrees = int(qreal(degrees) + qreal(offset));
+                    degrees += offset;
                 }
 
                 list << fixture->positionToValues(QLCChannel::Pan, degrees);
@@ -524,14 +524,14 @@ QList<SceneValue> QLCPalette::valuesFromFixtures(Doc *doc, QList<quint32> fixtur
             break;
             case Tilt:
             {
-                int degrees = m_values.count() == 2 ? m_values.at(1).toInt() : value().toInt();
+                qreal degrees = m_values.count() == 2 ? m_values.at(1).toDouble() : value().toDouble();
 
                 if (fType != Flat)
                 {
                     int offset = int(qreal(intFanValue) * factor);
                     if (fLayout == XCentered || fLayout == YCentered || fLayout == ZCentered)
                         offset *= centeredSign;
-                    degrees = int(qreal(degrees) + qreal(offset));
+                    degrees += offset;
                 }
 
                 list << fixture->positionToValues(QLCChannel::Tilt, degrees);
@@ -541,16 +541,16 @@ QList<SceneValue> QLCPalette::valuesFromFixtures(Doc *doc, QList<quint32> fixtur
             {
                 if (m_values.count() == 2)
                 {
-                    int panDegrees = m_values.at(0).toInt();
-                    int tiltDegrees = m_values.at(1).toInt();
+                    qreal panDegrees = m_values.at(0).toDouble();
+                    qreal tiltDegrees = m_values.at(1).toDouble();
 
                     if (fType != Flat)
                     {
                         int offset = int(qreal(intFanValue) * factor);
                         if (fLayout == XCentered || fLayout == YCentered || fLayout == ZCentered)
                             offset *= centeredSign;
-                        panDegrees = int((qreal(panDegrees) + qreal(offset)));
-                        tiltDegrees = int((qreal(tiltDegrees) + qreal(offset)));
+                        panDegrees += offset;
+                        tiltDegrees += offset;
                     }
 
                     list << fixture->positionToValues(QLCChannel::Pan, panDegrees);
@@ -1008,7 +1008,7 @@ bool QLCPalette::loadXML(QXmlStreamReader &doc)
         {
             case Pan:
             case Tilt:
-                setValue(strVal.toInt());
+                setValue(strVal.toFloat());
             break;
             case Color:
                 setValue(strVal);
@@ -1017,7 +1017,7 @@ bool QLCPalette::loadXML(QXmlStreamReader &doc)
             {
                 QStringList posList = strVal.split(",");
                 if (posList.count() == 2)
-                    setValue(posList.at(0).toInt(), posList.at(1).toInt());
+                    setValue(posList.at(0).toFloat(), posList.at(1).toFloat());
             }
             break;
             case Position3D:
@@ -1107,7 +1107,7 @@ bool QLCPalette::saveXML(QXmlStreamWriter *doc) const
         break;
         case PanTilt:
             doc->writeAttribute(KXMLQLCPaletteValue,
-                                QString("%1,%2").arg(m_values.at(0).toInt()).arg(m_values.at(1).toInt()));
+                                QString("%1,%2").arg(m_values.at(0).toString(), m_values.at(1).toString()));
         break;
         case Position3D:
             if (m_values.count() == 3)

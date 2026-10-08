@@ -99,13 +99,15 @@ VCWidgetItem
         QLCPlusFader
         {
             id: levelFader
+            objectName: "matrixPlaybackFader"
             Layout.fillHeight: true
             Layout.rowSpan: 3
             from: 0
             to: 255
             visible: animationObj ? animationObj.visibilityMask & VCAnimation.Fader : true
             value: animationObj ? animationObj.faderLevel : 0
-            onValueChanged: if (animationObj) animationObj.faderLevel = value
+            onMoved: if (animationObj) animationObj.requestUserFaderLevel(value)
+            onPressedChanged: if (pressed && animationObj) animationObj.requestUserFaderLevel(value)
         }
 
         Text
@@ -170,7 +172,7 @@ VCWidgetItem
                             function(r, g, b, w, a, uv)
                             {
                                 if (animationObj)
-                                    animationObj.setColorAt(index, Qt.rgba(r, g, b, 1.0))
+                                    animationObj.requestUserColor(index, Qt.rgba(r, g, b, 1.0))
                             }
                         onClose: visible = false
                     }
@@ -181,6 +183,50 @@ VCWidgetItem
         CustomComboBox
         {
             id: algoCombo
+            objectName: "animationAlgorithmCombo"
+            property bool keyboardActivation: false
+            Keys.onPressed: (event) => {
+                keyboardActivation = true
+                event.accepted = false
+            }
+            PointHandler {
+                onActiveChanged: if (active) algoCombo.keyboardActivation = false
+            }
+            popup.contentItem.Keys.onPressed: (event) => {
+                algoCombo.keyboardActivation = true
+                event.accepted = false
+            }
+            delegate: ItemDelegate {
+                required property string modelData
+                required property int index
+                width: ListView.view.width
+                implicitHeight: algoCombo.delegateHeight
+                text: modelData
+                highlighted: algoCombo.highlightedIndex === index
+                hoverEnabled: algoCombo.hoverEnabled
+                padding: 0
+                leftPadding: 3
+                contentItem: Row {
+                    RobotoText {
+                        label: modelData
+                        height: algoCombo.delegateHeight
+                        fontSize: UISettings.textSizeDefault
+                        onWidthChanged: algoCombo.contentsMaxWidth = Math.max(algoCombo.contentsMaxWidth, width + 15)
+                    }
+                }
+                background: Rectangle {
+                    color: highlighted ? UISettings.highlight : (hovered ? UISettings.bgControl : "transparent")
+                    visible: algoCombo.down || highlighted || algoCombo.visualFocus
+                }
+                PointHandler {
+                    onActiveChanged: if (active) algoCombo.keyboardActivation = false
+                }
+                Keys.onPressed: (event) => {
+                    algoCombo.keyboardActivation = true
+                    event.accepted = false
+                }
+                Rectangle { height: 1; width: parent.width; y: parent.height - 1 }
+            }
             Layout.fillWidth: true
             height: UISettings.listItemHeight
             visible: animationObj ? animationObj.visibilityMask & VCAnimation.PresetCombo : true
@@ -190,7 +236,7 @@ VCWidgetItem
             onActivated: (index) =>
             {
                 if (animationObj)
-                    animationObj.algorithmIndex = index
+                    animationObj.requestUserAlgorithm(index, keyboardActivation)
             }
         }
 
@@ -242,7 +288,7 @@ VCWidgetItem
             onClicked:
             {
                 if (animationObj && presetData)
-                    animationObj.applyPreset(presetData.id)
+                    animationObj.requestUserPreset(presetData.id)
             }
         }
     }
@@ -271,7 +317,7 @@ VCWidgetItem
             onMoved:
             {
                 if (animationObj && presetData)
-                    animationObj.setPresetKnobValue(presetData.id, value)
+                    animationObj.requestUserKnobValue(presetData.id, value)
             }
 
             // tooltip indicating the RGB channel this knob controls

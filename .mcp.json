@@ -2,7 +2,7 @@
   "mcpServers": {
     "qlcplus": {
       "type": "http",
-      "url": "http://localhost:9696/mcp"
+      "url": "http://127.0.0.1:9696/mcp"
     },
     "codegraph": {
       "type": "stdio",

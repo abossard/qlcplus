@@ -692,8 +692,7 @@ bool ShowRunner::commandCatchUp() const
 void ShowRunner::dispatchCommandEffects(const QVector<ShowCommand> &effects)
 {
     const auto isControl = [](const ShowCommand &cmd) {
-        return cmd.action == ShowCommandAction::SetButtonState ||
-               cmd.action == ShowCommandAction::SetSliderPosition;
+        return ShowCommand::isControlAction(cmd.action);
     };
 
     // without an executor VC records are dropped, as before there was one
@@ -900,6 +899,18 @@ void ShowRunner::applyCommandEffect(const ShowCommand &cmd)
         // VC state records target controls, never a Function
         case ShowCommandAction::SetButtonState:
         case ShowCommandAction::SetSliderPosition:
+        case ShowCommandAction::SetSliderColors:
+        case ShowCommandAction::SetSliderReset:
+        case ShowCommandAction::SetXYPadPosition:
+        case ShowCommandAction::SetAnimationFader:
+        case ShowCommandAction::SetXYPadFloor:
+        case ShowCommandAction::SetXYPadRanges:
+        case ShowCommandAction::SetXYPadPositionPreset:
+        case ShowCommandAction::SetXYPadFunctionPreset:
+        case ShowCommandAction::SetXYPadGroupPreset:
+        case ShowCommandAction::SetAnimationColor:
+        case ShowCommandAction::SetAnimationContent:
+        case ShowCommandAction::SetSliderChannel:
         break;
     }
 }

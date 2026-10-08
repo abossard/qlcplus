@@ -34,6 +34,7 @@ Rectangle
     color: UISettings.bgStrong
 
     property bool closeOnSelect: false
+    property bool followContextColors: true
     property var dragTarget: null
     property int colorsMask: 0
     property color currentRGB
@@ -47,7 +48,7 @@ Rectangle
 
     onVisibleChanged:
     {
-        if (visible)
+        if (visible && followContextColors)
         {
             // invoke a method that will invoke
             // the updateColors function below
@@ -224,8 +225,11 @@ Rectangle
                     {
                         //console.log("MAIN r:"+r+" g:"+g+" b:"+b)
                         //console.log("MAIN w:"+w+" a:"+a+" uv:"+uv)
-                        currentRGB = Qt.rgba(r, g, b, 1.0)
-                        currentWAUV = Qt.rgba(w, a, uv, 1.0)
+                        if (followContextColors)
+                        {
+                            currentRGB = Qt.rgba(r, g, b, 1.0)
+                            currentWAUV = Qt.rgba(w, a, uv, 1.0)
+                        }
                         colorToolBox.toolColorChanged(r, g, b, w, a, uv)
                     }
 

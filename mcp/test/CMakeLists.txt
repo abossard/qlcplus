@@ -523,3 +523,29 @@ target_link_libraries(mcp_profiling_tools_test PRIVATE
     qlcplusengine
     nlohmann_json::nlohmann_json
 )
+
+# Function authoring tools — registered function tools over a real Doc and
+# MasterTimer: admission while functions run, preflight, detail/update readback.
+add_executable(mcp_function_authoring_test WIN32
+    function_authoring_test.cpp function_authoring_test.h
+    functionmanager_stub.cpp
+)
+
+target_include_directories(mcp_function_authoring_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_function_authoring_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Test
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Widgets
+    qlcplusmcp
+    qlcplusengine
+    nlohmann_json::nlohmann_json
+)

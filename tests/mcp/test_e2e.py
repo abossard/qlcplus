@@ -194,9 +194,10 @@ def run_tests():
             if len(r) == 1 and "error" in r[0]:
                 print(f"    (skipped: {r[0]['error']})")
                 return
-            assert len(r) == 4, f"Expected 4 fixtures, got {len(r)}"
-            assert r[0]["name"] == "Par 1"
-            assert r[3]["name"] == "Par 4"
+            fixtures = r[0]["fixtures"]
+            assert len(fixtures) == 4, f"Expected 4 fixtures, got {len(fixtures)}"
+            assert fixtures[0]["name"] == "Par 1"
+            assert fixtures[3]["name"] == "Par 4"
         test("patch_fixtures (4 RGB pars)", t_patch)
 
         patched = call("query_fixtures")
@@ -732,7 +733,7 @@ def run_tests():
             ]})
             if len(r) >= 1 and "error" not in r[0]:
                 mh_patched = True
-                mh_fixture_ids = [f["id"] for f in r]
+                mh_fixture_ids = [f["id"] for f in r[0]["fixtures"]]
             else:
                 print(f"    (note: moving head patch: {r})")
         test("patch moving heads for XY pad", t_patch_moving_heads)

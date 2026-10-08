@@ -108,7 +108,7 @@ void McpInputProfileTools_Test::createProfile_writesReloadableFile()
                          Json{{"items", Json::array({twoChannelProfile("Acme", "Deck 3000")})}});
 
     QVERIFY2(!result[0].contains("error"), result[0].dump().c_str());
-    QCOMPARE(result[0].value("status", std::string()), std::string("created"));
+    QCOMPARE(result[0].value("outcome", std::string()), std::string("created"));
 
     const QString path = QString::fromStdString(result[0].value("path", std::string()));
     QVERIFY(QFile::exists(path));
@@ -218,7 +218,7 @@ void McpInputProfileTools_Test::createProfile_upsertsByManufacturerAndModel()
         })}}
     })}});
 
-    QCOMPARE(second[0].value("status", std::string()), std::string("updated"));
+    QCOMPARE(second[0].value("outcome", std::string()), std::string("updated"));
 
     QLCInputProfile *loaded =
         QLCInputProfile::loader(QString::fromStdString(second[0].value("path", std::string())));
@@ -285,6 +285,32 @@ void McpInputProfileTools_Test::createProfile_badMovement_isPerItemError()
     QVERIFY2(result[1].contains("error"), result[1].dump().c_str());
     QVERIFY(m_doc->inputOutputMap()->profile("Acme Good") != NULL);
     QVERIFY(m_doc->inputOutputMap()->profile("Acme Bad") == NULL);
+}
+
+void McpInputProfileTools_Test::createProfile_invalidNumber_rejected_data()
+{
+    QTest::addColumn<QByteArray>("channelJson");
+    QTest::addColumn<QString>("field");
+
+    QTest::newRow("wrapping number") << QByteArray(R"({"number":4294967297,"name":"x","type":"Slider"})") << "number";
+    QTest::newRow("fractional number") << QByteArray(R"({"number":1.5,"name":"x","type":"Slider"})") << "number";
+    QTest::newRow("wrapping sensitivity")
+        << QByteArray(R"({"number":1,"name":"x","type":"Encoder","sensitivity":4294967297})") << "sensitivity";
+}
+
+void McpInputProfileTools_Test::createProfile_invalidNumber_rejected()
+{
+    QFETCH(QByteArray, channelJson);
+    QFETCH(QString, field);
+    Json result = invoke(m_doc, "create_input_profiles", Json{{"items", Json::array({
+        {{"manufacturer", "Acme"}, {"model", "Wrap"},
+         {"channels", Json::array({Json::parse(channelJson.constData())})}}
+    })}});
+
+    QCOMPARE(result.size(), (size_t)1);
+    QVERIFY2(result[0].contains("error") &&
+             QString::fromStdString(result[0]["error"].get<std::string>()).contains(field), result.dump().c_str());
+    QVERIFY(m_doc->inputOutputMap()->profile("Acme Wrap") == NULL);
 }
 
 void McpInputProfileTools_Test::createProfile_registeredForSetInputProfile()

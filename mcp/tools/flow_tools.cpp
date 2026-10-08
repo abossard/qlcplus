@@ -16,6 +16,7 @@
 #include "vcwidget.h"
 #include "doc.h"
 
+#include <climits>
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
@@ -31,7 +32,7 @@ void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *
         "flow_query_layout",
         Json{{"type", "object"}, {"properties", {
             {"pageIndex", {{"type", "integer"}, {"description",
-                "Page index to query (default: all pages)"}}}
+                "Page index to query, 0 or greater (default: all pages)"}}}
         }}},
         Json{},
         [doc, fc](const Json &args) -> Json {
@@ -39,9 +40,16 @@ void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *
                 auto err = validateFields(args, {"pageIndex"});
                 if (!err.empty()) return err;
 
+                int filterPage = -1;
+                if (args.contains("pageIndex"))
+                {
+                    auto page = mcp::jsonInteger(args.at("pageIndex"), 0, INT_MAX);
+                    if (!page) return Json({{"error", mcp::integerError("pageIndex", 0, INT_MAX)}}).dump();
+                    filterPage = int(*page);
+                }
+
                 Json result = Json::array();
                 QVariantList pages = fc->pages();
-                int filterPage = args.contains("pageIndex") ? args.at("pageIndex").get<int>() : -1;
 
                 for (const QVariant &pv : pages)
                 {
@@ -90,7 +98,7 @@ void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *
                     page["sections"] = sections;
                     result.push_back(page);
                 }
-                return result;
+                return result.dump();
             });
         })
     .set_description("Query the Flow Console layout — pages, sections, widgets with logical positions.")
@@ -112,13 +120,14 @@ void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *
                 auto err = validateFields(args, {"pageIndex", "caption", "sizePreset", "columns", "solo"});
                 if (!err.empty()) return err;
 
-                int pageIndex = args.value("pageIndex", 0);
+                auto pageIndex = mcp::jsonInteger(args.value("pageIndex", Json(0)), 0, INT_MAX);
+                if (!pageIndex) return Json({{"error", mcp::integerError("pageIndex", 0, INT_MAX)}}).dump();
                 QString caption = QString::fromStdString(args.at("caption").get<std::string>());
                 QString sizePreset = QString::fromStdString(args.value("sizePreset", "full"));
                 int columns = args.value("columns", 4);
                 bool solo = args.value("solo", false);
 
-                int id = fc->addSection(pageIndex, caption, sizePreset, columns, solo);
+                int id = fc->addSection(int(*pageIndex), caption, sizePreset, columns, solo);
                 if (id < 0)
                     return Json({{"error", "failed to create section"}}).dump();
 
@@ -126,7 +135,7 @@ void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *
             });
         })
     .set_description("Create a section in the Flow Console.")
-    .set_annotations(mcp::kAnnotIdempotent));
+    .set_annotations(mcp::kAnnotAdditive));
 
     // ─── flow_create_widget ──────────────────────────────────────────
     tm.register_tool(Tool(
@@ -159,7 +168,7 @@ void registerFlowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FlowConsole *
             });
         })
     .set_description("Create a widget in a Flow Console section.")
-    .set_annotations(mcp::kAnnotIdempotent));
+    .set_annotations(mcp::kAnnotAdditive));
 
     // ─── flow_reorder_widget ─────────────────────────────────────────
     tm.register_tool(Tool(

@@ -164,6 +164,7 @@ static VCBridge::WidgetDetails makeTestWidget(
     VCBridge::WidgetDetails d;
     d.id = 1;
     d.type = type;
+    d.machineType = type;
     d.caption = caption;
     d.functionID = functionID;
     d.parentID = parentID;
@@ -415,7 +416,8 @@ void VCQueryFilter_Test::knownPropertiesCompleteness()
     QVERIFY(VCQueryPages::kValidWidgetTypes.count("audioTrigger"));
     QVERIFY(VCQueryPages::kValidWidgetTypes.count("matrix"));
     QVERIFY(VCQueryPages::kValidWidgetTypes.count("clock"));
-    QCOMPARE((int)VCQueryPages::kValidWidgetTypes.size(), 11);
+    QVERIFY(VCQueryPages::kValidWidgetTypes.count("recordPanel"));
+    QCOMPARE((int)VCQueryPages::kValidWidgetTypes.size(), 12);
 }
 
 // ========== Compound Group Expansion ==========

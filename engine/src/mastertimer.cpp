@@ -293,6 +293,60 @@ bool MasterTimer::isStartQueued(const Function *function) const
     return m_startQueue.contains(const_cast<Function*>(function));
 }
 
+bool MasterTimer::beginFunctionEdit(const QList<Function*> &functions)
+{
+    QMutexLocker locker(&m_functionListMutex);
+    if (m_registryEdit || !m_editFunctions.isEmpty())
+        return false;
+    for (Function *f : functions)
+    {
+        if (m_functionList.contains(f) || m_startQueue.contains(f) ||
+            m_startingFunctions.contains(f))
+            return false;
+    }
+    m_editFunctions = functions;
+    return true;
+}
+
+bool MasterTimer::beginFunctionEdit(Function *function)
+{
+    if (function == NULL || function->flashing())
+        return false;
+
+    Doc *doc = qobject_cast<Doc*> (parent());
+    Q_ASSERT(doc != NULL);
+
+    // Only these types list function IDs in components(); the rest list fixture IDs
+    static const QList<Function::Type> containerTypes({ Function::ChaserType,
+        Function::SequenceType, Function::CollectionType, Function::ShowType });
+
+    QList<Function*> editSet({ function });
+    for (Function *f : doc->functions())
+    {
+        if (f != function && containerTypes.contains(f->type()) &&
+            f->components().contains(function->id()))
+            editSet.append(f);
+    }
+    return beginFunctionEdit(editSet);
+}
+
+bool MasterTimer::beginRegistryEdit()
+{
+    QMutexLocker locker(&m_functionListMutex);
+    if (m_registryEdit || !m_editFunctions.isEmpty() || !m_functionList.isEmpty() ||
+        !m_startQueue.isEmpty() || !m_startingFunctions.isEmpty())
+        return false;
+    m_registryEdit = true;
+    return true;
+}
+
+void MasterTimer::endFunctionEdit()
+{
+    QMutexLocker locker(&m_functionListMutex);
+    m_editFunctions.clear();
+    m_registryEdit = false;
+}
+
 void MasterTimer::timerTickFunctions(QList<Universe *> universes)
 {
     // List of m_functionList indices that should be removed at the end of this
@@ -376,18 +430,29 @@ void MasterTimer::timerTickFunctions(QList<Universe *> universes)
         // backwards here will always remove the correct indices.
         QListIterator <int> it(removeList);
         it.toBack();
-        while (it.hasPrevious() == true)
-            m_functionList.removeAt(it.previous());
+        if (it.hasPrevious())
+        {
+            QMutexLocker locker(&m_functionListMutex);
+            while (it.hasPrevious() == true)
+                m_functionList.removeAt(it.previous());
+        }
 
         firstIteration = false;
     }
 
     {
         QMutexLocker locker(&m_functionListMutex);
-        while (m_startQueue.size() > 0)
+        for (;;)
         {
-            QList<Function*> startQueue(m_startQueue);
-            m_startQueue.clear();
+            // Starts of functions under an admitted edit wait for endFunctionEdit()
+            QList<Function*> startQueue;
+            QList<Function*> deferred;
+            for (Function *f : std::as_const(m_startQueue))
+                (m_registryEdit || m_editFunctions.contains(f) ? deferred : startQueue).append(f);
+            if (startQueue.isEmpty())
+                break;
+            m_startQueue = deferred;
+            m_startingFunctions = startQueue;
             locker.unlock();
 
             foreach (Function* f, startQueue)
@@ -398,15 +463,18 @@ void MasterTimer::timerTickFunctions(QList<Universe *> universes)
                 }
                 else
                 {
+                    QMutexLocker listLocker(&m_functionListMutex);
                     m_functionList.append(f);
                     functionListHasChanged = true;
                 }
+                f->resolveOriginalTempoType();
                 f->preRun(this);
                 runWrite(f);
                 emit functionStarted(f->id());
             }
 
             locker.relock();
+            m_startingFunctions.clear();
         }
     }
 

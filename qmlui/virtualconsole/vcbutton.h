@@ -119,6 +119,7 @@ public:
      *  with at most one native start or stop, never a pair of synthetic clicks.
      *  Leaves no Tardis entry and authors nothing. Returns the op performed. */
     ShowCommandFsm::ShowButtonOp applyRecordedState(bool on);
+    ShowCommandFsm::ShowButtonOp applyRecordedState(bool on, const FunctionParent &owner, bool strictOwnerRelease = false);
 
     /** User input reaching the Toggle state it was normalized to when
      *  accepted: the desired-state op, or the native Solo Frame takeover,
@@ -182,7 +183,9 @@ private:
 
     /** The native Toggle start and stop, shared by live input and replay */
     void startToggleFunction(Function *f);
+    void startToggleFunction(Function *f, const FunctionParent &owner);
     void stopToggleFunction(Function *f);
+    void stopToggleFunction(Function *f, const FunctionParent &owner, bool strictOwnerRelease = false);
 
 protected:
     /** The ID of the Function that this button is controlling */

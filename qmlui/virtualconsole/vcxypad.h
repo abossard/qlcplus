@@ -23,6 +23,8 @@
 #include <QVector3D>
 #include <QPointer>
 #include <QHash>
+#include <QVector>
+#include <QMutex>
 
 #include "vcwidget.h"
 #include "dmxsource.h"
@@ -36,6 +38,7 @@ class EFX;
 
 class VCXYPad : public VCWidget, public DMXSource
 {
+    friend class ShowControlAction;
     Q_OBJECT
 
     Q_PROPERTY(bool invertedAppearance READ invertedAppearance WRITE setInvertedAppearance NOTIFY invertedAppearanceChanged FINAL)
@@ -115,10 +118,26 @@ public:
     /** Get/Set the current cursor position in the XY area */
     QPointF currentPosition() const;
     void setCurrentPosition(QPointF newCurrentPosition);
+    Q_INVOKABLE void requestUserCurrentPosition(QPointF newCurrentPosition);
+    void requestUserCurrentPosition(QPointF position, ShowCommandOrigin origin);
+    Q_INVOKABLE void requestUserRanges(QPointF horizontal, QPointF vertical);
+    void requestUserRanges(QPointF horizontal, QPointF vertical, ShowCommandOrigin origin);
+    Q_INVOKABLE void requestUserPreset(int choice);
+    void requestUserPreset(int choice, ShowCommandOrigin origin);
+    quint64 applyRecordedPosition(QPointF position);
+    quint64 awaitPendingWrite() const;
+    void cancelPendingRecordedWrite(quint64 expectedGeneration = 0);
+
+    enum RecordedWriteOutcome { RecordedWriteApplied, RecordedWriteSuperseded, RecordedWriteCancelled };
+    Q_ENUM(RecordedWriteOutcome)
+
+    enum RecordedWriteEffect { RecordedWriteNoEffect };
+    Q_ENUM(RecordedWriteEffect)
 
     /** Get/Set the range window horizontal range */
     QPointF horizontalRange() const;
     void setHorizontalRange(QPointF newHorizontalRange);
+    quint64 applyRecordedRanges(QPointF horizontal, QPointF vertical);
 
     /** Get/Set the range window vertical range */
     QPointF verticalRange() const;
@@ -137,6 +156,9 @@ public:
      *  corner), Y is the height above the floor. */
     QVector3D floorPosition() const;
     void setFloorPosition(QVector3D newFloorPosition);
+    Q_INVOKABLE void requestUserFloorPosition(QVector3D position);
+    void requestUserFloorPosition(QVector3D position, ShowCommandOrigin origin);
+    quint64 applyRecordedFloorPosition(QVector3D position);
 
     /** Return the environment size in metres, used to map the pad area
      *  to the stage floor in floor control mode */
@@ -161,6 +183,8 @@ signals:
     void floorPositionChanged();
     void floorSizeChanged();
     void floorRangeAreaChanged();
+    void recordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect,
+                              const QString &reason);
 
 private:
     bool m_invertedAppearance;
@@ -170,6 +194,7 @@ private:
     QPointF m_horizontalRange;
     QPointF m_verticalRange;
     bool m_positionChanged;
+    bool m_positionApplied = true;
 
     bool m_floorControl;
     QVector3D m_floorPosition;
@@ -186,6 +211,15 @@ private:
     quint16 m_y16 = 0;
     quint16 m_lastX16 = 0xFFFF;
     quint16 m_lastY16 = 0xFFFF;
+    mutable QMutex m_positionValueMutex;
+    quint64 m_lastRecordedWriteGeneration = 0;
+    quint64 m_pendingRecordedWriteGeneration = 0;
+    QVector<QPair<quint64, int>> m_retiredRecordedWrites;
+    QHash<quint64, QString> m_recordedWriteReasons;
+    void reportRecordedWrites();
+    void invalidateFloorProjection();
+    bool floorProjectionCompatible() const;
+    quint64 updateFloorPosition(QVector3D position, bool recorded);
 
     /*************************************************************************
      * Fixtures
@@ -315,6 +349,12 @@ signals:
 
 private:
     QList <XYPadFixture> m_fixtures;
+    QList<XYPadFixture> m_writeFixtures;
+    QList<QPointer<Fixture>> m_writeLifetimes;
+    QMap<quint32, quint64> m_writeProjectionRevisions;
+    quint64 m_writeEnvironmentRevision = 0;
+    quint64 m_writeBeamRevision = 0;
+    bool m_writeUsesBeamOffset = false;
     QVariantList m_fixturePositions;
 
     /** Reference to a ListModel representing the fixtures list for the QML UI */
@@ -342,8 +382,14 @@ private:
      *  returned as-is. */
     QList<GroupHead> presetHeads(const class VCXYPadPreset *preset) const;
     bool sceneHasPanTilt(quint32 functionID) const;
-    bool activatePreset(VCXYPadPreset *preset);
-    void deactivatePreset(VCXYPadPreset *preset);
+    bool activatePreset(VCXYPadPreset *preset, const FunctionParent &owner, bool recorded = false);
+    quint64 updateRanges(QPointF horizontal, QPointF vertical, bool recorded);
+    quint64 updateSelection(const QVector<bool> &enabled, bool recorded, int choice = -2);
+    QList<XYPadFixture> resolvedWriteFixtures() const;
+    void prepareWriteFixtures();
+    void invalidateFixtureBinding(quint32 fixtureId);
+    void invalidateGroupBinding(quint32 groupId);
+    void deactivatePreset(VCXYPadPreset *preset, bool recorded = false);
     void setActivePresetId(int presetId);
 
     /** Request the attribute overrides used to squeeze a running EFX preset
@@ -368,6 +414,7 @@ private:
     quint8 m_lastAssignedPresetId;
     QList<class VCXYPadPreset*> m_presets;
     int m_activePresetId;
+    FunctionParent m_presetOwner = FunctionParent::master();
 
     /** Reference to the EFX started by the active preset, if any. It is used
      *  to resize the pattern when the range window is changed. Guarded, so
@@ -393,7 +440,8 @@ private:
 
     /** Write the Pan/Tilt values that make the enabled fixtures point at
      *  the current floor position. Used when floor control is enabled. */
-    void writeDMXFloor(QList<Universe *> universes);
+    bool writeDMXFloor(QList<Universe *> universes, const QVector3D &floorPosition,
+                       const QList<XYPadFixture> &fixtures);
 
     /** On fixtures with more than 360° of Pan travel, the same direction can
      *  be reached at several Pan angles (e.g. 30° and 390° on a 540° head).

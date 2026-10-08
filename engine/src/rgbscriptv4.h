@@ -144,12 +144,16 @@ public:
     /** Read the value of the property with the given name */
     QString property(QString propertyName) const;
 
+    /** Drain queued color callbacks and consume the first observed callback error. */
+    QString takeCallbackError();
+
 private:
     /** Load the script properties if any is available */
     bool loadProperties();
 
 private:
     QList<RGBScriptProperty> m_properties; //! the script properties list
+    mutable QString m_callbackError;
 };
 
 /** @} */

@@ -15,8 +15,20 @@ For the complete behavior contract, see
 | `Start` | None | Start the target through the Show. |
 | `Stop` | None | Release the Show's ownership of the target. Other owners may keep it running. |
 | `SetIntensity` | A number from `0` to `1` | Apply the intensity without starting a stopped target. |
-| `SetButtonState` | On or Off | Apply the desired state through the current compatible Toggle control. |
+| `SetButtonState` | On or Off | Apply the desired state through the current compatible Toggle, Flash, Blackout, Freeze or FreezeHold button, or slider flash. |
 | `SetSliderPosition` | A number from `0` to `1` | Map the accepted position into the current compatible slider range. |
+| `SetSliderChannel` | Integer channel value `0..255` and attribute binding | Apply the frozen channel value without inferring intent from the current slider range or Click & Go presentation. |
+| `SetSliderReset` | Attribute binding | Release the native monitor override. |
+| `SetSliderColors` | RGB, white/amber/UV and brightness | Apply the accepted Click & Go colors. |
+| `SetXYPadPosition` | Fractional pan/tilt coordinates `0..255` | Apply native pad motion. |
+| `SetXYPadFloor` | Metre X/Y/Z coordinates | Apply native floor targeting, including target height. |
+| `SetXYPadRanges` | Horizontal and vertical endpoint pairs | Apply the native endpoint windows. |
+| `SetXYPadPositionPreset` | Choice, desired active state and frozen coordinates | Apply the accepted static position and active-choice transition. |
+| `SetXYPadFunctionPreset` | Choice and desired active state | Activate or deactivate the current compatible Scene/EFX binding. |
+| `SetXYPadGroupPreset` | Choice and desired active state | Apply the current native group/head choice. |
+| `SetAnimationFader` | Normalized playback intensity | Apply the native Animation fader. |
+| `SetAnimationColor` | Slot and replace/reset/component arguments | Apply the indexed Matrix operation. Reset is distinct from valid black. |
+| `SetAnimationContent` | Named algorithm, text and typed properties | Apply accepted List/Range/Float/String content arguments. |
 
 Recording accepts user commands, not audio-mapped changes, playback feedback or
 generic property changes. It does not inspect running functions to reconstruct a
@@ -35,8 +47,84 @@ checkpoints, finalization and editor changes derive it from retained commands;
 the Show also retains any later clip endpoint. Legacy files may contain an
 explicit longer extent before those boundaries normalize it.
 
-Legacy-only tracks use `Version="1"`. Tracks containing VC commands use
-`Version="2"`, with `Control` and `Role` plus `State` or `Position`.
+Legacy-only tracks use `Version="1"`. Version 2 introduced VC commands with
+`Control` and `Role` plus `State` or `Value`. Version 3 adds Flash/global
+roles and `Pair` identities for momentary press/release edges. Versions 4 through 8
+introduce slider reset, Click & Go colors, pad coordinates, Animation fader and
+floor coordinates respectively. Version 9 adds closed native payloads in
+`Arguments`: channel intent, range endpoints, pad choices and Matrix color/content.
+Typed objects reject missing, extra or incorrectly typed fields. Property names
+are unique, numeric values finite, and channel/color values bounded. Historical
+versions remain loadable. Saving chooses the minimum version required by the
+retained actions.
+
+Only `SetButtonState` edges may carry `Pair`. Other actions reject even a
+malformed `Pair` attribute instead of silently discarding it. An explicit Button
+XML `Pair` must be an unsigned identity other than the unset sentinel 4294967295.
+An absent `Pair` remains valid for unpaired button records. Rejected insertion,
+replacement or XML loading leaves the existing commands, Order, extent and
+in-memory allocation floors unchanged. Unrelated legacy metadata such as
+`Comment` remains ignored.
+
+Colors, Pan/Tilt and floor targets are also closed typed values in memory.
+Their historical `Attribute` encodings and minimum file versions are unchanged.
+Validation and complete payload equality compare typed fields directly, not
+their encoded text. Order remains placement data and is checked separately by
+frozen edits and history. XML and view drafts are boundary codecs.
+Matrix content may include its native choice ID. Coordinates, colors, text and
+property values are frozen when accepted. They are not reread from an edited
+preset when replayed.
+
+Version 9 channel intent stores the accepted raw native byte, including 0 and
+255. A Level channel replay keeps that byte after range or Click & Go preset-mode
+changes. Historical normalized slider records retain their earlier dispatch
+through the current compatible presentation: CnGNone maps through the current
+slider range, while CnGPreset rounds `position * 255`. For example, saved version 2
+position 0.75 replays byte 152 with range [32,192] and current CnGNone, but byte
+191 with current CnGPreset. These records are not rewritten as raw channel intent;
+their original raw intent was not stored.
+
+Queued input and claimed replay retain the required native destination and
+configuration until execution. Removing or replacing that destination, even
+under the same numeric ID, cancels the pending operation with a reason. A later
+occurrence resolves the current compatible binding afresh.
+Delivered Matrix receipts retain the actual Function lifetime as well. Backward
+restoration cannot write through a rebound control, even when the replacement
+has identical colors or the same numeric ID. Show Stop releases the delivered
+Function's Show owner, not the control's replacement binding.
+An accepted same-value live Animation fader request acquires its native live
+owner, so Show Stop cannot remove that independent output. The production fader
+submits deliberate movement/presses, not value-binding feedback from playback.
+A cold Show start begins a new actual-before journal for that Show. Earlier
+recording-session receipts cannot supply its backward-restoration baseline.
+This leaves native live state and accepted live ownership unchanged.
+
+The private `ShowControlAction` module plans native receipt dependencies from
+copied operation and Collection/Solo topology facts. Its value plan includes
+the started or stopped Function and any causal-parent member expectations.
+The recorder consumes those plans while retaining request/run queues, waits,
+traversal cancellation, batch acknowledgements and its authority/history journal.
+Live topology discovery remains an explicit module action; pure receipt planning
+does not read widgets, the document or a clock. Native effects and timer receipt
+observation retain their existing owners.
+
+Native algorithm properties are checked against their current List/Range/Float/
+String metadata before initial acceptance. An invalid request changes neither
+the native state nor the authored track. Algorithm activation republishes the
+retained indexed colors to the new native algorithm, including colors accepted
+while stopped.
+
+The visible Animation algorithm combo submits a deliberate named content request
+with the actual pointer or keyboard origin, including selection in its popup.
+Programmatic algorithm setters, loading and history restoration remain unrecorded.
+Floor-target preflight uses the native pad's metre window and 20 m height maximum.
+An out-of-bounds authored target is refused whole, not published and later clamped.
+
+The pad writer snapshots its resolved enabled heads and their Fixture lifetimes
+with each generation. Required fixture/group changes or Pan/Tilt inversion retire
+pending recorded work as cancelled, rather than writing to a changed binding.
+Cancellation does not make the cached coordinates proof of delivery. A later
+same-value input can publish fresh output and supersede the earlier generation.
 
 ```xml
 <CommandTrack Version="1" Extent="12000">
@@ -55,6 +143,8 @@ carries an `Order` attribute; otherwise the document is written exactly as
 before, and a document without `Order` uses its file order. Unsupported
 versions/actions and invalid values, including `Order` on only some commands or
 used twice, are errors; they must not load as an empty successful track.
+Both edges of a saved hold share one `Pair` identity and keep separate event
+IDs. The loader rejects orphan or mismatched pairs.
 
 Edit XML only while the workspace is closed or saved elsewhere. Keep the target
 function definitions in the same workspace. A function reference does not freeze
@@ -89,11 +179,77 @@ three rules, for every recording kind:
   present before Play is ignored); VirtualDJ Perform sets the deck position
   right after starting the Show.
 
+  Native choice restoration retains the actual prior source owner, not the owner
+  of the discarded Show command. Matrix restoration also retains whether content
+  was a local VC override or ordinary Matrix content. Stop only releases Show-owned
+  effects. It does not perform this backward restoration.
+
+  Matrix receipts retain managed VC content, colors, choice and brightness,
+  including whether content was a local override. Backward movement restores
+  actual-before values through ordinary native setters. Delivered Function,
+  group and algorithm lifetimes and whole eventual-target metadata are checked
+  before effects. Prior Fill properties are checked against Fill, even if the
+  delivered algorithm is Fireworks. Missing or incompatible definitions refuse
+  the whole restoration without probing live script writers.
+  Replaced targets or algorithms and later live intent, including same-value
+  reassertions, supersede the indivisible restoration.
+
+  Accepted amount properties stay frozen. Ordinary native setters own step-count
+  rescaling and animation behavior; recording does not restore indices, counts,
+  continuous phase or hidden script state, and never rewinds elapsed/beat clocks.
+  A valid admitted callback can still fault during execution. It reports
+  Failed/notApplied with a reason, retains authored commands and retires the
+  operation without reporting success. Native effects before the fault are not
+  undone. Stop remains ordinary owned-effect/hold release, not before-projection.
+  This includes property/read/count/color callbacks reached by content, color,
+  fader start or algorithm initialization. Queued color callbacks finish on their
+  existing JS thread before the controlled result is observed. A failed start
+  still waits for its actual Function settlement before retiring the batch.
+  Valid empty colors, unsupported optional color readers and a native zero
+  count are not callback failures. Staged stopped content is applied later at
+  fader start; its staging receipt does not promise future rendering will succeed.
+  Later autonomous frame callbacks are outside this controlled-operation result.
+
+On Play, or a position change during playback, QLC+ asserts a momentary hold
+active at the destination without replaying its earlier edges. Leaving its
+interval releases the playback-owned hold. Slider flash restores the native
+attribute value from immediately before playback asserted it, not the value
+from the original take.
+
 The direction of a requested seek is decided when it is requested, against the
 position the runtime last reported. Ordinary function clips retain their native
 seek behavior. External clock updates are not explicit VirtualDJ seek intent.
 
 ## Recording and editing
+
+Compound values open a complete local draft. The color picker, endpoint sliders,
+numeric fields/steppers and algorithm property controls edit only that draft.
+RGB/WAUV, brightness, metre height, fractional coordinates, reversed endpoint
+windows, indexed reset/black/component operations and named content keep their
+distinct meanings. Preview and Escape do not operate native controls or seek the
+Show. Commit validates the whole frozen edit basis before one ID-delta history
+publication; invalid or conflicting drafts never partially publish.
+Changing a Matrix operation or content algorithm retires obsolete fields. Missing
+draft paths are unavailable, not zero-valued controls, and cannot modify the draft.
+
+Bound floor drafts retain their opening range/stage/height metadata. A change to
+that basis refuses commit rather than reinterpreting the coordinates. Missing
+targets remain editable without inventing native limits. Bound List properties
+use their named choices, and Range/Float steppers use native metadata limits.
+Other native-bound drafts retain copied required binding and property metadata
+as well. Rebinding, disabling, losing or ambiguously resolving an opening target,
+or changing its required metadata, refuses the whole candidate before publication.
+The comparison uses current-compatible values, not original object identity.
+An equivalent replacement Matrix under the same binding remains compatible.
+Selected payload or Order changes cannot be overwritten by the old draft.
+Reopen against the new basis to retry; unrelated accepted capture is retained.
+Independent Show playback and capture continue during preview and Escape.
+Undo/Redo changes only the edited IDs and preserves those unrelated records.
+Group/head choices whose current fixture or head is missing are incompatible,
+even if their preset still retains a nonempty head list. Display and native
+preflight report the same refusal without changing the recorded command.
+The full color Canvas acquires its painting context on each paint, including
+after cancellation and reopening.
 
 The Show Timeline includes one **Recordings** lane after the function tracks.
 Consecutive saved slider samples with the same control UUID, role and attribute
@@ -101,7 +257,10 @@ form one object. Every other saved command breaks the run, including a different
 slider or a legacy command. Time gaps and recording off/on do not break a run
 unless another command was stored. Groups are typed `ShowCommandGroup` values
 derived by `ShowCommandTrack::groups()`, not new playback tracks or XML objects.
-All samples, values and equal-time ordering remain unchanged.
+Flash, slider flash and FreezeHold pairs form one hold block even when another
+control's events fall between their press and release. Blackout and Freeze
+latch events remain points. All samples, values and equal-time ordering remain
+unchanged.
 
 The list button in the Recordings header expands the lane into one row per
 recorded VC control and collapses it back; it starts collapsed and is not saved.
@@ -262,7 +421,10 @@ while the Show plays or records. It puts the earliest copy at the cursor and the
 their copied offsets and equal-time order, after events already at those times,
 in the shown Show of the same workspace. The copies get new event ids above every
 id the Show has issued and make one undo step; Undo removes only them and keeps
-later captures. The pasted events become the selection and the shown passage.
+later captures. Pasted holds also get fresh pair identities, preserved through
+Undo/Redo. Select both edges for pair edits or copy. QLC+ refuses partial or
+malformed pair operations whole with a reason. The pasted events become the
+selection and the shown passage.
 Controls are pasted unchanged, never matched by caption; the feedback counts
 pasted events whose control is not ready. A paste that does not fit (past the
 end of time, an unknown or self-referencing Function target) changes nothing.
@@ -278,16 +440,30 @@ take cannot be saved, REC turns off and displays why. While a take is bound, the
 Show Manager keeps its Show selected.
 
 Toggle buttons, including those in Solo Frames, record their desired On/Off
-state. Level, Adjust, Submaster and Grand Master sliders record their position.
+state. Flash buttons, slider flash and FreezeHold record paired press/release
+edges. Blackout and Freeze latch record desired global states. Freeze uses the
+current native output, without saving a DMX look. FreezeHold keeps the native
+shared flag: any delivered release clears momentary freeze; the latch remains
+separate. Level, Adjust, Submaster and Grand Master sliders record their position.
 Input counts from the screen, keyboard bindings or a patched MIDI or OSC input,
 stamped when it is accepted. The stamp is the cursor moved on a stopped or
 paused Show; otherwise it is the last Show time playback processed. That can be
 one engine tick (20 ms by default) earlier than the time display, which already shows the
 next tick, including while paused. An external clock is always its own
 position. Every valid Show time is kept, up to the format's maximum. The debug
-panel's Show time for transport rows uses the same clock. Flash and
-global-action buttons and the slider reset/flash buttons and inputs are not
-recorded; they keep working live and display a reason.
+panel's Show time for transport rows uses the same clock. Slider reset records
+native override release; Stop All remains live-only and displays an
+unsupported-recording reason. Other
+excluded widget families keep their existing live behavior and recording warnings.
+
+Pause keeps playback-owned holds active; Resume reaches their scheduled
+release. Stop releases playback-owned holds and only releases Show-owned native
+owners; it does not project prior Blackout/Freeze values for a Show that never
+touched those latches. If replay touched a Blackout/Freeze latch and no live
+intent exists for this Show, Stop falls back to Off for that latch. FreezeHold
+momentary state is only written when this Show released its own replayed hold.
+Manual holds and same-value live
+reassertions keep their authority until the next recorded change.
 
 The Show editor's Recordings tab lists the selected Show's events in order:
 time, control (caption, identity and current binding, or the function of a
@@ -297,19 +473,31 @@ double click edits the time (seconds), state (On/Off) or value (percent); Enter
 commits and Escape cancels. Delete removes the selection at once and offers
 Undo. Left/Right move the selection by a bar, half a bar or a quarter bar, and
 Snap puts its earliest event on the nearest beat, the others by the same delta.
-Both need BPM markers with a tempo or a VDJ Beat grid. Editing, undo and redo
+Both need BPM markers with a tempo or a VDJ Beat grid.
+Complex values open typed fields for native coordinates/units, endpoint pairs,
+choice states, colors and named content properties. Their complete draft belongs
+to the view, not a disposable row. Preview and Escape change no authored data,
+native effect, playback time or history. Commit validates the whole frozen
+selection; invalid data stays open for correction and conflicting records refuse
+the whole edit and close the obsolete draft. Reopen against the changed selected
+record to retry without overwriting it. A successful edit makes one existing
+ID-addressed undo step; committing unchanged data adds none.
+Editing, undo and redo
 of recorded events work while the Show is stopped, playing, paused, recording or
 driven by VirtualDJ Perform; Perform keeps play, pause, seek and loop, and local
 seeks stay refused. An edit is published at once: the playhead processes the
 events it reaches next as they are now. Editing behind the playhead changes
-nothing already played; an event moved from behind to ahead of it plays again
+nothing already played, except an active playback hold: deleting or moving it
+outside the cursor releases it after commit, never during preview or Escape.
+Played Blackout/Freeze edits remain data-only until the next recorded change,
+accepted position boundary or Stop. An event moved from behind to ahead of it plays again
 when reached. Work the Show already reached, queued or is still settling finishes
 as it was accepted, and no edit seeks or replays earlier events. Recording goes
 on during an edit and only ever adds; the input played live is not played again
 at its captured time, but an event moved elsewhere plays there. Each edit is one
 undo step of its Show that restores only its own events and refuses if they
-changed since; Undo and Redo change data, not lighting actions already
-performed, and keep events recorded meanwhile. While Perform drives the Show,
+changed since; Undo and Redo keep events recorded meanwhile and do not replay
+earlier lighting actions. Active-hold cleanup still applies. While Perform drives the Show,
 Undo and Redo apply only when the next step is a recorded-event edit of the
 shown Show; any other step is refused and stays where it is. To replace a
 passage, delete it and record again; there is no punch-in. The end of the Show follows its last
@@ -317,7 +505,10 @@ retained command or clip. Visible rows follow renamed, rebound, enabled/disabled
 controls and renamed functions. Editor steps are not sent to connected
 network clients. The workspace Save
 operation stores the track with its Show, including input accepted until the
-save, while REC and playback continue. The saved end is the last recorded
+save, while REC and playback continue. An open hold gets a temporary release
+in the saved snapshot at save time; live authoring keeps the same open pair.
+REC-off closes the authored pair at that time, leaves the physical hold active
+and does not record its later release. The saved end is the last recorded
 command or clip; time spent with REC armed is not saved. If the recording
 cannot be stored, the save fails and keeps it. New, Open and Exit ask to save or
 discard while REC is armed, even without other unsaved changes.

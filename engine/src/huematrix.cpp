@@ -264,12 +264,12 @@ void HUEMatrix::includeFloatAttributeValue(int index, qreal value)
     calculateOverrideValue(index);
 }
 
-void HUEMatrix::setProperty(QString propName, QString value)
+bool HUEMatrix::setProperty(QString propName, QString value)
 {
     QMutexLocker algorithmLocker(&m_algorithmMutex);
-    RGBMatrix::setProperty(propName, value);
+    const bool applied = RGBMatrix::setProperty(propName, value);
     if (m_applyingStyleAttributes)
-        return;
+        return applied;
 
     const auto properties = scriptPropertyAttributes();
     for (int i = 0; i < properties.count(); ++i)
@@ -284,25 +284,30 @@ void HUEMatrix::setProperty(QString propName, QString value)
             property.m_listValues.indexOf(current) : current.toDouble(&valid);
         if (!valid || !std::isfinite(attributeValue) ||
             (property.m_type == RGBScriptProperty::List && attributeValue < 0))
-            return;
+            return callbackError().isEmpty() && applied;
 
         const int index = ScriptPropertyAttr + i;
         if (property.m_type == RGBScriptProperty::Float)
             includeFloatAttributeValue(index, attributeValue);
         Function::adjustAttribute(attributeValue, index);
         if (attributes().at(index).m_isOverridden)
-            applyScriptPropertyAttribute(i, getAttributeValue(index));
-        return;
+        {
+            const bool effectiveApplied = applyScriptPropertyAttribute(i, getAttributeValue(index));
+            return effectiveApplied && callbackError().isEmpty() && applied;
+        }
+        return callbackError().isEmpty() && applied;
     }
+    return applied;
 }
 
-void HUEMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
+bool HUEMatrix::applyScriptPropertyAttribute(int attrIndex, qreal value)
 {
     // Effective overrides must not replace the authored attribute value.
     const bool previous = m_applyingStyleAttributes;
     m_applyingStyleAttributes = true;
-    RGBMatrix::applyScriptPropertyAttribute(attrIndex, value);
+    const bool applied = RGBMatrix::applyScriptPropertyAttribute(attrIndex, value);
     m_applyingStyleAttributes = previous;
+    return applied;
 }
 
 /** Names of the built-in (non-script) algorithms. A HUE script that declares

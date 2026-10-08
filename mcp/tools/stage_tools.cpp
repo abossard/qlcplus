@@ -126,10 +126,12 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 auto err = validateFields(item, {"fixtureID", "head", "position", "rotation", "gelColor"});
                 if (!err.empty()) { results.push_back(Json::parse(err)); continue; }
 
-                if (!item.contains("fixtureID") || !item.at("fixtureID").is_number_integer())
-                { results.push_back({{"error", "fixtureID must be an integer"}}); continue; }
+                const auto fxOpt = item.is_object() && item.contains("fixtureID")
+                    ? mcp::jsonInteger(item.at("fixtureID"), 0, mcp::kMaxId) : std::nullopt;
+                if (!fxOpt)
+                { results.push_back({{"error", mcp::integerError("fixtureID", 0, mcp::kMaxId)}}); continue; }
 
-                const quint32 fxID = item.at("fixtureID").get<quint32>();
+                const quint32 fxID = quint32(*fxOpt);
                 Fixture *fixture = doc->fixture(fxID);
                 if (fixture == NULL)
                 { results.push_back({{"fixtureID", (int)fxID}, {"error", "fixture not found"}}); continue; }
@@ -180,7 +182,7 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     entry["gelColor"] = storedGel.name().toStdString();
                 results.push_back(entry);
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
@@ -204,8 +206,9 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"fixtureID"});
             if (!err.empty()) return err;
-            if (args.contains("fixtureID") && !args.at("fixtureID").is_number_integer())
-                return Json({{"error", "fixtureID must be an integer"}}).dump();
+            std::optional<int64_t> only;
+            if (args.contains("fixtureID") && !(only = mcp::jsonInteger(args.at("fixtureID"), 0, mcp::kMaxId)))
+                return Json({{"error", mcp::integerError("fixtureID", 0, mcp::kMaxId)}}).dump();
 
             MonitorProperties *props = doc->monitorProperties();
             Json results = Json::array();
@@ -213,7 +216,7 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             {
                 if (fixture == NULL)
                     continue;
-                if (args.contains("fixtureID") && fixture->id() != args.at("fixtureID").get<quint32>())
+                if (only && fixture->id() != quint32(*only))
                     continue;
 
                 for (int head = 0; head < fixture->heads(); head++)
@@ -383,13 +386,15 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {
                     auto entryErr = validateFields(entry, {"fixtureID", "channel"});
                     if (!entryErr.empty()) { failure = Json::parse(entryErr); break; }
-                    if (!entry.contains("fixtureID") || !entry.contains("channel") ||
-                        !entry.at("fixtureID").is_number_integer() ||
-                        !entry.at("channel").is_number_integer())
-                    { failure = Json({{"error", "fixtureID and channel must be integers"}}); break; }
+                    const auto fxOpt = entry.is_object() && entry.contains("fixtureID")
+                        ? mcp::jsonInteger(entry.at("fixtureID"), 0, mcp::kMaxId) : std::nullopt;
+                    const auto chOpt = entry.is_object() && entry.contains("channel")
+                        ? mcp::jsonInteger(entry.at("channel"), 0, mcp::kMaxId) : std::nullopt;
+                    if (!fxOpt || !chOpt)
+                    { failure = Json({{"error", "fixtureID and channel must be integers in [0, 4294967294]"}}); break; }
 
-                    const quint32 fxID = entry.at("fixtureID").get<quint32>();
-                    const quint32 channel = entry.at("channel").get<quint32>();
+                    const quint32 fxID = quint32(*fxOpt);
+                    const quint32 channel = quint32(*chOpt);
                     Fixture *fixture = doc->fixture(fxID);
                     if (fixture == NULL)
                     { failure = Json({{"error", "fixture not found"}, {"fixtureID", (int)fxID}}); break; }
@@ -425,9 +430,10 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
                 results.push_back({{"id", (int)group->id()}, {"name", name.toStdString()},
                                    {"channels", (int)channels.size()},
-                                   {"status", isNew ? "created" : "updated"}});
+                                   {"status", "ok"},
+                                   {"outcome", isNew ? "created" : "updated"}});
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,
@@ -484,20 +490,21 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &v : args.at("ids"))
             {
-                if (!v.is_number_integer())
-                { results.push_back({{"error", "ids must be an array of integers"}}); continue; }
-                const quint32 id = v.get<quint32>();
+                const auto idOpt = mcp::jsonInteger(v, 0, mcp::kMaxId);
+                if (!idOpt)
+                { results.push_back({{"error", mcp::integerError("id", 0, mcp::kMaxId)}}); continue; }
+                const quint32 id = quint32(*idOpt);
                 ChannelsGroup *group = doc->channelsGroup(id);
                 if (group == NULL)
-                { results.push_back({{"id", (int)id}, {"status", "not found"}}); continue; }
+                { results.push_back({{"id", (int)id}, {"error", "channel group not found"}}); continue; }
 
                 const std::string name = group->name().toStdString();
                 if (doc->deleteChannelsGroup(id))
-                    results.push_back({{"id", (int)id}, {"name", name}, {"status", "deleted"}});
+                    results.push_back({{"id", (int)id}, {"name", name}, {"status", "ok"}, {"outcome", "deleted"}});
                 else
                     results.push_back({{"id", (int)id}, {"error", "could not delete channel group"}});
             }
-            return results.dump();
+            return mcp::indexedRecords(results).dump();
             });
         },
         std::nullopt,

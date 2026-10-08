@@ -31,6 +31,10 @@
 #include <vector>
 #include <algorithm>
 #include <cctype>
+#include <functional>
+#include <cmath>
+#include <cstdint>
+#include <limits>
 
 namespace fastmcpp { namespace tools { class ToolManager; } }
 class Doc;
@@ -66,6 +70,7 @@ using Json = nlohmann::json;
 inline const Json kAnnotReadOnly    = {{"readOnlyHint", true},  {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", false}};
 inline const Json kAnnotIdempotent  = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", false}};
 inline const Json kAnnotDestructive = {{"readOnlyHint", false}, {"destructiveHint", true},  {"idempotentHint", true},  {"openWorldHint", false}};
+inline const Json kAnnotAdditive    = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", false}, {"openWorldHint", false}};
 inline const Json kAnnotOpenWorld   = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", true}};
 }
 
@@ -200,5 +205,126 @@ inline std::string validateEnums(const nlohmann::json &obj,
     }
     return "";
 }
+
+namespace mcp {
+
+/**
+ * Checked JSON integer read. Accepts integer numbers and whole-valued finite
+ * floats (JSON Schema "integer"); rejects bool, string, fractional and values
+ * outside [lo, hi] before any narrowing.
+ */
+inline std::optional<int64_t> jsonInteger(const nlohmann::json &v, int64_t lo, int64_t hi)
+{
+    if (v.is_number_unsigned())
+    {
+        const uint64_t u = v.get<uint64_t>();
+        if (hi < 0 || u > static_cast<uint64_t>(hi) || static_cast<int64_t>(u) < lo)
+            return std::nullopt;
+        return static_cast<int64_t>(u);
+    }
+    if (v.is_number_integer())
+    {
+        const int64_t i = v.get<int64_t>();
+        if (i < lo || i > hi) return std::nullopt;
+        return i;
+    }
+    if (v.is_number_float())
+    {
+        const double d = v.get<double>();
+        if (!std::isfinite(d) || std::trunc(d) != d ||
+            d < static_cast<double>(lo) || d > static_cast<double>(hi))
+            return std::nullopt;
+        return static_cast<int64_t>(d);
+    }
+    return std::nullopt;
+}
+
+inline std::string integerError(const std::string &field, int64_t lo, int64_t hi)
+{
+    return field + " must be an integer in [" + std::to_string(lo) + ", " + std::to_string(hi) + "]";
+}
+
+// Q8 batch outcome: one indexed terminal record per input item.
+inline nlohmann::json itemError(size_t index, const std::string &message)
+{
+    return {{"index", index}, {"status", "error"}, {"error", message}};
+}
+
+// Same, from a dumped {"error": ...} produced by validateFields/validateEnums.
+inline nlohmann::json itemErrorFromDump(size_t index, const std::string &dumpedError)
+{
+    return itemError(index, nlohmann::json::parse(dumpedError).value("error", dumpedError));
+}
+
+inline nlohmann::json itemOk(size_t index, nlohmann::json fields = nlohmann::json::object())
+{
+    fields["index"] = index;
+    fields["status"] = "ok";
+    return fields;
+}
+
+// Q8 for loops that push exactly one record per input item: stamp index and
+// mark records carrying "error" with status "error".
+inline nlohmann::json indexedRecords(nlohmann::json records)
+{
+    for (size_t i = 0; i < records.size(); ++i)
+    {
+        records[i]["index"] = i;
+        if (records[i].contains("error"))
+            records[i]["status"] = "error";
+    }
+    return records;
+}
+
+// A tool payload is a total failure when it is a request-level {"error": ...}
+// object or a non-empty batch in which every item record has status "error".
+inline bool isToolFailure(const nlohmann::json &payload)
+{
+    if (payload.is_object())
+        return payload.contains("error") ||
+               (payload.contains("items") && isToolFailure(payload.at("items")));
+    if (!payload.is_array() || payload.empty())
+        return false;
+    for (const auto &rec : payload)
+        if (!rec.is_object() || rec.value("status", "") != "error")
+            return false;
+    return true;
+}
+
+// Adds isError (and structuredContent for object payloads) to a CallToolResult
+// whose single text block carries the tool's serialized JSON payload.
+inline nlohmann::json encodeToolResult(nlohmann::json result)
+{
+    if (!result.is_object() || result.contains("isError") || !result.contains("content") ||
+        !result["content"].is_array() || result["content"].size() != 1 ||
+        !result["content"][0].is_object() || !result["content"][0].value("text", nlohmann::json()).is_string())
+        return result;
+    const nlohmann::json payload = nlohmann::json::parse(
+        result["content"][0]["text"].get<std::string>(), nullptr, false);
+    if (payload.is_discarded())
+        return result;
+    result["isError"] = isToolFailure(payload);
+    if (payload.is_object() && !result.contains("structuredContent"))
+        result["structuredContent"] = payload;
+    return result;
+}
+
+// Wraps a JSON-RPC MCP handler so tools/call results carry a truthful isError.
+inline std::function<nlohmann::json(const nlohmann::json &)>
+withToolResultEncoding(std::function<nlohmann::json(const nlohmann::json &)> inner)
+{
+    return [inner = std::move(inner)](const nlohmann::json &request) {
+        nlohmann::json response = inner(request);
+        if (request.is_object() && request.value("method", "") == "tools/call" &&
+            response.is_object() && response.contains("result"))
+            response["result"] = encodeToolResult(std::move(response["result"]));
+        return response;
+    };
+}
+
+// Object/function/group IDs: 0 .. UINT32_MAX-1 (UINT32_MAX is QLC+'s invalid ID).
+constexpr int64_t kMaxId = int64_t(std::numeric_limits<uint32_t>::max()) - 1;
+
+} // namespace mcp
 
 #endif // TOOL_REGISTRY_H

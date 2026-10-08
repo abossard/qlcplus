@@ -45,9 +45,48 @@
 > - **Speed Dial multiply mode** — factor buttons (1/16x–16x) multiply existing function speeds instead of replacing them; preserves authored fadeIn/hold/fadeOut ratios; one-click reset to originals; works with both Time and Beats mode functions
 > - **HUE Matrix RGBW mode** — `RGBW (Accurate)` and `RGBW (Brighter)` control modes drive R, G, B, AND White channels simultaneously. Accurate extracts white (`W=min(R,G,B)`, subtract from RGB); Brighter keeps RGB full and adds white on top. Works with any RGBW fixture — not fixture-specific.
 > - **Keyboard shortcuts** — 20+ shortcuts ported from v4: Ctrl+N/O/S (New/Open/Save), Ctrl+Z/Shift+Z (Undo/Redo), Ctrl+Shift+Esc (Panic/Stop All), F11 (Fullscreen), Alt+1–6 (view switching), Ctrl+PgUp/PgDown (cycle views), Ctrl+[/] (drawer toggle), Function Manager (Delete/Clone/Wizard), Show Manager (Space/Ctrl+Space play/stop, copy/paste). Platform-aware tooltips (⌘ on macOS). Guards for text editing, popups, kiosk mode.
+> - **Show recording and live editing (v5)**: capture VC controls, edit timed events during playback or recording, and follow VirtualDJ Perform.
 > - **DDP multi-universe sync fix** — eliminated frame-queue desync that caused 4+ DDP universes to display out of order. Replaced unreliable cross-thread batching with immediate per-universe send (sub-millisecond gap, PUSH per universe — matches Art-Net behavior).
 >
 > ### Recent engine changes
+>
+> #### Show Recording and Live Editing (v5)
+>
+> - One REC switch across Show Manager, DJ Manager and Virtual Console binds a
+>   take to a Show. Record Toggle/Flash buttons, slider flash, Blackout, Freeze,
+>   FreezeHold and Level, Adjust, Submaster and Grand Master slider positions
+>   from screen, keyboard or patched MIDI/OSC input. Playback does
+>   not echo captured input. Replay uses current compatible VC bindings, with
+>   native Solo Frame and Collection behavior.
+> - Timeline, Recordings table and Split views show selection counts and time
+>   ranges. Filter and inspect selected passages, expand per-control lanes, and
+>   view grouped slider samples as stepped value graphs. QLC+ keeps every sample.
+> - Edit event times, states and values. Move by time or musical steps, Snap to
+>   beats, or stretch/compress either edge with the opposite edge fixed.
+>   Unselected events stay put; invalid edits show a reason.
+> - Flash buttons, slider flash and FreezeHold use one paired press/release block.
+>   Edit or copy the whole pair; pasted holds get fresh pair identities.
+>   Pause keeps holds active. Stop releases playback-owned holds and preserves
+>   live overrides.
+> - Edit while playing, paused, recording or under Perform. Drags preview,
+>   release commits one Undo step, and Escape cancels. New captures keep their
+>   own data; changed targets cancel the edit. VirtualDJ keeps transport control.
+> - Copy/paste between Shows in one workspace at the playhead; relative timing
+>   stays unchanged. Delete then record again; capture stays additive. Undo/Redo preserve
+>   later captures.
+> - Keyboard selection and editing, plus Fit selection and Go to selection start.
+> - Forward jumps play only crossed events. Backward jumps and loops undo the
+>   window's recorded effects in one update, without replaying
+>   earlier history.
+> - Save captures with the workspace during playback/REC; reopen and replay them.
+>   Saving an open hold closes only the saved snapshot; the live hold continues.
+>   REC-off closes the recorded hold without releasing the physical control.
+>   Problems and Debug expose missing controls, rejected
+>   input and playback decisions.
+>
+> REC skips Stop All, slider reset, audio-mapped changes and the other VC widget families.
+> See the [recording guide](docs/show-command-recording.md) for controls,
+> editing, transport rules and limitations.
 >
 > #### Speed Dial Multiply Mode
 > The VC Speed Dial widget now supports a **Multiply Mode** toggle (in widget properties).

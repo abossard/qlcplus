@@ -43,7 +43,8 @@ public:
     struct WidgetInfo
     {
         int id;
-        QString type;
+        QString type;         // display rendering (VCWidget::typeToString)
+        QString machineType;  // stable VCType tag; use for logic
         QString caption;
         QRect geometry;
         quint32 functionID;
@@ -240,10 +241,11 @@ public:
     struct WidgetDetails
     {
         int id = -1;
-        QString type;
+        QString type;         // display rendering (VCWidget::typeToString)
+        QString machineType;  // stable VCType tag; use for logic
         QString caption;
         QRect geometry;
-        quint32 functionID = 0;
+        quint32 functionID = (quint32)-1;  // Function::invalidId() when unbound
         QString action;          // Button only: toggle/flash/blackout/stopall/freeze/freezehold
         QString sliderMode;      // Slider only: level/playback/submaster/grandmaster
         QList<QPair<quint32, quint32>> channels;  // Slider level-mode channels

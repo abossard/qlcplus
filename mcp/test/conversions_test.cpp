@@ -17,6 +17,8 @@
 #include "doc.h"
 #include "scene.h"
 
+#include <clocale>
+
 using namespace mcp;
 
 namespace {
@@ -475,6 +477,87 @@ void Conversions_Test::roundTrip_allCanonical()
         uint roundTripped = beatStringToValue(str);
         QCOMPARE(roundTripped, val);
     }
+}
+
+// --- parseTimingFields: strict duration grammar ---
+
+void Conversions_Test::parseTimingFields_valid_data()
+{
+    QTest::addColumn<QByteArray>("valueJson");
+    QTest::addColumn<uint>("expected");
+    QTest::addColumn<bool>("beats");
+
+    QTest::newRow("integer ms")      << QByteArray("500") << 500u << false;
+    QTest::newRow("zero ms")         << QByteArray("0") << 0u << false;
+    QTest::newRow("whole float ms")  << QByteArray("500.0") << 500u << false;
+    QTest::newRow("fraction beats")  << QByteArray("\"1/4\"") << 250u << true;
+    QTest::newRow("decimal beats")   << QByteArray("\"1.5\"") << 1500u << true;
+    QTest::newRow("integer beats")   << QByteArray("\"2\"") << 2000u << true;
+    QTest::newRow("zero beats")      << QByteArray("\"0\"") << 0u << true;
+    QTest::newRow("zero.0 beats")    << QByteArray("\"0.0\"") << 0u << true;
+}
+
+void Conversions_Test::parseTimingFields_valid()
+{
+    QFETCH(QByteArray, valueJson);
+    QFETCH(uint, expected);
+    QFETCH(bool, beats);
+    const Json item = {{"fadeIn", Json::parse(valueJson.constData())}};
+    TimingParseResult r = parseTimingFields(item, {"fadeIn"});
+    QVERIFY2(r.error.empty(), r.error.c_str());
+    QCOMPARE(r.values["fadeIn"], expected);
+    QCOMPARE(r.useBeatMode, beats);
+}
+
+void Conversions_Test::parseTimingFields_invalid_data()
+{
+    QTest::addColumn<QByteArray>("itemJson");
+
+    QTest::newRow("negative ms")       << QByteArray(R"({"fadeIn":-1})");
+    QTest::newRow("fractional ms")     << QByteArray(R"({"fadeIn":1.5})");
+    QTest::newRow("oversized ms")      << QByteArray(R"({"fadeIn":4294967296})");
+    QTest::newRow("boolean")           << QByteArray(R"({"fadeIn":true})");
+    QTest::newRow("null")              << QByteArray(R"({"fadeIn":null})");
+    QTest::newRow("object")            << QByteArray(R"({"fadeIn":{}})");
+    QTest::newRow("trailing junk")     << QByteArray(R"({"fadeIn":"1abc"})");
+    QTest::newRow("fraction junk")     << QByteArray(R"({"fadeIn":"1/4x"})");
+    QTest::newRow("leading space")     << QByteArray(R"({"fadeIn":" 1"})");
+    QTest::newRow("missing denom")     << QByteArray(R"({"fadeIn":"1/"})");
+    QTest::newRow("missing numer")     << QByteArray(R"({"fadeIn":"/4"})");
+    QTest::newRow("exponent")          << QByteArray(R"({"fadeIn":"1e2"})");
+    QTest::newRow("nan")               << QByteArray(R"({"fadeIn":"nan"})");
+    QTest::newRow("inf")               << QByteArray(R"({"fadeIn":"inf"})");
+    QTest::newRow("hex")               << QByteArray(R"({"fadeIn":"0x10"})");
+    QTest::newRow("comma decimal")     << QByteArray(R"({"fadeIn":"1,5"})");
+    QTest::newRow("tempoType number")  << QByteArray(R"({"tempoType":1,"fadeIn":500})");
+}
+
+void Conversions_Test::parseTimingFields_invalid()
+{
+    QFETCH(QByteArray, itemJson);
+    const Json item = Json::parse(itemJson.constData());
+    TimingParseResult r;
+    try
+    {
+        r = parseTimingFields(item, {"fadeIn"});
+    }
+    catch (const std::exception &e)
+    {
+        QFAIL(qPrintable(QString("threw instead of returning an error: %1").arg(e.what())));
+    }
+    QVERIFY2(!r.error.empty(), qPrintable(QString("accepted, value %1").arg(r.values["fadeIn"])));
+}
+
+void Conversions_Test::beatStringToValue_localeIndependent()
+{
+    const std::string saved = std::setlocale(LC_NUMERIC, nullptr);
+    if (!std::setlocale(LC_NUMERIC, "de_DE.UTF-8"))
+        QSKIP("de_DE.UTF-8 locale not available");
+    const uint dotted = beatStringToValue("1.5");
+    const uint comma = beatStringToValue("0,5");
+    std::setlocale(LC_NUMERIC, saved.c_str());
+    QCOMPARE(dotted, 1500u);
+    QCOMPARE(comma, 0u);
 }
 
 QTEST_MAIN(Conversions_Test)

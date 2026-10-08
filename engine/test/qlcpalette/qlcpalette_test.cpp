@@ -23,6 +23,12 @@
 
 #include "qlcpalette_test.h"
 #include "qlcpalette.h"
+#include "qlcfixturedef.h"
+#include "qlcfixturemode.h"
+#include "qlcchannel.h"
+#include "scenevalue.h"
+#include "fixture.h"
+#include "doc.h"
 
 void QLCPalette_Test::initialization()
 {
@@ -273,4 +279,108 @@ void QLCPalette_Test::save()
     QVERIFY(xmlReader.attributes().value("Value").toString() == "90,145");
 }
 
+void QLCPalette_Test::xmlRoundTrip_data()
+{
+    QTest::addColumn<int>("type");
+    QTest::addColumn<QVariantList>("values");
+    QTest::addColumn<QString>("xmlValue");
+
+    QTest::newRow("PanTilt fractional") << int(QLCPalette::PanTilt) << QVariantList{12.5, 30.25} << "12.5,30.25";
+    QTest::newRow("PanTilt integer") << int(QLCPalette::PanTilt) << QVariantList{90, 145} << "90,145";
+    QTest::newRow("Pan fractional") << int(QLCPalette::Pan) << QVariantList{12.5} << "12.5";
+    QTest::newRow("Tilt fractional") << int(QLCPalette::Tilt) << QVariantList{7.75} << "7.75";
+    QTest::newRow("Zoom fractional") << int(QLCPalette::Zoom) << QVariantList{22.5} << "22.5";
+    QTest::newRow("Zoom integer") << int(QLCPalette::Zoom) << QVariantList{40} << "40";
+    QTest::newRow("Shutter integer") << int(QLCPalette::Shutter) << QVariantList{2, 50} << "2,50";
+}
+
+void QLCPalette_Test::xmlRoundTrip()
+{
+    QFETCH(int, type);
+    QFETCH(QVariantList, values);
+    QFETCH(QString, xmlValue);
+
+    QLCPalette p{QLCPalette::PaletteType(type)};
+    p.setID(4);
+    p.setName("Round trip");
+    p.setValues(values);
+
+    QBuffer buffer;
+    buffer.open(QIODevice::WriteOnly | QIODevice::Text);
+    QXmlStreamWriter xmlWriter(&buffer);
+    QVERIFY(p.saveXML(&xmlWriter) == true);
+    xmlWriter.setDevice(NULL);
+    buffer.close();
+
+    buffer.open(QIODevice::ReadOnly | QIODevice::Text);
+    QXmlStreamReader xmlReader(&buffer);
+    xmlReader.readNextStartElement();
+    QCOMPARE(xmlReader.attributes().value("Value").toString(), xmlValue);
+
+    QLCPalette loaded(QLCPalette::Undefined);
+    QVERIFY(loaded.loadXML(xmlReader) == true);
+    QCOMPARE(loaded.values().size(), values.size());
+    for (int i = 0; i < values.size(); i++)
+        QCOMPARE(loaded.values().at(i).toDouble(), values.at(i).toDouble());
+}
+
 QTEST_APPLESS_MAIN(QLCPalette_Test)
+
+void QLCPalette_Test::positionValues_data()
+{
+    // Fixture: 0 pan MSB, 1 pan LSB, 2 tilt MSB, 3 tilt LSB; pan 360, tilt 180.
+    QTest::addColumn<int>("type");
+    QTest::addColumn<QVariantList>("values");
+    QTest::addColumn<QList<int>>("expected"); // channel/value pairs
+
+    QTest::newRow("Pan fractional") << int(QLCPalette::Pan) << QVariantList{12.5} << QList<int>{0, 8, 1, 227};
+    QTest::newRow("Tilt fractional") << int(QLCPalette::Tilt) << QVariantList{30.25} << QList<int>{2, 43, 3, 5};
+    QTest::newRow("PanTilt fractional") << int(QLCPalette::PanTilt) << QVariantList{12.5, 30.25}
+                                        << QList<int>{0, 8, 1, 227, 2, 43, 3, 5};
+    QTest::newRow("PanTilt integer") << int(QLCPalette::PanTilt) << QVariantList{90, 45}
+                                     << QList<int>{0, 63, 1, 255, 2, 63, 3, 255};
+}
+
+void QLCPalette_Test::positionValues()
+{
+    QFETCH(int, type);
+    QFETCH(QVariantList, values);
+    QFETCH(QList<int>, expected);
+
+    Doc doc(this);
+    QLCFixtureDef *def = new QLCFixtureDef();
+    def->setManufacturer("Test");
+    def->setModel("Mover");
+    const QList<QPair<QLCChannel::Group, QLCChannel::ControlByte>> layout = {
+        {QLCChannel::Pan, QLCChannel::MSB}, {QLCChannel::Pan, QLCChannel::LSB},
+        {QLCChannel::Tilt, QLCChannel::MSB}, {QLCChannel::Tilt, QLCChannel::LSB}};
+    QLCFixtureMode *mode = new QLCFixtureMode(def);
+    for (int i = 0; i < layout.size(); i++)
+    {
+        QLCChannel *ch = new QLCChannel();
+        ch->setName(QString("ch%1").arg(i));
+        ch->setGroup(layout[i].first);
+        ch->setControlByte(layout[i].second);
+        def->addChannel(ch);
+        mode->insertChannel(ch, i);
+    }
+    QLCPhysical phy;
+    phy.setFocusPanMax(360);
+    phy.setFocusTiltMax(180);
+    mode->setPhysical(phy);
+    def->addMode(mode);
+    Fixture *fxi = new Fixture(&doc);
+    fxi->setFixtureDefinition(def, mode);
+    QVERIFY(doc.addFixture(fxi));
+
+    QLCPalette palette{QLCPalette::PaletteType(type)};
+    if (values.size() == 1)
+        palette.setValue(values[0]);
+    else
+        palette.setValue(values[0], values[1]);
+
+    QList<int> got;
+    for (const SceneValue &sv : palette.valuesFromFixtures(&doc, {fxi->id()}))
+        got << int(sv.channel) << int(sv.value);
+    QCOMPARE(got, expected);
+}

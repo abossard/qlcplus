@@ -18,21 +18,24 @@
 */
 
 #include "showcommandrecorder.h"
+#include "showcontrolaction.h"
+#include <QJsonDocument>
+#include <QJsonObject>
 
 #include <QLocale>
 #include <QScopedValueRollback>
+#include <QColor>
+#include <QStringList>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
-#include "collection.h"
 #include "doc.h"
 #include "performfsm.h"
 #include "show.h"
 #include "showrunner.h"
 #include "tardis.h"
-#include "vcbutton.h"
-#include "vcpage.h"
-#include "vcslider.h"
-#include "vcsoloframe.h"
+#include "vcwidget.h"
 #include "virtualconsole.h"
 
 
@@ -42,14 +45,100 @@ ShowCommandRecorder *ShowCommandRecorder::s_instance = nullptr;
 using Phase = ShowEventLog::Phase;
 using Outcome = ShowEventLog::Outcome;
 
-/** The Function a control's native op acts on, InvalidId for none */
-static quint32 controlFunction(VCWidget *control)
+static bool isHoldRole(ShowControlRole role)
 {
-    if (VCButton *button = qobject_cast<VCButton *>(control))
-        return button->functionID();
-    VCSlider *slider = qobject_cast<VCSlider *>(control);
-    return slider != nullptr && slider->sliderMode() == VCSlider::Adjust ? slider->controlledFunction()
-                                                                         : ShowCommand::InvalidId;
+    return role == ShowControlRole::FlashButton || role == ShowControlRole::FreezeHoldButton ||
+           role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
+           role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
+}
+
+namespace
+{
+QString commandActionText(const ShowCommand &cmd);
+
+QVariantMap nativeDraft(const ShowCommand &command)
+{
+    if (ShowCommand::hasTypedPayload(command.action))
+        return QJsonDocument::fromJson(command.payload.encode(command.action).toUtf8()).object().toVariantMap();
+    if (command.action == ShowCommandAction::SetXYPadPosition)
+    {
+        ShowCommandPanTilt point;
+        ShowCommandPanTilt::decode(command.nativeArgument(), &point);
+        return {{"pan", point.pan}, {"tilt", point.tilt}};
+    }
+    if (command.action == ShowCommandAction::SetXYPadFloor)
+    {
+        ShowCommandFloor point;
+        ShowCommandFloor::decode(command.nativeArgument(), &point);
+        return {{"x", point.x}, {"y", point.y}, {"z", point.z}};
+    }
+    if (command.action == ShowCommandAction::SetSliderColors)
+    {
+        ShowCommandColors colors;
+        ShowCommandColors::decode(command.nativeArgument(), &colors);
+        return {{"rgb", QVariantList{colors.red, colors.green, colors.blue}},
+                {"wauv", QVariantList{colors.white, colors.amber, colors.ultraviolet}},
+                {"brightness", command.position}};
+    }
+    return {};
+}
+
+QString applyNativeDraft(ShowCommand *command, const QVariantMap &draft)
+{
+    if (ShowCommand::hasTypedPayload(command->action))
+    {
+        QString reason;
+        if (!ShowCommandPayload::decode(command->action,
+            QString::fromUtf8(QJsonDocument::fromVariant(draft).toJson(QJsonDocument::Compact)),
+            &command->payload, &reason))
+            return reason;
+    }
+    else
+    {
+        const QVariantMap expected = nativeDraft(*command);
+        if (expected.isEmpty() || expected.keys() != draft.keys())
+            return QStringLiteral("typed draft has missing or unrelated arguments");
+        const auto number = [&](const QString &key, qreal *value) {
+            bool valid = false;
+            *value = draft.value(key).toDouble(&valid);
+            return valid && std::isfinite(*value);
+        };
+        if (command->action == ShowCommandAction::SetXYPadFloor)
+        {
+            ShowCommandFloor point;
+            if (!number("x", &point.x) || !number("y", &point.y) || !number("z", &point.z))
+                return QStringLiteral("floor coordinates must be finite metres");
+            command->payload.value = point;
+        }
+        else if (command->action == ShowCommandAction::SetXYPadPosition)
+        {
+            ShowCommandPanTilt point;
+            if (!number("pan", &point.pan) || !number("tilt", &point.tilt))
+                return QStringLiteral("pan and tilt must be finite native coordinates");
+            command->payload.value = point;
+        }
+        else if (command->action == ShowCommandAction::SetSliderColors)
+        {
+            const QVariantList rgb = draft.value("rgb").toList(), wauv = draft.value("wauv").toList();
+            if (rgb.count() != 3 || wauv.count() != 3 || !number("brightness", &command->position))
+                return QStringLiteral("color draft needs RGB, white/amber/UV and brightness");
+            QStringList parts;
+            for (const QVariant &entry : rgb + wauv)
+            {
+                bool valid = false;
+                const qreal value = entry.toDouble(&valid);
+                if (!valid || !std::isfinite(value) || value < 0 || value > 255 ||
+                    value != std::floor(value))
+                    return QStringLiteral("color components must be integers in 0..255");
+                parts.append(QString::number(int(value)));
+            }
+            ShowCommandColors color;
+            ShowCommandColors::decode(parts.mid(0, 3).join(',') + ';' + parts.mid(3).join(','), &color);
+            command->payload.value = color;
+        }
+    }
+    return ShowCommand::validate(*command);
+}
 }
 
 ShowCommandRecorder::ShowCommandRecorder(Doc *doc, QObject *parent)
@@ -122,7 +211,7 @@ bool ShowCommandRecorder::setRecording(bool on)
         return true;
 
     const bool diag = ShowEventLog::generation() != 0;
-    if (isAuthoring() && checkpoint() == false)
+    if (isAuthoring() && checkpoint(!on) == false)
     {
         if (diag)
             traceTransport(Outcome::Failed, on ? tr("REC on") : tr("REC off"), phaseName(), m_lastError);
@@ -180,7 +269,7 @@ bool ShowCommandRecorder::setResolvedShow(quint32 showId)
     {
         const QString previous = targetName();
         QString reason;
-        handed = publishCheckpoint(&reason);
+        handed = publishCheckpoint(true, &reason);
         // a take that cannot close disarms: its accepted input stays for a later checkpoint
         next = ShowCommandFsm::setRecording(next, false);
         if (handed)
@@ -254,22 +343,24 @@ quint32 ShowCommandRecorder::boundShowId() const
     return m_state.boundShowId;
 }
 
-bool ShowCommandRecorder::checkpoint()
+bool ShowCommandRecorder::checkpoint(bool disarming)
 {
     QString error;
-    if (publishCheckpoint(&error))
+    if (publishCheckpoint(disarming, &error))
         return true;
 
     reportFailure(error);
     return false;
 }
 
-bool ShowCommandRecorder::publishCheckpoint(QString *error)
+bool ShowCommandRecorder::publishCheckpoint(bool disarming, QString *error)
 {
     const ShowTraceCause operation = newCause();
     QScopedValueRollback<const ShowTraceCause *> scoped(m_operation,
                                                         operation.generation != 0 ? &operation : nullptr);
-    const bool published = publishAccepted(error);
+    const bool published = publishAccepted(disarming, error);
+    if (published && disarming == false)
+        armCheckpointSaveProjection();
     if (operation.generation == 0 || operation.generation != ShowEventLog::generation())
         return published;
     ShowEventLog::Entry e = causeEntry(operation, Phase::Transport, published ? Outcome::Applied : Outcome::Failed,
@@ -283,7 +374,7 @@ bool ShowCommandRecorder::publishCheckpoint(QString *error)
     return published;
 }
 
-bool ShowCommandRecorder::publishAccepted(QString *error)
+bool ShowCommandRecorder::publishAccepted(bool disarming, QString *error)
 {
     // the take's Show ends at its content even when it accepted nothing new
     QVector<quint32> shows;
@@ -299,7 +390,7 @@ bool ShowCommandRecorder::publishAccepted(QString *error)
     for (quint32 showId : std::as_const(shows))
     {
         Show *show = qobject_cast<Show *>(m_doc->function(showId));
-        if (show == nullptr || publishUnpublished(show, error) == false)
+        if (show == nullptr || publishUnpublished(show, disarming, error) == false)
             published = false;
     }
     return published;
@@ -310,7 +401,7 @@ void ShowCommandRecorder::discardUnpublished()
     m_unpublished.clear();
 }
 
-bool ShowCommandRecorder::publishUnpublished(Show *show, QString *error)
+bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString *error)
 {
     // traversals only grow, so only the latest accepted one can still be
     // current; the Show decides that as it publishes: live ids must not echo,
@@ -332,6 +423,30 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, QString *error)
             return false;
         if (accepted.traversal == latest)
             executed.insert(accepted.command.id);
+    }
+    if (disarming && show->id() == m_state.boundShowId)
+    {
+        QHash<QUuid, ShowCommand> openHolds;
+        for (const ShowCommand &cmd : candidate.commands())
+        {
+            if (cmd.action != ShowCommandAction::SetButtonState || !isHoldRole(cmd.role))
+                continue;
+            if (cmd.on)
+                openHolds.insert(cmd.controlId, cmd);
+            else
+                openHolds.remove(cmd.controlId);
+        }
+
+        const quint32 closeTime = qMin(acceptancePosition(show), ShowCommand::MaxTime);
+        for (const ShowCommand &open : std::as_const(openHolds))
+        {
+            ShowCommand close = ShowCommand::setButtonState(candidate.nextEventId(), closeTime,
+                                                            open.controlId, false);
+            close.role = open.role;
+            close.pairId = open.pairId;
+            if (candidate.insert(close, error) == false)
+                return false;
+        }
     }
     // nothing new and already ending at its content: nothing to publish
     if (candidate.count() == show->commandTrack().count() && candidate.extent() == candidate.lastCommandTime())
@@ -369,6 +484,55 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, QString *error)
                                        [show](const Unpublished &accepted) { return accepted.showId == show->id(); }),
                         m_unpublished.end());
     return true;
+}
+
+ShowCommandTrack ShowCommandRecorder::projectedCheckpointTrack(Show *show, bool *projected) const
+{
+    ShowCommandTrack candidate = show->commandTrack();
+    bool hasProjection = false;
+    if (show->id() == m_state.boundShowId && m_state.recording)
+    {
+        QHash<QUuid, ShowCommand> openHolds;
+        for (const ShowCommand &cmd : candidate.commands())
+        {
+            if (cmd.action != ShowCommandAction::SetButtonState || !isHoldRole(cmd.role))
+                continue;
+            if (cmd.on)
+                openHolds.insert(cmd.controlId, cmd);
+            else
+                openHolds.remove(cmd.controlId);
+        }
+
+        const quint32 closeTime = qMin(acceptancePosition(show), ShowCommand::MaxTime);
+        for (const ShowCommand &open : std::as_const(openHolds))
+        {
+            ShowCommand close = ShowCommand::setButtonState(candidate.nextEventId(), closeTime,
+                                                            open.controlId, false);
+            close.role = open.role;
+            close.pairId = open.pairId;
+            QString error;
+            if (!candidate.insert(close, &error))
+                continue;
+            hasProjection = true;
+        }
+        if (hasProjection)
+            candidate.setExtent(candidate.lastCommandTime());
+    }
+    if (projected != nullptr)
+        *projected = hasProjection;
+    return candidate;
+}
+
+void ShowCommandRecorder::armCheckpointSaveProjection()
+{
+    Show *show = trackedShow();
+    if (show == nullptr)
+        return;
+
+    bool projected = false;
+    const ShowCommandTrack candidate = projectedCheckpointTrack(show, &projected);
+    if (projected)
+        show->armCommandTrackSaveProjection(candidate);
 }
 
 int ShowCommandRecorder::phaseValue() const
@@ -524,7 +688,18 @@ void ShowCommandRecorder::requestUserControl(ShowControlRequest request)
     Show *show = trackedShow();
     request.acceptedTimeMs = show != nullptr ? acceptancePosition(show) : 0;
     request.epoch = m_requestEpoch;
-    request.accepted = configurationOf(request.control);
+    request.accepted = configurationOf(request.control, &request.nativeInput);
+    if (request.sliderChannel)
+        request.nativeInput = ShowControlAction::acceptedInput(request);
+    if (ShowCommand::hasTypedPayload(request.nativeInput.action))
+    {
+        const QString reason = ShowControlAction::preflight(request.control, request.nativeInput);
+        if (!reason.isEmpty())
+        {
+            reportFailure(reason);
+            return;
+        }
+    }
     if (ShowEventLog::generation() != 0)
         request.cause = newCause(request.origin, request.control);
     {
@@ -565,46 +740,29 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
         return;
     }
 
-    ShowCommandInput input;
-    input.origin = request.origin;
-    input.role = request.role;
-    if (qobject_cast<VCButton *>(request.control) != nullptr)
-    {
-        input.action = ShowCommandAction::SetButtonState;
-        input.on = request.on;
-    }
-    else if (VCSlider *slider = qobject_cast<VCSlider *>(request.control))
-    {
-        // unchanged against the value the control holds once its queued requests ran
-        int previous = slider->value();
-        for (int i = m_userRequests.count() - 1; i >= 0; i--)
+    const ShowControlRequest *previous = nullptr;
+    const ShowCommandAction action = ShowControlAction::acceptedInput(request).action;
+    for (int i = m_userRequests.count() - 1; i >= 0; --i)
+        if (m_userRequests.at(i).control == request.control &&
+            ShowControlAction::acceptedInput(m_userRequests.at(i)).action == action)
         {
-            if (m_userRequests.at(i).control == request.control)
-            {
-                previous = m_userRequests.at(i).value;
-                break;
-            }
+            previous = &m_userRequests.at(i);
+            break;
         }
-        if (request.value == previous)
-        {
-            if (diag)
-                traceRequest(request, Phase::Decision, Outcome::Ignored, tr("unchanged value"));
-            return;
-        }
-
-        const qreal low = slider->rangeLowLimit();
-        const qreal high = slider->rangeHighLimit();
-        input.action = ShowCommandAction::SetSliderPosition;
-        input.attribute = request.accepted.snapshot.attribute;
-        // an empty range yields no finite position, which the FSM rejects with a reason
-        input.position = (qreal(request.value) - low) / (high - low);
-    }
-    else
+    const auto plan = ShowControlAction::planCapture(request, ShowControlAction::observe(request.control), previous);
+    if (!plan.supported)
     {
         if (diag)
             traceRequest(request, Phase::Decision, Outcome::Unsupported, tr("not a recordable control"));
         return;
     }
+    if (plan.unchanged)
+    {
+        if (diag)
+            traceRequest(request, Phase::Decision, Outcome::Ignored, tr("unchanged value"));
+        return;
+    }
+    ShowCommandInput input = plan.input;
 
     input.controlId = request.control->ensureRecordingId();
     // the identity this capture issues is the one its entries name
@@ -632,7 +790,7 @@ void ShowCommandRecorder::drainUserRequests()
             continue;
         }
         // accepted against what the control no longer is: never retargeted
-        const ShowControlConfiguration current = configurationOf(request.control);
+        const ShowControlConfiguration current = configurationOf(request.control, &request.nativeInput);
         if (current.snapshot.role != request.role || current != request.accepted)
         {
             m_userRequests.removeAt(i);
@@ -650,31 +808,80 @@ void ShowCommandRecorder::drainUserRequests()
         m_userRequests.removeAt(i);
         const TracedCall traced;
         const bool authored = request.authoredShowId != ShowCommand::InvalidId;
-        const QVector<TimelineFact> closure = authored ? closureOf(request.control) : QVector<TimelineFact>();
-        if (VCButton *button = qobject_cast<VCButton *>(request.control))
+        const FunctionParent requestOwner(FunctionParent::ManualVCWidget, request.control->id());
+        const QVector<TimelineFact> closure = authored ? closureOf(request.control, requestOwner) : QVector<TimelineFact>();
+        const ShowCommandInput input = ShowControlAction::acceptedInput(request);
+        const auto receipt = ShowControlAction::apply(m_doc, request.control, input, requestOwner,
+                                                      false, false, &request);
+        if (!receipt.refusal.isEmpty())
         {
-            const ShowCommandFsm::ShowButtonOp op = button->applyUserState(request.on);
-            if (authored)
-                journal(closure, request.authoredShowId, request.acceptedTimeMs,
-                        op == ShowCommandFsm::ShowButtonOp::Start);
-            if (request.cause.generation != 0)
-                traceRequest(request, Phase::Execute, Outcome::Requested, tr("native start/stop through the button"));
+            reportFailure(receipt.refusal);
+            traceRequest(request, Phase::Execute,
+                         receipt.executionFailed ? Outcome::Failed : Outcome::Cancelled, receipt.refusal);
+            continue;
         }
-        else if (VCSlider *slider = qobject_cast<VCSlider *>(request.control))
+        if (request.authoredShowId == ShowCommand::InvalidId &&
+            ShowCommandFsm::isUserOrigin(request.origin) && request.accepted.snapshot.enabled)
+            for (TimelineFact &fact : m_timeline)
+                if (fact.control == request.control && fact.owner.type() == FunctionParent::Function)
+                    fact.superseded = true;
+        if (input.action == ShowCommandAction::SetButtonState)
         {
-            const bool unchanged = slider->value() == request.value;
-            slider->setValue(request.value, true, request.updateFeedback);
-            if (authored)
-                journal(closure, request.authoredShowId, request.acceptedTimeMs, false);
-            if (request.cause.generation != 0)
-                traceRequest(request, Phase::Execute, unchanged ? Outcome::Skipped : Outcome::Applied,
-                             unchanged ? tr("already at this value") : tr("control value set"));
+            const quint32 widgetId = request.control->id();
+            const quint32 intentShowId = request.authoredShowId != ShowCommand::InvalidId
+                                           ? request.authoredShowId : trackedShowId();
+            if (request.role == ShowControlRole::FreezeHoldButton)
+            {
+                if (request.on)
+                    m_userFreezeHolds.insert(widgetId);
+                else
+                    m_userFreezeHolds.remove(widgetId);
+            }
+            else if (request.role == ShowControlRole::FlashButton)
+            {
+                if (request.on)
+                    m_userFlashHolds.insert(widgetId);
+                else
+                    m_userFlashHolds.remove(widgetId);
+            }
+            else if (request.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
+            {
+                m_userFreezeIntent.insert(intentShowId, request.on);
+            }
+            else if (request.role == ShowControlRole::BlackoutButton && intentShowId != ShowCommand::InvalidId)
+            {
+                m_userBlackoutIntent.insert(intentShowId, request.on);
+            }
+            else if (request.buttonState)
+            {
+                if (request.on)
+                    m_userSliderFlashHolds.insert(widgetId);
+                else
+                    m_userSliderFlashHolds.remove(widgetId);
+            }
         }
+        if (authored)
+            journal(closure, request.authoredShowId, request.acceptedTimeMs,
+                    receipt.buttonOp == ShowCommandFsm::ShowButtonOp::Start, requestOwner, receipt);
+        if (request.cause.generation != 0)
+            traceRequest(request, Phase::Execute, receipt.unchanged ? Outcome::Skipped
+                         : receipt.requested || !receipt.functions.isEmpty() ||
+                           receipt.buttonOp != ShowCommandFsm::ShowButtonOp::None
+                             ? Outcome::Requested : Outcome::Applied,
+                         receipt.unchanged ? tr("native value unchanged") : tr("native action applied"));
     }
 }
 
 bool ShowCommandRecorder::userRequestWaits(int index) const
 {
+    if (index >= 0 && index < m_userRequests.count())
+    {
+        const ShowControlRole role = m_userRequests.at(index).role;
+        if (role == ShowControlRole::FreezeHoldButton || role == ShowControlRole::FreezeButton ||
+            role == ShowControlRole::BlackoutButton)
+            return false;
+    }
+
     QVector<ShowCommand> owed;
     for (const ControlRun &run : m_controlRuns)
     {
@@ -690,7 +897,8 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
         return false;
 
     VCWidget *control = m_userRequests.at(index).control;
-    const ShowControlCoupling coupling = couplingOf(control, controlFunction(control));
+    const ShowCommandInput input = ShowControlAction::acceptedInput(m_userRequests.at(index));
+    const ShowControlCoupling coupling = couplingOf(control, ShowControlAction::functionId(control, &input));
     const auto dependent = [&](VCWidget *other, quint32 functionId)
     {
         const ShowControlCoupling done = couplingOf(other, functionId);
@@ -702,15 +910,19 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
     for (int i = 0; i < index; i++)
     {
         VCWidget *earlier = m_userRequests.at(i).control;
-        if (earlier != nullptr && dependent(earlier, controlFunction(earlier)))
+        const ShowCommandInput earlierInput = ShowControlAction::acceptedInput(m_userRequests.at(i));
+        if (earlier != nullptr && dependent(earlier, ShowControlAction::functionId(earlier, &earlierInput)))
             return true;
     }
     for (const ShowCommand &cmd : std::as_const(owed))
     {
-        if (cmd.action == ShowCommandAction::SetButtonState || cmd.action == ShowCommandAction::SetSliderPosition)
+        if (ShowCommand::isControlAction(cmd.action))
         {
             VCWidget *replayed = resolveControl(cmd);
-            if (replayed != nullptr && dependent(replayed, controlFunction(replayed)))
+            ShowCommandInput replayInput;
+            replayInput.action = cmd.action;
+            replayInput.payload = cmd.payload;
+            if (replayed != nullptr && dependent(replayed, ShowControlAction::functionId(replayed, &replayInput)))
                 return true;
         }
         else if (dependent(nullptr, cmd.functionId))
@@ -725,6 +937,12 @@ void ShowCommandRecorder::dropUserRequests()
 {
     m_requestEpoch++;
     m_userRequests.clear();
+    m_replayFreezeHolds.clear();
+    m_replayFlashButtons.clear();
+    m_replaySliderFlashes.clear();
+    m_userFreezeHolds.clear();
+    m_userFlashHolds.clear();
+    m_userSliderFlashHolds.clear();
 }
 
 void ShowCommandRecorder::slotFunctionRemoved(quint32 id)
@@ -740,6 +958,11 @@ void ShowCommandRecorder::slotFunctionRemoved(quint32 id)
     m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
                                     [id](const TimelineFact &fact) { return fact.showId == id; }),
                      m_timeline.end());
+    m_replayFreezeHolds.remove(id);
+    m_replayFlashButtons.remove(id);
+    m_replaySliderFlashes.remove(id);
+    m_userFreezeIntent.remove(id);
+    m_userBlackoutIntent.remove(id);
     // accepted input goes with the Show that owned it
     m_unpublished.erase(std::remove_if(m_unpublished.begin(), m_unpublished.end(),
                                        [id](const Unpublished &accepted) { return accepted.showId == id; }),
@@ -842,6 +1065,79 @@ QVector<quint32> idList(const QVariantList &ids)
         list.append(id.toUInt());
     return list;
 }
+
+bool isPairedHoldCommand(const ShowCommand &cmd)
+{
+    return cmd.action == ShowCommandAction::SetButtonState && isHoldRole(cmd.role) &&
+           cmd.pairId != ShowCommand::InvalidId;
+}
+
+QString validateWholeHoldSelection(const ShowCommandTrack &track, const QVector<quint32> &selected)
+{
+    if (selected.isEmpty())
+        return QString();
+
+    QHash<quint32, QVector<const ShowCommand *>> pairEdges;
+    for (const ShowCommand &cmd : track.commands())
+    {
+        if (isPairedHoldCommand(cmd))
+            pairEdges[cmd.pairId].append(&cmd);
+    }
+
+    const QSet<quint32> selectedIds(selected.cbegin(), selected.cend());
+    for (quint32 id : selected)
+    {
+        const int index = track.indexOfId(id);
+        if (index < 0)
+            return ShowCommandRecorder::tr("Some selected events no longer exist");
+        const ShowCommand &cmd = track.commands().at(index);
+        if (!isPairedHoldCommand(cmd))
+            continue;
+
+        const QVector<const ShowCommand *> edges = pairEdges.value(cmd.pairId);
+        if (edges.count() != 2 || edges.at(0)->controlId != edges.at(1)->controlId ||
+            edges.at(0)->role != edges.at(1)->role || edges.at(0)->on == edges.at(1)->on)
+        {
+            return ShowCommandRecorder::tr("Hold pair %1 is malformed").arg(cmd.pairId);
+        }
+        if (!selectedIds.contains(edges.at(0)->id) || !selectedIds.contains(edges.at(1)->id))
+            return ShowCommandRecorder::tr("Select both edges of each hold pair");
+    }
+    return QString();
+}
+
+QString validateClipboardHoldPairs(const QVector<ShowCommand> &copied)
+{
+    QHash<quint32, QVector<const ShowCommand *>> pairEdges;
+    for (const ShowCommand &cmd : copied)
+    {
+        if (isPairedHoldCommand(cmd))
+            pairEdges[cmd.pairId].append(&cmd);
+    }
+    for (auto it = pairEdges.cbegin(); it != pairEdges.cend(); ++it)
+    {
+        const QVector<const ShowCommand *> edges = it.value();
+        if (edges.count() != 2 || edges.at(0)->controlId != edges.at(1)->controlId ||
+            edges.at(0)->role != edges.at(1)->role || edges.at(0)->on == edges.at(1)->on)
+        {
+            return ShowCommandRecorder::tr("A copied hold pair is incomplete; copy again");
+        }
+    }
+    return QString();
+}
+
+quint32 nextHoldPairId(const ShowCommandTrack &track)
+{
+    quint32 top = 0;
+    for (const ShowCommand &cmd : track.commands())
+    {
+        if (cmd.pairId != ShowCommand::InvalidId)
+            top = qMax(top, cmd.pairId);
+    }
+    if (top == std::numeric_limits<quint32>::max())
+        return ShowCommand::InvalidId;
+    return top + 1;
+}
 } // namespace
 
 QVariantList ShowCommandRecorder::commands() const
@@ -884,8 +1180,44 @@ QVariantList ShowCommandRecorder::commands() const
                 value = percentText(cmd.position);
                 field = QStringLiteral("value");
             break;
+            case ShowCommandAction::SetSliderColors:
+                entry["actionLabel"] = tr("Slider colors");
+                value = tr("RGB/WAUV %1, brightness %2").arg(cmd.nativeArgument(), percentText(cmd.position));
+                field = QStringLiteral("value");
+            break;
+            case ShowCommandAction::SetSliderReset:
+                entry["actionLabel"] = tr("Slider reset");
+                value = tr("Release override");
+                field = QStringLiteral("state");
+            break;
+            case ShowCommandAction::SetXYPadPosition:
+                entry["actionLabel"] = tr("XY position");
+                value = tr("Pan/Tilt %1 (0..255)").arg(cmd.nativeArgument());
+                field = QStringLiteral("value");
+            break;
+            case ShowCommandAction::SetXYPadFloor:
+                entry["actionLabel"] = tr("Floor target (m)");
+                value = tr("X/Y/Z %1 m").arg(cmd.nativeArgument());
+                field = QStringLiteral("value");
+            break;
+            case ShowCommandAction::SetAnimationFader:
+                entry["actionLabel"] = tr("Animation fader");
+                value = percentText(cmd.position);
+                field = QStringLiteral("value");
+            break;
+            case ShowCommandAction::SetXYPadRanges:
+            case ShowCommandAction::SetXYPadPositionPreset:
+            case ShowCommandAction::SetXYPadFunctionPreset:
+            case ShowCommandAction::SetXYPadGroupPreset:
+            case ShowCommandAction::SetAnimationColor:
+            case ShowCommandAction::SetAnimationContent:
+            case ShowCommandAction::SetSliderChannel:
+                entry["actionLabel"] = commandActionText(cmd);
+                value = cmd.payload.encode(cmd.action);
+                field = QStringLiteral("arguments");
+            break;
         }
-        if (cmd.action == ShowCommandAction::SetButtonState || cmd.action == ShowCommandAction::SetSliderPosition)
+        if (ShowCommand::isControlAction(cmd.action))
         {
             // the same resolution replay uses: what this record reaches now
             const QList<VCWidget *> widgets = m_vc != nullptr ? m_vc->widgetsByRecordingId(cmd.controlId)
@@ -894,7 +1226,13 @@ QVariantList ShowCommandRecorder::commands() const
             for (VCWidget *widget : widgets)
                 matches.append(configurationOf(widget).snapshot);
             QString reason;
-            const ShowControlStatus status = ShowCommandFsm::resolveControl(cmd, matches, &reason);
+            ShowControlStatus status = ShowCommandFsm::resolveControl(cmd, matches, &reason);
+            if (status == ShowControlStatus::Ready)
+            {
+                reason = ShowControlAction::readiness(widgets.first(), cmd);
+                if (!reason.isEmpty())
+                    status = ShowControlStatus::Incompatible;
+            }
 
             QStringList parts{cmd.controlId.toString(QUuid::WithoutBraces)};
             control = widgets.isEmpty() ? tr("Missing control") : widgets.first()->caption();
@@ -920,9 +1258,14 @@ QVariantList ShowCommandRecorder::commands() const
         }
         entry["control"] = control;
         entry["detail"] = detail;
-        entry["valueText"] = field == QStringLiteral("state") || value.isEmpty() ? value : value + QLatin1Char('%');
+        const bool coordinates = cmd.action == ShowCommandAction::SetXYPadPosition ||
+                                 cmd.action == ShowCommandAction::SetXYPadFloor ||
+                                 ShowCommand::hasTypedPayload(cmd.action);
+        entry["valueText"] = field == QStringLiteral("state") || value.isEmpty() || coordinates
+            ? value : value + QLatin1Char('%');
         entry["valueEdit"] = value;
         entry["valueField"] = field;
+        entry["typed"] = !nativeDraft(cmd).isEmpty();
         list.append(entry);
     }
     return list;
@@ -990,7 +1333,8 @@ QVariantList ShowCommandRecorder::groups() const
         entry["endTime"] = group.endTime;
         entry["sampleCount"] = group.eventIds.size();
         entry["endValueText"] = rows.value(group.eventIds.last()).value("valueText");
-        entry["slider"] = group.action == ShowCommandAction::SetSliderPosition;
+        entry["slider"] = group.action == ShowCommandAction::SetSliderPosition ||
+                          group.action == ShowCommandAction::SetSliderColors;
         result.append(entry);
     }
     return result;
@@ -1005,7 +1349,8 @@ QVariantMap ShowCommandRecorder::sliderSamples(quint32 showId, const QVariantLis
         const QSet<quint32> wanted(list.begin(), list.end());
         for (const ShowCommand &cmd : m_track.commands())
         {
-            if (cmd.action != ShowCommandAction::SetSliderPosition || !wanted.contains(cmd.id))
+            if ((cmd.action != ShowCommandAction::SetSliderPosition &&
+                 cmd.action != ShowCommandAction::SetSliderColors) || !wanted.contains(cmd.id))
                 continue;
             ids.append(cmd.id);
             times.append(cmd.time);
@@ -1069,6 +1414,9 @@ bool ShowCommandRecorder::retimeCommand(quint32 showId, quint32 id, qreal ms)
         return false;
     if (!std::isfinite(ms) || ms < 0 || ms > ShowCommand::MaxTime)
         return editFailed(tr("%1 is not a valid time").arg(ms));
+    const QString pairError = validateWholeHoldSelection(show->commandTrack(), {id});
+    if (pairError.isEmpty() == false)
+        return editFailed(pairError);
 
     ShowCommandTrack edited = show->commandTrack();
     QString error;
@@ -1104,7 +1452,9 @@ bool ShowCommandRecorder::setCommandValue(quint32 showId, quint32 id, qreal valu
     {
         if (cmd.action == ShowCommandAction::SetIntensity)
             cmd.intensity = value;
-        else if (cmd.action == ShowCommandAction::SetSliderPosition)
+        else if (cmd.action == ShowCommandAction::SetSliderPosition ||
+                 cmd.action == ShowCommandAction::SetSliderColors ||
+                 cmd.action == ShowCommandAction::SetAnimationFader)
             cmd.position = value;
         else
             return tr("%1 has no value").arg(ShowCommand::actionToString(cmd.action));
@@ -1169,6 +1519,9 @@ bool ShowCommandRecorder::removeCommands(quint32 showId, const QVariantList &ids
         return false;
 
     const QVector<quint32> affected = idList(ids);
+    const QString pairError = validateWholeHoldSelection(show->commandTrack(), affected);
+    if (pairError.isEmpty() == false)
+        return editFailed(pairError);
     ShowCommandTrack edited = show->commandTrack();
     QString error;
     for (quint32 id : affected)
@@ -1181,6 +1534,10 @@ bool ShowCommandRecorder::removeCommands(quint32 showId, const QVariantList &ids
 
 bool ShowCommandRecorder::shiftCommands(Show *show, const QVector<quint32> &ids, qint64 delta)
 {
+    const QString pairError = validateWholeHoldSelection(show->commandTrack(), ids);
+    if (pairError.isEmpty() == false)
+        return editFailed(pairError);
+
     ShowCommandTrack edited;
     const ShowRetimeRefusal refusal = show->commandTrack().retimeSelection(ids, ShowRetimeKind::Move, delta, &edited);
     if (refusal != ShowRetimeRefusal::None)
@@ -1221,10 +1578,37 @@ bool ShowCommandRecorder::beginEditSession(quint32 showId, const QVariantList &i
     }
     if (basis.isEmpty() || basis.count() != unique.count())
         return editFailed(wanted.isEmpty() ? tr("Nothing selected") : tr("Some selected events no longer exist"));
+    const QString pairError = validateWholeHoldSelection(show->commandTrack(), wanted);
+    if (pairError.isEmpty() == false)
+        return editFailed(pairError);
 
     m_session.show = show;
     m_session.ids = wanted;
     m_session.basis = basis;
+    for (const ShowCommand &command : basis)
+    {
+        if (nativeDraft(command).isEmpty() || m_vc == nullptr)
+            continue;
+        const auto controls = m_vc->widgetsByRecordingId(command.controlId);
+        if (controls.count() == 1 &&
+            configurationOf(controls.first()).snapshot.role == command.role)
+        {
+            if (command.action == ShowCommandAction::SetXYPadFloor)
+            {
+                QVariantMap info = ShowControlAction::editorInfo(controls.first(), QString());
+                info.remove("choices");
+                m_session.floorMetadata.insert(command.id, info);
+            }
+            ShowCommandInput input;
+            input.action = command.action;
+            input.payload = command.payload;
+            auto metadata = configurationOf(controls.first(), &input);
+            // Editor compatibility compares copied binding values, not object continuity.
+            metadata.functionLifetime.clear();
+            metadata.nativeLifetimes.clear();
+            m_session.nativeMetadata.insert(command.id, metadata);
+        }
+    }
     m_sessionEndReason.clear();
     setError(QString());
     emit editSessionChanged();
@@ -1328,6 +1712,110 @@ bool ShowCommandRecorder::commitCellText(const QString &field, const QString &te
     return true;
 }
 
+QVariantMap ShowCommandRecorder::typedDraft(quint32 showId, quint32 id) const
+{
+    Show *show = trackedShow();
+    if (show == nullptr || show->id() != showId)
+        return {};
+    const int index = show->commandTrack().indexOfId(id);
+    return index < 0 ? QVariantMap() : nativeDraft(show->commandTrack().commands().at(index));
+}
+
+QVariantMap ShowCommandRecorder::typedEditorInfo(quint32 id, const QString &algorithm) const
+{
+    const int index = m_track.indexOfId(id);
+    if (index < 0)
+        return {};
+    const auto &command = m_track.commands().at(index);
+    const QList<VCWidget *> matches = m_vc != nullptr ? m_vc->widgetsByRecordingId(command.controlId)
+                                                     : QList<VCWidget *>();
+    return matches.count() == 1 ? ShowControlAction::editorInfo(matches.first(), algorithm) : QVariantMap();
+}
+
+QVariantMap ShowCommandRecorder::previewTypedEdit(const QVariantMap &drafts) const
+{
+    const QString conflict = sessionConflict();
+    if (!conflict.isEmpty())
+        return {{"reason", conflict}};
+    if (drafts.count() != m_session.basis.count())
+        return {{"reason", tr("A typed commit must name every frozen selected event")}};
+    QVariantMap candidates;
+    for (const ShowCommand &frozen : m_session.basis)
+    {
+        const QString key = QString::number(frozen.id);
+        if (!drafts.contains(key) || drafts.value(key).metaType().id() != QMetaType::QVariantMap)
+            return {{"reason", tr("A typed commit must name every frozen selected event")}};
+        ShowCommand candidate = frozen;
+        const QString reason = applyNativeDraft(&candidate, drafts.value(key).toMap());
+        if (!reason.isEmpty())
+            return {{"reason", reason}};
+        if (!nativeDraft(candidate).isEmpty() && m_vc != nullptr)
+        {
+            const auto controls = m_vc->widgetsByRecordingId(candidate.controlId);
+            if (m_session.floorMetadata.contains(candidate.id))
+            {
+                QVariantMap info = controls.count() == 1
+                    ? ShowControlAction::editorInfo(controls.first(), QString()) : QVariantMap();
+                info.remove("choices");
+                if (info != m_session.floorMetadata.value(candidate.id))
+                    return {{"reason", tr("Native floor bounds changed during this edit")}};
+            }
+            if (m_session.nativeMetadata.contains(candidate.id))
+            {
+                if (controls.count() != 1)
+                    return {{"reason", tr("Native edit target is missing or ambiguous")}};
+                ShowCommandInput input;
+                input.action = frozen.action;
+                input.payload = frozen.payload;
+                auto metadata = configurationOf(controls.first(), &input);
+                metadata.functionLifetime.clear();
+                metadata.nativeLifetimes.clear();
+                if (metadata != m_session.nativeMetadata.value(candidate.id))
+                    return {{"reason", tr("Native binding or metadata changed during this edit")}};
+            }
+            if (controls.count() == 1 &&
+                ShowControlAction::configuration(m_doc, controls.first()).snapshot.role == candidate.role)
+            {
+                const QString invalid = ShowControlAction::readiness(controls.first(), candidate);
+                if (!invalid.isEmpty())
+                    return {{"reason", invalid}};
+            }
+        }
+        candidates.insert(key, nativeDraft(candidate));
+    }
+    return {{"arguments", candidates}};
+}
+
+bool ShowCommandRecorder::commitTypedEdit(const QVariantMap &drafts)
+{
+    const QString conflict = sessionConflict();
+    if (!conflict.isEmpty())
+    {
+        endEditSession();
+        return editFailed(conflict);
+    }
+    const QVariantMap preview = previewTypedEdit(drafts);
+    if (preview.contains("reason"))
+        return editFailed(preview.value("reason").toString());
+    Show *show = editableShow(m_session.show->id());
+    if (show == nullptr)
+        return false;
+    ShowCommandTrack candidate = show->commandTrack();
+    QString reason;
+    for (const ShowCommand &frozen : m_session.basis)
+    {
+        ShowCommand command = frozen;
+        reason = applyNativeDraft(&command, drafts.value(QString::number(frozen.id)).toMap());
+        if (!reason.isEmpty() || !candidate.replace(command, &reason))
+            return editFailed(reason);
+    }
+    const QVector<quint32> ids = m_session.ids;
+    const bool published = publishEdit(show, candidate, ids);
+    if (published)
+        endEditSession();
+    return published;
+}
+
 bool ShowCommandRecorder::moveCommands(quint32 showId, const QVariantList &ids, int direction, qreal stepMs)
 {
     Show *show = editableShow(showId);
@@ -1376,7 +1864,10 @@ bool ShowCommandRecorder::setCommandAction(quint32 showId, quint32 id, const QSt
     {
         ShowCommandAction next;
         if (!ShowCommand::actionFromString(action, &next) || next == ShowCommandAction::SetButtonState ||
-            next == ShowCommandAction::SetSliderPosition || cmd.controlId.isNull() == false)
+            next == ShowCommandAction::SetSliderPosition || next == ShowCommandAction::SetSliderColors ||
+            next == ShowCommandAction::SetSliderReset || next == ShowCommandAction::SetXYPadPosition ||
+            next == ShowCommandAction::SetAnimationFader ||
+            cmd.controlId.isNull() == false)
             return tr("%1 is not a function command action").arg(action);
         cmd.action = next;
         // a trigger carries no value, so changing one drops it rather than
@@ -1419,6 +1910,18 @@ bool ShowCommandRecorder::copyCommands(quint32 showId, const QVariantList &ids)
         setError(wanted.isEmpty() ? tr("Nothing selected") : tr("Some selected events no longer exist"));
         return false;
     }
+    const QString pairError = validateWholeHoldSelection(show->commandTrack(), wanted);
+    if (pairError.isEmpty() == false)
+    {
+        setError(pairError);
+        return false;
+    }
+    const QString clipboardError = validateClipboardHoldPairs(copied);
+    if (clipboardError.isEmpty() == false)
+    {
+        setError(clipboardError);
+        return false;
+    }
 
     m_clipboard = copied;
     m_clipboardDeletedTargets.clear();
@@ -1458,11 +1961,19 @@ QVariantList ShowCommandRecorder::pasteCommands(quint32 showId, qreal atMs)
             return QVariantList();
         }
     }
+    const QString clipboardError = validateClipboardHoldPairs(m_clipboard);
+    if (clipboardError.isEmpty() == false)
+    {
+        editFailed(clipboardError);
+        return QVariantList();
+    }
 
     // above every id the Show, its input not taken yet and its history hold
     ShowCommandTrack candidate = show->commandTrack();
     candidate.reserve(withUnpublished(show).nextEventId(), 0);
     const qint64 delta = qRound64(atMs) - qint64(m_clipboard.first().time);
+    quint32 nextPair = nextHoldPairId(candidate);
+    QHash<quint32, quint32> pairRemap;
     QVector<quint32> added;
     QString error;
     // copied order in, so equal times keep their copied ties after the existing ones
@@ -1473,6 +1984,22 @@ QVariantList ShowCommandRecorder::pasteCommands(quint32 showId, qreal atMs)
         {
             editFailed(tr("Pasting here would put an event outside the Show"));
             return QVariantList();
+        }
+        if (isPairedHoldCommand(copy))
+        {
+            if (!pairRemap.contains(copy.pairId))
+            {
+                if (nextPair == ShowCommand::InvalidId)
+                {
+                    editFailed(tr("This Show has no hold pair id left"));
+                    return QVariantList();
+                }
+                pairRemap.insert(copy.pairId, nextPair);
+                nextPair = (nextPair == std::numeric_limits<quint32>::max() - 1)
+                    ? ShowCommand::InvalidId
+                    : nextPair + 1;
+            }
+            copy.pairId = pairRemap.value(copy.pairId);
         }
         copy.id = candidate.nextEventId();
         copy.time = quint32(time);
@@ -1639,7 +2166,7 @@ bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *
 
     // published, it is unsaved Show content; kept, it is unsaved input
     QString error;
-    if (publishUnpublished(show, &error))
+    if (publishUnpublished(show, false, &error))
         return true;
 
     if (ShowEventLog::generation() != 0)
@@ -1689,6 +2216,7 @@ bool ShowCommandRecorder::publishEdit(Show *show, ShowCommandTrack candidate, co
     QString error;
     if (publishTrack(candidate, QSet<quint32>(), show->commandTraversal(), show, &error) == false)
         return editFailed(error);
+    reconcileReplayOwnedHoldsAtCursor(show);
 
     if (Tardis *tardis = Tardis::instance())
         tardis->enqueueAction(Tardis::ShowManagerCommandEdit, edit.showId, QVariant(), QVariant::fromValue(edit));
@@ -1697,6 +2225,73 @@ bool ShowCommandRecorder::publishEdit(Show *show, ShowCommandTrack candidate, co
     m_doc->setModified();
     setError(QString());
     return true;
+}
+
+void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
+{
+    if (show == nullptr || m_vc == nullptr)
+        return;
+
+    const quint32 showId = show->id();
+    const FunctionParent replayOwner(FunctionParent::Function, showId);
+    const quint32 cursor = show->elapsed();
+    const QVector<ShowCommand> commands = show->commandTrack().commands();
+    const auto holdStateAt = [&commands, cursor](const QUuid &controlId,
+                                                 const std::function<bool(ShowControlRole)> &acceptRole) {
+        bool seen = false;
+        bool on = false;
+        for (const ShowCommand &cmd : commands)
+        {
+            if (cmd.action != ShowCommandAction::SetButtonState || cmd.controlId != controlId || cmd.time > cursor ||
+                !acceptRole(cmd.role))
+            {
+                continue;
+            }
+            seen = true;
+            on = cmd.on;
+        }
+        return seen && on;
+    };
+    const ShowControlAction::Holds user{m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
+
+    const auto isFreezeHoldRole = [](ShowControlRole role) { return role == ShowControlRole::FreezeHoldButton; };
+    QSet<QUuid> replayFreeze = m_replayFreezeHolds.value(showId);
+    for (const QUuid &controlId : replayFreeze)
+    {
+        if (holdStateAt(controlId, isFreezeHoldRole))
+            continue;
+        const QList<VCWidget *> widgets = m_vc->widgetsByRecordingId(controlId);
+        for (VCWidget *widget : widgets)
+            ShowControlAction::releaseHold(m_vc, widget, ShowControlRole::FreezeHoldButton, replayOwner, user, false);
+        m_replayFreezeHolds[showId].remove(controlId);
+    }
+
+    const auto isFlashRole = [](ShowControlRole role) { return role == ShowControlRole::FlashButton; };
+    QSet<QUuid> replayFlash = m_replayFlashButtons.value(showId);
+    for (const QUuid &controlId : replayFlash)
+    {
+        if (holdStateAt(controlId, isFlashRole))
+            continue;
+        const QList<VCWidget *> widgets = m_vc->widgetsByRecordingId(controlId);
+        for (VCWidget *widget : widgets)
+            ShowControlAction::releaseHold(m_vc, widget, ShowControlRole::FlashButton, replayOwner, user, false);
+        m_replayFlashButtons[showId].remove(controlId);
+    }
+
+    const auto isSliderRole = [](ShowControlRole role) {
+        return role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
+               role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
+    };
+    QSet<QUuid> replaySliderFlash = m_replaySliderFlashes.value(showId);
+    for (const QUuid &controlId : replaySliderFlash)
+    {
+        if (holdStateAt(controlId, isSliderRole))
+            continue;
+        const QList<VCWidget *> widgets = m_vc->widgetsByRecordingId(controlId);
+        for (VCWidget *widget : widgets)
+            ShowControlAction::releaseHold(m_vc, widget, ShowControlRole::AdjustSlider, replayOwner, user, false);
+        m_replaySliderFlashes[showId].remove(controlId);
+    }
 }
 
 bool ShowCommandRecorder::editFailed(const QString &error)
@@ -1733,6 +2328,18 @@ QString commandActionText(const ShowCommand &cmd)
         case ShowCommandAction::SetIntensity: return ShowCommandRecorder::tr("Set intensity");
         case ShowCommandAction::SetButtonState: return ShowCommandRecorder::tr("Button state");
         case ShowCommandAction::SetSliderPosition: return ShowCommandRecorder::tr("Slider position");
+        case ShowCommandAction::SetSliderColors: return ShowCommandRecorder::tr("Slider colors");
+        case ShowCommandAction::SetSliderReset: return ShowCommandRecorder::tr("Slider reset");
+        case ShowCommandAction::SetXYPadPosition: return ShowCommandRecorder::tr("XY position");
+        case ShowCommandAction::SetXYPadFloor: return ShowCommandRecorder::tr("Floor target (m)");
+        case ShowCommandAction::SetAnimationFader: return ShowCommandRecorder::tr("Animation fader");
+        case ShowCommandAction::SetXYPadRanges: return ShowCommandRecorder::tr("XY range endpoints");
+        case ShowCommandAction::SetXYPadPositionPreset: return ShowCommandRecorder::tr("XY position choice");
+        case ShowCommandAction::SetXYPadFunctionPreset: return ShowCommandRecorder::tr("XY function choice");
+        case ShowCommandAction::SetXYPadGroupPreset: return ShowCommandRecorder::tr("XY group choice");
+        case ShowCommandAction::SetAnimationColor: return ShowCommandRecorder::tr("Matrix color");
+        case ShowCommandAction::SetAnimationContent: return ShowCommandRecorder::tr("Matrix content");
+        case ShowCommandAction::SetSliderChannel: return ShowCommandRecorder::tr("Channel value");
     }
     return QString();
 }
@@ -1743,7 +2350,11 @@ QString commandValueText(const ShowCommand &cmd)
     {
         case ShowCommandAction::SetIntensity: return QString::number(cmd.intensity * 100.0, 'f', 1) + QLatin1Char('%');
         case ShowCommandAction::SetSliderPosition: return QString::number(cmd.position * 100.0, 'f', 1) + QLatin1Char('%');
+        case ShowCommandAction::SetSliderColors: return QString::number(cmd.position * 100.0, 'f', 1) + QLatin1Char('%');
         case ShowCommandAction::SetButtonState: return cmd.on ? ShowCommandRecorder::tr("On") : ShowCommandRecorder::tr("Off");
+        case ShowCommandAction::SetSliderReset: return ShowCommandRecorder::tr("Release override");
+        case ShowCommandAction::SetXYPadPosition: return cmd.nativeArgument();
+        case ShowCommandAction::SetAnimationFader: return QString::number(cmd.position * 100.0, 'f', 1) + QLatin1Char('%');
         default: break;
     }
     return QString();
@@ -1765,8 +2376,12 @@ QString commandText(const ShowCommand &cmd)
 
 QString requestValueText(const ShowControlRequest &request)
 {
-    if (request.role == ShowControlRole::ToggleButton)
+    if (request.buttonState)
         return request.on ? ShowCommandRecorder::tr("On") : ShowCommandRecorder::tr("Off");
+    if (request.sliderColors)
+        return QString::number(request.value * 100.0 / 255.0, 'f', 1) + QLatin1Char('%');
+    if (request.sliderReset)
+        return ShowCommandRecorder::tr("Release override");
     return QString::number(request.value);
 }
 } // namespace
@@ -1792,7 +2407,10 @@ void ShowCommandRecorder::traceRequest(const ShowControlRequest &request, Phase 
         return;
 
     e.showTimeMs = request.acceptedTimeMs;
-    e.action = request.role == ShowControlRole::ToggleButton ? tr("Button state") : tr("Slider value");
+    e.action = request.buttonState ? tr("Button state")
+             : request.sliderColors ? tr("Slider colors")
+             : request.sliderReset ? tr("Slider reset")
+                                   : tr("Slider value");
     e.value = requestValueText(request);
     ShowEventLog::append(e);
 }
@@ -2066,6 +2684,7 @@ void ShowCommandRecorder::attachShow(Show *show)
             &ShowCommandRecorder::slotCommandTraversalCancelled, queued);
     connect(show, &Show::commandWorkDrained, this, &ShowCommandRecorder::drainUserRequests, queued);
     connect(show, &Function::running, this, &ShowCommandRecorder::slotShowPlayback);
+    connect(show, qOverload<quint32>(&Function::stopped), this, &ShowCommandRecorder::slotShowStopped);
     connect(show, qOverload<quint32>(&Function::stopped), this, &ShowCommandRecorder::slotShowPlayback);
     connect(show, qOverload<quint32>(&Function::stopped), this, &ShowCommandRecorder::slotTimelineReset);
     connect(show, &Show::syncSourceChanged, this, &ShowCommandRecorder::slotTimelineReset);
@@ -2077,6 +2696,8 @@ void ShowCommandRecorder::slotTimelineReset()
     if (show == nullptr)
         return;
     const quint32 showId = show->id();
+    m_userFreezeIntent.remove(showId);
+    m_userBlackoutIntent.remove(showId);
     m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
                                     [showId](const TimelineFact &fact) { return fact.showId == showId; }),
                      m_timeline.end());
@@ -2084,7 +2705,51 @@ void ShowCommandRecorder::slotTimelineReset()
 
 void ShowCommandRecorder::slotShowPlayback()
 {
+    if (auto *show = qobject_cast<Show *>(sender()); show != nullptr && show->isRunning())
+    {
+        const quint32 showId = show->id();
+        m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
+                                       [showId](const TimelineFact &fact) { return fact.showId == showId; }),
+                         m_timeline.end());
+    }
     emit editGateChanged();
+}
+
+void ShowCommandRecorder::slotShowStopped(quint32)
+{
+    Show *show = qobject_cast<Show *>(sender());
+    if (show == nullptr)
+        return;
+    drainUserRequests();
+
+    ShowControlAction::Stop state;
+    state.owner = FunctionParent(FunctionParent::Function, show->id());
+    state.freeze = m_replayFreezeHolds.value(show->id());
+    state.flash = m_replayFlashButtons.value(show->id());
+    state.sliderFlash = m_replaySliderFlashes.value(show->id());
+    state.user = {m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
+    if (m_userFreezeIntent.contains(show->id()))
+        state.freezeIntent = m_userFreezeIntent.value(show->id());
+    if (m_userBlackoutIntent.contains(show->id()))
+        state.blackoutIntent = m_userBlackoutIntent.value(show->id());
+    for (const TimelineFact &fact : std::as_const(m_timeline))
+    {
+        if (fact.showId != show->id() || !(fact.owner == state.owner))
+            continue;
+        ShowControlAction::Restoration effect;
+        effect.control = fact.control;
+        effect.owner = fact.owner;
+        effect.after = fact.nativeAfter;
+        effect.releaseOwner = fact.ownerRecorded && !fact.ownerBefore;
+        state.effects.append(effect);
+    }
+    const auto retained = ShowControlAction::stop(m_doc, m_vc, state);
+    m_userFreezeHolds = retained.freeze;
+    m_userFlashHolds = retained.flash;
+    m_userSliderFlashHolds = retained.sliderFlash;
+    m_replayFreezeHolds.remove(show->id());
+    m_replayFlashButtons.remove(show->id());
+    m_replaySliderFlashes.remove(show->id());
 }
 
 void ShowCommandRecorder::setRowsObserved(bool observed)
@@ -2103,16 +2768,25 @@ QString ShowCommandRecorder::bindingText(VCWidget *widget) const
     switch (current.snapshot.role)
     {
         case ShowControlRole::ToggleButton:
+        case ShowControlRole::FlashButton:
         case ShowControlRole::AdjustSlider:
             parts.append(bound != nullptr ? bound->name() : tr("no function"));
             if (current.snapshot.role == ShowControlRole::AdjustSlider)
                 parts.append(current.snapshot.attribute);
         break;
+        case ShowControlRole::BlackoutButton: parts.append(tr("Blackout")); break;
+        case ShowControlRole::FreezeButton: parts.append(tr("Freeze")); break;
+        case ShowControlRole::FreezeHoldButton: parts.append(tr("Freeze hold")); break;
         case ShowControlRole::LevelSlider:
             parts.append(tr("%n channel(s)", "", current.levelChannels.count()));
         break;
         case ShowControlRole::SubmasterSlider: parts.append(tr("Submaster")); break;
         case ShowControlRole::GrandMasterSlider: parts.append(tr("Grand Master")); break;
+        case ShowControlRole::XYPad: parts.append(tr("XY Pad")); break;
+        case ShowControlRole::AnimationFader:
+            parts.append(bound != nullptr ? bound->name() : tr("no function"));
+            parts.append(tr("Animation fader"));
+        break;
         case ShowControlRole::None: break;
     }
     return parts.join(QStringLiteral(" · "));
@@ -2168,10 +2842,16 @@ QString roleLabel(ShowControlRole role)
     switch (role)
     {
         case ShowControlRole::ToggleButton: return ShowCommandRecorder::tr("Toggle button");
+        case ShowControlRole::FlashButton: return ShowCommandRecorder::tr("Flash button");
+        case ShowControlRole::BlackoutButton: return ShowCommandRecorder::tr("Blackout button");
+        case ShowControlRole::FreezeButton: return ShowCommandRecorder::tr("Freeze button");
+        case ShowControlRole::FreezeHoldButton: return ShowCommandRecorder::tr("Freeze hold button");
         case ShowControlRole::LevelSlider: return ShowCommandRecorder::tr("Level slider");
         case ShowControlRole::AdjustSlider: return ShowCommandRecorder::tr("Adjust slider");
         case ShowControlRole::SubmasterSlider: return ShowCommandRecorder::tr("Submaster slider");
         case ShowControlRole::GrandMasterSlider: return ShowCommandRecorder::tr("Grand Master slider");
+        case ShowControlRole::XYPad: return ShowCommandRecorder::tr("XY pad");
+        case ShowControlRole::AnimationFader: return ShowCommandRecorder::tr("Animation fader");
         case ShowControlRole::None: break;
     }
     return QString();
@@ -2212,7 +2892,29 @@ QVariantList ShowCommandRecorder::referencedControls() const
         expected.role = ref.role;
         expected.attribute = ref.attribute;
         QString reason;
-        const ShowControlStatus status = ShowCommandFsm::resolveControl(expected, matches, &reason);
+        ShowControlStatus status = ShowCommandFsm::resolveControl(expected, matches, &reason);
+        if (status == ShowControlStatus::Ready)
+        {
+            for (const ShowCommand &command : m_track.commands())
+            {
+                if (command.controlId != ref.controlId || command.role != ref.role ||
+                    command.attribute != ref.attribute)
+                    continue;
+                QString refusal;
+                ShowControlStatus candidate = ShowCommandFsm::resolveControl(command, matches, &refusal);
+                if (candidate == ShowControlStatus::Ready)
+                {
+                    refusal = ShowControlAction::readiness(it->widgets.first(), command);
+                    if (!refusal.isEmpty())
+                        candidate = ShowControlStatus::Incompatible;
+                }
+                if (statusRank(candidate) < statusRank(status))
+                {
+                    status = candidate;
+                    reason = refusal;
+                }
+            }
+        }
 
         QString role = roleLabel(ref.role);
         if (!ref.attribute.isEmpty())
@@ -2304,18 +3006,7 @@ void ShowCommandRecorder::observeRowSources()
         {
             m_rowSources.append(connect(widget, &VCWidget::captionChanged, this, refresh));
             m_rowSources.append(connect(widget, &VCWidget::disabledStateChanged, this, refresh));
-        }
-        if (VCButton *button = qobject_cast<VCButton *>(source))
-        {
-            m_rowSources.append(connect(button, &VCButton::functionIDChanged, this, refresh));
-            m_rowSources.append(connect(button, &VCButton::actionTypeChanged, this, refresh));
-        }
-        if (VCSlider *slider = qobject_cast<VCSlider *>(source))
-        {
-            m_rowSources.append(connect(slider, &VCSlider::sliderModeChanged, this, refresh));
-            m_rowSources.append(connect(slider, &VCSlider::controlledFunctionChanged, this, refresh));
-            m_rowSources.append(connect(slider, &VCSlider::controlledAttributeChanged, this, refresh));
-            m_rowSources.append(connect(slider, &VCSlider::channelsCountChanged, this, refresh));
+            m_rowSources += ShowControlAction::observeConfiguration(widget, this, refresh);
         }
     };
 
@@ -2396,27 +3087,36 @@ void ShowCommandRecorder::slotFunctionReceiptReady(quint64 traversal, quint64 op
     }
 }
 
-void ShowCommandRecorder::slotRecordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect)
+void ShowCommandRecorder::slotRecordedWriteRetired(quint64 generation, int outcome, quint32 functionId, int effect,
+                                                  const QString &reason)
 {
-    Q_UNUSED(outcome)
-
-    VCSlider *slider = qobject_cast<VCSlider *>(sender());
-    if (slider == nullptr)
+    VCWidget *control = qobject_cast<VCWidget *>(sender());
+    if (control == nullptr)
         return;
 
     for (int i = 0; i < m_controlRuns.count(); i++)
     {
         ControlRun &run = m_controlRuns[i];
-        if (run.waitingWrites.removeAll(qMakePair(slider->id(), generation)) == 0)
+        if (run.waitingWrites.removeAll(qMakePair(control->id(), generation)) == 0)
             continue;
 
-        if (effect != VCSlider::RecordedWriteNoEffect)
+        if (!reason.isEmpty())
         {
-            ShowFunctionExpectation native;
-            native.functionId = functionId;
-            native.expectLive = effect == VCSlider::RecordedWriteStarted;
-            run.barrier.append(native);
+            if (const quint64 observation = ShowEventLog::generation())
+            {
+                ShowEventLog::Entry entry = traceEntry(observation, Phase::Execute, Outcome::Cancelled, reason);
+                entry.origin = int(ShowCommandOrigin::Replay);
+                entry.showId = run.show.isNull() ? Function::invalidId() : run.show->id();
+                entry.traversal = run.batch.traversal;
+                entry.control = control->caption();
+                entry.widgetId = control->id();
+                entry.value = tr("Native generation %1 retired with outcome %2").arg(generation).arg(outcome);
+                ShowEventLog::append(entry);
+            }
+            ShowEventLog::failure(reason, ShowEventLog::View::References);
         }
+        if (const auto native = ShowControlAction::writerExpectation(functionId, effect))
+            run.barrier.append(*native);
         if (!run.waitingWrites.isEmpty())
             return;
 
@@ -2458,6 +3158,16 @@ void ShowCommandRecorder::slotCommandTraversalCancelled()
             ShowEventLog::append(e);
         }
     }
+    if (m_vc != nullptr)
+    {
+        for (const ControlRun &run : std::as_const(m_controlRuns))
+        {
+            if (!run.show.isNull() && run.show->commandTraversal() == run.batch.traversal)
+                continue;
+            for (const auto &pending : run.waitingWrites)
+                ShowControlAction::cancelWriter(m_vc->widget(pending.first), pending.second);
+        }
+    }
     // a run parked on a receipt ends here, unacknowledged
     m_controlRuns.erase(std::remove_if(m_controlRuns.begin(), m_controlRuns.end(),
                                        [](const ControlRun &run)
@@ -2473,38 +3183,6 @@ void ShowCommandRecorder::slotCommandTraversalCancelled()
 bool ShowCommandRecorder::continueControlRun(ControlRun &run)
 {
     using ShowCommandFsm::ShowButtonOp;
-
-    // the boundary of an applied op, for whatever depends on it next
-    const auto expect = [](const QPair<ShowControlCoupling, ShowButtonOp> &done,
-                           const ShowControlCoupling *next)
-    {
-        QVector<ShowFunctionExpectation> expectations;
-        ShowFunctionExpectation own;
-        own.functionId = done.first.functionId;
-        own.expectLive = done.second == ShowButtonOp::Start;
-        expectations.append(own);
-        const auto member = [&](quint32 functionId)
-        {
-            ShowFunctionExpectation child;
-            child.functionId = functionId;
-            child.causeFunctionId = done.first.functionId;
-            expectations.append(child);
-        };
-        if (own.expectLive && next != nullptr)
-        {
-            if (done.first.startsFunctions.contains(next->functionId))
-                member(next->functionId);
-            // a started member whose Solo Frame sibling the next op starts
-            for (const QPair<quint32, quint32> &solo : done.first.memberSoloGroups)
-            {
-                // the function itself is already covered by its own expectation
-                if (next->soloGroup != ShowCommand::InvalidId && solo.second == next->soloGroup &&
-                    solo.first != done.first.functionId)
-                    member(solo.first);
-            }
-        }
-        return expectations;
-    };
 
     const auto wait = [this, &run](const QVector<ShowFunctionExpectation> &expectations)
     {
@@ -2535,9 +3213,15 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
             return true;
 
         const ShowCommand &cmd = run.batch.commands.at(run.next);
-        VCWidget *control = resolveControl(cmd);
-        VCButton *button = qobject_cast<VCButton *>(control);
-        VCSlider *slider = qobject_cast<VCSlider *>(control);
+        const auto resolution = ShowControlAction::resolve(m_doc, m_vc, cmd);
+        VCWidget *control = resolution.control;
+        ShowCommandInput input;
+        input.action = cmd.action;
+        input.role = cmd.role;
+        input.attribute = cmd.attribute;
+        input.on = cmd.on;
+        input.position = cmd.position;
+        input.payload = cmd.payload;
         // diagnostics of this op belong to the observation it started in
         const quint64 g = ShowEventLog::generation();
         const auto trace = [&](Outcome outcome, const QString &reason)
@@ -2560,38 +3244,51 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
             }
             ShowEventLog::append(e);
         };
-        if (button == nullptr && slider == nullptr)
+        if (run.claimedCommand == cmd.id &&
+            (run.claimedControl != control || control == nullptr ||
+             run.claimedConfiguration != configurationOf(control, &input)))
         {
-            // the same resolution, now for its reason
-            QVector<ShowControlSnapshot> matches;
-            if (m_vc != nullptr)
-            {
-                for (VCWidget *widget : m_vc->widgetsByRecordingId(cmd.controlId))
-                    matches.append(configurationOf(widget).snapshot);
-            }
-            QString reason;
-            ShowCommandFsm::resolveControl(cmd, matches, &reason);
-            const QString why = tr("Replay skipped %1: %2").arg(cmd.controlId.toString(QUuid::WithoutBraces), reason);
+            const QString why = tr("Replay cancelled %1: required native binding changed while waiting")
+                                    .arg(cmd.controlId.toString(QUuid::WithoutBraces));
+            trace(Outcome::Cancelled, why);
+            ShowEventLog::failure(why, ShowEventLog::View::References);
+            run.next++;
+            continue;
+        }
+        if (control == nullptr)
+        {
+            const QString why = tr("Replay skipped %1: %2").arg(cmd.controlId.toString(QUuid::WithoutBraces),
+                                                               resolution.reason);
             trace(Outcome::Skipped, why);
             ShowEventLog::failure(why, ShowEventLog::View::References);
             run.next++;
             continue;
         }
+        if (run.claimedCommand != cmd.id)
+        {
+            run.claimedCommand = cmd.id;
+            run.claimedControl = control;
+            run.claimedConfiguration = configurationOf(control, &input);
+        }
 
-        const ShowControlCoupling coupling = couplingOf(control, controlFunction(control));
+        const ShowControlCoupling coupling = couplingOf(control, ShowControlAction::functionId(control, &input));
         QVector<ShowFunctionExpectation> expectations;
         for (int i = run.unsettled.count() - 1; i >= 0; i--)
         {
-            if (!ShowCommandFsm::controlDependsOn(coupling, run.unsettled.at(i).first))
+            const auto plan = ShowControlAction::planReceipt(run.unsettled.at(i).first,
+                                                             run.unsettled.at(i).second, &coupling);
+            if (!plan.depends)
                 continue;
-            expectations += expect(run.unsettled.at(i), &coupling);
+            expectations += plan.functions;
             run.unsettled.removeAt(i);
         }
         for (int i = run.engineDone.count() - 1; i >= 0; i--)
         {
-            if (!ShowCommandFsm::controlDependsOn(coupling, run.engineDone.at(i).first))
+            const auto plan = ShowControlAction::planReceipt(run.engineDone.at(i).first,
+                                                             run.engineDone.at(i).second, &coupling);
+            if (!plan.depends)
                 continue;
-            expectations += expect(run.engineDone.at(i), &coupling);
+            expectations += plan.functions;
             run.engineDone.removeAt(i);
         }
         if (!expectations.isEmpty())
@@ -2601,45 +3298,61 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
         }
 
         run.next++;
-        const QVector<TimelineFact> closure = closureOf(control);
-        if (button != nullptr)
+        const FunctionParent replayOwner(FunctionParent::Function, run.show->id());
+        const QVector<TimelineFact> closure = closureOf(control, replayOwner);
+        const auto receipt = ShowControlAction::apply(m_doc, control, input, replayOwner, true);
+        if (!receipt.refusal.isEmpty())
         {
-            const ShowButtonOp op = button->applyRecordedState(cmd.on);
-            journal(closure, run.show->id(), cmd.time, op == ShowButtonOp::Start);
-            if (op != ShowButtonOp::None)
-                run.unsettled.append(qMakePair(coupling, op));
-            if (g != 0)
-                trace(op == ShowButtonOp::None ? Outcome::Skipped : Outcome::Requested,
-                      op == ShowButtonOp::None ? tr("already in the recorded state")
-                      : op == ShowButtonOp::Start ? tr("native start through the button")
-                                                  : tr("native stop through the button"));
+            trace(receipt.executionFailed ? Outcome::Failed : Outcome::Skipped, receipt.refusal);
+            ShowEventLog::failure(receipt.refusal, ShowEventLog::View::References);
+            if (!receipt.functions.isEmpty())
+            {
+                wait(receipt.functions);
+                return false;
+            }
             continue;
         }
-
-        const int valueBefore = slider->value();
-        const quint64 generation = slider->applyRecordedPosition(cmd.position);
-        journal(closure, run.show->id(), cmd.time, false);
-        if (g != 0)
-            trace(slider->value() == valueBefore ? Outcome::Skipped
-                  : generation != 0 ? Outcome::Requested : Outcome::Applied,
-                  slider->value() == valueBefore ? tr("already at the recorded position")
-                  : generation != 0 ? tr("value %1 set, its write is pending").arg(slider->value())
-                                    : tr("value %1 set").arg(slider->value()));
-        awaitRecordedWrite(run, slider, generation);
-        if (generation == 0)
-            expectSliderStart(run, slider);
-        // a Submaster rescales its frame's sliders, which keep the writes they owe
-        VCWidget *frame = qobject_cast<VCWidget *>(slider->parent());
-        if (slider->sliderMode() == VCSlider::Submaster && frame != nullptr)
+        if (cmd.action == ShowCommandAction::SetButtonState)
         {
-            for (VCSlider *child : frame->findChildren<VCSlider *>())
+            if (cmd.role == ShowControlRole::FreezeButton)
+                m_userFreezeIntent.remove(run.show->id());
+            else if (cmd.role == ShowControlRole::BlackoutButton)
+                m_userBlackoutIntent.remove(run.show->id());
+            if (cmd.role == ShowControlRole::FreezeHoldButton)
             {
-                if (child == slider)
-                    continue;
-                awaitRecordedWrite(run, child, child->awaitPendingWrite());
-                expectSliderStart(run, child);
+                QSet<QUuid> &holds = m_replayFreezeHolds[run.show->id()];
+                if (cmd.on)
+                    holds.insert(cmd.controlId);
+                else
+                    holds.remove(cmd.controlId);
+            }
+            else if (cmd.role == ShowControlRole::FlashButton)
+            {
+                QSet<QUuid> &holds = m_replayFlashButtons[run.show->id()];
+                if (cmd.on)
+                    holds.insert(cmd.controlId);
+                else
+                    holds.remove(cmd.controlId);
+            }
+            else if (cmd.role == ShowControlRole::LevelSlider || cmd.role == ShowControlRole::AdjustSlider ||
+                     cmd.role == ShowControlRole::SubmasterSlider || cmd.role == ShowControlRole::GrandMasterSlider)
+            {
+                QSet<QUuid> &holds = m_replaySliderFlashes[run.show->id()];
+                if (cmd.on)
+                    holds.insert(cmd.controlId);
+                else
+                    holds.remove(cmd.controlId);
             }
         }
+        journal(closure, run.show->id(), cmd.time, receipt.buttonOp == ShowButtonOp::Start, replayOwner, receipt);
+        if (receipt.buttonOp != ShowButtonOp::None)
+            run.unsettled.append(qMakePair(coupling, receipt.buttonOp));
+        trace(receipt.requested || !receipt.writes.isEmpty() || !receipt.functions.isEmpty() ||
+              receipt.buttonOp != ShowButtonOp::None
+              ? Outcome::Requested : Outcome::Applied, tr("native action applied"));
+        for (const auto &write : receipt.writes)
+            awaitRecordedWrite(run, write.first, write.second);
+        run.barrier += receipt.functions;
         if (!run.waitingWrites.isEmpty())
             return false;
         if (!run.barrier.isEmpty())
@@ -2657,7 +3370,7 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
     {
         QVector<ShowFunctionExpectation> expectations;
         for (const auto &done : run.unsettled)
-            expectations += expect(done, nullptr);
+            expectations += ShowControlAction::planReceipt(done.first, done.second).functions;
         run.unsettled.clear();
         wait(expectations);
         return false;
@@ -2667,93 +3380,94 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
     return true;
 }
 
-void ShowCommandRecorder::awaitRecordedWrite(ControlRun &run, VCSlider *slider, quint64 generation)
+void ShowCommandRecorder::awaitRecordedWrite(ControlRun &run, VCWidget *control, quint64 generation)
 {
     // ponytail: every later op of the batch waits for this write (one tick),
     // wait per dependency instead if a batch ever needs the overlap
+    if (control == nullptr)
+        return;
     if (generation == 0)
         return;
-    run.waitingWrites.append(qMakePair(slider->id(), generation));
-    connect(slider, &VCSlider::recordedWriteRetired, this,
-            &ShowCommandRecorder::slotRecordedWriteRetired, Qt::UniqueConnection);
+    run.waitingWrites.append(qMakePair(control->id(), generation));
+    connect(control, &QObject::destroyed, this, &ShowCommandRecorder::slotObservedControlDestroyed,
+            Qt::UniqueConnection);
+    ShowControlAction::connectWriter(control, this);
 }
 
-void ShowCommandRecorder::expectSliderStart(ControlRun &run, VCSlider *slider)
+void ShowCommandRecorder::slotObservedControlDestroyed(QObject *object)
 {
-    // Only an Adjust slider on Intensity starts its Function. A start an
-    // earlier write queued, even one that landed before anything waited,
-    // must be live first: observed, never acted on.
-    if (slider->sliderMode() == VCSlider::Adjust && slider->controlledAttribute() == Function::Intensity &&
-        m_doc->function(slider->controlledFunction()) != nullptr)
+    VCWidget *control = qobject_cast<VCWidget *>(object);
+    if (control == nullptr)
+        return;
+
+    for (int i = 0; i < m_controlRuns.count();)
     {
-        ShowFunctionExpectation start;
-        start.functionId = slider->controlledFunction();
-        run.barrier.append(start);
-    }
-}
-
-namespace
-{
-int timelineState(VCWidget *control)
-{
-    if (VCButton *button = qobject_cast<VCButton *>(control))
-        return button->state() == VCButton::Active ? 1 : 0;
-    if (VCSlider *slider = qobject_cast<VCSlider *>(control))
-        return slider->value();
-    return 0;
-}
-}
-
-QVector<ShowCommandRecorder::TimelineFact> ShowCommandRecorder::closureOf(VCWidget *control) const
-{
-    const int state = timelineState(control);
-    QVector<TimelineFact> closure{ { ShowCommand::InvalidId, 0, control, state, state } };
-    const auto add = [&closure](VCWidget *member, bool stopped) {
-        for (const TimelineFact &known : std::as_const(closure))
+        ControlRun &run = m_controlRuns[i];
+        const int removed = run.waitingWrites.removeIf(
+                [control](const QPair<quint32, quint64> &waited) { return waited.first == control->id(); });
+        if (removed == 0)
         {
-            if (known.control == member)
-                return;
+            i++;
+            continue;
         }
-        const int before = timelineState(member);
-        closure.append({ ShowCommand::InvalidId, 0, member, before, stopped ? 0 : before });
-    };
 
-    if (VCButton *button = qobject_cast<VCButton *>(control))
-    {
-        // the Solo Frames a start reaches: the button's own, and those of the
-        // buttons of what it starts, each told which Function started
-        const ShowControlCoupling coupling = couplingOf(control, controlFunction(control));
-        QVector<QPair<quint32, quint32>> starts = coupling.memberSoloGroups;
-        if (coupling.soloGroup != ShowCommand::InvalidId)
-            starts.prepend(qMakePair(coupling.functionId, coupling.soloGroup));
-        for (const QPair<quint32, quint32> &start : std::as_const(starts))
+        if (!run.waitingWrites.isEmpty())
         {
-            VCSoloFrame *frame = m_vc != nullptr ? qobject_cast<VCSoloFrame *>(m_vc->widget(start.second)) : nullptr;
-            if (frame == nullptr)
-                continue;
-            for (VCWidget *child : frame->children(true))
-            {
-                VCButton *sibling = qobject_cast<VCButton *>(child);
-                if (sibling != nullptr && sibling != button)
-                    add(sibling, sibling->soloStartStops(start.first, frame->excludeMonitoredFunctions()));
-            }
+            i++;
+            continue;
+        }
+
+        if (run.show.isNull())
+        {
+            m_controlRuns.removeAt(i);
+        }
+        else if (!run.barrier.isEmpty())
+        {
+            run.waitingOp = ++m_lastReceiptOp;
+            run.show->requestFunctionReceipt(run.batch.traversal, run.waitingOp,
+                                             std::exchange(run.barrier, QVector<ShowFunctionExpectation>()));
+            i++;
+        }
+        else if (continueControlRun(run))
+        {
+            m_controlRuns.removeAt(i);
+        }
+        else
+        {
+            i++;
         }
     }
-    else if (VCSlider *slider = qobject_cast<VCSlider *>(control))
+    drainUserRequests();
+}
+
+QVector<ShowCommandRecorder::TimelineFact> ShowCommandRecorder::closureOf(VCWidget *control, const FunctionParent &owner) const
+{
+    QVector<TimelineFact> closure;
+    for (const auto &native : ShowControlAction::closure(m_doc, m_vc, control, owner))
     {
-        VCWidget *frame = qobject_cast<VCWidget *>(slider->parent());
-        if (slider->sliderMode() == VCSlider::Submaster && frame != nullptr)
-        {
-            for (VCSlider *child : frame->findChildren<VCSlider *>())
-                add(child, false);
-        }
+        TimelineFact fact;
+        fact.showId = ShowCommand::InvalidId;
+        fact.time = 0;
+        fact.control = native.control;
+        fact.nativeBefore = native.before;
+        fact.nativeAfter = native.after;
+        fact.before = native.before.scalar;
+        fact.after = native.after.scalar;
+        fact.xyState = native.before.role == ShowControlRole::XYPad;
+        fact.xyBefore = native.before.point;
+        fact.xyAfter = native.after.point;
+        fact.owner = owner;
+        fact.ownerRecorded = true;
+        fact.ownerBefore = native.ownerBefore;
+        fact.conditionalOnStart = native.conditionalOnStart;
+        closure.append(fact);
     }
     return closure;
 }
 
-void ShowCommandRecorder::journal(QVector<TimelineFact> closure, quint32 showId, quint32 time, bool started)
+void ShowCommandRecorder::journal(QVector<TimelineFact> closure, quint32 showId, quint32 time, bool started,
+                                  const FunctionParent &owner, const ShowControlAction::Receipt &receipt)
 {
-    const bool button = qobject_cast<VCButton *>(closure.first().control) != nullptr;
     for (int i = 0; i < closure.count(); i++)
     {
         TimelineFact &fact = closure[i];
@@ -2761,234 +3475,84 @@ void ShowCommandRecorder::journal(QVector<TimelineFact> closure, quint32 showId,
             continue;
         fact.showId = showId;
         fact.time = time;
-        // a sibling's stop lands later, in slotFunctionStopped: its after is the predicted Solo effect
-        if (i == 0 || button == false)
-            fact.after = timelineState(fact.control);
-        else if (started == false)
-            fact.after = fact.before;
+        if (receipt.atomicNativeState && fact.control == receipt.control && !fact.conditionalOnStart)
+        {
+            fact.nativeBefore = receipt.before;
+            fact.nativeAfter = receipt.after;
+            fact.before = receipt.before.scalar;
+            fact.xyBefore = receipt.before.point;
+        }
+        else if (!fact.conditionalOnStart)
+            fact.nativeAfter = ShowControlAction::observe(fact.control);
+        else if (!started)
+            fact.nativeAfter = fact.nativeBefore;
+        fact.after = fact.nativeAfter.scalar;
+        fact.xyAfter = fact.nativeAfter.point;
+        fact.owner = owner;
+        fact.ownerRecorded = true;
         m_timeline.append(fact);
     }
 }
 
 void ShowCommandRecorder::rollBackTimeline(ControlRun &run)
 {
-    using ShowCommandFsm::ShowButtonOp;
     const quint32 showId = run.show->id();
     const quint32 to = *run.batch.rollbackTo;
+    const FunctionParent replayOwner(FunctionParent::Function, showId);
 
-    // per control: the state before its first fact after `to`, in the order
-    // they were journaled, and the state its latest fact left it in
-    QVector<QPair<QPointer<VCWidget>, int>> targets;
-    QHash<VCWidget *, int> latest;
+    QVector<ShowControlAction::Restoration> targets;
+    QHash<VCWidget *, ShowControlAction::State> latestNative;
     for (const TimelineFact &fact : std::as_const(m_timeline))
     {
         if (fact.showId != showId || fact.control.isNull())
             continue;
-        latest.insert(fact.control, fact.after);
+        latestNative.insert(fact.control, fact.nativeAfter);
         const bool known = std::any_of(targets.cbegin(), targets.cend(),
-                                       [&fact](const QPair<QPointer<VCWidget>, int> &target)
-                                       { return target.first == fact.control; });
+                                       [&fact](const ShowControlAction::Restoration &target)
+                                       { return target.control == fact.control; });
         if (fact.time > to && known == false)
-            targets.append(qMakePair(fact.control, fact.before));
+        {
+            ShowControlAction::Restoration target;
+            target.control = fact.control;
+            target.owner = fact.ownerRecorded ? fact.owner : replayOwner;
+            target.releaseOwner = fact.ownerRecorded && !fact.ownerBefore;
+            target.before = fact.nativeBefore;
+            target.superseded = fact.superseded;
+            targets.append(target);
+        }
     }
+    for (auto &target : targets)
+        target.after = latestNative.value(target.control);
     m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
                                     [showId, to](const TimelineFact &fact)
                                     { return fact.showId == showId && (fact.time > to || fact.control.isNull()); }),
                      m_timeline.end());
 
-    // something else changed it since the timeline did: that change wins
-    const auto changedElsewhere = [&latest](VCWidget *control) {
-        const auto it = latest.constFind(control);
-        return it == latest.cend() ? timelineState(control) != 0 : timelineState(control) != it.value();
-    };
-    // the Solo Frames a button's start reaches: its own, and those of the
-    // buttons of what it starts
-    const auto reachedFrames = [this](VCButton *button) {
-        QSet<quint32> frames;
-        const ShowControlCoupling coupling = couplingOf(button, controlFunction(button));
-        if (coupling.soloGroup != ShowCommand::InvalidId)
-            frames.insert(coupling.soloGroup);
-        for (const QPair<quint32, quint32> &member : coupling.memberSoloGroups)
-            frames.insert(member.second);
-        return frames;
-    };
-    QSet<quint32> guardedFrames;
-    for (const auto &target : std::as_const(targets))
+    const auto receipts = ShowControlAction::restoreBatch(m_doc, m_vc, targets, latestNative,
+                                                         m_userFlashHolds, m_userSliderFlashHolds);
+    for (const auto &receipt : receipts)
     {
-        VCButton *button = qobject_cast<VCButton *>(target.first);
-        if (button == nullptr)
-            continue;
-        for (const quint32 frameId : reachedFrames(button))
-        {
-            VCSoloFrame *frame = m_vc != nullptr ? qobject_cast<VCSoloFrame *>(m_vc->widget(frameId)) : nullptr;
-            if (frame == nullptr || guardedFrames.contains(frameId))
-                continue;
-            for (VCWidget *child : frame->children(true))
-            {
-                if (qobject_cast<VCButton *>(child) != nullptr && changedElsewhere(child))
-                    guardedFrames.insert(frameId);
-            }
-        }
-    }
-    // another Active Toggle button holds the same Function: stopping would end it for that one too
-    const auto heldElsewhere = [this](VCButton *button) {
-        for (int page = 0; m_vc != nullptr && page < m_vc->pagesCount(); page++)
-        {
-            for (VCWidget *widget : m_vc->page(page)->children(true))
-            {
-                VCButton *other = qobject_cast<VCButton *>(widget);
-                if (other != nullptr && other != button && other->functionID() == button->functionID() &&
-                    other->actionType() == VCButton::Toggle && other->state() == VCButton::Active)
-                    return true;
-            }
-        }
-        return false;
-    };
-
-    // one delta: buttons Off, slider values, then buttons On
-    for (int pass = 0; pass < 3; pass++)
-    {
-        for (const auto &target : std::as_const(targets))
-        {
-            VCWidget *control = target.first;
-            if (control == nullptr || timelineState(control) == target.second || changedElsewhere(control))
-                continue;
-            VCButton *button = qobject_cast<VCButton *>(control);
-            VCSlider *slider = qobject_cast<VCSlider *>(control);
-            if (slider != nullptr && pass == 1)
-            {
-                const quint64 generation = slider->applyRecordedValue(target.second);
-                awaitRecordedWrite(run, slider, generation);
-                if (generation == 0)
-                    expectSliderStart(run, slider);
-            }
-            else if (button != nullptr && pass == (target.second != 0 ? 2 : 0))
-            {
-                // switching a member On is the Solo operation that stops others
-                if (target.second != 0 && reachedFrames(button).intersects(guardedFrames))
-                    continue;
-                if (target.second == 0 && heldElsewhere(button) && button->releaseToMonitoring())
-                    continue;
-                const ShowButtonOp op = button->applyRecordedState(target.second != 0);
-                if (op != ShowButtonOp::None)
-                    run.unsettled.append(qMakePair(couplingOf(button, controlFunction(button)), op));
-            }
-        }
+        if (!receipt.refusal.isEmpty())
+            ShowEventLog::failure(receipt.refusal, ShowEventLog::View::References);
+        awaitRecordedWrite(run, receipt.control, receipt.writerGeneration);
+        run.barrier += receipt.functions;
+        if (receipt.buttonOp != ShowCommandFsm::ShowButtonOp::None)
+            run.unsettled.append(qMakePair(couplingOf(receipt.control, ShowControlAction::functionId(receipt.control)),
+                                          receipt.buttonOp));
     }
 }
 
 VCWidget *ShowCommandRecorder::resolveControl(const ShowCommand &cmd) const
 {
-    if (m_vc == nullptr)
-        return nullptr;
-
-    const QList<VCWidget *> widgets = m_vc->widgetsByRecordingId(cmd.controlId);
-    QVector<ShowControlSnapshot> matches;
-    for (VCWidget *widget : widgets)
-        matches.append(configurationOf(widget).snapshot);
-
-    if (ShowCommandFsm::resolveControl(cmd, matches, nullptr) != ShowControlStatus::Ready)
-        return nullptr;
-
-    return widgets.first();
+    return ShowControlAction::resolve(m_doc, m_vc, cmd).control;
 }
 
-ShowControlConfiguration ShowCommandRecorder::configurationOf(VCWidget *widget) const
+ShowControlConfiguration ShowCommandRecorder::configurationOf(VCWidget *widget, const ShowCommandInput *input) const
 {
-    ShowControlConfiguration configuration;
-    ShowControlSnapshot &snapshot = configuration.snapshot;
-    snapshot.enabled = !widget->isDisabled();
-    configuration.functionId = controlFunction(widget);
-    VCButton *button = qobject_cast<VCButton *>(widget);
-    if (button != nullptr && button->actionType() == VCButton::Toggle)
-    {
-        snapshot.role = ShowControlRole::ToggleButton;
-        snapshot.bound = m_doc->function(button->functionID()) != nullptr;
-    }
-    VCSlider *slider = qobject_cast<VCSlider *>(widget);
-    if (slider != nullptr)
-    {
-        switch (slider->sliderMode())
-        {
-            case VCSlider::Level:
-                snapshot.role = ShowControlRole::LevelSlider;
-                configuration.levelChannels = slider->levelChannels();
-            break;
-            case VCSlider::Submaster: snapshot.role = ShowControlRole::SubmasterSlider; break;
-            case VCSlider::GrandMaster: snapshot.role = ShowControlRole::GrandMasterSlider; break;
-            case VCSlider::Adjust:
-            {
-                Function *function = m_doc->function(slider->controlledFunction());
-                snapshot.role = ShowControlRole::AdjustSlider;
-                snapshot.bound = function != nullptr;
-                if (slider->controlledAttribute() == Function::Intensity)
-                    snapshot.attribute = QStringLiteral("Intensity");
-                else if (function != nullptr)
-                    snapshot.attribute = Function::typeToString(function->type()) + QLatin1Char(':') +
-                                         QString::number(slider->controlledAttribute());
-            }
-            break;
-        }
-    }
-    return configuration;
+    return ShowControlAction::configuration(m_doc, widget, input);
 }
 
 ShowControlCoupling ShowCommandRecorder::couplingOf(VCWidget *control, quint32 functionId) const
 {
-    const auto soloGroupOf = [](VCWidget *widget)
-    {
-        for (VCWidget *parent = qobject_cast<VCWidget *>(widget->parent()); parent != nullptr;
-             parent = qobject_cast<VCWidget *>(parent->parent()))
-        {
-            if (parent->type() == VCWidget::SoloFrameWidget)
-                return parent->id();
-            if (parent->type() != VCWidget::FrameWidget)
-                break;
-        }
-        return ShowCommand::InvalidId;
-    };
-
-    ShowControlCoupling coupling;
-    coupling.functionId = functionId;
-    if (control != nullptr)
-    {
-        coupling.controlId = control->recordingId();
-        coupling.soloGroup = soloGroupOf(control);
-    }
-
-    // what Collection::preRun starts, transitively through member Collections
-    QList<quint32> pending{ coupling.functionId };
-    while (!pending.isEmpty())
-    {
-        Collection *collection = qobject_cast<Collection *>(m_doc->function(pending.takeFirst()));
-        if (collection == nullptr)
-            continue;
-        for (quint32 member : collection->functions())
-        {
-            if (member == coupling.functionId || coupling.startsFunctions.contains(member) ||
-                m_doc->function(member) == nullptr)
-                continue;
-            coupling.startsFunctions.append(member);
-            pending.append(member);
-        }
-    }
-
-    // a started function, or a member it starts, stops the Solo Frame
-    // siblings of its buttons once their running() lands
-    const bool engineStart = control == nullptr;
-    for (int page = 0; m_vc != nullptr && (engineStart || !coupling.startsFunctions.isEmpty()) &&
-                       page < m_vc->pagesCount(); page++)
-    {
-        for (VCWidget *widget : m_vc->page(page)->children(true))
-        {
-            VCButton *button = qobject_cast<VCButton *>(widget);
-            if (button == nullptr || (button->functionID() != functionId &&
-                                      !coupling.startsFunctions.contains(button->functionID())))
-                continue;
-            const quint32 solo = soloGroupOf(button);
-            if (solo != ShowCommand::InvalidId)
-                coupling.memberSoloGroups.append(qMakePair(button->functionID(), solo));
-        }
-    }
-    return coupling;
+    return ShowControlAction::coupling(m_doc, m_vc, control, functionId);
 }

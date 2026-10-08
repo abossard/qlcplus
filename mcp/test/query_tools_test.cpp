@@ -16,10 +16,20 @@
 #include "chaser.h"
 #include "scriptv4.h"
 #include "qlcpalette.h"
+#include "qlcfixturedef.h"
+#include "qlcfixturemode.h"
+#include "qlcfixturedefcache.h"
+#include "qlcchannel.h"
+#include "qlcmodifierscache.h"
+#include "channelmodifier.h"
 #include "rgbscriptscache.h"
 #include "huescriptscache.h"
 
 #include <fastmcpp/tools/manager.hpp>
+#include <fastmcpp/mcp/handler.hpp>
+#include <fastmcpp/server/server.hpp>
+#include <fastmcpp/resources/manager.hpp>
+#include <fastmcpp/prompts/manager.hpp>
 
 using Json = nlohmann::json;
 
@@ -152,6 +162,79 @@ void QueryTools_Test::palettes_createQueryRoundTrip_data()
                                 << 0.0 << 0.0 << 0.0 << 88 << -1;
 }
 
+void QueryTools_Test::palettes_zoomValue_data()
+{
+    QTest::addColumn<QByteArray>("valueJson");
+    QTest::addColumn<QByteArray>("expectedJson"); // null == rejected
+
+    QTest::newRow("fractional") << QByteArray("22.5") << QByteArray("22.5");
+    QTest::newRow("integer stays integer") << QByteArray("40") << QByteArray("40");
+    QTest::newRow("negative") << QByteArray("-1") << QByteArray("null");
+    QTest::newRow("above range") << QByteArray("360.5") << QByteArray("null");
+    QTest::newRow("string") << QByteArray("\"40\"") << QByteArray("null");
+}
+
+void QueryTools_Test::deletePalettes_perSelectorRecords()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerPaletteTools(tm, m_doc);
+    QList<quint32> ids;
+    for (const char *name : {"Warm A", "Warm B", "Cold"})
+    {
+        QLCPalette *p = new QLCPalette(QLCPalette::Dimmer);
+        p->setName(name);
+        p->setValue(10);
+        QVERIFY(m_doc->addPalette(p));
+        ids << p->id();
+    }
+
+    // ids first (indices 0..), then names; one record per selector.
+    const Json res = parsedToolResult(tm.invoke("delete_palettes", Json{
+        {"ids", Json::array({int(ids[0]), 9999, int(ids[0]), 0.5})},
+        {"names", Json::array({"warm*", "Nothing*", 7})}}));
+    QVERIFY2(res.is_array() && res.size() == 7, res.dump().c_str());
+    for (int i = 0; i < 7; i++)
+        QCOMPARE(res[i].value("index", -1), i);
+    QCOMPARE(res[0].value("outcome", std::string()), std::string("deleted"));
+    QCOMPARE(res[1].value("status", std::string()), std::string("error"));
+    QCOMPARE(res[2].value("outcome", std::string()), std::string("duplicate"));
+    QCOMPARE(res[2].value("duplicateOf", -1), 0);
+    QCOMPARE(res[3].value("status", std::string()), std::string("error"));
+    // The glob reports both matches: Warm A already gone via index 0, Warm B deleted here.
+    QCOMPARE(res[4].value("outcome", std::string()), std::string("deleted"));
+    QVERIFY2(res[4]["palettes"].size() == 2, res.dump().c_str());
+    QCOMPARE(res[4]["palettes"][0].value("duplicateOf", -1), 0);
+    QCOMPARE(res[4]["palettes"][1].value("outcome", std::string()), std::string("deleted"));
+    QCOMPARE(res[5].value("status", std::string()), std::string("ok"));
+    QCOMPARE(res[5].value("outcome", std::string()), std::string("noMatch"));
+    QCOMPARE(res[6].value("status", std::string()), std::string("error"));
+    QCOMPARE(m_doc->palettes().size(), 1);
+    QCOMPARE(m_doc->palettes().first()->name(), QString("Cold"));
+}
+
+void QueryTools_Test::palettes_zoomValue()
+{
+    QFETCH(QByteArray, valueJson);
+    QFETCH(QByteArray, expectedJson);
+    fastmcpp::tools::ToolManager tm;
+    registerPaletteTools(tm, m_doc);
+    registerQueryTools(tm, m_doc, nullptr);
+
+    const Json item = {{"name", "Zoom"}, {"type", "Zoom"}, {"value", Json::parse(valueJson.constData())}};
+    const Json created = parsedToolResult(tm.invoke("create_palettes", Json{{"items", Json::array({item})}}));
+    const Json expected = Json::parse(expectedJson.constData());
+    const Json list = parsedToolResult(tm.invoke("query_palettes", Json{{"typeFilter", "Zoom"}}));
+    if (expected.is_null())
+    {
+        QVERIFY2(created[0].value("status", std::string()) == "error", created.dump().c_str());
+        QVERIFY2(QString::fromStdString(created[0].value("error", std::string())).contains("value"), created.dump().c_str());
+        QVERIFY2(list.is_array() && list.empty(), list.dump().c_str());
+        return;
+    }
+    QVERIFY2(list.is_array() && list.size() == 1, list.dump().c_str());
+    QCOMPARE(QByteArray(list[0]["value"].dump().c_str()), expectedJson);
+}
+
 void QueryTools_Test::palettes_createQueryRoundTrip()
 {
     // Exercise the real MCP boundary for the upstream 5.3.0 palette types:
@@ -186,7 +269,7 @@ void QueryTools_Test::palettes_createQueryRoundTrip()
     Json createRes = parsedToolResult(tm.invoke("create_palettes", Json{{"items", Json::array({item})}}));
     QVERIFY2(createRes.is_array(), "create_palettes must return an array");
     QCOMPARE((int)createRes.size(), 1);
-    QCOMPARE(createRes[0]["status"].get<std::string>(), std::string("created"));
+    QCOMPARE(createRes[0]["outcome"].get<std::string>(), std::string("created"));
     QCOMPARE(createRes[0]["type"].get<std::string>(), type.toStdString());
 
     // Assert: typeFilter returns exactly this palette, with type-specific fields
@@ -211,6 +294,54 @@ void QueryTools_Test::palettes_createQueryRoundTrip()
         if (value2 >= 0)
             QCOMPARE(entry["value2"].get<int>(), value2);
     }
+}
+
+void QueryTools_Test::palettes_updateModifiedAndFloatReadback()
+{
+    fastmcpp::tools::ToolManager tm;
+    registerPaletteTools(tm, m_doc);
+    registerQueryTools(tm, m_doc, nullptr);
+
+    Json item = {{"name", "PT"}, {"type", "PanTilt"}, {"panDegrees", 10.0}, {"tiltDegrees", 20.0}};
+    parsedToolResult(tm.invoke("create_palettes", Json{{"items", Json::array({item})}}));
+    m_doc->resetModified();
+
+    item["panDegrees"] = 10.5;
+    item["tiltDegrees"] = 20.5;
+    Json res = parsedToolResult(tm.invoke("create_palettes", Json{{"items", Json::array({item})}}));
+    QCOMPARE(res[0]["outcome"].get<std::string>(), std::string("updated"));
+    QVERIFY2(m_doc->isModified(), "updating a palette must mark the workspace modified");
+
+    Json list = parsedToolResult(tm.invoke("query_palettes", Json{{"typeFilter", "PanTilt"}}));
+    QCOMPARE(list[0]["panDegrees"].get<double>(), 10.5);
+    QCOMPARE(list[0]["tiltDegrees"].get<double>(), 20.5);
+}
+
+void QueryTools_Test::palettes_invalidValueKind_data()
+{
+    QTest::addColumn<QString>("json");
+    QTest::newRow("fractional value") << R"({"name":"D","type":"Dimmer","value":1.5})";
+    QTest::newRow("oversized value") << R"({"name":"D","type":"Dimmer","value":256})";
+    QTest::newRow("bool value") << R"({"name":"G","type":"Gobo","value":true})";
+    QTest::newRow("string degrees") << R"({"name":"P","type":"Pan","panDegrees":"10"})";
+    QTest::newRow("shutter pct 101") << R"({"name":"S","type":"Shutter","value":1,"value2":101})";
+    QTest::newRow("rgb not color") << R"({"name":"C","type":"Color","rgb":"nope"})";
+    QTest::newRow("name not string") << R"({"name":5,"type":"Dimmer"})";
+}
+
+void QueryTools_Test::palettes_invalidValueKind()
+{
+    QFETCH(QString, json);
+    fastmcpp::tools::ToolManager tm;
+    registerPaletteTools(tm, m_doc);
+
+    Json item = Json::parse(json.toStdString());
+    Json res = parsedToolResult(tm.invoke("create_palettes", Json{{"items", Json::array({item})}}));
+    QVERIFY2(res.is_array() && res.size() == 1, res.dump().c_str());
+    QCOMPARE(res[0]["index"].get<int>(), 0);
+    QCOMPARE(res[0]["status"].get<std::string>(), std::string("error"));
+    QVERIFY(res[0].contains("error"));
+    QCOMPARE(m_doc->palettes().size(), 0);
 }
 
 void QueryTools_Test::palettes_createInvalidTypeReturnsError()
@@ -723,6 +854,302 @@ void QueryTools_Test::patchFixtures_invalidBounds()
     QVERIFY(QString::fromStdString(result[0]["error"].get<std::string>())
                 .contains(field, Qt::CaseInsensitive));
     QCOMPARE(m_doc->fixturesCount(), 0);
+}
+
+void QueryTools_Test::patchFixtures_quantityIsAtomicPerItem()
+{
+    auto *def = new QLCFixtureDef();
+    def->setManufacturer("McpTest");
+    def->setModel("Par4");
+    auto *mode = new QLCFixtureMode(def);
+    mode->setName("4ch");
+    for (int i = 0; i < 4; i++)
+    {
+        auto *ch = new QLCChannel();
+        ch->setName(QString("Ch%1").arg(i));
+        def->addChannel(ch);
+        mode->insertChannel(ch, i);
+    }
+    def->addMode(mode);
+    QVERIFY(m_doc->fixtureDefCache()->addFixtureDef(def));
+    addFixtureLayout(m_doc); // "Alpha Wash" occupies universe 0, 10-13
+    const int before = m_doc->fixturesCount();
+    m_doc->resetModified();
+    auto tm = makeQueryToolManager(m_doc);
+
+    const Json base = {{"manufacturer", "McpTest"}, {"model", "Par4"}, {"mode", "4ch"}, {"universe", 0}};
+    Json overlapping = base; overlapping["name"] = "Clash"; overlapping["address"] = 0; overlapping["quantity"] = 4;
+    Json valid = base; valid["name"] = "Row"; valid["address"] = 200; valid["quantity"] = 2;
+    Json badName = base; badName["name"] = 5; badName["address"] = 300;
+
+    const Json result = parsedToolResult(tm.invoke("patch_fixtures",
+        {{"items", Json::array({overlapping, valid, badName})}}));
+    QVERIFY2(result.is_array() && result.size() == 3, result.dump().c_str());
+
+    QCOMPARE(result[0].value("index", -1), 0);
+    QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+    QVERIFY2(QString::fromStdString(result[0].value("error", "")).contains("overlap"), result.dump().c_str());
+
+    QCOMPARE(result[1].value("index", -1), 1);
+    QCOMPARE(result[1].value("status", std::string()), std::string("ok"));
+    QVERIFY2(result[1].contains("fixtures") && result[1]["fixtures"].size() == 2, result.dump().c_str());
+    QCOMPARE(result[1]["fixtures"][1].value("address", -1), 204);
+    QCOMPARE(result[1]["fixtures"][1].value("outcome", std::string()), std::string("created"));
+
+    QCOMPARE(result[2].value("index", -1), 2);
+    QCOMPARE(result[2].value("status", std::string()), std::string("error"));
+    QVERIFY(QString::fromStdString(result[2].value("error", "")).contains("name"));
+
+    QCOMPARE(m_doc->fixturesCount(), before + 2);
+    QVERIFY(m_doc->isModified());
+}
+
+void QueryTools_Test::queryFixtureChannels_invalidFixtureID_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("idJson");
+
+    for (const char *tool : {"query_fixture_channels", "read_dmx_values", "convert_degrees_to_dmx"})
+    {
+        QTest::newRow(qPrintable(QString("%1 fractional").arg(tool))) << tool << QByteArray("0.5");
+        QTest::newRow(qPrintable(QString("%1 above uint32").arg(tool))) << tool << QByteArray("4294967296");
+        QTest::newRow(qPrintable(QString("%1 negative").arg(tool))) << tool << QByteArray("-1");
+        QTest::newRow(qPrintable(QString("%1 boolean").arg(tool))) << tool << QByteArray("true");
+        QTest::newRow(qPrintable(QString("%1 string").arg(tool))) << tool << QByteArray("\"0\"");
+    }
+}
+
+void QueryTools_Test::queryFixtureChannels_invalidFixtureID()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, idJson);
+    addFixtureLayout(m_doc);
+    fastmcpp::tools::ToolManager tm;
+    registerChannelTools(tm, m_doc);
+
+    const Json id = Json::parse(idJson.constData());
+    if (tool == "convert_degrees_to_dmx")
+    {
+        // Batch tool: one indexed error record, no conversion for fixture 0/1.
+        const Json result = parsedToolResult(tm.invoke(tool.toStdString(),
+            {{"items", Json::array({{{"fixtureID", id}, {"panDegrees", 10}}})}}));
+        QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+        QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+        QCOMPARE(result[0].value("index", -1), 0);
+        QVERIFY(QString::fromStdString(result[0].value("error", "")).contains("fixtureID"));
+        return;
+    }
+    const Json result = parsedToolResult(tm.invoke(
+        tool.toStdString(), {{"fixtureIDs", Json::array({id})}}));
+    QVERIFY2(result.is_object() && result.contains("error"), result.dump().c_str());
+    QVERIFY(QString::fromStdString(result["error"].get<std::string>()).contains("fixtureIDs"));
+}
+
+void QueryTools_Test::configureChannels_invalidReference_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("itemJson");
+    QTest::addColumn<QString>("field");
+
+    // Fixture 0 ("Alpha Wash") has 4 channels.
+    for (const char *tool : {"configure_channels", "set_channel_modifiers"})
+    {
+        const QByteArray tail = QByteArray(tool) == "configure_channels"
+            ? QByteArray(R"("precedence":"htp")") : QByteArray(R"("modifierName":"none")");
+        QTest::newRow(qPrintable(QString("%1 fractional fixture").arg(tool)))
+            << tool << (R"({"fixtureID":0.5,"channel":0,)" + tail + "}") << "fixtureID";
+        QTest::newRow(qPrintable(QString("%1 oversized fixture").arg(tool)))
+            << tool << (R"({"fixtureID":4294967296,"channel":0,)" + tail + "}") << "fixtureID";
+        QTest::newRow(qPrintable(QString("%1 fractional channel").arg(tool)))
+            << tool << (R"({"fixtureID":0,"channel":1.5,)" + tail + "}") << "channel";
+        QTest::newRow(qPrintable(QString("%1 channel beyond fixture").arg(tool)))
+            << tool << (R"({"fixtureID":0,"channel":4,)" + tail + "}") << "channel";
+        QTest::newRow(qPrintable(QString("%1 negative channel").arg(tool)))
+            << tool << (R"({"fixtureID":0,"channel":-1,)" + tail + "}") << "channel";
+    }
+    QTest::newRow("configure_channels precedence not string")
+        << "configure_channels" << QByteArray(R"({"fixtureID":0,"channel":0,"precedence":5})") << "precedence";
+    QTest::newRow("configure_channels precedence unknown")
+        << "configure_channels" << QByteArray(R"({"fixtureID":0,"channel":0,"precedence":"loud"})") << "precedence";
+}
+
+void QueryTools_Test::configureChannels_invalidReference()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, itemJson);
+    QFETCH(QString, field);
+    addFixtureLayout(m_doc);
+    m_doc->resetModified();
+    fastmcpp::tools::ToolManager tm;
+    registerChannelTools(tm, m_doc);
+
+    const Json result = parsedToolResult(tm.invoke(
+        tool.toStdString(), {{"items", Json::array({Json::parse(itemJson.constData())})}}));
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QVERIFY2(result[0].value("status", "") == "error", result.dump().c_str());
+    QCOMPARE(result[0].value("index", -1), 0);
+    QVERIFY2(QString::fromStdString(result[0].value("error", "")).contains(field), result.dump().c_str());
+    Fixture *fxi = m_doc->fixture(0);
+    QVERIFY(fxi->forcedHTPChannels().isEmpty());
+    QVERIFY(!m_doc->isModified());
+}
+
+void QueryTools_Test::configureChannels_precedenceAndModified_data()
+{
+    QTest::addColumn<QString>("precedence");
+    QTest::addColumn<bool>("htp");
+    QTest::addColumn<bool>("ltp");
+
+    QTest::newRow("htp") << "htp" << true << false;
+    QTest::newRow("HTP") << "HTP" << true << false;
+    QTest::newRow("Ltp") << "Ltp" << false << true;
+}
+
+void QueryTools_Test::configureChannels_precedenceAndModified()
+{
+    QFETCH(QString, precedence);
+    QFETCH(bool, htp);
+    QFETCH(bool, ltp);
+    addFixtureLayout(m_doc);
+    m_doc->resetModified();
+    fastmcpp::tools::ToolManager tm;
+    registerChannelTools(tm, m_doc);
+
+    const Json result = parsedToolResult(tm.invoke("configure_channels", {{"items", Json::array({
+        {{"fixtureID", 0}, {"channel", 2}, {"precedence", precedence.toStdString()}}})}}));
+    QVERIFY2(result.is_array() && result[0].value("status", "") == "ok", result.dump().c_str());
+    Fixture *fxi = m_doc->fixture(0);
+    QCOMPARE(fxi->forcedHTPChannels().contains(2), htp);
+    QCOMPARE(fxi->forcedLTPChannels().contains(2), ltp);
+    QVERIFY2(m_doc->isModified(), "channel configuration must mark the workspace modified");
+}
+
+void QueryTools_Test::setChannelModifiers_marksModified()
+{
+    addFixtureLayout(m_doc);
+    m_doc->resetModified();
+    fastmcpp::tools::ToolManager tm;
+    registerChannelTools(tm, m_doc);
+
+    const Json result = parsedToolResult(tm.invoke("set_channel_modifiers", {{"items", Json::array({
+        {{"fixtureID", 0}, {"channel", 1}, {"modifierName", "none"}}})}}));
+    QVERIFY2(result.is_array() && result[0].value("status", "") == "ok", result.dump().c_str());
+    QVERIFY2(m_doc->isModified(), "modifier changes must mark the workspace modified");
+}
+
+void QueryTools_Test::channelConfig_survivesSaveReload_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("itemJson");
+    QTest::addColumn<bool>("canFade");
+    QTest::addColumn<bool>("htp");
+    QTest::addColumn<bool>("ltp");
+    QTest::addColumn<QString>("modifier");
+
+    QTest::newRow("canFade false") << "configure_channels"
+        << QByteArray(R"({"fixtureID":0,"channel":2,"canFade":false})") << false << false << false << QString();
+    QTest::newRow("precedence htp") << "configure_channels"
+        << QByteArray(R"({"fixtureID":0,"channel":2,"precedence":"htp"})") << true << true << false << QString();
+    QTest::newRow("precedence ltp + canFade false") << "configure_channels"
+        << QByteArray(R"({"fixtureID":0,"channel":2,"precedence":"ltp","canFade":false})") << false << false << true << QString();
+    QTest::newRow("modifier") << "set_channel_modifiers"
+        << QByteArray(R"({"fixtureID":0,"channel":2,"modifierName":"MCP Test Invert"})") << true << false << false
+        << QString("MCP Test Invert");
+}
+
+void QueryTools_Test::channelConfig_survivesSaveReload()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, itemJson);
+    QFETCH(bool, canFade);
+    QFETCH(bool, htp);
+    QFETCH(bool, ltp);
+    QFETCH(QString, modifier);
+
+    auto addTemplate = [](Doc *doc) {
+        auto *mod = new ChannelModifier();
+        mod->setName("MCP Test Invert");
+        mod->setModifierMap({{0, 255}, {255, 0}});
+        doc->modifiersCache()->addModifier(mod);
+    };
+    addTemplate(m_doc);
+    addFixtureLayout(m_doc);
+    fastmcpp::tools::ToolManager tm;
+    registerChannelTools(tm, m_doc);
+    const Json result = parsedToolResult(tm.invoke(tool.toStdString(),
+        {{"items", Json::array({Json::parse(itemJson.constData())})}}));
+    QVERIFY2(result.is_array() && result[0].value("status", "") == "ok", result.dump().c_str());
+
+    QByteArray data;
+    QBuffer buffer(&data);
+    buffer.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&buffer);
+    writer.writeStartDocument();
+    QVERIFY(m_doc->saveXML(&writer));
+    writer.writeEndDocument();
+    buffer.close();
+
+    Doc reloaded(this);
+    addTemplate(&reloaded);
+    QXmlStreamReader reader(data);
+    reader.readNextStartElement();
+    QVERIFY(reloaded.loadXML(reader));
+
+    Fixture *fxi = reloaded.fixture(0);
+    QVERIFY(fxi != nullptr);
+    QCOMPARE(fxi->channelCanFade(2), canFade);
+    QCOMPARE(fxi->forcedHTPChannels().contains(2), htp);
+    QCOMPARE(fxi->forcedLTPChannels().contains(2), ltp);
+    ChannelModifier *mod = fxi->channelModifier(2);
+    QCOMPARE(mod ? mod->name() : QString(), modifier);
+}
+
+void QueryTools_Test::transport_toolResultEncoding_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("argsJson");
+    QTest::addColumn<bool>("isError");
+    QTest::addColumn<bool>("structured");
+
+    QTest::newRow("request error object") << "query_fixture_channels"
+        << QByteArray(R"({"fixtureIDs":[0.5]})") << true << true;
+    QTest::newRow("query array success") << "query_fixture_channels"
+        << QByteArray(R"({"fixtureIDs":[0]})") << false << false;
+    QTest::newRow("batch all failed") << "configure_channels"
+        << QByteArray(R"({"items":[{"fixtureID":0,"channel":99}]})") << true << false;
+    QTest::newRow("batch mixed") << "configure_channels"
+        << QByteArray(R"({"items":[{"fixtureID":0,"channel":0,"canFade":false},{"fixtureID":0,"channel":99}]})")
+        << false << false;
+    QTest::newRow("batch all ok") << "configure_channels"
+        << QByteArray(R"({"items":[{"fixtureID":0,"channel":0,"canFade":true}]})") << false << false;
+}
+
+void QueryTools_Test::transport_toolResultEncoding()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, argsJson);
+    QFETCH(bool, isError);
+    QFETCH(bool, structured);
+    addFixtureLayout(m_doc);
+
+    fastmcpp::server::Server server("qlcplus", "5.0.0");
+    fastmcpp::tools::ToolManager tm;
+    fastmcpp::resources::ResourceManager rm;
+    fastmcpp::prompts::PromptManager pm;
+    registerChannelTools(tm, m_doc);
+    auto handler = mcp::withToolResultEncoding(
+        fastmcpp::mcp::make_mcp_handler("qlcplus", "5.0.0", server, tm, rm, pm));
+
+    const Json response = handler({{"jsonrpc", "2.0"}, {"id", 7}, {"method", "tools/call"},
+        {"params", {{"name", tool.toStdString()}, {"arguments", Json::parse(argsJson.constData())}}}});
+    QVERIFY2(response.contains("result"), response.dump().c_str());
+    const Json &result = response["result"];
+    QVERIFY2(result["content"].is_array() && result["content"].size() == 1, response.dump().c_str());
+    const Json payload = Json::parse(result["content"][0]["text"].get<std::string>());
+    QVERIFY2(result.contains("isError") && result["isError"] == isError, response.dump().c_str());
+    QCOMPARE(result.contains("structuredContent"), structured);
+    if (structured)
+        QCOMPARE(result["structuredContent"], payload);
 }
 
 QTEST_MAIN(QueryTools_Test)

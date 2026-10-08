@@ -454,7 +454,8 @@ void Show_Test::commandTrackInvalidLoad_data()
     QTest::addColumn<QString>("commandTrack");
 
     QTest::newRow("unsupported version")
-        << "<CommandTrack Version=\"3\" Extent=\"100\"/>";
+        << QStringLiteral("<CommandTrack Version=\"%1\" Extent=\"100\"/>")
+               .arg(ShowCommandTrack::Version + 1);
     QTest::newRow("duplicate id")
         << "<CommandTrack Version=\"1\" Extent=\"100\">"
            "<Command ID=\"1\" Time=\"0\" Action=\"Start\" Function=\"5\"/>"

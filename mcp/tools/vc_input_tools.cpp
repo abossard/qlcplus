@@ -19,9 +19,11 @@
 
 #include "tool_registry.h"
 #include "vcbridge.h"
+#include "vc_tools_common.h"
 #include "doc.h"
 
 #include <QKeySequence>
+#include <limits>
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -68,33 +70,49 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             return execOnMainThread(doc, [&]() -> Json {
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
+            static const char *kFeedbackFields[] = {"idleValue", "activeValue", "monitorValue",
+                                                    "idleChannel", "activeChannel", "monitorChannel"};
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
+                const Json &item = items[i];
                 auto itemErr = validateFields(item, {"widgetID", "inputUniverse", "inputChannel",
                     "sourceName", "idleValue", "activeValue", "monitorValue",
                     "idleChannel", "activeChannel", "monitorChannel"});
-                if (!itemErr.empty()) { results.push_back(nlohmann::json::parse(itemErr)); continue; }
-                int wid = item.at("widgetID").get<int>();
-                quint32 uni = item.at("inputUniverse").get<int>();
-                quint32 ch = item.at("inputChannel").get<int>();
-                std::string srcName = item.value("sourceName", "default");
-                QString qSrcName = QString::fromStdString(srcName);
+                if (!itemErr.empty()) { results.push_back(mcp::itemErrorFromDump(i, itemErr)); continue; }
 
-                // Determine feedback: use supplied values or preserve existing
-                bool hasFeedback = item.contains("activeValue");
-                if (hasFeedback)
+                std::string rangeErr;
+                auto checked = [&](const char *key, int64_t hi) -> int64_t {
+                    auto v = item.contains(key) ? mcp::jsonInteger(item.at(key), 0, hi) : std::nullopt;
+                    if (!v && rangeErr.empty()) rangeErr = mcp::integerError(key, 0, hi);
+                    return v.value_or(0);
+                };
+                const int wid = int(checked("widgetID", std::numeric_limits<int>::max()));
+                const quint32 uni = quint32(checked("inputUniverse", mcp::kMaxId));
+                const quint32 ch = quint32(checked("inputChannel", mcp::kMaxId));
+
+                // Feedback is all-or-none: any one of the six fields requires the other five.
+                int supplied = 0;
+                for (const char *key : kFeedbackFields)
+                    supplied += item.contains(key) ? 1 : 0;
+                const bool hasFeedback = supplied > 0;
+                int fb[6] = {0, 0, 0, 0, 0, 0};
+                if (hasFeedback && rangeErr.empty())
                 {
-                    if (!item.contains("idleValue") || !item.contains("monitorValue") ||
-                        !item.contains("idleChannel") || !item.contains("activeChannel") ||
-                        !item.contains("monitorChannel"))
+                    if (supplied != 6)
                     {
-                        results.push_back({{"widgetID", wid}, {"status", "error"},
-                            {"error", "all 6 feedback fields required when any feedback is supplied "
-                                      "(idleValue, activeValue, monitorValue, idleChannel, activeChannel, monitorChannel)"}});
+                        results.push_back(mcp::itemError(i, "all 6 feedback fields required when any feedback is supplied "
+                                      "(idleValue, activeValue, monitorValue, idleChannel, activeChannel, monitorChannel)"));
                         continue;
                     }
+                    for (int f = 0; f < 6; ++f)
+                        fb[f] = int(checked(kFeedbackFields[f], 255));
                 }
+                if (!rangeErr.empty()) { results.push_back(mcp::itemError(i, rangeErr)); continue; }
+
+                std::string srcName = item.value("sourceName", "default");
+                QString qSrcName = QString::fromStdString(srcName);
 
                 // Snapshot existing feedback for this specific source before remap
                 VCBridge::FeedbackInfo savedFb = vcBridge->getWidgetFeedbackByName(wid, qSrcName);
@@ -106,8 +124,9 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
 
                 if (!ok)
                 {
-                    results.push_back({{"widgetID", wid}, {"status", "failed"},
-                        {"error", "mapping failed (invalid sourceName or widgetID)"}});
+                    Json rec = mcp::itemError(i, "mapping failed (invalid sourceName or widgetID)");
+                    rec["widgetID"] = wid;
+                    results.push_back(rec);
                     continue;
                 }
 
@@ -115,12 +134,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 if (hasFeedback)
                 {
                     vcBridge->setWidgetFeedbackByName(wid, qSrcName,
-                        item.at("idleValue").get<int>(),
-                        item.at("activeValue").get<int>(),
-                        item.at("monitorValue").get<int>(),
-                        item.at("idleChannel").get<int>(),
-                        item.at("activeChannel").get<int>(),
-                        item.at("monitorChannel").get<int>());
+                        fb[0], fb[1], fb[2], fb[3], fb[4], fb[5]);
                 }
                 else if (hadFeedback)
                 {
@@ -129,7 +143,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                         savedFb.idleMidiCh, savedFb.activeMidiCh, savedFb.monitorMidiCh);
                 }
 
-                results.push_back({{"widgetID", wid}, {"status", "ok"}});
+                results.push_back(mcp::itemOk(i, {{"widgetID", wid}}));
             }
             return results.dump();
             });
@@ -172,27 +186,47 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 if (mode == "pulsing") return 2;
                 return 0;
             };
+            static const Json kModeEnums = {
+                {"idleMode", {{"enum", {"static", "flashing", "pulsing"}}}},
+                {"activeMode", {{"enum", {"static", "flashing", "pulsing"}}}},
+                {"monitorMode", {{"enum", {"static", "flashing", "pulsing"}}}}
+            };
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
+                const Json &item = items[i];
                 auto err = validateFields(item, {"widgetID", "activeValue", "idleValue", "monitorValue",
                     "sourceName", "idleChannel", "activeChannel", "monitorChannel",
                     "idleMode", "activeMode", "monitorMode"});
-                if (!err.empty()) { results.push_back(nlohmann::json::parse(err)); continue; }
-                int wid = item.at("widgetID").get<int>();
-                QString srcName = QString::fromStdString(item.value("sourceName", "default"));
-                int activeVal = item.at("activeValue").get<int>();
-                int idleVal = item.value("idleValue", 0);
-                int monitorVal = item.value("monitorValue", 0);
+                if (err.empty()) err = validateEnums(item, kModeEnums);
+                if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
 
+                std::string rangeErr;
+                auto checked = [&](const char *key, int64_t hi, int64_t fallback, bool required) -> int64_t {
+                    if (!item.contains(key))
+                    {
+                        if (required && rangeErr.empty()) rangeErr = mcp::integerError(key, 0, hi);
+                        return fallback;
+                    }
+                    auto v = mcp::jsonInteger(item.at(key), 0, hi);
+                    if (!v && rangeErr.empty()) rangeErr = mcp::integerError(key, 0, hi);
+                    return v.value_or(fallback);
+                };
+                auto mode = [&](const char *key, const char *fallback) {
+                    return midiChFromMode(VCValidate::canonicalEnum(item.value(key, fallback), kModeEnums[key]["enum"]));
+                };
+                const int wid = int(checked("widgetID", std::numeric_limits<int>::max(), 0, true));
+                const int activeVal = int(checked("activeValue", 255, 0, true));
+                const int idleVal = int(checked("idleValue", 255, 0, false));
+                const int monitorVal = int(checked("monitorValue", 255, 0, false));
                 // Integer channel fields take precedence; fall back to string mode names
-                int midiChIdle = item.contains("idleChannel") ? item.at("idleChannel").get<int>()
-                    : midiChFromMode(item.value("idleMode", "static"));
-                int midiChActive = item.contains("activeChannel") ? item.at("activeChannel").get<int>()
-                    : midiChFromMode(item.value("activeMode", "static"));
-                int midiChMonitor = item.contains("monitorChannel") ? item.at("monitorChannel").get<int>()
-                    : midiChFromMode(item.value("monitorMode", ""));
+                const int midiChIdle = int(checked("idleChannel", 255, mode("idleMode", "static"), false));
+                const int midiChActive = int(checked("activeChannel", 255, mode("activeMode", "static"), false));
+                const int midiChMonitor = int(checked("monitorChannel", 255, mode("monitorMode", ""), false));
+                if (!rangeErr.empty()) { results.push_back(mcp::itemError(i, rangeErr)); continue; }
 
+                QString srcName = QString::fromStdString(item.value("sourceName", "default"));
                 bool ok = vcBridge->setWidgetFeedbackByName(wid, srcName,
                     idleVal, activeVal, monitorVal, midiChIdle, midiChActive, midiChMonitor);
 
@@ -201,10 +235,10 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                     ok = vcBridge->setWidgetFeedback(wid, idleVal, activeVal, monitorVal,
                                                       midiChIdle, midiChActive, midiChMonitor);
 
-                results.push_back({
-                    {"widgetID", wid},
-                    {"status", ok ? "ok" : "failed"}
-                });
+                Json rec = ok ? mcp::itemOk(i, {{"outcome", "updated"}})
+                              : mcp::itemError(i, "feedback not applied (unknown widgetID or sourceName)");
+                rec["widgetID"] = wid;
+                results.push_back(rec);
             }
             return results.dump();
             } catch (const std::exception &e) {
@@ -238,17 +272,31 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
             Json results = Json::array();
-            for (auto &item : args.at("items"))
+            const Json &items = args.at("items");
+            for (size_t i = 0; i < items.size(); ++i)
             {
-                int widgetID = item.at("widgetID").get<int>();
+                const Json &item = items[i];
+                auto err = validateFields(item, {"widgetID", "sourceName", "keySequence"});
+                if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
+                auto widgetID = item.contains("widgetID")
+                    ? mcp::jsonInteger(item.at("widgetID"), 0, std::numeric_limits<int>::max()) : std::nullopt;
+                if (!widgetID)
+                {
+                    results.push_back(mcp::itemError(i, mcp::integerError("widgetID", 0, std::numeric_limits<int>::max())));
+                    continue;
+                }
+                if (!item.contains("keySequence") || !item.at("keySequence").is_string())
+                {
+                    results.push_back(mcp::itemError(i, "keySequence must be a string"));
+                    continue;
+                }
                 QString sourceName = QString::fromStdString(item.value("sourceName", "default"));
-                QString keySeqStr = QString::fromStdString(item.at("keySequence").get<std::string>());
-                QKeySequence ks(keySeqStr);
-                bool ok = vcBridge->setWidgetKeySequence(widgetID, sourceName, ks);
-                if (ok)
-                    results.push_back({{"widgetID", widgetID}, {"status", "set"}});
-                else
-                    results.push_back({{"widgetID", widgetID}, {"error", "failed to set key sequence"}});
+                QKeySequence ks(QString::fromStdString(item.at("keySequence").get<std::string>()));
+                bool ok = vcBridge->setWidgetKeySequence(int(*widgetID), sourceName, ks);
+                Json rec = ok ? mcp::itemOk(i, {{"outcome", "updated"}})
+                              : mcp::itemError(i, "failed to set key sequence");
+                rec["widgetID"] = int(*widgetID);
+                results.push_back(rec);
             }
             return results.dump();
             });
