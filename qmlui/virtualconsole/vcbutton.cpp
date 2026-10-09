@@ -496,10 +496,10 @@ void VCButton::requestUserStateChange(bool pressed, ShowCommandOrigin origin)
 
     ShowControlRequest request;
     request.control = this;
-    request.role = role;
-    request.buttonState = true;
-    request.on = on;
-    request.origin = origin;
+    request.input.role = role;
+    request.input.action = ShowCommandAction::SetButtonState;
+    request.input.on = on;
+    request.input.origin = origin;
     recorder->requestUserControl(request);
 }
 

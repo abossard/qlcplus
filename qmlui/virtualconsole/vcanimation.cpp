@@ -283,10 +283,11 @@ void VCAnimation::requestUserFaderLevel(int level, ShowCommandOrigin origin)
 
     ShowControlRequest request;
     request.control = this;
-    request.role = ShowControlRole::AnimationFader;
-    request.animationFader = true;
-    request.value = qBound(0, level, 255);
-    request.origin = origin;
+    request.input.role = ShowControlRole::AnimationFader;
+    request.input.action = ShowCommandAction::SetAnimationFader;
+    request.rawValue = qBound(0, level, 255);
+    request.input.position = qreal(request.rawValue) / 255.0;
+    request.input.origin = origin;
     recorder->requestUserControl(request);
 }
 
@@ -1017,8 +1018,7 @@ void VCAnimation::requestUserPreset(int choice)
 
 void VCAnimation::requestUserPreset(int choice, ShowCommandOrigin origin)
 {
-    ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice);
-    input.origin = origin;
+    const ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice, -1, origin);
     ShowControlAction::submit(m_doc, this, input);
 }
 
@@ -1029,8 +1029,7 @@ void VCAnimation::requestUserKnobValue(int choice, int value)
 
 void VCAnimation::requestUserKnobValue(int choice, int value, ShowCommandOrigin origin)
 {
-    ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice, value);
-    input.origin = origin;
+    const ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice, value, origin);
     ShowControlAction::submit(m_doc, this, input);
 }
 

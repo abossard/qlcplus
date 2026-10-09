@@ -131,7 +131,8 @@ public:
     static ShowCommandInput acceptedInput(const ShowControlRequest &request);
     static CapturePlan planCapture(const ShowControlRequest &request, const Values &before,
                                    const ShowControlRequest *previous);
-    static ShowCommandInput acceptedPreset(VCWidget *control, int choice, int knobValue = -1);
+    static ShowCommandInput acceptedPreset(VCWidget *control, int choice, int knobValue = -1,
+                                           ShowCommandOrigin origin = ShowCommandOrigin::Pointer);
     static bool submit(Doc *doc, VCWidget *control, const ShowCommandInput &input);
     static Receipt apply(Doc *doc, VCWidget *control, const ShowCommandInput &input,
                          const FunctionParent &owner, bool replay, bool strictRelease = false,

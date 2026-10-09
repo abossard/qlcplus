@@ -495,58 +495,21 @@ QVariantMap ShowControlAction::editorInfo(VCWidget *control, const QString &algo
 
 ShowCommandInput ShowControlAction::acceptedInput(const ShowControlRequest &request)
 {
-    if (ShowCommand::hasTypedPayload(request.nativeInput.action))
-        return request.nativeInput;
-    ShowCommandInput input;
-    input.origin = request.origin;
-    input.role = request.role;
-    input.attribute = request.accepted.snapshot.attribute;
-    if (request.buttonState || request.role == ShowControlRole::ToggleButton ||
-        request.role == ShowControlRole::FlashButton || request.role == ShowControlRole::BlackoutButton ||
-        request.role == ShowControlRole::FreezeButton || request.role == ShowControlRole::FreezeHoldButton)
+    ShowCommandInput input = request.input;
+    if (input.action == ShowCommandAction::SetSliderChannel &&
+        std::holds_alternative<std::monostate>(input.payload.value))
     {
-        input.action = ShowCommandAction::SetButtonState;
-        input.on = request.on;
         input.attribute.clear();
+        input.payload.value = ShowCommandChannel{request.rawValue, request.accepted.snapshot.attribute};
     }
-    else if (request.sliderReset)
-        input.action = ShowCommandAction::SetSliderReset;
-    else if (request.sliderColors)
+    else if (input.action == ShowCommandAction::SetSliderPosition)
     {
-        input.action = ShowCommandAction::SetSliderColors;
-        input.attribute = request.attribute;
-        input.position = qreal(request.value) / 255.0;
-    }
-    else if (request.xyPadFloor)
-    {
-        input.action = ShowCommandAction::SetXYPadFloor;
-        input.attribute = request.floorPosition.encode();
-    }
-    else if (request.xyPadPosition)
-    {
-        input.action = ShowCommandAction::SetXYPadPosition;
-        input.attribute = ShowCommandPanTilt{request.xyPosition.x(), request.xyPosition.y()}.encode();
-    }
-    else if (request.animationFader)
-    {
-        input.action = ShowCommandAction::SetAnimationFader;
-        input.position = qreal(request.value) / 255.0;
-    }
-    else if (request.sliderChannel)
-    {
-        input.action = ShowCommandAction::SetSliderChannel;
-        input.attribute.clear();
-        input.payload.value = ShowCommandChannel{request.value, request.accepted.snapshot.attribute};
-    }
-    else if (request.role == ShowControlRole::LevelSlider ||
-             request.role == ShowControlRole::AdjustSlider ||
-             request.role == ShowControlRole::SubmasterSlider ||
-             request.role == ShowControlRole::GrandMasterSlider)
-    {
-        input.action = ShowCommandAction::SetSliderPosition;
-        input.position = (qreal(request.value) - request.accepted.sliderLow) /
+        input.attribute = request.accepted.snapshot.attribute;
+        input.position = (qreal(request.rawValue) - request.accepted.sliderLow) /
                          (request.accepted.sliderHigh - request.accepted.sliderLow);
     }
+    else if (input.action == ShowCommandAction::SetSliderReset)
+        input.attribute = request.accepted.snapshot.attribute;
     return input;
 }
 
@@ -555,12 +518,12 @@ ShowControlAction::CapturePlan ShowControlAction::planCapture(const ShowControlR
                                                              const ShowControlRequest *previous)
 {
     CapturePlan plan;
-    plan.input = acceptedInput(request);
+    plan.input = request.input;
     plan.supported = ShowCommand::isControlAction(plan.input.action);
     if (const auto *channel = std::get_if<ShowCommandChannel>(&plan.input.payload.value))
     {
-        const ShowCommandInput priorInput = previous != nullptr ? acceptedInput(*previous) : ShowCommandInput();
-        const auto *prior = std::get_if<ShowCommandChannel>(&priorInput.payload.value);
+        const auto *prior = previous != nullptr
+            ? std::get_if<ShowCommandChannel>(&previous->input.payload.value) : nullptr;
         plan.unchanged = prior != nullptr ? channel->binding == prior->binding && channel->value == prior->value
                                         : channel->value == before.scalar;
         return plan;
@@ -569,17 +532,28 @@ ShowControlAction::CapturePlan ShowControlAction::planCapture(const ShowControlR
         return plan;
     if (plan.input.action == ShowCommandAction::SetSliderPosition ||
         plan.input.action == ShowCommandAction::SetAnimationFader)
-        plan.unchanged = request.value == (previous != nullptr ? previous->value : before.scalar);
+        plan.unchanged = request.rawValue == (previous != nullptr ? previous->rawValue : before.scalar);
     if (plan.input.action == ShowCommandAction::SetXYPadPosition)
-        plan.unchanged = request.xyPosition ==
-            (previous != nullptr && previous->xyPadPosition ? previous->xyPosition : before.point);
+    {
+        const auto *point = std::get_if<ShowCommandPanTilt>(&plan.input.payload.value);
+        const auto *prior = previous != nullptr
+            ? std::get_if<ShowCommandPanTilt>(&previous->input.payload.value) : nullptr;
+        plan.unchanged = point != nullptr && QPointF(point->pan, point->tilt) ==
+            (prior != nullptr ? QPointF(prior->pan, prior->tilt) : before.point);
+    }
     return plan;
 }
 
-ShowCommandInput ShowControlAction::acceptedPreset(VCWidget *control, int choice, int knobValue)
+ShowCommandInput ShowControlAction::acceptedPreset(VCWidget *control, int choice, int knobValue,
+                                                   ShowCommandOrigin origin)
 {
     ShowCommandInput input;
-    input.origin = ShowCommandOrigin::Pointer;
+    input.origin = origin;
+    const auto reject = [&](const QString &reason) {
+        if (auto *recorder = ShowCommandRecorder::instance())
+            recorder->reportUnsupported(reason, origin, control);
+        return ShowCommandInput();
+    };
     if (choice < 0 || choice > 255)
         return input;
     if (auto *pad = qobject_cast<VCXYPad *>(control))
@@ -663,12 +637,13 @@ ShowCommandInput ShowControlAction::acceptedPreset(VCWidget *control, int choice
                     bool valid = false;
                     value.number = accepted.toDouble(&valid);
                     if (!valid)
-                        return ShowCommandInput();
+                        return reject(QStringLiteral("Matrix property '%1' is not numeric").arg(key));
                 }
                 content.properties.insert(key, value);
             }
-            if (content.properties.count() != preset->m_properties.count())
-                return ShowCommandInput();
+            for (auto it = preset->m_properties.cbegin(); it != preset->m_properties.cend(); ++it)
+                if (!content.properties.contains(it.key()))
+                    return reject(QStringLiteral("Matrix property '%1' is unavailable").arg(it.key()));
             input.payload.value = content;
         }
     }
@@ -683,9 +658,7 @@ bool ShowControlAction::submit(Doc *doc, VCWidget *control, const ShowCommandInp
     {
         ShowControlRequest request;
         request.control = control;
-        request.role = input.role;
-        request.origin = input.origin;
-        request.nativeInput = input;
+        request.input = input;
         recorder->requestUserControl(request);
         return true;
     }
@@ -831,7 +804,7 @@ ShowControlAction::Receipt ShowControlAction::apply(Doc *doc, VCWidget *control,
                     ? slider->applyRecordedValue(int(std::lround(input.position * 255.0)), owner, strictRelease)
                     : slider->applyRecordedPosition(input.position, owner);
             else if (input.action != ShowCommandAction::SetSliderColors)
-                slider->setValue(live != nullptr ? live->value
+                slider->setValue(live != nullptr ? live->rawValue
                                  : int(std::lround(slider->rangeLowLimit() +
                                      input.position * (slider->rangeHighLimit() - slider->rangeLowLimit()))),
                                  true, live == nullptr || live->updateFeedback);

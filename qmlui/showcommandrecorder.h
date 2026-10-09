@@ -111,22 +111,9 @@ struct ShowTraceCause
 struct ShowControlRequest
 {
     QPointer<VCWidget> control;
-    ShowControlRole role = ShowControlRole::None;
-    bool buttonState = false;  //!< true for SetButtonState, false for SetSliderPosition
-    bool sliderColors = false; //!< true for SetSliderColors
-    bool sliderChannel = false;
-    bool sliderReset = false;  //!< true for SetSliderReset
-    bool xyPadPosition = false; //!< true for SetXYPadPosition
-    bool xyPadFloor = false;
-    bool animationFader = false; //!< true for SetAnimationFader
-    bool on = false;            //!< ToggleButton: the desired state, normalized at acceptance
-    int value = 0;              //!< sliders: the accepted value
-    QString attribute;          //!< SetSliderColors payload
-    QPointF xyPosition;         //!< SetXYPadPosition payload
-    ShowCommandFloor floorPosition;
-    ShowCommandInput nativeInput;
+    ShowCommandInput input;    //!< operation and value, normalized once at acceptance
+    int rawValue = 0;          //!< native slider delivery keeps the accepted integer
     bool updateFeedback = true; //!< sliders
-    ShowCommandOrigin origin = ShowCommandOrigin::Pointer;
     quint32 acceptedTimeMs = 0;
     quint64 epoch = 0;
     ShowControlConfiguration accepted; //!< the control's configuration at acceptance
@@ -575,16 +562,10 @@ private:
         quint32 showId;
         quint32 time; //!< the command time, or the capture's acceptance time
         QPointer<VCWidget> control;
-        int before;
-        int after;
-        bool xyState = false;
-        QPointF xyBefore;
-        QPointF xyAfter;
         ShowControlAction::State nativeBefore, nativeAfter;
         bool conditionalOnStart = false;
         bool superseded = false;
         FunctionParent owner = FunctionParent::master();
-        bool ownerRecorded = false;
         bool ownerBefore = false;
     };
     /** Every Show's timeline facts in the order they happened. Dropped after

@@ -62,7 +62,7 @@ void ShowCommandRecorder::requestUserControl(ShowControlRequest)
 {
 }
 
-ShowCommandInput ShowControlAction::acceptedPreset(VCWidget *, int, int)
+ShowCommandInput ShowControlAction::acceptedPreset(VCWidget *, int, int, ShowCommandOrigin)
 {
     return ShowCommandInput();
 }

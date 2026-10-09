@@ -184,10 +184,12 @@ void ShowCommandRecorder_Test::nativePlanning_immutableValues()
     }
 
     ShowControlRequest request;
-    request.role = ShowControlRole::AdjustSlider;
-    request.value = 50;
+    request.input.role = ShowControlRole::AdjustSlider;
+    request.input.action = ShowCommandAction::SetSliderPosition;
+    request.rawValue = 50;
     request.accepted.sliderLow = 0;
     request.accepted.sliderHigh = 100;
+    request.input = ShowControlAction::acceptedInput(request);
     before.scalar = 50;
     const auto unchanged = ShowControlAction::planCapture(request, before, nullptr);
     QVERIFY(unchanged.supported);
@@ -195,8 +197,14 @@ void ShowCommandRecorder_Test::nativePlanning_immutableValues()
     QCOMPARE(unchanged.input.position, qreal(0.5));
     request.accepted.sliderHigh = 200;
     const auto wider = ShowControlAction::planCapture(request, before, nullptr);
-    QCOMPARE(wider.input.position, qreal(0.25));
-    QCOMPARE(request.value, 50);
+    QCOMPARE(wider.input.position, qreal(0.5));
+    QCOMPARE(request.rawValue, 50);
+    request.input.action = ShowCommandAction::SetSliderChannel;
+    request.input.payload.value = ShowCommandChannel{73, QStringLiteral("Intensity")};
+    const ShowCommandInput typed = ShowControlAction::acceptedInput(request);
+    QCOMPARE(std::get<ShowCommandChannel>(typed.payload.value).value, 73);
+    QCOMPARE(std::get<ShowCommandChannel>(typed.payload.value).binding, QStringLiteral("Intensity"));
+    QCOMPARE(std::get<ShowCommandChannel>(request.input.payload.value).value, 73);
 }
 
 using Json = nlohmann::json;
@@ -6549,7 +6557,7 @@ void ShowCommandRecorder_Test::userRequest_waitsBehindCrossedReplayOnItsControl(
     QCOMPARE(drainedValue, 140);
     QCOMPARE(valueAtAcceptance, 0);
     QCOMPARE(queued.count(), 1);
-    QCOMPARE(queued.first().value, 140);
+    QCOMPARE(queued.first().rawValue, 140);
     QCOMPARE(queued.first().acceptedTimeMs, pausedAt);
     QCOMPARE(otherAtOnce, VCButton::Active);
     QCOMPARE(replayed->state(), VCButton::Active);
@@ -6693,7 +6701,7 @@ void ShowCommandRecorder_Test::userClick_normalizedOnceToNativeDesiredState()
     QCOMPARE(rig.child->isRunning(), resolvedRunning);
     QCOMPARE(queued.count(), replayed.isEmpty() ? 0 : 1);
     if (!queued.isEmpty())
-        QCOMPARE(queued.first().on, resolvedExpectOn);
+        QCOMPARE(queued.first().input.on, resolvedExpectOn);
     if (recording)
     {
         QCOMPARE(recorder.track().commands().count(), qsizetype(1));
@@ -7383,16 +7391,23 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition_da
     QTest::addColumn<bool>("queued");
     QTest::addColumn<QVariantList>("positions");
     QTest::addColumn<QVariantList>("stamps");
+    QTest::addColumn<int>("deliveryHigh");
 
     // rapid input before any engine tick; the repeated 80 is unchanged
     QTest::newRow("rapid") << QVariantList{20, 80, 80, 40} << QVariantList{1000, 1500, 1500, 2750} << false
-                           << QVariantList{0.2, 0.8, 0.4} << QVariantList{1000, 1500, 2750};
+                           << QVariantList{0.2, 0.8, 0.4} << QVariantList{1000, 1500, 2750} << 100;
+    QTest::newRow("rapid equal-time order")
+        << QVariantList{20, 80, 80, 40} << QVariantList{1500, 1500, 1500, 1500}
+        << false << QVariantList{0.2, 0.8, 0.4} << QVariantList{1500, 1500, 1500} << 100;
     // the native value is unchanged; returning to an earlier position is a change
     QTest::newRow("from native value") << QVariantList{0, 30, 90, 30} << QVariantList{3000, 3000, 4100, 5200}
-                                       << false << QVariantList{0.3, 0.9, 0.3} << QVariantList{3000, 4100, 5200};
+                                       << false << QVariantList{0.3, 0.9, 0.3} << QVariantList{3000, 4100, 5200} << 100;
     // queued behind crossed replay: compared with the latest queued request, not the native 0
     QTest::newRow("queued behind replay") << QVariantList{20, 0, 0, 65} << QVariantList{6000, 6300, 6300, 7000}
-                                          << true << QVariantList{0.2, 0.0, 0.65} << QVariantList{6000, 6300, 7000};
+                                          << true << QVariantList{0.2, 0.0, 0.65} << QVariantList{6000, 6300, 7000} << 100;
+    QTest::newRow("accepted range frozen while queued")
+        << QVariantList{20, 0, 0, 65} << QVariantList{6000, 6300, 6300, 7000}
+        << true << QVariantList{0.2, 0.0, 0.65} << QVariantList{6000, 6300, 7000} << 200;
 }
 
 void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
@@ -7402,6 +7417,7 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
     QFETCH(bool, queued);
     QFETCH(QVariantList, positions);
     QFETCH(QVariantList, stamps);
+    QFETCH(int, deliveryHigh);
 
     RequestRig r;
     r.slider->setRangeLowLimit(0);
@@ -7455,6 +7471,8 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
             QCOMPARE(records.at(i).attribute, QStringLiteral("Intensity"));
             QVERIFY(qFuzzyCompare(1.0 + records.at(i).position, 1.0 + positions.at(i).toReal()));
             QCOMPARE(records.at(i).time, stamps.at(i).toUInt());
+            if (i > 0 && records.at(i - 1).time == records.at(i).time)
+                QVERIFY(records.at(i - 1).order < records.at(i).order);
         }
         // accepted input records its desired position, never a function command
         for (const ShowCommand &cmd : r.show->commandTrack().commands())
@@ -7468,6 +7486,19 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
     QCOMPARE(r.recorder.track().commands(), r.show->commandTrack().commands());
     QCOMPARE(r.recorder.pendingUserRequests().isEmpty(), !queued);
 
+    r.slider->setRangeHighLimit(deliveryHigh);
+    if (queued)
+    {
+        const ShowControlRequest accepted = r.recorder.pendingUserRequests().last();
+        QCOMPARE(accepted.input.action, ShowCommandAction::SetSliderPosition);
+        QCOMPARE(accepted.input.role, ShowControlRole::AdjustSlider);
+        QCOMPARE(accepted.input.origin, ShowCommandOrigin::Pointer);
+        QCOMPARE(accepted.input.attribute, QStringLiteral("Intensity"));
+        QCOMPARE(accepted.input.position, qreal(0.65));
+        QCOMPARE(accepted.rawValue, 65);
+        QCOMPARE(accepted.accepted.sliderHigh, qreal(100));
+        QCOMPARE(accepted.acceptedTimeMs, quint32(7000));
+    }
     tickAndDeliver(&r.doc, 8);
 
     // executing the requests records nothing more
@@ -10845,6 +10876,8 @@ void ShowCommandRecorder_Test::animationContent_nativePropertiesStayFrozen_data(
     for (const auto &edge : {QStringLiteral("stopped"), QStringLiteral("playing"),
                              QStringLiteral("List refusal"), QStringLiteral("Range refusal"),
                              QStringLiteral("Float refusal"), QStringLiteral("missing algorithm"),
+                             QStringLiteral("malformed Range"), QStringLiteral("malformed Float"),
+                             QStringLiteral("unavailable property"),
                              QStringLiteral("original edit"), QStringLiteral("original reorder"),
                              QStringLiteral("original delete"), QStringLiteral("String metadata changed"),
                              QStringLiteral("String metadata missing")})
@@ -10903,11 +10936,28 @@ void ShowCommandRecorder_Test::animationContent_nativePropertiesStayFrozen()
     if (edge == "List refusal") properties["mode"] = "absent";
     if (edge == "Range refusal") properties["amount"] = 99;
     if (edge == "Float refusal") properties["spread"] = 5.25;
+    QString conversionReason;
+    if (edge == "malformed Range")
+    {
+        properties["amount"] = "not a number";
+        conversionReason = QStringLiteral("Matrix property 'amount' is not numeric");
+    }
+    if (edge == "malformed Float")
+    {
+        properties["spread"] = "not a number";
+        conversionReason = QStringLiteral("Matrix property 'spread' is not numeric");
+    }
+    if (edge == "unavailable property")
+    {
+        properties["missing"] = 3;
+        conversionReason = QStringLiteral("Matrix property 'missing' is unavailable");
+    }
     const int choice = animation->addAlgorithmPreset(QStringLiteral("Recording properties"), properties);
     QVERIFY(choice >= 0);
     if (edge == "missing algorithm")
         QVERIFY(QFile::remove(file.fileName()));
-    if (edge == "playing" || edge.contains("refusal") || edge == "missing algorithm")
+    if (edge == "playing" || edge.contains("refusal") || edge == "missing algorithm" ||
+        !conversionReason.isEmpty())
     {
         animation->requestUserFaderLevel(200);
         tickAndRenderUniverses(&r.doc, 3);
@@ -10922,18 +10972,29 @@ void ShowCommandRecorder_Test::animationContent_nativePropertiesStayFrozen()
     const QByteArray before = output();
     const QString beforeAlgorithm = matrix->algorithm()->name();
     const int beforeChoice = animation->activePresetId();
+    const int beforeFader = animation->faderLevel();
+    const quint64 failures = ShowEventLog::summary().count;
     r.show->setSyncSource(ShowRunner::External);
     r.show->setExternalElapsedTime(100);
     QVERIFY(r.recorder.setRecording(true));
     animation->requestUserPreset(choice);
-    const bool valid = !edge.contains("refusal") && edge != "missing algorithm";
+    const bool valid = !edge.contains("refusal") && edge != "missing algorithm" && conversionReason.isEmpty();
     if (!valid)
     {
         QCOMPARE(r.show->commandTrack().count(), 0);
         QCOMPARE(animation->activePresetId(), beforeChoice);
+        QCOMPARE(animation->faderLevel(), beforeFader);
         QCOMPARE(matrix->algorithm()->name(), beforeAlgorithm);
         tickAndRenderUniverses(&r.doc, 3);
         QCOMPARE(output(), before);
+        if (!conversionReason.isEmpty())
+        {
+            QVERIFY(animation->recordingId().isNull());
+            QCOMPARE(ShowEventLog::summary().count, failures + 1);
+            QVERIFY2(ShowEventLog::summary().reason.contains(conversionReason),
+                     qPrintable(ShowEventLog::summary().reason));
+            QCOMPARE(r.recorder.lastError(), ShowEventLog::summary().reason);
+        }
         QVERIFY(r.recorder.setRecording(false));
         return;
     }
@@ -14132,10 +14193,10 @@ void ShowCommandRecorder_Test::liveFreezeSameValueIntent_survivesReplayStop()
 
     ShowControlRequest sameValue;
     sameValue.control = freeze;
-    sameValue.role = ShowControlRole::FreezeButton;
-    sameValue.buttonState = true;
-    sameValue.on = true;
-    sameValue.origin = ShowCommandOrigin::Keyboard;
+    sameValue.input.role = ShowControlRole::FreezeButton;
+    sameValue.input.action = ShowCommandAction::SetButtonState;
+    sameValue.input.on = true;
+    sameValue.input.origin = ShowCommandOrigin::Keyboard;
     recorder.requestUserControl(sameValue);
     tickAndDeliver(&doc, 2);
     QVERIFY(doc.inputOutputMap()->isFrozen());

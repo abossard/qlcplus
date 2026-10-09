@@ -494,15 +494,15 @@ void VCSlider::requestUserValue(int value, bool updateFeedback, ShowCommandOrigi
 
     ShowControlRequest request;
     request.control = this;
-    request.role = sliderMode() == Level ? ShowControlRole::LevelSlider
+    request.input.role = sliderMode() == Level ? ShowControlRole::LevelSlider
                  : sliderMode() == Adjust ? ShowControlRole::AdjustSlider
                  : sliderMode() == Submaster ? ShowControlRole::SubmasterSlider
                                              : ShowControlRole::GrandMasterSlider;
-    request.buttonState = false;
-    request.value = value;
-    request.sliderChannel = clickAndGoType() == CnGPreset;
+    request.input.action = clickAndGoType() == CnGPreset ? ShowCommandAction::SetSliderChannel
+                                                        : ShowCommandAction::SetSliderPosition;
+    request.rawValue = value;
     request.updateFeedback = updateFeedback;
-    request.origin = origin;
+    request.input.origin = origin;
     recorder->requestUserControl(request);
 }
 
@@ -1179,16 +1179,16 @@ void VCSlider::requestUserClickAndGoColors(QColor rgb, QColor wauv)
 
     ShowControlRequest request;
     request.control = this;
-    request.role = sliderMode() == Level ? ShowControlRole::LevelSlider
+    request.input.role = sliderMode() == Level ? ShowControlRole::LevelSlider
                  : sliderMode() == Adjust ? ShowControlRole::AdjustSlider
                  : sliderMode() == Submaster ? ShowControlRole::SubmasterSlider
                                              : ShowControlRole::GrandMasterSlider;
-    request.sliderColors = true;
-    request.value = 128;
-    request.attribute = QStringLiteral("%1,%2,%3;%4,%5,%6")
-                            .arg(rgb.red()).arg(rgb.green()).arg(rgb.blue())
-                            .arg(wauv.red()).arg(wauv.green()).arg(wauv.blue());
-    request.origin = ShowCommandOrigin::Pointer;
+    request.input.action = ShowCommandAction::SetSliderColors;
+    request.rawValue = 128;
+    request.input.position = qreal(request.rawValue) / 255.0;
+    request.input.payload.value = ShowCommandColors{quint8(rgb.red()), quint8(rgb.green()), quint8(rgb.blue()),
+                                                   quint8(wauv.red()), quint8(wauv.green()), quint8(wauv.blue())};
+    request.input.origin = ShowCommandOrigin::Pointer;
     recorder->requestUserControl(request);
 }
 
@@ -1532,12 +1532,12 @@ void VCSlider::requestUserReset(ShowCommandOrigin origin)
 
     ShowControlRequest request;
     request.control = this;
-    request.role = sliderMode() == Level ? ShowControlRole::LevelSlider
+    request.input.role = sliderMode() == Level ? ShowControlRole::LevelSlider
                  : sliderMode() == Adjust ? ShowControlRole::AdjustSlider
                  : sliderMode() == Submaster ? ShowControlRole::SubmasterSlider
                                              : ShowControlRole::GrandMasterSlider;
-    request.sliderReset = true;
-    request.origin = origin;
+    request.input.action = ShowCommandAction::SetSliderReset;
+    request.input.origin = origin;
     recorder->requestUserControl(request);
 }
 
@@ -1567,13 +1567,13 @@ void VCSlider::requestUserFlash(bool on, ShowCommandOrigin origin)
 
     ShowControlRequest request;
     request.control = this;
-    request.role = sliderMode() == Level ? ShowControlRole::LevelSlider
+    request.input.role = sliderMode() == Level ? ShowControlRole::LevelSlider
                  : sliderMode() == Adjust ? ShowControlRole::AdjustSlider
                  : sliderMode() == Submaster ? ShowControlRole::SubmasterSlider
                                              : ShowControlRole::GrandMasterSlider;
-    request.buttonState = true;
-    request.on = on;
-    request.origin = origin;
+    request.input.action = ShowCommandAction::SetButtonState;
+    request.input.on = on;
+    request.input.origin = origin;
     recorder->requestUserControl(request);
 }
 

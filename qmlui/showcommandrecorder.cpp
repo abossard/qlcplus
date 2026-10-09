@@ -688,12 +688,11 @@ void ShowCommandRecorder::requestUserControl(ShowControlRequest request)
     Show *show = trackedShow();
     request.acceptedTimeMs = show != nullptr ? acceptancePosition(show) : 0;
     request.epoch = m_requestEpoch;
-    request.accepted = configurationOf(request.control, &request.nativeInput);
-    if (request.sliderChannel)
-        request.nativeInput = ShowControlAction::acceptedInput(request);
-    if (ShowCommand::hasTypedPayload(request.nativeInput.action))
+    request.accepted = configurationOf(request.control, &request.input);
+    request.input = ShowControlAction::acceptedInput(request);
+    if (ShowCommand::hasTypedPayload(request.input.action))
     {
-        const QString reason = ShowControlAction::preflight(request.control, request.nativeInput);
+        const QString reason = ShowControlAction::preflight(request.control, request.input);
         if (!reason.isEmpty())
         {
             reportFailure(reason);
@@ -701,7 +700,7 @@ void ShowCommandRecorder::requestUserControl(ShowControlRequest request)
         }
     }
     if (ShowEventLog::generation() != 0)
-        request.cause = newCause(request.origin, request.control);
+        request.cause = newCause(request.input.origin, request.control);
     {
         QScopedValueRollback<const ShowControlRequest *> traced(m_tracedRequest, &request);
         captureUserRequest(request);
@@ -733,7 +732,7 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
                                                                      : tr("REC suspended: another Show is resolved"));
         return;
     }
-    if (ShowCommandFsm::isUserOrigin(request.origin) == false)
+    if (ShowCommandFsm::isUserOrigin(request.input.origin) == false)
     {
         if (diag)
             traceRequest(request, Phase::Decision, Outcome::Ignored, tr("input of this origin is not recorded"));
@@ -741,10 +740,10 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
     }
 
     const ShowControlRequest *previous = nullptr;
-    const ShowCommandAction action = ShowControlAction::acceptedInput(request).action;
+    const ShowCommandAction action = request.input.action;
     for (int i = m_userRequests.count() - 1; i >= 0; --i)
         if (m_userRequests.at(i).control == request.control &&
-            ShowControlAction::acceptedInput(m_userRequests.at(i)).action == action)
+            m_userRequests.at(i).input.action == action)
         {
             previous = &m_userRequests.at(i);
             break;
@@ -790,8 +789,8 @@ void ShowCommandRecorder::drainUserRequests()
             continue;
         }
         // accepted against what the control no longer is: never retargeted
-        const ShowControlConfiguration current = configurationOf(request.control, &request.nativeInput);
-        if (current.snapshot.role != request.role || current != request.accepted)
+        const ShowControlConfiguration current = configurationOf(request.control, &request.input);
+        if (current.snapshot.role != request.input.role || current != request.accepted)
         {
             m_userRequests.removeAt(i);
             const QString error = tr("Not executed: %1 changed while its input waited").arg(request.control->caption());
@@ -810,7 +809,7 @@ void ShowCommandRecorder::drainUserRequests()
         const bool authored = request.authoredShowId != ShowCommand::InvalidId;
         const FunctionParent requestOwner(FunctionParent::ManualVCWidget, request.control->id());
         const QVector<TimelineFact> closure = authored ? closureOf(request.control, requestOwner) : QVector<TimelineFact>();
-        const ShowCommandInput input = ShowControlAction::acceptedInput(request);
+        const ShowCommandInput &input = request.input;
         const auto receipt = ShowControlAction::apply(m_doc, request.control, input, requestOwner,
                                                       false, false, &request);
         if (!receipt.refusal.isEmpty())
@@ -821,7 +820,7 @@ void ShowCommandRecorder::drainUserRequests()
             continue;
         }
         if (request.authoredShowId == ShowCommand::InvalidId &&
-            ShowCommandFsm::isUserOrigin(request.origin) && request.accepted.snapshot.enabled)
+            ShowCommandFsm::isUserOrigin(input.origin) && request.accepted.snapshot.enabled)
             for (TimelineFact &fact : m_timeline)
                 if (fact.control == request.control && fact.owner.type() == FunctionParent::Function)
                     fact.superseded = true;
@@ -830,31 +829,31 @@ void ShowCommandRecorder::drainUserRequests()
             const quint32 widgetId = request.control->id();
             const quint32 intentShowId = request.authoredShowId != ShowCommand::InvalidId
                                            ? request.authoredShowId : trackedShowId();
-            if (request.role == ShowControlRole::FreezeHoldButton)
+            if (input.role == ShowControlRole::FreezeHoldButton)
             {
-                if (request.on)
+                if (input.on)
                     m_userFreezeHolds.insert(widgetId);
                 else
                     m_userFreezeHolds.remove(widgetId);
             }
-            else if (request.role == ShowControlRole::FlashButton)
+            else if (input.role == ShowControlRole::FlashButton)
             {
-                if (request.on)
+                if (input.on)
                     m_userFlashHolds.insert(widgetId);
                 else
                     m_userFlashHolds.remove(widgetId);
             }
-            else if (request.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
+            else if (input.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
             {
-                m_userFreezeIntent.insert(intentShowId, request.on);
+                m_userFreezeIntent.insert(intentShowId, input.on);
             }
-            else if (request.role == ShowControlRole::BlackoutButton && intentShowId != ShowCommand::InvalidId)
+            else if (input.role == ShowControlRole::BlackoutButton && intentShowId != ShowCommand::InvalidId)
             {
-                m_userBlackoutIntent.insert(intentShowId, request.on);
+                m_userBlackoutIntent.insert(intentShowId, input.on);
             }
-            else if (request.buttonState)
+            else
             {
-                if (request.on)
+                if (input.on)
                     m_userSliderFlashHolds.insert(widgetId);
                 else
                     m_userSliderFlashHolds.remove(widgetId);
@@ -876,7 +875,7 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
 {
     if (index >= 0 && index < m_userRequests.count())
     {
-        const ShowControlRole role = m_userRequests.at(index).role;
+        const ShowControlRole role = m_userRequests.at(index).input.role;
         if (role == ShowControlRole::FreezeHoldButton || role == ShowControlRole::FreezeButton ||
             role == ShowControlRole::BlackoutButton)
             return false;
@@ -897,7 +896,7 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
         return false;
 
     VCWidget *control = m_userRequests.at(index).control;
-    const ShowCommandInput input = ShowControlAction::acceptedInput(m_userRequests.at(index));
+    const ShowCommandInput &input = m_userRequests.at(index).input;
     const ShowControlCoupling coupling = couplingOf(control, ShowControlAction::functionId(control, &input));
     const auto dependent = [&](VCWidget *other, quint32 functionId)
     {
@@ -910,7 +909,7 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
     for (int i = 0; i < index; i++)
     {
         VCWidget *earlier = m_userRequests.at(i).control;
-        const ShowCommandInput earlierInput = ShowControlAction::acceptedInput(m_userRequests.at(i));
+        const ShowCommandInput &earlierInput = m_userRequests.at(i).input;
         if (earlier != nullptr && dependent(earlier, ShowControlAction::functionId(earlier, &earlierInput)))
             return true;
     }
@@ -2376,13 +2375,13 @@ QString commandText(const ShowCommand &cmd)
 
 QString requestValueText(const ShowControlRequest &request)
 {
-    if (request.buttonState)
-        return request.on ? ShowCommandRecorder::tr("On") : ShowCommandRecorder::tr("Off");
-    if (request.sliderColors)
-        return QString::number(request.value * 100.0 / 255.0, 'f', 1) + QLatin1Char('%');
-    if (request.sliderReset)
+    if (request.input.action == ShowCommandAction::SetButtonState)
+        return request.input.on ? ShowCommandRecorder::tr("On") : ShowCommandRecorder::tr("Off");
+    if (request.input.action == ShowCommandAction::SetSliderColors)
+        return QString::number(request.rawValue * 100.0 / 255.0, 'f', 1) + QLatin1Char('%');
+    if (request.input.action == ShowCommandAction::SetSliderReset)
         return ShowCommandRecorder::tr("Release override");
-    return QString::number(request.value);
+    return QString::number(request.rawValue);
 }
 } // namespace
 
@@ -2407,9 +2406,9 @@ void ShowCommandRecorder::traceRequest(const ShowControlRequest &request, Phase 
         return;
 
     e.showTimeMs = request.acceptedTimeMs;
-    e.action = request.buttonState ? tr("Button state")
-             : request.sliderColors ? tr("Slider colors")
-             : request.sliderReset ? tr("Slider reset")
+    e.action = request.input.action == ShowCommandAction::SetButtonState ? tr("Button state")
+             : request.input.action == ShowCommandAction::SetSliderColors ? tr("Slider colors")
+             : request.input.action == ShowCommandAction::SetSliderReset ? tr("Slider reset")
                                    : tr("Slider value");
     e.value = requestValueText(request);
     ShowEventLog::append(e);
@@ -2740,7 +2739,7 @@ void ShowCommandRecorder::slotShowStopped(quint32)
         effect.control = fact.control;
         effect.owner = fact.owner;
         effect.after = fact.nativeAfter;
-        effect.releaseOwner = fact.ownerRecorded && !fact.ownerBefore;
+        effect.releaseOwner = !fact.ownerBefore;
         state.effects.append(effect);
     }
     const auto retained = ShowControlAction::stop(m_doc, m_vc, state);
@@ -3451,13 +3450,7 @@ QVector<ShowCommandRecorder::TimelineFact> ShowCommandRecorder::closureOf(VCWidg
         fact.control = native.control;
         fact.nativeBefore = native.before;
         fact.nativeAfter = native.after;
-        fact.before = native.before.scalar;
-        fact.after = native.after.scalar;
-        fact.xyState = native.before.role == ShowControlRole::XYPad;
-        fact.xyBefore = native.before.point;
-        fact.xyAfter = native.after.point;
         fact.owner = owner;
-        fact.ownerRecorded = true;
         fact.ownerBefore = native.ownerBefore;
         fact.conditionalOnStart = native.conditionalOnStart;
         closure.append(fact);
@@ -3479,17 +3472,12 @@ void ShowCommandRecorder::journal(QVector<TimelineFact> closure, quint32 showId,
         {
             fact.nativeBefore = receipt.before;
             fact.nativeAfter = receipt.after;
-            fact.before = receipt.before.scalar;
-            fact.xyBefore = receipt.before.point;
         }
         else if (!fact.conditionalOnStart)
             fact.nativeAfter = ShowControlAction::observe(fact.control);
         else if (!started)
             fact.nativeAfter = fact.nativeBefore;
-        fact.after = fact.nativeAfter.scalar;
-        fact.xyAfter = fact.nativeAfter.point;
         fact.owner = owner;
-        fact.ownerRecorded = true;
         m_timeline.append(fact);
     }
 }
@@ -3498,7 +3486,6 @@ void ShowCommandRecorder::rollBackTimeline(ControlRun &run)
 {
     const quint32 showId = run.show->id();
     const quint32 to = *run.batch.rollbackTo;
-    const FunctionParent replayOwner(FunctionParent::Function, showId);
 
     QVector<ShowControlAction::Restoration> targets;
     QHash<VCWidget *, ShowControlAction::State> latestNative;
@@ -3514,8 +3501,8 @@ void ShowCommandRecorder::rollBackTimeline(ControlRun &run)
         {
             ShowControlAction::Restoration target;
             target.control = fact.control;
-            target.owner = fact.ownerRecorded ? fact.owner : replayOwner;
-            target.releaseOwner = fact.ownerRecorded && !fact.ownerBefore;
+            target.owner = fact.owner;
+            target.releaseOwner = !fact.ownerBefore;
             target.before = fact.nativeBefore;
             target.superseded = fact.superseded;
             targets.append(target);

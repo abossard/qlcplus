@@ -681,10 +681,10 @@ void VCXYPad::requestUserCurrentPosition(QPointF newCurrentPosition, ShowCommand
 
     ShowControlRequest request;
     request.control = this;
-    request.role = ShowControlRole::XYPad;
-    request.xyPadPosition = true;
-    request.xyPosition = newCurrentPosition;
-    request.origin = origin;
+    request.input.role = ShowControlRole::XYPad;
+    request.input.action = ShowCommandAction::SetXYPadPosition;
+    request.input.payload.value = ShowCommandPanTilt{newCurrentPosition.x(), newCurrentPosition.y()};
+    request.input.origin = origin;
     recorder->requestUserControl(request);
 }
 
@@ -723,8 +723,7 @@ void VCXYPad::requestUserPreset(int choice, ShowCommandOrigin origin)
         applyPreset(quint8(choice));
         return;
     }
-    ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice);
-    input.origin = origin;
+    const ShowCommandInput input = ShowControlAction::acceptedPreset(this, choice, -1, origin);
     ShowControlAction::submit(m_doc, this, input);
 }
 
@@ -883,10 +882,10 @@ void VCXYPad::requestUserFloorPosition(QVector3D position, ShowCommandOrigin ori
                          qBound(float(area.top()), position.z(), float(area.bottom())));
     ShowControlRequest request;
     request.control = this;
-    request.role = ShowControlRole::XYPad;
-    request.xyPadFloor = true;
-    request.floorPosition = {position.x(), position.y(), position.z()};
-    request.origin = origin;
+    request.input.role = ShowControlRole::XYPad;
+    request.input.action = ShowCommandAction::SetXYPadFloor;
+    request.input.payload.value = ShowCommandFloor{position.x(), position.y(), position.z()};
+    request.input.origin = origin;
     recorder->requestUserControl(request);
 }
 
