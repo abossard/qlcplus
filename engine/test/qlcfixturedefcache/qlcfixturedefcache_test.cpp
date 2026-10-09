@@ -223,7 +223,11 @@ void QLCFixtureDefCache_Test::defDirectories()
 
     QVERIFY(dir.filter() & QDir::Files);
     QVERIFY(dir.nameFilters().contains(QString("*%1").arg(KExtFixture)));
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    QDir fxDir(FIXTUREDIR);
+#else
     QDir fxDir(QCoreApplication::applicationDirPath() + "/../" FIXTUREDIR);
+#endif
     QCOMPARE(dir.absolutePath(), fxDir.absolutePath());
 
     dir = QLCFixtureDefCache::userDefinitionDirectory();
