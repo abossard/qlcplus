@@ -1643,7 +1643,7 @@ void VCAudioTriggers_Test::nativeConsumers()
         hue.rgbMap({3, 1}, 0xffffff, 0, map);
         QVERIFY(!map.isEmpty());
         const auto observed = QJsonDocument::fromJson(hue.property("snapshot").toUtf8()).object().toVariantMap();
-        for (const QString &key : {"version", "profileId", "sourceId", "sourceEpoch", "frameSequence",
+        for (const QString key : {"version", "profileId", "sourceId", "sourceEpoch", "frameSequence",
                                    "configRevision", "available", "low", "mid", "high", "banks"})
             QCOMPARE(QJsonValue::fromVariant(observed[key]), QJsonValue::fromVariant(expected[key]));
         QCOMPARE(map[0][0], HUEColor::hsvToRgb(0, 1, float(snapshot.lows)));
