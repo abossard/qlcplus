@@ -276,13 +276,11 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create or update Shows and their tracks. Upserts by name, and tracks upsert by "
-                     "name within the show, so repeated calls do not duplicate. Put functions on the "
-                     "timeline with add_show_items. Batch: {\"items\": [...]}."),
-        std::nullopt
+        }
     )
+    .set_description("Create or update Shows and their tracks. Upserts by name, and tracks upsert by "
+                     "name within the show, so repeated calls do not duplicate. Put functions on the "
+                     "timeline with add_show_items. Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // query_shows — the timeline as data
@@ -336,12 +334,10 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List Shows with their tracks and timeline items (start time and duration in "
-                     "milliseconds, converting beat items at the show's BPM)."),
-        std::nullopt
+        }
     )
+    .set_description("List Shows with their tracks and timeline items (start time and duration in "
+                     "milliseconds, converting beat items at the show's BPM).")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // add_show_items — place functions on a track's timeline
@@ -550,15 +546,13 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Place functions on a Show track's timeline. Times are milliseconds. Beat items "
+        }
+    )
+    .set_description("Place functions on a Show track's timeline. Times are milliseconds. Beat items "
                      "are converted at the show's positive BPM without changing function tempo. Timing "
                      "that cannot round-trip in milliseconds is rejected before mutation. The track "
                      "is created if it does not exist. An item overlapping one already on the same "
-                     "track is refused, with the conflicting item reported. Batch: {\"items\": [...]}."),
-        std::nullopt
-    )
+                     "track is refused, with the conflicting item reported. Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_show_items — remove timeline items, or whole tracks
@@ -682,14 +676,12 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             admission.end();
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Remove items from a Show timeline by ShowFunction ID, and/or remove whole "
+        }
+    )
+    .set_description("Remove items from a Show timeline by ShowFunction ID, and/or remove whole "
                      "tracks by name. The referenced Functions themselves are not deleted. The whole "
                      "request is validated before anything is removed; nothing is removed while the "
                      "Show is running or queued. One indexed record per itemIDs entry, then per "
-                     "trackNames entry."),
-        std::nullopt
-    )
+                     "trackNames entry.")
     .set_annotations(mcp::kAnnotDestructive));
 }

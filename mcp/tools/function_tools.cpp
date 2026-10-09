@@ -1082,14 +1082,12 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create scenes with palettes, channel values, and/or degree-based positions. "
+        }
+    )
+    .set_description("Create scenes with palettes, channel values, and/or degree-based positions. "
                      "Palette-first: reference palettes via paletteNames/paletteIDs for reusable values; "
                      "channelValues override palettes for fine-tuning. "
-                     "Upserts: replaces all values and palette refs on existing scenes. Batch: wrap entries in {\"items\": [...]}."),
-        std::nullopt
-    )
+                     "Upserts: replaces all values and palette refs on existing scenes. Batch: wrap entries in {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // create_chasers (batch)
@@ -1242,11 +1240,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create chasers with per-step timing. Upserts: replaces all steps on existing chasers. Batch: wrap entries in {\"items\": [...]}."),
-        std::nullopt
+        }
     )
+    .set_description("Create chasers with per-step timing. Upserts: replaces all steps on existing chasers. Batch: wrap entries in {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // create_sequences (batch)
@@ -1354,11 +1350,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create sequences bound to scenes for per-channel step animation. Upserts: replaces timing and binding on existing sequences. Batch: wrap entries in {\"items\": [...]}."),
-        std::nullopt
+        }
     )
+    .set_description("Create sequences bound to scenes for per-channel step animation. Upserts: replaces timing and binding on existing sequences. Batch: wrap entries in {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // create_efxs (batch)
@@ -1533,11 +1527,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create EFX position effects for moving heads (10 algorithm types). Upserts: replaces all settings on existing EFXs. Batch: wrap entries in {\"items\": [...]}."),
-        std::nullopt
+        }
     )
+    .set_description("Create EFX position effects for moving heads (10 algorithm types). Upserts: replaces all settings on existing EFXs. Batch: wrap entries in {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // create_collections (batch)
@@ -1617,11 +1609,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create collections (parallel function groups — use for moods/phases). Upserts. Batch: wrap entries in {\"items\": [...]}."),
-        std::nullopt
+        }
     )
+    .set_description("Create collections (parallel function groups — use for moods/phases). Upserts. Batch: wrap entries in {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // create_rgb_matrices (batch)
@@ -1995,14 +1985,12 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create/update RGB matrix effects. Supports audio-reactive algorithms, beat-synced timing "
+        }
+    )
+    .set_description("Create/update RGB matrix effects. Supports audio-reactive algorithms, beat-synced timing "
                      "(use beat strings like '1/4', '1/2', '1' for duration/fadeIn/fadeOut — auto-sets Beats tempo), "
                      "script properties (e.g. presetDecay, presetMode), blend modes (Additive for layering), "
-                     "and up to 3 colors. Use query_rgb_algorithms to discover algorithms and properties. Upserts. Batch: wrap entries in {\"items\": [...]}."),
-        std::nullopt
-    )
+                     "and up to 3 colors. Use query_rgb_algorithms to discover algorithms and properties. Upserts. Batch: wrap entries in {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // create_fixture_groups (batch)
@@ -2108,11 +2096,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create fixture groups with grid layout for RGB matrices. Upserts. Batch: wrap entries in {\"items\": [...]}."),
-        std::nullopt
+        }
     )
+    .set_description("Create fixture groups with grid layout for RGB matrices. Upserts. Batch: wrap entries in {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_fixture_groups — remove groups by ID
@@ -2196,16 +2182,14 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete fixture groups by ID. Batch: wrap entries in {\"ids\": [...]}. "
+        }
+    )
+    .set_description("Delete fixture groups by ID. Batch: wrap entries in {\"ids\": [...]}. "
                      "The fixtures themselves are left patched; only the grouping is removed. "
                      "A group still bound to an RGB matrix is refused — the reply lists the "
                      "matrices in boundMatrices (code bound_matrix) so they can be repointed or deleted first. "
                      "Returns one record per input id, in input order; a repeated id copies the first "
-                     "record with duplicateOf (outcome duplicate when it was deleted) instead of deleting twice."),
-        std::nullopt
-    )
+                     "record with duplicateOf (outcome duplicate when it was deleted) instead of deleting twice.")
     .set_annotations(mcp::kAnnotDestructive));
 
     // create_scripts (batch) — JavaScript-only
@@ -2307,9 +2291,9 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string(
+        }
+    )
+    .set_description(
             "Create or update Script functions with raw JavaScript. Upserts by name. "
             "Syntax is validated before saving — scripts with errors are rejected with detailed error messages. Batch: wrap entries in {\"items\": [...]}.\n"
             "\n"
@@ -2442,9 +2426,7 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             "      Engine.waitTime(25);\n"
             "  }\n"
             "  // Same script in 2-beat step -> 500ms. In 16-beat step -> 4000ms.\n"
-        ),
-        std::nullopt
-    )
+        )
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_functions (batch)
@@ -2501,12 +2483,10 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             admitted.end();
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete functions by ID. Batch: wrap entries in {\"ids\": [...]}. A Scene bound to a Sequence is "
-                    "refused (code bound_scene, referrers lists the Sequence ids) until those Sequences are gone."),
-        std::nullopt
+        }
     )
+    .set_description("Delete functions by ID. Batch: wrap entries in {\"ids\": [...]}. A Scene bound to a Sequence is "
+                    "refused (code bound_scene, referrers lists the Sequence ids) until those Sequences are gone.")
     .set_annotations(mcp::kAnnotDestructive));
 
     {
@@ -2611,13 +2591,11 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return Json{{"items", results}};
             });
-        },
-        std::nullopt,
-        std::string("Read one function's complete authoring detail per target, in target order. Covers Scene, "
-                    "Chaser, Sequence, EFX, Collection and Script; RGB/HUE matrices and Shows name the query "
-                    "tool that already describes them (detailTool)."),
-        std::nullopt
+        }
     )
+    .set_description("Read one function's complete authoring detail per target, in target order. Covers Scene, "
+                    "Chaser, Sequence, EFX, Collection and Script; RGB/HUE matrices and Shows name the query "
+                    "tool that already describes them (detailTool).")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // update_functions — ID-primary sparse edits, validated in full before admission
@@ -2773,17 +2751,15 @@ void registerFunctionTools(fastmcpp::tools::ToolManager &tm, Doc *doc, FunctionM
             }
             return Json{{"items", results}};
             });
-        },
-        std::nullopt,
-        std::string("Sparse edit of existing Scene, Chaser, Sequence, EFX, Collection and Script functions. Each item "
+        }
+    )
+    .set_description("Sparse edit of existing Scene, Chaser, Sequence, EFX, Collection and Script functions. Each item "
                     "names one target ({id}, or a name that is unique, optionally narrowed by type) and only the "
                     "fields to change. The whole item is validated before anything is applied; a function that "
                     "is running, starting, queued or flashing, or used by one that is, is refused (code running). "
                     "Timing uses typed speeds as returned by query_function_details. List fields (values, "
                     "paletteIDs, steps, functionIDs) replace the whole list. A Sequence-bound Scene keeps its "
-                    "channel set (code bound_scene). Batch: {\"items\": [...]}."),
-        std::nullopt
-    )
+                    "channel set (code bound_scene). Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
     }
 }

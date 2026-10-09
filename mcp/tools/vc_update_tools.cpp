@@ -950,13 +950,11 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Update Virtual Console widget properties. Sparse: only provided fields are changed. "
+        }
+    )
+    .set_description("Update Virtual Console widget properties. Sparse: only provided fields are changed. "
                      "Validates fields against widget type. Supports type-specific configuration for buttons, "
                      "sliders, frames, cue lists, matrices, clocks, speed dials, XY pads, audio triggers, and record panels. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
-    )
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 }

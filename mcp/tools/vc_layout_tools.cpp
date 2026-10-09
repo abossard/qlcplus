@@ -120,12 +120,10 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Move Virtual Console widgets between frames. Preserves all properties. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Move Virtual Console widgets between frames. Preserves all properties. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_delete_widgets (batch)
@@ -203,12 +201,10 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete Virtual Console widgets by ID. Batch: one indexed outcome per id "
-                     "(deleted, duplicate, or alreadyDeleted when an ancestor was deleted earlier)."),
-        std::nullopt
+        }
     )
+    .set_description("Delete Virtual Console widgets by ID. Batch: one indexed outcome per id "
+                     "(deleted, duplicate, or alreadyDeleted when an ancestor was deleted earlier).")
     .set_annotations(mcp::kAnnotDestructive));
 
     // vc_delete_pages — remove whole VC pages and everything on them
@@ -273,13 +269,11 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete Virtual Console pages by zero-based index, together with every widget "
-                     "on them. Batch: {\"pageIndexes\": [...]}. Indexes are applied highest-first so "
-                     "a batch stays consistent; outcomes keep the caller's order. The last remaining page cannot be deleted."),
-        std::nullopt
+        }
     )
+    .set_description("Delete Virtual Console pages by zero-based index, together with every widget "
+                     "on them. Batch: {\"pageIndexes\": [...]}. Indexes are applied highest-first so "
+                     "a batch stays consistent; outcomes keep the caller's order. The last remaining page cannot be deleted.")
     .set_annotations(mcp::kAnnotDestructive));
 
     // vc_detect_overlaps — find overlapping widgets within a frame or page
@@ -329,11 +323,9 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             result["overlapCount"] = (int)overlaps.size();
             return result.dump();
             });
-        },
-        std::nullopt,
-        std::string("Detect overlapping widgets within a frame or page. Returns pairs of overlapping widget IDs with their intersection rectangles."),
-        std::nullopt
+        }
     )
+    .set_description("Detect overlapping widgets within a frame or page. Returns pairs of overlapping widget IDs with their intersection rectangles.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // vc_reflow_frame — reflow children within a frame (or entire page) using flow layout
@@ -521,17 +513,15 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             result["remainingOverlaps"] = overlapArr;
             return result.dump();
             });
-        },
-        std::nullopt,
-        std::string("Reflow widgets within a frame or page. "
+        }
+    )
+    .set_description("Reflow widgets within a frame or page. "
                      "algorithm=flow (default): arranges buttons/sliders in a grid, recursively reflows nested frames, resizes the frame to fit. "
                      "algorithm=gridCompact (frameID only): Grafana-style vertical compaction using the frame's gridColumns/gridRowHeight — "
                      "snaps widgets to cells and drops them as far up as possible without overlapping. "
                      "With pageIndex: auto-detects column groupings from x-positions, preserves multi-column layouts, "
                      "reflows within each column independently. Page-level reflow defaults to dryRun=true (pass dryRun=false to apply). "
-                     "Never reparents or creates widgets — only repositions existing children within their current parent."),
-        std::nullopt
-    )
+                     "Never reparents or creates widgets — only repositions existing children within their current parent.")
     .set_annotations(mcp::kAnnotIdempotent));
     } // end vc_reflow_frame schema scope
 
@@ -610,12 +600,10 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Set grid layout mode on frames. Enables Grafana-style vertical compaction and collision push-down. "
-                    "Use with vc_reflow_frame algorithm=gridCompact to apply the compaction. Batch. "
-                    "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Set grid layout mode on frames. Enables Grafana-style vertical compaction and collision push-down. "
+                    "Use with vc_reflow_frame algorithm=gridCompact to apply the compaction. Batch. "
+                    "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 }

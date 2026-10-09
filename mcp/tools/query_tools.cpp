@@ -144,15 +144,13 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return envelope.dump();
             });
-        },
-        std::nullopt,
-        std::string("List patched fixtures in fixture-ID order, optionally filtered by id, case-insensitive name, and universe. "
+        }
+    )
+    .set_description("List patched fixtures in fixture-ID order, optionally filtered by id, case-insensitive name, and universe. "
                     "Without page, returns the legacy bare array. With page, returns a bounded cursor envelope. "
                     "Returns IDs needed for other tools. "
                     "Includes type (Moving Head, Dimmer, etc.), capabilities (RGBW, ContinuousTiltRotation, Pan/Tilt, UV, Amber), "
-                    "headMap with per-head channel indices and rgbChannels for multi-head fixtures, and physical properties."),
-        std::nullopt
-    )
+                    "headMap with per-head channel indices and rgbChannels for multi-head fixtures, and physical properties.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_available_fixtures — search fixture definition library
@@ -212,12 +210,10 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Search the fixture definition library by manufacturer/model. Returns available fixtures with their modes. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Search the fixture definition library by manufacturer/model. Returns available fixtures with their modes. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // patch_fixtures — add fixtures to the project (batch)
@@ -376,14 +372,12 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Create fixtures in the project. Returns one indexed record per input item; its fixtures[] carries each generated "
+        }
+    )
+    .set_description("Create fixtures in the project. Returns one indexed record per input item; its fixtures[] carries each generated "
                     "fixture with outcome 'existing' (status 'ok') only for an exact name, universe, and address match. "
                     "A changed address creates a separate fixture rather than updating an existing one. "
-                    "Each item is all-or-nothing: an address overlap creates none of its fixtures. Batch."),
-        std::nullopt
-    )
+                    "Each item is all-or-nothing: an address overlap creates none of its fixtures. Batch.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // update_fixture — atomically repair one fixture's setup properties
@@ -487,11 +481,9 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 {"after", setupState(fixture)}
             }).dump();
             });
-        },
-        std::nullopt,
-        std::string("Atomically rename or repatch one existing fixture by ID after validating its complete final footprint."),
-        std::nullopt
+        }
     )
+    .set_description("Atomically rename or repatch one existing fixture by ID after validating its complete final footprint.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_fixtures — unpatch fixtures by ID
@@ -606,9 +598,9 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
 
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete (unpatch) fixtures by ID. Batch: wrap entries in {\"ids\": [...]}. "
+        }
+    )
+    .set_description("Delete (unpatch) fixtures by ID. Batch: wrap entries in {\"ids\": [...]}. "
                      "Frees the DMX address range and removes the fixture's channels from every "
                      "scene, EFX, sequence, fixture group and channel group that referenced it, "
                      "then drops any group that removal left empty (reported as removedEmptyGroups inside that "
@@ -617,9 +609,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                      "Refused per id (code bound_scene) when a Sequence-bound scene uses the fixture, and "
                      "(code functions_running) while any function is running, starting or queued; nothing is stopped. "
                      "Virtual Console widgets bound to the fixture (slider level channels, XY pad "
-                     "fixtures) are NOT scrubbed — re-check them with vc_query_widgets."),
-        std::nullopt
-    )
+                     "fixtures) are NOT scrubbed — re-check them with vc_query_widgets.")
     .set_annotations(mcp::kAnnotDestructive));
 
     // query_functions — list existing functions
@@ -634,11 +624,9 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 results.push_back(mcp::functionToJson(func));
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List all existing functions (scenes, chasers, collections, etc.)."),
-        std::nullopt
+        }
     )
+    .set_description("List all existing functions (scenes, chasers, collections, etc.).")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_vc_pages — list Virtual Console pages with widget details, filtering, and field selection
@@ -731,15 +719,13 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 }
                 return results.dump();
                 });
-            },
-            std::nullopt,
-            std::string("Search and list Virtual Console widgets with optional filtering and field selection. "
+            }
+    )
+    .set_description("Search and list Virtual Console widgets with optional filtering and field selection. "
                         "Filters (AND-combined): nameFilter (glob), typeFilter (string/array), "
                         "functionID, fixtureID, channel, pageIndex, parentID. "
                         "Field selection: properties array (id always included, omit for all). "
-                        "No parameters returns everything (backward compatible)."),
-        std::nullopt
-        )
+                        "No parameters returns everything (backward compatible).")
         .set_annotations(mcp::kAnnotReadOnly));
 
         // vc_query_widgets (batch) — query full details of Virtual Console widgets
@@ -769,12 +755,10 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 }
                 return results.dump();
                 });
-            },
-            std::nullopt,
-            std::string("Query full details of Virtual Console widgets. Batch. "
-                         "Pass widget IDs in {\"widgetIDs\": [...]}."),
-            std::nullopt
-        )
+            }
+    )
+    .set_description("Query full details of Virtual Console widgets. Batch. "
+                         "Pass widget IDs in {\"widgetIDs\": [...]}.")
         .set_annotations(mcp::kAnnotReadOnly));
     }
 
@@ -818,11 +802,9 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List all configured DMX universes with their I/O plugin assignments."),
-        std::nullopt
+        }
     )
+    .set_description("List all configured DMX universes with their I/O plugin assignments.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_palettes — list all palettes
@@ -932,12 +914,10 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List all palettes with their type, values, and which scenes reference them. "
-                     "Optional typeFilter: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom."),
-        std::nullopt
+        }
     )
+    .set_description("List all palettes with their type, values, and which scenes reference them. "
+                     "Optional typeFilter: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_rgb_algorithms — list available RGB algorithms
@@ -1049,15 +1029,13 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List available RGB algorithms (Plain, Script, Text, Image, Audio) with their types, "
+        }
+    )
+    .set_description("List available RGB algorithms (Plain, Script, Text, Image, Audio) with their types, "
                      "accepted color count, audio-reactivity flag, and configurable properties (for scripts). "
                      "matrixType selects RGBMatrix (default, stock) or HUEMatrix (HSV scripts); type filters algorithm kind. "
                      "Use to discover algorithms before creating RGB matrices. "
-                     "Beat durations supported: 1/8, 1/4, 1/2, 1, 2, 3, 4 beats."),
-        std::nullopt
-    )
+                     "Beat durations supported: 1/8, 1/4, 1/2, 1, 2, 3, 4 beats.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_fixture_groups — list fixture groups
@@ -1100,12 +1078,10 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List fixture groups with grid dimensions and fixture IDs. "
-                     "Fixture groups define the pixel layout for RGB matrices."),
-        std::nullopt
+        }
     )
+    .set_description("List fixture groups with grid dimensions and fixture IDs. "
+                     "Fixture groups define the pixel layout for RGB matrices.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_rgb_matrices — list RGB matrix functions with full details
@@ -1168,12 +1144,10 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List all RGB matrix functions with full details: algorithm, colors, timing (beat strings when in Beats mode), "
-                     "control mode, blend mode, run order, direction, and script properties."),
-        std::nullopt
+        }
     )
+    .set_description("List all RGB matrix functions with full details: algorithm, colors, timing (beat strings when in Beats mode), "
+                     "control mode, blend mode, run order, direction, and script properties.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_workspace_summary — lightweight counts of major entities
@@ -1242,14 +1216,12 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
             result["modified"] = doc->isModified();
             return result.dump();
             });
-        },
-        std::nullopt,
-        std::string("Lightweight workspace overview. Returns counts of fixtures, fixture groups, universes, "
+        }
+    )
+    .set_description("Lightweight workspace overview. Returns counts of fixtures, fixture groups, universes, "
                      "functions (grouped by type: scenes, chasers, collections, rgbMatrices, hueMatrices, efx, scripts, "
                      "shows, sequences, audio, video), palettes, VC pages, currently running functions, and "
                      "whether the project has unsaved changes. "
-                     "Use as a fast first call before drilling into specific entities."),
-        std::nullopt
-    )
+                     "Use as a fast first call before drilling into specific entities.")
     .set_annotations(mcp::kAnnotReadOnly));
 }

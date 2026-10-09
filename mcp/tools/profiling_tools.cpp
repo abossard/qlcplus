@@ -192,17 +192,16 @@ void registerProfilingTools(fastmcpp::tools::ToolManager &tm)
                 {"state", snapshotToJson(TimingDiag::snapshot())}
             };
             return result.dump();
-        },
-        std::nullopt,
-        std::optional<std::string>(std::string(
+        }
+    )
+    .set_description(
             "Runtime control for the opt-in MasterTimer timing diagnostics. Actions: "
             "enable (start a fresh capture and sample the active effects), disable (stop "
             "sampling but keep the capture), set_interval (change the report window, needs "
             "intervalMs), reset (begin a new capture), snapshot (read bounded, non-consuming "
             "capture aggregates). Durations are nanoseconds; -1 means unknown, never a "
             "fabricated 0. Diagnostic-only: it never changes DMX output, functions or show "
-            "state, and does not start or stop the timer.")),
-        std::nullopt)
+            "state, and does not start or stop the timer.")
     // readOnly=false (enable/disable/reset/set_interval mutate diagnostic state),
     // destructive=false (no show/output/fixture impact), idempotent=false (reset
     // and enable advance the capture identity), openWorld=false.

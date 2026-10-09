@@ -147,14 +147,12 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Map external controller inputs (OSC/MIDI faders) to Virtual Console widgets. "
+        }
+    )
+    .set_description("Map external controller inputs (OSC/MIDI faders) to Virtual Console widgets. "
                      "Optionally set LED feedback in the same call (all 6 feedback fields required together). "
                      "Feedback is preserved across remaps if not explicitly supplied. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
-    )
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_configure_feedback (batch)
@@ -245,15 +243,13 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 return Json({{"error", e.what()}}).dump();
             }
             });
-        },
-        std::nullopt,
-        std::string("Set LED feedback colors and animation mode per widget input source. "
+        }
+    )
+    .set_description("Set LED feedback colors and animation mode per widget input source. "
                      "Use sourceName to target a specific source (default 'default'). "
                      "Use integer idleChannel/activeChannel/monitorChannel (from query_feedback_profile) "
                      "or legacy string idleMode/activeMode/monitorMode. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
-    )
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_set_key_sequences (batch)
@@ -300,11 +296,9 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Set keyboard shortcuts on Virtual Console widgets. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Set keyboard shortcuts on Virtual Console widgets. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 }

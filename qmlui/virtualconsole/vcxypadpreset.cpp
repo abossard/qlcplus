@@ -37,6 +37,7 @@ VCXYPadPreset::VCXYPadPreset(quint8 id)
 }
 
 VCXYPadPreset::VCXYPadPreset(const VCXYPadPreset &preset)
+    : QObject()
 {
     *this = preset;
 }

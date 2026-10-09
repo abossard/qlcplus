@@ -184,14 +184,12 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Place fixtures in the 2D/3D stage views. Batch: {\"items\": [...]}. "
+        }
+    )
+    .set_description("Place fixtures in the 2D/3D stage views. Batch: {\"items\": [...]}. "
                      "Positions are in MILLIMETRES from the stage origin and rotations in degrees; "
                      "omitted axes keep their current value. This is view geometry only — it does "
-                     "not change any DMX output."),
-        std::nullopt
-    )
+                     "not change any DMX output.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // query_fixture_placement — read back stage geometry
@@ -238,15 +236,13 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Read stage placement (millimetre position, degree rotation, gel colour) for "
+        }
+    )
+    .set_description("Read stage placement (millimetre position, degree rotation, gel colour) for "
                      "fixtures that have been placed; fixtures never placed are omitted, and "
                      "gelColor is absent when no gel was set. Head 0 is the fixture's own root "
                      "entry and appears once any head of that fixture is placed. Linked fixture "
-                     "copies are not reported."),
-        std::nullopt
-    )
+                     "copies are not reported.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // configure_stage — the environment the 2D/3D views draw fixtures into
@@ -322,13 +318,11 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"showLabels", props->labelsVisible()}
             }).dump();
             });
-        },
-        std::nullopt,
-        std::string("Configure the stage the 2D/3D views draw: dimensions, units, stage type and "
-                     "fixture labels. Point of view is not settable here — changing it rewrites "
-                     "every fixture's coordinates, so it belongs in the UI."),
-        std::nullopt
+        }
     )
+    .set_description("Configure the stage the 2D/3D views draw: dimensions, units, stage type and "
+                     "fixture labels. Point of view is not settable here — changing it rewrites "
+                     "every fixture's coordinates, so it belongs in the UI.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // create_channel_groups — named sets of raw channels for Simple Desk
@@ -435,13 +429,11 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Create or update named channel groups — arbitrary sets of raw fixture channels "
-                     "driven together from Simple Desk. Upserts by name; a second call with the same "
-                     "name replaces the membership. Batch: {\"items\": [...]}."),
-        std::nullopt
+        }
     )
+    .set_description("Create or update named channel groups — arbitrary sets of raw fixture channels "
+                     "driven together from Simple Desk. Upserts by name; a second call with the same "
+                     "name replaces the membership. Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // query_channel_groups
@@ -465,11 +457,9 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List channel groups with their member fixture channels."),
-        std::nullopt
+        }
     )
+    .set_description("List channel groups with their member fixture channels.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // delete_channel_groups
@@ -506,11 +496,9 @@ void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete channel groups by ID. Batch: {\"ids\": [...]}. The fixtures and their "
-                     "channels are untouched; only the grouping is removed."),
-        std::nullopt
+        }
     )
+    .set_description("Delete channel groups by ID. Batch: {\"ids\": [...]}. The fixtures and their "
+                     "channels are untouched; only the grouping is removed.")
     .set_annotations(mcp::kAnnotDestructive));
 }

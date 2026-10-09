@@ -98,12 +98,10 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create new Virtual Console pages. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Create new Virtual Console pages. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // vc_create_widgets — unified widget creation tool with type discriminator
@@ -971,13 +969,11 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create Virtual Console widgets. Use 'type' to specify widget kind: "
+        }
+    )
+    .set_description("Create Virtual Console widgets. Use 'type' to specify widget kind: "
                      "frame, soloframe, button, slider, xypad, cuelist, label, speedDial, audioTrigger, matrix, clock, recordPanel. "
                      "Upserts: existing widget with same caption is returned. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
-    )
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 }

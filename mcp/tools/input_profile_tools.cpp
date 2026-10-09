@@ -295,14 +295,12 @@ void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create or update input profiles (.qxi) describing a control surface's "
+        }
+    )
+    .set_description("Create or update input profiles (.qxi) describing a control surface's "
                      "channels, written into the user profile directory and registered for "
                      "set_input_profile. Upserts by manufacturer+model. Channel numbers are "
-                     "1-based, matching the UI. Batch: {\"items\": [...]}."),
-        std::nullopt
-    )
+                     "1-based, matching the UI. Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // query_input_profile_channels — read one profile's channel map
@@ -348,11 +346,9 @@ void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"channels", channels}
             }).dump();
             });
-        },
-        std::nullopt,
-        std::string("Read one input profile's channel map — 1-based channel numbers, names and "
-                     "types. Use query_input_profiles for the list of profile names."),
-        std::nullopt
+        }
     )
+    .set_description("Read one input profile's channel map — 1-based channel numbers, names and "
+                     "types. Use query_input_profiles for the list of profile names.")
     .set_annotations(mcp::kAnnotReadOnly));
 }

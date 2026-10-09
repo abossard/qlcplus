@@ -206,14 +206,12 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Configure universe input/output plugins (OSC, ArtNet, E1.31, etc.). Batch. "
+        }
+    )
+    .set_description("Configure universe input/output plugins (OSC, ArtNet, E1.31, etc.). Batch. "
                      "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently. "
                      "A universeID beyond the current universe count creates the missing universes, "
-                     "so this also serves as \"add universe\"; the reply reports universesCreated."),
-        std::nullopt
-    )
+                     "so this also serves as \"add universe\"; the reply reports universesCreated.")
     .set_annotations(mcp::kAnnotOpenWorld));
 
     // delete_universes — remove trailing universes
@@ -340,15 +338,13 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete universes by ID. Batch: {\"ids\": [...]}. Only trailing universes can be "
+        }
+    )
+    .set_description("Delete universes by ID. Batch: {\"ids\": [...]}. Only trailing universes can be "
                      "removed and a universe holding patched fixtures is refused. The last remaining "
                      "universe cannot be deleted. Returns one record per input id, in input order; "
                      "deletion runs highest id first, and a repeated id reports outcome \"duplicate\" "
-                     "with duplicateOf instead of a second deletion."),
-        std::nullopt
-    )
+                     "with duplicateOf instead of a second deletion.")
     .set_annotations(mcp::kAnnotDestructive));
 
     // query_midi_devices — list connected MIDI input/output ports
@@ -441,12 +437,10 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Set plugin-specific parameters (e.g., MIDI init message, channel). Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Set plugin-specific parameters (e.g., MIDI init message, channel). Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotOpenWorld));
 
     // query_midi_devices — list connected MIDI input/output ports
@@ -476,11 +470,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List connected MIDI devices with their input/output ports."),
-        std::nullopt
+        }
     )
+    .set_description("List connected MIDI devices with their input/output ports.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // query_input_profiles — list available input profiles
@@ -507,11 +499,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List available input profiles (e.g., Novation Launchpad Mini MK3)."),
-        std::nullopt
+        }
     )
+    .set_description("List available input profiles (e.g., Novation Launchpad Mini MK3).")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // set_input_profile (batch)
@@ -558,12 +548,10 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Set input profile for a universe. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Set input profile for a universe. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // query_feedback_profile — get color table and MIDI channel table from an input profile
@@ -645,14 +633,12 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             return result.dump();
             });
-        },
-        std::nullopt,
-        std::string("Get the color table and MIDI channel table from an input profile. "
+        }
+    )
+    .set_description("Get the color table and MIDI channel table from an input profile. "
                      "Accepts profileName or universeID (to use the active profile on that universe). "
                      "Returns available LED colors (velocity values) and animation modes "
-                     "for use with feedback configuration."),
-        std::nullopt
-    )
+                     "for use with feedback configuration.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // configure_osc — one-call OSC plugin setup per universe
@@ -791,14 +777,12 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 return Json({{"error", e.what()}}).dump();
             }
             });
-        },
-        std::nullopt,
-        std::string("Configure OSC plugin for a universe in one call. Sets input/output/feedback ports and addresses. Batch. "
+        }
+    )
+    .set_description("Configure OSC plugin for a universe in one call. Sets input/output/feedback ports and addresses. Batch. "
                      "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently. "
                      "Each record lists confirmed patches and attempted plugin parameters (the plugin does not "
-                     "confirm those); status is partial when a patch fails."),
-        std::nullopt
-    )
+                     "confirm those); status is partial when a patch fails.")
     .set_annotations(mcp::kAnnotOpenWorld));
 
     // query_osc_status — show current OSC configuration
@@ -871,11 +855,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 return Json({{"error", e.what()}}).dump();
             }
             });
-        },
-        std::nullopt,
-        std::string("Show current OSC configuration for all universes that have OSC patched."),
-        std::nullopt
+        }
     )
+    .set_description("Show current OSC configuration for all universes that have OSC patched.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // configure_beat_source — set beat generator type and optional BPM
@@ -930,11 +912,9 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             result["bpm"] = ioMap->bpmNumber();
             return result.dump();
             });
-        },
-        std::nullopt,
-        std::string("Set beat generator source: disabled, internal (with BPM), plugin (OS2L/MIDI beat input), audio (mic/line-in beat detection)."),
-        std::nullopt
+        }
     )
+    .set_description("Set beat generator source: disabled, internal (with BPM), plugin (OS2L/MIDI beat input), audio (mic/line-in beat detection).")
     .set_annotations(mcp::kAnnotOpenWorld));
 
     // configure_launchpad — auto-configure a Novation Launchpad in one call
@@ -1059,10 +1039,8 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             result["model"] = model.toStdString();
             return result.dump();
             });
-        },
-        std::nullopt,
-        std::string("Auto-configure a Novation Launchpad. Detects the device, sets DAW port, sends init message, sets input profile, enables LED feedback."),
-        std::nullopt
+        }
     )
+    .set_description("Auto-configure a Novation Launchpad. Detects the device, sets DAW port, sends init message, sets input profile, enables LED feedback.")
     .set_annotations(mcp::kAnnotOpenWorld));
 }

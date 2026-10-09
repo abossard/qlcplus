@@ -140,16 +140,14 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                                     ? "allChannels" : "intensity"}
             }).dump();
             });
-        },
-        std::nullopt,
-        std::string("Configure the Grand Master: level, whether it limits or reduces, and which "
+        }
+    )
+    .set_description("Configure the Grand Master: level, whether it limits or reduces, and which "
                      "channels it governs. Takes effect on live output immediately. NOTE this is "
                      "session state — QLC+ does not write the Grand Master into the project file, "
                      "so it resets on restart and is reset again by load_workspace and "
                      "new_workspace. For a Grand Master that is part of the saved show, create a "
-                     "VC slider with mode \"grandMaster\"."),
-        std::nullopt
-    )
+                     "VC slider with mode \"grandMaster\".")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // query_grand_master
@@ -167,11 +165,9 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                                     ? "allChannels" : "intensity"}
             }).dump();
             });
-        },
-        std::nullopt,
-        std::string("Read the current Grand Master level and modes."),
-        std::nullopt
+        }
     )
+    .set_description("Read the current Grand Master level and modes.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // write_dmx — drive raw channels to verify a patch
@@ -251,15 +247,13 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Drive fixture channels directly to verify a patch — the setup question "
+        }
+    )
+    .set_description("Drive fixture channels directly to verify a patch — the setup question "
                      "\"is this fixture really at this address?\". Values are held until changed or "
                      "released with {\"release\": true}, and a running Function or the Grand Master "
                      "can still override them. Not a playback mechanism: use Scripts for timed "
-                     "sequences."),
-        std::nullopt
-    )
+                     "sequences.")
     .set_annotations(mcp::kAnnotOpenWorld));
 
     // set_blackout
@@ -280,12 +274,10 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             ioMap->setBlackout(args.at("enabled").get<bool>());
             return Json({{"status", "ok"}, {"blackout", ioMap->blackout()}}).dump();
             });
-        },
-        std::nullopt,
-        std::string("Turn global blackout on or off. Useful while patching so a rig under test "
-                     "stays dark. Blackout is not saved with the project."),
-        std::nullopt
+        }
     )
+    .set_description("Turn global blackout on or off. Useful while patching so a rig under test "
+                     "stays dark. Blackout is not saved with the project.")
     .set_annotations(mcp::kAnnotOpenWorld));
 
     // run_functions — start or stop a function to verify what was authored
@@ -346,17 +338,15 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Start or stop functions, to check that something just authored actually does "
+        }
+    )
+    .set_description("Start or stop functions, to check that something just authored actually does "
                      "what was intended. Starting is immediate and honours the function's own "
                      "timing. Both act as the master owner: starting an already-running function "
                      "adds that ownership (so its original owner, e.g. a VC button, can no longer "
                      "stop it), and stopping force-stops it regardless of who started it. This is "
                      "a verification aid, not a cue engine — there is no stepping, no timed "
-                     "playback and no fade override; build those as Scripts."),
-        std::nullopt
-    )
+                     "playback and no fade override; build those as Scripts.")
     .set_annotations(mcp::kAnnotOpenWorld));
 
     // query_running_functions
@@ -382,10 +372,8 @@ void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List the functions currently running, with their IDs, names and types."),
-        std::nullopt
+        }
     )
+    .set_description("List the functions currently running, with their IDs, names and types.")
     .set_annotations(mcp::kAnnotReadOnly));
 }

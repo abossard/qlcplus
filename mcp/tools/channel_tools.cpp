@@ -106,12 +106,10 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Query detailed per-channel info for fixtures including capabilities with DMX value ranges, colors, gobo images, and preset types. "
-                    "Each channel includes controlByte (coarse/fine for 16-bit pairs), defaultValue, and headIndex (which head the channel belongs to)."),
-        std::nullopt
+        }
     )
+    .set_description("Query detailed per-channel info for fixtures including capabilities with DMX value ranges, colors, gobo images, and preset types. "
+                    "Each channel includes controlByte (coarse/fine for 16-bit pairs), defaultValue, and headIndex (which head the channel belongs to).")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // configure_channels — set precedence and canFade (batch)
@@ -176,12 +174,10 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Set channel precedence (auto/htp/ltp) and fade behavior per channel. auto restores default. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Set channel precedence (auto/htp/ltp) and fade behavior per channel. auto restores default. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // query_channel_modifiers — list available modifier templates
@@ -200,11 +196,9 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("List available channel modifier templates (Invert, Exponential, Logarithmic, Linear, etc.)"),
-        std::nullopt
+        }
     )
+    .set_description("List available channel modifier templates (Invert, Exponential, Logarithmic, Linear, etc.)")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // set_channel_modifiers — apply modifier templates to channels (batch)
@@ -262,12 +256,10 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Apply channel modifier templates (Invert, Exponential, etc.) to fixture channels. Use 'none' to remove. Use 'Invert' on Pan/Tilt to reverse direction. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Apply channel modifier templates (Invert, Exponential, etc.) to fixture channels. Use 'none' to remove. Use 'Invert' on Pan/Tilt to reverse direction. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // convert_degrees_to_dmx — convert pan/tilt/zoom degrees to DMX channel values
@@ -347,12 +339,10 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return mcp::indexedRecords(results).dump();
             });
-        },
-        std::nullopt,
-        std::string("Convert pan/tilt/zoom degrees to DMX channel values using the fixture's physical range. Returns values ready for create_scenes. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
+        }
     )
+    .set_description("Convert pan/tilt/zoom degrees to DMX channel values using the fixture's physical range. Returns values ready for create_scenes. Batch. "
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // read_dmx_values — read current live DMX output
@@ -490,14 +480,12 @@ void registerChannelTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             return Json({{"fixtures", fixtures}}).dump();
             });
-        },
-        std::nullopt,
-        std::string("Read current live DMX output values (pre-Grand Master) for fixtures. "
+        }
+    )
+    .set_description("Read current live DMX output values (pre-Grand Master) for fixtures. "
                      "Returns the merged result of all running functions. "
                      "Filter by channel group and optionally exclude zero values. "
                      "Position/zoom channels include degree conversion. "
-                     "Read-only setup diagnostic; does not change DMX or show state."),
-        std::nullopt
-    )
+                     "Read-only setup diagnostic; does not change DMX or show state.")
     .set_annotations(mcp::kAnnotReadOnly));
 }

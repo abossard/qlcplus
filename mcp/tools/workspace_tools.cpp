@@ -164,12 +164,10 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
                 result["name"] = QFileInfo(path).fileName().toStdString();
             return result.dump();
             });
-        },
-        std::nullopt,
-        std::string("Report the current project file path and whether it has unsaved changes. "
-                     "An empty path means the workspace has never been saved."),
-        std::nullopt
+        }
     )
+    .set_description("Report the current project file path and whether it has unsaved changes. "
+                     "An empty path means the workspace has never been saved.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // save_workspace — write the project to disk
@@ -240,13 +238,11 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
                 {"modified", doc->isModified()}
             }).dump();
             });
-        },
-        std::nullopt,
-        std::string("Save the current project to disk. Without a path it overwrites the current "
-                     "project file, and fails if the workspace was never saved. Replacing a "
-                     "different existing file requires overwrite:true."),
-        std::nullopt
+        }
     )
+    .set_description("Save the current project to disk. Without a path it overwrites the current "
+                     "project file, and fails if the workspace was never saved. Replacing a "
+                     "different existing file requires overwrite:true.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // load_workspace — replace everything with a project from disk
@@ -289,16 +285,14 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
                 {"path", wsBridge->currentFileName().toStdString()}
             }).dump();
             });
-        },
-        std::nullopt,
-        std::string("Open a .qxw project, replacing everything currently loaded. The file is "
+        }
+    )
+    .set_description("Open a .qxw project, replacing everything currently loaded. The file is "
                      "validated as a workspace first, because loading clears the current project "
                      "before parsing and cannot roll back. Refuses on unsaved changes or active "
                      "command recording unless discardUnsaved is true, and while functions are running unless "
                      "interruptLiveOutput is true. The loaded project's startup function, if it "
-                     "has one, begins playing."),
-        std::nullopt
-    )
+                     "has one, begins playing.")
     .set_annotations(mcp::kAnnotDestructive));
 
     // new_workspace — start from nothing
@@ -327,12 +321,10 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
 
             return Json({{"status", "reset"}}).dump();
             });
-        },
-        std::nullopt,
-        std::string("Discard the current project and start an empty workspace. Refuses on unsaved "
-                     "changes or active command recording unless discardUnsaved is true, and while functions are running "
-                     "unless interruptLiveOutput is true."),
-        std::nullopt
+        }
     )
+    .set_description("Discard the current project and start an empty workspace. Refuses on unsaved "
+                     "changes or active command recording unless discardUnsaved is true, and while functions are running "
+                     "unless interruptLiveOutput is true.")
     .set_annotations(mcp::kAnnotDestructive));
 }
