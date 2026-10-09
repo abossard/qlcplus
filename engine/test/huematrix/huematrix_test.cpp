@@ -846,7 +846,7 @@ void HUEMatrix_Test::hueUiRoutesNames()
         {"qmlui/virtualconsole/vcanimation.cpp", "HUEMatrix::createAlgorithm(m_doc, algoList.at(m_localAlgorithmIndex))"},
         {"qmlui/virtualconsole/vcanimation.cpp", "m_doc->hueScriptsCache()->script(algoName)"},
         {"qmlui/virtualconsole/vcanimation.cpp", "const int algoIndex = runtimeAlgorithms().indexOf(resource);"},
-        {"qmlui/virtualconsole/vcanimation.cpp", "if (algoIndex < 0)\n            return;\n        setRuntimeAlgorithmIndex(algoIndex);"},
+        {"qmlui/virtualconsole/vcanimation.cpp", "if (algoIndex < 0)\n            return;\n        setRuntimeContent(resource,"},
         {"qmlui/virtualconsole/vcanimation.cpp", "control->m_type == VCAnimationPreset::Text ? \"Text\" : control->m_resource"},
         {"qmlui/virtualconsole/vcanimation.h", "algorithms READ algorithms NOTIFY functionIDChanged"},
     };
