@@ -290,7 +290,8 @@ jobs:
                            done'
           out=$(clean_env \
             ./qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${ARCH}.AppImage \
-              --platform minimal --version 2>&1)
+              --platform minimal --version 2>&1) \
+            || { status=$?; echo "${out}" >&2; exit "${status}"; }
           echo "${out}"
           # APPVERSION has spaces replaced by dashes; the banner prints them as spaces.
           expected=$(echo "${APPVERSION}" | tr '-' ' ')
