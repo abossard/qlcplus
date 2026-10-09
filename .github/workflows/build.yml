@@ -160,7 +160,7 @@ jobs:
           cp -v platforms/linux/qlcplus.desktop ${INSTALL_ROOT}
           # QLC+ 5 keeps its translations in a separate directory, so that the
           # two flavours don't overwrite each other's .qm files
-          if [ "${{ matrix.task }}" == "build-v5" ]; then
+          if [ "${{ matrix.task }}" == "build-v5" ] || [ "${{ matrix.task }}" == "build-v5-mcp" ]; then
             cp -v $QTDIR/translations/qtbase_* ${INSTALL_ROOT}/share/qlcplus/translations5/
           else
             cp -v $QTDIR/translations/qtbase_* ${INSTALL_ROOT}/share/qlcplus/translations/

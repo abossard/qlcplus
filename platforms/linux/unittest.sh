@@ -63,34 +63,36 @@ fi
 #############################################################################
 
 TESTDIR=engine/test
-TESTS=$(find ${TESTDIR} -maxdepth 1 -mindepth 1 -type d)
-for test in ${TESTS}
+TESTLIST="${TESTDIR}/test-executables.txt"
+if [ ! -s "$TESTLIST" ]; then
+    echo "Missing or empty engine test inventory: $TESTLIST. Reconfigure the build."
+    exit 1
+fi
+
+while IFS= read -r test_binary
 do
-    # Ignore .git
-    if [ $(echo ${test} | grep ".git") ]; then
-        continue
+    if [ ! -x "$test_binary" ]; then
+        echo "Missing engine test executable: $test_binary. Build the tests before running check."
+        exit 1
     fi
-
-    # Ignore CMakeFiles
-    if [ $(echo ${test} | grep "CMakeFiles") ]; then
-        continue
-    fi
-
-    # Isolate just the test name
-    test=$(echo ${test} | sed 's/engine\/test\///')
 
     $SLEEPCMD
-    # Execute the test
-    pushd ${TESTDIR}/${test}
-    echo "$TESTPREFIX ./test.sh"
-    eval $TESTPREFIX ./test.sh
+    pushd "$(dirname "$test_binary")" || exit 1
+    if [ -f ./test.sh ]; then
+        echo "$TESTPREFIX ./test.sh"
+        eval $TESTPREFIX ./test.sh
+    else
+        echo "$TESTPREFIX $test_binary"
+        env DYLD_FALLBACK_LIBRARY_PATH="../../src:$DYLD_FALLBACK_LIBRARY_PATH" \
+            LD_LIBRARY_PATH="../../src:$LD_LIBRARY_PATH" $TESTPREFIX "$test_binary"
+    fi
     RESULT=${?}
-    popd
+    popd || exit 1
     if [ ${RESULT} != 0 ]; then
         echo "${RESULT} Engine unit tests failed. Please fix before commit."
         exit ${RESULT}
     fi
-done
+done < "$TESTLIST"
 
 #############################################################################
 # UI tests

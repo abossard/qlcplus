@@ -38,6 +38,8 @@ done
 
 cp $SOURCE_DIR/platforms/linux/unittest.sh $DEST_DIR/
 
-pushd $DEST_DIR
-./unittest.sh $1
-popd
+pushd "$DEST_DIR" || exit 1
+./unittest.sh "$1"
+RESULT=$?
+popd || exit 1
+exit "$RESULT"

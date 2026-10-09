@@ -94,3 +94,23 @@ add_subdirectory(video)
 add_subdirectory(iopluginstub)
 
 add_dependencies(inputoutputmap_test iopluginstub)
+
+if(UNIX)
+    # Use configured targets, not resource directories copied by unittest.sh.
+    get_property(engine_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(engine_test_directories DIRECTORY PROPERTY SUBDIRECTORIES)
+    foreach(test_directory IN LISTS engine_test_directories)
+        get_property(directory_targets DIRECTORY "${test_directory}" PROPERTY BUILDSYSTEM_TARGETS)
+        list(APPEND engine_test_targets ${directory_targets})
+    endforeach()
+
+    set(engine_test_executables "")
+    foreach(test_target IN LISTS engine_test_targets)
+        get_target_property(target_type ${test_target} TYPE)
+        if(target_type STREQUAL "EXECUTABLE")
+            string(APPEND engine_test_executables "$<TARGET_FILE:${test_target}>\n")
+        endif()
+    endforeach()
+    file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/test-executables.txt"
+        CONTENT "${engine_test_executables}")
+endif()

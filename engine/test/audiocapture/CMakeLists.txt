@@ -12,4 +12,5 @@ target_link_libraries(audiocapture_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
+    SampleRate::samplerate
 )
