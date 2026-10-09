@@ -30,6 +30,7 @@ VCAnimationPreset::VCAnimationPreset(quint8 id)
 }
 
 VCAnimationPreset::VCAnimationPreset(const VCAnimationPreset &other)
+    : QObject()
 {
     *this = other;
 }
