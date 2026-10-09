@@ -19,6 +19,9 @@
 
 #include "showcommandrecorder_test.h"
 
+// Keep standard-library access specifiers outside the test macros.
+#include <sstream>
+
 // The plugin cache only ever loads plugins from disk. A unit test has no
 // control surface attached, so it registers its own I/O plugin instead.
 #define private public
