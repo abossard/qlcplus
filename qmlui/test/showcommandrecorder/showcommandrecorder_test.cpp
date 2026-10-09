@@ -5058,7 +5058,8 @@ void ShowCommandRecorder_Test::timelineRollback()
         else if (verb == QLatin1String("track"))
         {
             QStringList authored;
-            for (const ShowCommand &cmd : show->commandTrack().commands())
+            const QVector<ShowCommand> commandSnapshot = show->commandTrack().commands();
+            for (const ShowCommand &cmd : commandSnapshot)
                 authored.append(QStringLiteral("%1%2@%3").arg(cmd.controlId == controls.value(QLatin1Char('A'))->recordingId()
                                                               ? QStringLiteral("A") : QStringLiteral("?"))
                                                          .arg(cmd.on ? QLatin1Char('+') : QLatin1Char('-')).arg(cmd.time));
@@ -7452,7 +7453,8 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
     const auto captured = [&r]()
     {
         QVector<ShowCommand> list;
-        for (const ShowCommand &cmd : r.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = r.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
         {
             if (cmd.time >= 1000)
                 list.append(cmd);
@@ -7475,7 +7477,8 @@ void ShowCommandRecorder_Test::acceptedSliderInput_recordsEachChangedPosition()
                 QVERIFY(records.at(i - 1).order < records.at(i).order);
         }
         // accepted input records its desired position, never a function command
-        for (const ShowCommand &cmd : r.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = r.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             QVERIFY(cmd.action == ShowCommandAction::SetSliderPosition);
     };
 
@@ -7794,7 +7797,7 @@ void ShowCommandRecorder_Test::clickAndGoPreset_replayAfterRangeChange_appliesAc
         tickAndRenderUniverses(&r.doc, 3);
         QVERIFY(r.recorder.setRecording(false));
         QCOMPARE(r.show->commandTrack().count(), 1);
-        const auto &channel = std::get<ShowCommandChannel>(r.show->commandTrack().commands().first().payload.value);
+        const auto channel = std::get<ShowCommandChannel>(r.show->commandTrack().commands().first().payload.value);
         QCOMPARE(channel.value, value);
         QCOMPARE(channel.binding, level ? QString() : QStringLiteral("Intensity"));
     }
@@ -8066,7 +8069,8 @@ void ShowCommandRecorder_Test::sliderReset_replayReleasesOverrideToNonzeroMonito
     QVERIFY(r.recorder.setRecording(false));
 
     int resetCount = 0;
-    for (const ShowCommand &cmd : r.show->commandTrack().commands())
+    const QVector<ShowCommand> commandSnapshot = r.show->commandTrack().commands();
+    for (const ShowCommand &cmd : commandSnapshot)
         resetCount += cmd.action == ShowCommandAction::SetSliderReset ? 1 : 0;
     QCOMPARE(resetCount, 2);
 
@@ -9341,7 +9345,7 @@ void ShowCommandRecorder_Test::xyPadFunctionChoice_releaseSettlesItsSource()
     tickAndRenderUniverses(&r.doc, 3);
     QVERIFY(!r.a->isRunning());
     QCOMPARE(r.show->commandTrack().count(), 2);
-    const auto &commands = r.show->commandTrack().commands();
+    const auto commands = r.show->commandTrack().commands();
     QCOMPARE(commands[0].action, ShowCommandAction::SetXYPadFunctionPreset);
     QVERIFY(std::get<ShowCommandChoice>(commands[0].payload.value).active);
     QVERIFY(!std::get<ShowCommandChoice>(commands[1].payload.value).active);
@@ -13735,7 +13739,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
 
     if (domain != "scalar")
     {
-        const auto &compound = r.show->commandTrack().commands().last();
+        const auto compound = r.show->commandTrack().commands().last();
         QCOMPARE(compound.time, quint32(10500));
         if (domain == "coordinate")
             QCOMPARE(compound.payload.encode(compound.action), QStringLiteral("127.99609375,32.00390625"));
@@ -14800,7 +14804,7 @@ void ShowCommandRecorder_Test::patchedXY_coarseFineInterleavesPointer()
         tickAndRenderUniverses(&r.doc, 3);
         QCOMPARE(pad->currentPosition(), expected[i]);
         QCOMPARE(r.show->commandTrack().count(), i + 1);
-        const auto &command = r.show->commandTrack().commands()[i];
+        const auto command = r.show->commandTrack().commands()[i];
         QCOMPARE(command.action, ShowCommandAction::SetXYPadPosition);
         QCOMPARE(command.time, quint32(100 + i));
         QCOMPARE(command.controlId, pad->recordingId());
@@ -16972,7 +16976,8 @@ struct EditorRig
     QVector<quint32> trackIds() const
     {
         QVector<quint32> ids;
-        for (const ShowCommand &cmd : show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             ids.append(cmd.id);
         return ids;
     }
@@ -16988,7 +16993,7 @@ struct EditorRig
         QQuickItem *text = item(QString::fromLatin1(name));
         return text ? text->property("label").toString() : QString();
     }
-    const ShowCommand &command(quint32 id) const
+    ShowCommand command(quint32 id) const
     {
         const ShowCommandTrack &track = show->commandTrack();
         static const ShowCommand none;
@@ -17303,7 +17308,8 @@ void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive()
     {
         ed.fader->requestUserValue(200);
         QCoreApplication::processEvents();
-        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             if (!edited.contains(cmd.id))
                 captured.append(cmd.id);
         QCOMPARE(captured.size(), 1);
@@ -17311,7 +17317,8 @@ void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive()
     }
     const auto withoutCapture = [&]() {
         QVector<ShowCommand> kept;
-        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             if (!captured.contains(cmd.id))
                 kept.append(cmd);
         return kept;
@@ -30007,7 +30014,8 @@ void ShowCommandRecorder_Test::timeline_sliderGraphPreservesData()
     const QString before = dir.filePath(QStringLiteral("before.qxw")), after = dir.filePath(QStringLiteral("after.qxw"));
     const auto orders = [&]() {
         QVector<quint32> list;
-        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             list.append(cmd.order);
         return list;
     };
@@ -30497,7 +30505,8 @@ QString authoredState(const EditorRig &ed)
     QStringList state;
     state << QStringLiteral("playing %1 paused %2").arg(manager->isPlaying()).arg(manager->isPaused());
     QStringList commands;
-    for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+    const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+    for (const ShowCommand &cmd : commandSnapshot)
         commands << QStringLiteral("%1@%2").arg(cmd.id).arg(cmd.time);
     state << commands.join(QLatin1Char(' '));
     state << QStringLiteral("extent %1 total %2 duration %3").arg(ed.show->commandTrack().extent())
@@ -31042,7 +31051,8 @@ bool userScroll(EditorRig &ed, const QString &scroll, const QVector<quint32> &id
         const auto orders = [&]()
         {
             QVector<quint32> list;
-            for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+            const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+            for (const ShowCommand &cmd : commandSnapshot)
                 list << cmd.id << cmd.order;
             return list;
         };
@@ -31517,7 +31527,8 @@ void ShowCommandRecorder_Test::timeline_dragTracksPointer()
     const auto times = [&]()
     {
         QHash<quint32, quint32> time;
-        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             time.insert(cmd.id, cmd.time);
         return time;
     };
@@ -31536,9 +31547,10 @@ void ShowCommandRecorder_Test::timeline_dragTracksPointer()
     const auto order = [&]()
     {
         QVector<quint32> sequence;
-        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             sequence.append(cmd.id);
-        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        for (const ShowCommand &cmd : commandSnapshot)
             sequence.append(cmd.order);
         return sequence;
     };
@@ -31642,7 +31654,8 @@ void ShowCommandRecorder_Test::timeline_dragTracksPointer()
         // contentX snaps to whole px: sub-px drift only
         QVERIFY2(qAbs(viewReleased) <= 1, "the release does not snap the view");
         QCOMPARE(ed.rig.recorder->lastEditSerial(), serial + ++edits);
-        for (const ShowCommand &cmd : ed.show->commandTrack().commands())
+        const QVector<ShowCommand> commandSnapshot = ed.show->commandTrack().commands();
+        for (const ShowCommand &cmd : commandSnapshot)
             QCOMPARE(qint64(cmd.time) - qint64(timeStart[cmd.id]), ids.contains(cmd.id) ? moved : 0);
         QCOMPARE(order(), sequence);
         QCOMPARE(groupsText(), groups);

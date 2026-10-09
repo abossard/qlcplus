@@ -1570,7 +1570,8 @@ bool ShowCommandRecorder::beginEditSession(quint32 showId, const QVariantList &i
     const QVector<quint32> wanted = idList(ids);
     const QSet<quint32> unique(wanted.cbegin(), wanted.cend());
     QVector<ShowCommand> basis;
-    for (const ShowCommand &cmd : show->commandTrack().commands())
+    const QVector<ShowCommand> commands = show->commandTrack().commands();
+    for (const ShowCommand &cmd : commands)
     {
         if (unique.contains(cmd.id))
             basis.append(cmd);
@@ -1899,7 +1900,8 @@ bool ShowCommandRecorder::copyCommands(quint32 showId, const QVariantList &ids)
     }
     const QVector<quint32> wanted = idList(ids);
     QVector<ShowCommand> copied;
-    for (const ShowCommand &cmd : show->commandTrack().commands())
+    const QVector<ShowCommand> commands = show->commandTrack().commands();
+    for (const ShowCommand &cmd : commands)
     {
         if (wanted.contains(cmd.id))
             copied.append(cmd);
