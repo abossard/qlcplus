@@ -248,6 +248,60 @@ void DispatchSmoke_Test::dispatchSmoke_createPalettes_validItem_exists()
     QVERIFY2(found, "SmokeDimmer palette not in Doc");
 }
 
+void DispatchSmoke_Test::dispatchSmoke_paletteMetadata_preserved_data()
+{
+    QTest::addColumn<QString>("toolName");
+    QTest::newRow("create") << QStringLiteral("create_palettes");
+    QTest::newRow("delete") << QStringLiteral("delete_palettes");
+}
+
+void DispatchSmoke_Test::dispatchSmoke_paletteMetadata_preserved()
+{
+    QFETCH(QString, toolName);
+    fastmcpp::tools::ToolManager tm;
+    registerPaletteTools(tm, m_doc);
+    QCOMPARE(tm.list_names().size(), size_t(2));
+
+    const std::string name = toolName.toStdString();
+    const auto &tool = tm.get(name);
+    QCOMPARE(tool.name(), name);
+    QVERIFY(!tool.title().has_value());
+    QVERIFY(!tool.icons().has_value());
+    QVERIFY(tool.description().has_value());
+    QVERIFY(!tool.description()->empty());
+    QVERIFY(tool.annotations().has_value());
+    QVERIFY(*tool.annotations() == (name == "create_palettes"
+        ? mcp::kAnnotIdempotent : mcp::kAnnotDestructive));
+    QVERIFY(tool.output_schema().is_null());
+    QCOMPARE(tool.task_support(), fastmcpp::TaskSupport::Forbidden);
+    QVERIFY(!tool.app().has_value());
+    QVERIFY(!tool.version().has_value());
+    QVERIFY(!tool.timeout().has_value());
+    QVERIFY(!tool.is_hidden());
+    QVERIFY(!tool.sequential());
+    QVERIFY(!tool.validate_args());
+
+    const Json schema = tool.input_schema();
+    QCOMPARE(schema.at("type").get<std::string>(), std::string("object"));
+    if (name == "create_palettes")
+    {
+        QVERIFY(schema.at("required") == Json::array({"items"}));
+        QCOMPARE(schema.at("properties").size(), size_t(1));
+        const Json &item = schema.at("properties").at("items").at("items");
+        QVERIFY(item.at("required") == Json::array({"name", "type"}));
+        QCOMPARE(item.at("properties").size(), size_t(11));
+    }
+    else
+    {
+        QVERIFY(!schema.contains("required"));
+        QCOMPARE(schema.at("properties").size(), size_t(2));
+        QCOMPARE(schema.at("properties").at("ids").at("items").at("type").get<std::string>(),
+                 std::string("integer"));
+        QCOMPARE(schema.at("properties").at("names").at("items").at("type").get<std::string>(),
+                 std::string("string"));
+    }
+}
+
 // ─── channel family — configure_channels ───────────────────────────────────
 
 void DispatchSmoke_Test::dispatchSmoke_configureChannels_emptyDoc_returnsArray()

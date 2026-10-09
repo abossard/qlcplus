@@ -31,6 +31,8 @@ private slots:
     void dispatchSmoke_createRgbMatrices_rejectedBeforeMutation_data();
     void dispatchSmoke_createRgbMatrices_rejectedBeforeMutation();
     void dispatchSmoke_createPalettes_validItem_exists();
+    void dispatchSmoke_paletteMetadata_preserved_data();
+    void dispatchSmoke_paletteMetadata_preserved();
     void dispatchSmoke_configureChannels_emptyDoc_returnsArray();
     void dispatchSmoke_configureUniverses_validItem_returnsResult();
     void dispatchSmoke_unknownField_returnsError();

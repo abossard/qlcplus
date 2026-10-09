@@ -126,6 +126,8 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
     static const std::string typeDesc =
         "Palette type: Dimmer, Color, Pan, Tilt, PanTilt, Position3D, Shutter, Gobo, Zoom";
 
+    // Default-initialize absent icons instead of moving a nullopt icon vector
+    // through the extended constructor (GCC 13 -Wmaybe-uninitialized).
     tm.register_tool(Tool(
         "create_palettes",
         Json{{"type", "object"}, {"properties", {
@@ -225,15 +227,13 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Create or update palettes — reusable value definitions for Dimmer, Color, Pan, Tilt, PanTilt, "
+        }
+    )
+    .set_description("Create or update palettes — reusable value definitions for Dimmer, Color, Pan, Tilt, PanTilt, "
                      "Position3D (x/y/z), Shutter (preset `value` + `value2` percentage 0-100), Gobo, Zoom (single value). "
                      "Upserts by name+type. Palettes are the building blocks for scenes: create palettes first, then "
                      "reference them in create_scenes via paletteNames/paletteIDs. Batch. "
-                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently."),
-        std::nullopt
-    )
+                     "Wrap multiple operations in {\"items\": [...]}. Each item is processed independently.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_palettes (batch)
@@ -323,13 +323,11 @@ void registerPaletteTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }
             return results.dump();
             });
-        },
-        std::nullopt,
-        std::string("Delete palettes by ID or name pattern (glob). Returns one record per selector, ids first then "
+        }
+    )
+    .set_description("Delete palettes by ID or name pattern (glob). Returns one record per selector, ids first then "
                      "names, indexed in that order; a glob nests its matches under palettes, reports outcome "
                      "\"noMatch\" when nothing matches, and marks palettes already deleted by an earlier "
-                     "selector with duplicateOf. Automatically removes palette references from any scenes that use them. Batch."),
-        std::nullopt
-    )
+                     "selector with duplicateOf. Automatically removes palette references from any scenes that use them. Batch.")
     .set_annotations(mcp::kAnnotDestructive));
 }
