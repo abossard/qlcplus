@@ -790,7 +790,11 @@ void InputOutputMap_Test::inputSourceNames()
 void InputOutputMap_Test::profileDirectories()
 {
     QDir dir = InputOutputMap::systemProfileDirectory();
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
+    QDir ipDir(INPUTPROFILEDIR);
+#else
     QDir ipDir(QCoreApplication::applicationDirPath() + "/../" INPUTPROFILEDIR);
+#endif
     QVERIFY(dir.filter() & QDir::Files);
     QVERIFY(dir.nameFilters().contains(QString("*%1").arg(KExtInputProfile)));
     QCOMPARE(dir.absolutePath(), ipDir.absolutePath());
