@@ -26,6 +26,7 @@
 #include <qmath.h>
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 #include "audioanalyzer.h"
 
 #include "vcaudiotriggers.h"
@@ -257,6 +258,18 @@ bool VCAudioTriggers::captureEnabled() const
     return m_captureEnabled;
 }
 
+void VCAudioTriggers::notifyFunctionStarting(VCWidget *widget, quint32 fid, qreal fIntensity, bool excludeMonitored)
+{
+    Q_UNUSED(fid)
+    Q_UNUSED(fIntensity)
+    Q_UNUSED(excludeMonitored)
+
+    // stop capturing when any other widget (e.g. in the same Solo Frame)
+    // starts a Function
+    if (widget != this && m_captureEnabled)
+        setCaptureEnabled(false);
+}
+
 void VCAudioTriggers::setCaptureEnabled(bool enable)
 {
     if (enable == m_captureEnabled)
@@ -298,6 +311,7 @@ void VCAudioTriggers::setCaptureEnabled(bool enable)
         m_doc->masterTimer()->unregisterDMXSource(this);
 
         // request to delete all the active faders
+        QMutexLocker locker(&m_mappingsMutex);
         foreach (QSharedPointer<GenericFader> fader, m_fadersMap)
         {
             if (!fader.isNull())
@@ -2793,42 +2807,66 @@ void VCAudioTriggers::slotAubioDataReady(const AubioResults &results, quint32 po
 
 void VCAudioTriggers::resetEventCursor()
 {
+    const bool captureEnabled = m_captureEnabled;
+    const bool disabled = isDisabled();
     m_eventCursorReady = false;
     m_beatUntilMs.store(0, std::memory_order_relaxed);
     m_kickLampHoldRemainingMs = 0;
     if (m_beatTimer)
         m_beatTimer->stop();
     slotBeatTimeout();
-    QMutexLocker locker(&m_mappingsMutex);
-    for (int i = 0; i < m_bandMappings.size(); ++i)
+    QVector<std::tuple<int, BandMapping, QPointer<Function>, QPointer<VCWidget>>> releases;
     {
-        auto &bm = m_bandMappings[i];
-        if (m_mappingActive[i])
+        QMutexLocker locker(&m_mappingsMutex);
+        for (int i = 0; i < m_bandMappings.size(); ++i)
         {
-            TriggerState released;
-            released.releasedThisFrame = true;
-            if (bm.type == FunctionBar && m_doc)
-                if (auto *function = m_doc->function(bm.functionId))
-                    function->stop(functionParent());
-            if (bm.type == VCWidgetBar)
-                checkWidgetFunctionality(bm, released);
+            auto &bm = m_bandMappings[i];
+            if (m_mappingActive[i])
+            {
+                releases.append(std::make_tuple(i, bm,
+                    QPointer<Function>(m_doc ? m_doc->function(bm.functionId) : nullptr),
+                    QPointer<VCWidget>(m_vc ? m_vc->widget(bm.widgetId) : nullptr)));
+            }
+            m_mappingActive[i] = false;
+            bm.lastNorm = 0;
+            bm.m_value = 0;
+            bm.tapped = false;
+            bm.skippedBeats = 0;
         }
-        m_mappingActive[i] = false;
-        bm.lastNorm = 0;
-        bm.m_value = 0;
-        bm.tapped = false;
-        bm.skippedBeats = 0;
     }
     m_audioLevels.clear();
     for (int i = 0; i < BandSourceCount; ++i)
         m_audioLevels.append(0);
+    for (auto &[index, action, function, widget] : releases)
+    {
+        {
+            QMutexLocker locker(&m_mappingsMutex);
+            const auto &current = m_bandMappings[index];
+            if (m_captureEnabled != captureEnabled || isDisabled() != disabled
+                || m_eventCursorReady || m_mappingActive[index]
+                || current.type != action.type || current.functionId != action.functionId
+                || current.widgetId != action.widgetId
+                || (action.type == FunctionBar && (!function || m_doc->function(action.functionId) != function.data()))
+                || (action.type == VCWidgetBar && (!widget || m_vc->widget(action.widgetId) != widget.data())))
+                continue;
+        }
+        TriggerState released;
+        released.releasedThisFrame = true;
+        if (action.type == FunctionBar && function)
+            function->stop(functionParent());
+        if (action.type == VCWidgetBar)
+            checkWidgetFunctionality(action, released);
+    }
 }
 
 void VCAudioTriggers::processAudioSnapshot()
 {
+    if (isDisabled())
+        return;
+
     const bool wasAvailable = m_cachedSnapshot.available;
     updateAudioProfileSnapshotPowers(false);
-    const auto &snapshot = m_cachedSnapshot;
+    const auto snapshot = m_cachedSnapshot;
     const bool reset = !m_eventCursorReady || m_eventEpoch != snapshot.sourceEpoch
                        || m_eventProfileId != snapshot.profileId
                        || snapshot.frameSequence < m_eventFrame
@@ -2890,12 +2928,12 @@ void VCAudioTriggers::processAudioSnapshot()
     auto trigState = [&](BandSource s) -> const TriggerState & {
         switch (s)
         {
-            case BandLow:                     return m_cachedSnapshot.triggers[0];
-            case BandMid:                     return m_cachedSnapshot.triggers[1];
-            case BandHigh:                    return m_cachedSnapshot.triggers[2];
-            case BandVolume:                  return m_cachedSnapshot.volumeTrigger;
-            case BandKick:                    return m_cachedSnapshot.kickTrigger;
-            default:                          return m_cachedSnapshot.beatTrigger;
+            case BandLow:                     return snapshot.triggers[0];
+            case BandMid:                     return snapshot.triggers[1];
+            case BandHigh:                    return snapshot.triggers[2];
+            case BandVolume:                  return snapshot.volumeTrigger;
+            case BandKick:                    return snapshot.kickTrigger;
+            default:                          return snapshot.beatTrigger;
         }
     };
 
@@ -2909,6 +2947,9 @@ void VCAudioTriggers::processAudioSnapshot()
 
     {
     QMutexLocker locker(&m_mappingsMutex);
+    if (isDisabled() || !m_eventCursorReady || m_eventFrame != snapshot.frameSequence
+        || m_eventEpoch != snapshot.sourceEpoch || m_eventProfileId != snapshot.profileId)
+        return;
     for (int idx = 0; idx < BandSourceCount; idx++)
     {
         BandMapping &bm = m_bandMappings[idx];
@@ -2924,24 +2965,52 @@ void VCAudioTriggers::processAudioSnapshot()
         ts.firedThisFrame = !reset && ts.active && !m_mappingActive[idx];
         ts.releasedThisFrame = !ts.active && m_mappingActive[idx];
         auto dispatch = [&]() {
-            switch (bm.type)
+            BandMapping action = m_bandMappings[idx];
+            QPointer<Function> function = m_doc ? m_doc->function(action.functionId) : nullptr;
+            QPointer<VCWidget> widget = m_vc ? m_vc->widget(action.widgetId) : nullptr;
+            const bool functionBound = !function.isNull();
+            const bool widgetBound = !widget.isNull();
+            m_mappingActive[idx] = pulse ? ts.firedThisFrame : ts.active;
+            if (action.type == VCWidgetBar && widget
+                && (widget->type() == SpeedWidget || widget->type() == CueListWidget))
+            {
+                auto &current = m_bandMappings[idx];
+                if (ts.firedThisFrame && !current.tapped)
+                {
+                    current.tapped = true;
+                    current.skippedBeats = (current.skippedBeats + 1) % qMax(1, current.divisor);
+                }
+                else if (ts.releasedThisFrame)
+                    current.tapped = false;
+            }
+            locker.unlock();
+            switch (action.type)
             {
                 case BarType::FunctionBar:
-                    bm.function = m_doc ? m_doc->function(bm.functionId) : nullptr;
-                    if (bm.function)
+                    if (function)
                     {
                         if (ts.firedThisFrame)
-                            bm.function->start(m_doc->masterTimer(), functionParent());
-                        if (ts.releasedThisFrame)
-                            bm.function->stop(functionParent());
+                            function->start(m_doc->masterTimer(), functionParent());
+                        if (ts.releasedThisFrame && function)
+                            function->stop(functionParent());
                     }
                     break;
                 case BarType::VCWidgetBar:
-                    checkWidgetFunctionality(bm, ts);
+                    if (widget)
+                        checkWidgetFunctionality(action, ts);
                     break;
                 default:
                     break;
             }
+            locker.relock();
+            const auto &current = m_bandMappings[idx];
+            return m_captureEnabled && !isDisabled() && m_eventCursorReady
+                   && m_eventFrame == snapshot.frameSequence && m_eventEpoch == snapshot.sourceEpoch
+                   && m_eventProfileId == snapshot.profileId
+                   && current.type == action.type && current.functionId == action.functionId
+                   && current.widgetId == action.widgetId
+                   && (!functionBound || (function && m_doc->function(action.functionId) == function.data()))
+                   && (!widgetBound || (widget && m_vc->widget(action.widgetId) == widget.data()));
         };
         if (m_captureEnabled && pulse)
         {
@@ -2950,26 +3019,29 @@ void VCAudioTriggers::processAudioSnapshot()
             {
                 ts.firedThisFrame = false;
                 ts.releasedThisFrame = true;
-                dispatch();
+                if (!dispatch())
+                    return;
                 ts.firedThisFrame = true;
                 ts.releasedThisFrame = false;
-                dispatch();
+                if (!dispatch())
+                    return;
             }
             if (!count && m_mappingActive[idx])
             {
                 ts.firedThisFrame = false;
                 ts.releasedThisFrame = true;
-                dispatch();
+                if (!dispatch())
+                    return;
             }
-            m_mappingActive[idx] = count > 0;
         }
         else if (m_captureEnabled)
         {
-            dispatch();
-            m_mappingActive[idx] = ts.active;
+            if (!dispatch())
+                return;
         }
-        if (m_captureEnabled && bm.type == DMXBar && bm.source == BandBeat && beats)
-            beatLatchUntil = qMax(beatLatchUntil, nowMs + bm.beatHoldMs);
+        const auto &current = m_bandMappings[idx];
+        if (m_captureEnabled && current.type == DMXBar && current.source == BandBeat && beats)
+            beatLatchUntil = qMax(beatLatchUntil, nowMs + current.beatHoldMs);
     }
     } // QMutexLocker scope
 
@@ -3180,6 +3252,24 @@ void VCAudioTriggers::slotInputValueChanged(quint8 id, uchar value)
  * DMXSource
  *********************************************************************/
 
+void VCAudioTriggers::setDisabled(bool disable)
+{
+    {
+        QMutexLocker locker(&m_mappingsMutex);
+        if (m_isDisabled == disable)
+            return;
+        m_isDisabled = disable;
+        if (disable)
+            m_eventCursorReady = false;
+        for (const auto &fader : m_fadersMap)
+            if (!fader.isNull())
+                fader->setEnabled(!disable && m_captureEnabled);
+    }
+    // Keep the base notification outside the writer lock.
+    setDocModified();
+    emit disabledStateChanged(disable);
+}
+
 void VCAudioTriggers::writeDMX(MasterTimer *timer, QList<Universe *> universes)
 {
     Q_UNUSED(timer);
@@ -3188,6 +3278,9 @@ void VCAudioTriggers::writeDMX(MasterTimer *timer, QList<Universe *> universes)
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const qint64 beatUntil = m_beatUntilMs.load(std::memory_order_relaxed);
     const bool available = m_outputAvailable.load(std::memory_order_relaxed);
+
+    if (isDisabled())
+        return;
 
     quint32 lastUniverse = Universe::invalid();
     QSharedPointer<GenericFader> fader;
@@ -3238,7 +3331,7 @@ void VCAudioTriggers::writeDMX(MasterTimer *timer, QList<Universe *> universes)
                     fader->adjustIntensity(intensity());
                     m_fadersMap[universe] = fader;
                 }
-                fader->setEnabled(m_captureEnabled);
+                fader->setEnabled(m_captureEnabled && !isDisabled());
                 lastUniverse = universe;
             }
 

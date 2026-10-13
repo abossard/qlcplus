@@ -108,6 +108,8 @@
 #include "vcslider.h"
 #include "vcanimation.h"
 #include "vcxypad.h"
+#include "genericfader.h"
+#include "fadechannel.h"
 #include "vcsoloframe.h"
 #include "vdjbridge.h"
 #include "showfactory.h"
@@ -9895,6 +9897,322 @@ void ShowCommandRecorder_Test::playedNativeChoice_editsRemainDataOnly()
     QVERIFY(r.a->hasSource(other));
     QVERIFY(!r.a->hasSource(showOwner));
     QCOMPARE(pad->activePresetId(), group ? choice : -1);
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_disabledTransition_data()
+{
+    QTest::addColumn<bool>("floor");
+    QTest::addColumn<bool>("parentDisable");
+    QTest::addColumn<bool>("settled");
+    QTest::addColumn<QString>("mutation");
+    for (bool floor : {false, true})
+        for (bool parentDisable : {false, true})
+            for (bool settled : {false, true})
+                for (const QString &mutation : {QStringLiteral("unchanged"), QStringLiteral("cursor"),
+                                               QStringLiteral("replacement"), QStringLiteral("projection")})
+                    QTest::newRow(qPrintable(QString("%1-%2-%3-%4")
+                        .arg(floor ? "floor" : "coordinates", parentDisable ? "frame" : "direct",
+                             settled ? "delivered" : "pending", mutation)))
+                        << floor << parentDisable << settled << mutation;
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_disabledTransition()
+{
+    QFETCH(bool, floor);
+    QFETCH(bool, parentDisable);
+    QFETCH(bool, settled);
+    QFETCH(QString, mutation);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Disabled head"), 32);
+    QVERIFY(mover);
+    const quint32 fixtureId = mover->id();
+    auto *properties = r.doc.monitorProperties();
+    properties->setGridUnits(MonitorProperties::Meters);
+    properties->setGridSize(QVector3D(24, 8, 13));
+    properties->setFixturePosition(fixtureId, 0, 0, QVector3D(2, 6, 3));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    pad->setFloorControl(floor);
+    pad->setCurrentPosition(QPointF(8, 16));
+    pad->setFloorPosition(QVector3D(4, 0, 5));
+    tickAndRenderUniverses(&r.doc, 2);
+    const auto output = [&]() {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray bytes = universes.first()->preGMValues();
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return bytes;
+    };
+    QCOMPARE(output().mid(32, 4), QByteArray::fromHex(floor ? "67a92ab7" : "08001000"));
+    const auto universes = r.doc.inputOutputMap()->claimUniverses();
+    auto competitor = universes.first()->requestFader();
+    competitor->setPriority(-1);
+    for (quint32 channel = 0; channel < 4; ++channel)
+        competitor->updateChannel(&r.doc, universes.first(), fixtureId, channel, [channel](FadeChannel &fc) {
+            fc.setStart(0); fc.setTarget(channel + 1); fc.setCurrent(channel + 1); fc.setReady(true);
+        });
+    competitor->updateChannel(&r.doc, universes.first(), r.a->values().first().fxi, 0, [](FadeChannel &fc) {
+        fc.setStart(0); fc.setTarget(37); fc.setCurrent(37); fc.setReady(true);
+    });
+    r.doc.inputOutputMap()->releaseUniverses(false);
+    QSignalSpy receipts(pad, &VCXYPad::recordedWriteRetired);
+    const quint64 generation = floor ? pad->applyRecordedFloorPosition(QVector3D(23, 1.75, 12))
+                                     : pad->applyRecordedPosition(QPointF(64.5, 192.25));
+    QVERIFY(generation != 0);
+    QCOMPARE(pad->awaitPendingWrite(), generation);
+    if (settled)
+    {
+        const auto claimed = r.doc.inputOutputMap()->claimUniverses();
+        pad->writeDMX(r.doc.masterTimer(), claimed);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+        QCOMPARE(receipts.count(), 0); // Applied exists, but its queued report has not run.
+    }
+    VCWidget *disabled = parentDisable ? r.ui.vc()->widget(r.frame) : pad;
+    QVERIFY(disabled);
+    QSignalSpy disabledStates(pad, &VCWidget::disabledStateChanged);
+    quint64 pendingAtNotification = generation;
+    connect(pad, &VCWidget::disabledStateChanged, pad, [&]() {
+        pendingAtNotification = pad->awaitPendingWrite();
+    }, Qt::DirectConnection);
+    disabled->setDisabled(true);
+    QCOMPARE(pendingAtNotification, quint64(0));
+    QCOMPARE(disabledStates.count(), 1);
+    QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+    disabled->setDisabled(true);
+    QCOMPARE(disabledStates.count(), 1);
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(receipts.count(), 1);
+    QCOMPARE(receipts.first()[0].toULongLong(), generation);
+    QCOMPARE(receipts.first()[1].toInt(),
+             int(settled ? VCXYPad::RecordedWriteApplied : VCXYPad::RecordedWriteCancelled));
+    QCOMPARE(output().mid(32, 4), QByteArray::fromHex("01020304"));
+    QCOMPARE(uchar(output()[0]), uchar(37));
+    if (mutation == QLatin1String("cursor"))
+    {
+        if (floor)
+            pad->setFloorPosition(QVector3D(4, 0, 5));
+        else
+            pad->setCurrentPosition(QPointF(8, 16));
+    }
+    else if (mutation == QLatin1String("replacement"))
+    {
+        QVERIFY(r.doc.deleteFixture(fixtureId));
+        auto *replacement = new Fixture(&r.doc);
+        replacement->setName("Replacement head");
+        replacement->setFixtureDefinition(definitions.first(), definitions.first()->modes().first());
+        replacement->setUniverse(0);
+        replacement->setAddress(64);
+        QVERIFY(r.doc.addFixture(replacement, fixtureId));
+        properties->setFixturePosition(fixtureId, 0, 0, QVector3D(2, 6, 3));
+    }
+    else if (mutation == QLatin1String("projection"))
+        properties->setFixturePosition(fixtureId, 0, 0, QVector3D(8000, 6000, 9000));
+    tickAndRenderUniverses(&r.doc, 2);
+    QCOMPARE(receipts.count(), 1);
+    QCOMPARE(output().mid(64, 4), QByteArray(4, 0));
+    QCOMPARE(uchar(output()[0]), uchar(37));
+    disabled->setDisabled(false);
+    QCOMPARE(disabledStates.count(), 2);
+    tickAndRenderUniverses(&r.doc, 2);
+    const int address = mutation == QLatin1String("replacement") ? 64 : 32;
+    QByteArray expected = QByteArray::fromHex(floor ? "72f02704" : "4080c040");
+    if (mutation == QLatin1String("cursor"))
+        expected = QByteArray::fromHex(floor ? "67a92ab7" : "08001000");
+    else if (floor && mutation == QLatin1String("projection"))
+        expected = QByteArray::fromHex("7aa23963");
+    QCOMPARE(output().mid(address, 4), expected);
+    if (mutation == QLatin1String("replacement"))
+        QCOMPARE(output().mid(32, 4), QByteArray::fromHex("01020304"));
+    QCOMPARE(receipts.count(), 1);
+    QCOMPARE(uchar(output()[0]), uchar(37));
+
+    r.show->setSyncSource(ShowRunner::External);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                       QStringLiteral("80.5,160.25"))));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 1001, r.bb->ensureRecordingId(), true)));
+    QVERIFY(track.setExtent(3000));
+    QVERIFY(r.show->setCommandTrack(track));
+    QSignalSpy batches(r.show, &Show::controlBatchesReady);
+    playExternalFromZero(r.show, &r.doc);
+    for (int i = 0; i < 30 && batches.isEmpty(); ++i)
+    {
+        r.show->setExternalElapsedTime(1000);
+        r.doc.masterTimer()->timerTick();
+    }
+    QCOMPARE(batches.count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    const quint64 replayGeneration = pad->awaitPendingWrite();
+    QVERIFY(replayGeneration > generation);
+    disabled->setDisabled(true);
+    r.show->setExternalElapsedTime(1001);
+    for (int i = 0; i < 40 && r.recorder.pendingControlRuns() > 0; ++i)
+        tickAndDeliver(&r.doc);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(receipts.count(), 2);
+    QCOMPARE(receipts.last()[0].toULongLong(), replayGeneration);
+    QCOMPARE(receipts.last()[1].toInt(), int(VCXYPad::RecordedWriteCancelled));
+    disabled->setDisabled(false);
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_disabledBackwardSeek_data()
+{
+    QTest::addColumn<bool>("floor");
+    QTest::addColumn<bool>("parentDisable");
+    QTest::addColumn<QString>("restoration");
+    for (bool floor : {false, true})
+        for (bool parentDisable : {false, true})
+            for (const QString &restoration : {QStringLiteral("position"), QStringLiteral("ranges"),
+                                              QStringLiteral("heads")})
+                QTest::newRow(qPrintable(QString("%1-%2-%3")
+                    .arg(floor ? "floor" : "coordinates", parentDisable ? "frame" : "direct", restoration)))
+                    << floor << parentDisable << restoration;
+}
+
+void ShowCommandRecorder_Test::xyPadWriter_disabledBackwardSeek()
+{
+    QFETCH(bool, floor);
+    QFETCH(bool, parentDisable);
+    QFETCH(QString, restoration);
+    RequestRig r;
+    QList<QLCFixtureDef *> definitions;
+    const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
+    const bool heads = restoration == QLatin1String("heads");
+    auto *mover = addMoverTarget(&r.doc, &definitions, QStringLiteral("Rollback head"), 32, heads ? 2 : 1);
+    QVERIFY(mover);
+    auto *properties = r.doc.monitorProperties();
+    properties->setGridUnits(MonitorProperties::Meters);
+    properties->setGridSize(QVector3D(24, 8, 13));
+    properties->setFixturePosition(mover->id(), 0, 0, QVector3D(2, 6, 3));
+    auto *pad = addXYPad(r.bridge, r.ui.vc(), r.frame);
+    QVERIFY(pad);
+    pad->addFixture(QVariant::fromValue(mover));
+    pad->setFloorControl(floor);
+    pad->setCurrentPosition(QPointF(8, 16));
+    pad->setFloorPosition(QVector3D(4, 0, 5));
+    tickAndRenderUniverses(&r.doc, 2);
+    const auto output = [&]() {
+        const auto universes = r.doc.inputOutputMap()->claimUniverses();
+        const QByteArray bytes = universes.first()->preGMValues().mid(32, heads ? 8 : 4);
+        r.doc.inputOutputMap()->releaseUniverses(false);
+        return bytes;
+    };
+    QVERIFY(output() != QByteArray(heads ? 8 : 4, 0));
+    r.show->setSyncSource(ShowRunner::External);
+    auto command = ShowCommand::setXYPadPosition(1, 1000, pad->ensureRecordingId(),
+                                                QStringLiteral("64.5,192.25"));
+    if (restoration == QLatin1String("ranges"))
+    {
+        command.action = ShowCommandAction::SetXYPadRanges;
+        command.payload.value = ShowCommandRanges{{10, 200}, {20, 180}};
+    }
+    else if (heads)
+    {
+        const int choice = pad->addFixtureGroupHeadPreset(mover->id(), 1);
+        QVERIFY(choice >= 0);
+        command.action = ShowCommandAction::SetXYPadGroupPreset;
+        ShowCommandChoice selection;
+        selection.choice = choice;
+        selection.active = true;
+        command.payload.value = selection;
+    }
+    else if (floor)
+    {
+        command.action = ShowCommandAction::SetXYPadFloor;
+        command.payload.value = ShowCommandFloor{23, 1.75, 12};
+    }
+    ShowCommandTrack track;
+    QVERIFY(track.insert(command));
+    QVERIFY(track.setExtent(3000) && r.show->setCommandTrack(track));
+    QSignalSpy receipts(pad, &VCXYPad::recordedWriteRetired);
+    connect(pad, &VCXYPad::recordedWriteRetired, pad, [&]() {
+        QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+    }, Qt::DirectConnection);
+    playExternalFromZero(r.show, &r.doc);
+    r.show->setExternalElapsedTime(1100);
+    tickAndRenderUniverses(&r.doc, 10);
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+    QCOMPARE(receipts.count(), 1);
+    const quint64 appliedGeneration = receipts.first()[0].toULongLong();
+    QVERIFY(appliedGeneration != 0);
+    QCOMPARE(receipts.first()[1].toInt(), int(VCXYPad::RecordedWriteApplied));
+    if (restoration == QLatin1String("ranges"))
+    {
+        QCOMPARE(pad->horizontalRange(), QPointF(10, 200));
+        QCOMPARE(pad->verticalRange(), QPointF(20, 180));
+    }
+    else if (heads)
+    {
+        QVERIFY(pad->activePresetId() >= 0);
+        QVERIFY(!pad->fixtures()[0].m_enabled && pad->fixtures()[1].m_enabled);
+    }
+    else if (floor)
+        QCOMPARE(pad->floorPosition(), QVector3D(23, 1.75, 12));
+    else
+        QCOMPARE(pad->currentPosition(), QPointF(64.5, 192.25));
+
+    const auto universes = r.doc.inputOutputMap()->claimUniverses();
+    auto competitor = universes.first()->requestFader();
+    competitor->setPriority(-1);
+    for (quint32 channel = 0; channel < (heads ? 8u : 4u); ++channel)
+        competitor->updateChannel(&r.doc, universes.first(), mover->id(), channel, [channel](FadeChannel &fc) {
+            fc.setStart(0); fc.setTarget(channel + 1); fc.setCurrent(channel + 1); fc.setReady(true);
+        });
+    r.doc.inputOutputMap()->releaseUniverses(false);
+    const QByteArray disabledOutput = QByteArray::fromHex(heads ? "0102030405060708" : "01020304");
+    VCWidget *disabled = parentDisable ? r.ui.vc()->widget(r.frame) : pad;
+    QVERIFY(disabled);
+    QSignalSpy disabledStates(pad, &VCWidget::disabledStateChanged);
+    disabled->setDisabled(true);
+    tickAndRenderUniverses(&r.doc, 2);
+    QVERIFY(pad->isDisabled());
+    QCOMPARE(disabledStates.count(), 1);
+    QCOMPARE(receipts.count(), 1);
+    QCOMPARE(output(), disabledOutput);
+    r.show->setExternalElapsedTime(0);
+    for (int i = 0; i < 10 && pad->awaitPendingWrite() == 0; ++i)
+        tickAndRenderUniverses(&r.doc);
+    const quint64 generation = pad->awaitPendingWrite();
+    QVERIFY(generation > appliedGeneration);
+    QCOMPARE(r.recorder.pendingControlRuns(), 1);
+    QCOMPARE(receipts.count(), 1);
+    disabled->setDisabled(true);
+    QCOMPARE(disabledStates.count(), 1);
+    QCOMPARE(pad->awaitPendingWrite(), generation);
+    tickAndRenderUniverses(&r.doc, 44);
+    qInfo() << "disabled rollback generation=" << generation
+            << "pending=" << pad->awaitPendingWrite()
+            << "runs=" << r.recorder.pendingControlRuns() << "receipts=" << receipts.count();
+    QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(receipts.count(), 2);
+    QCOMPARE(receipts.first()[0].toULongLong(), appliedGeneration);
+    QCOMPARE(receipts.first()[1].toInt(), int(VCXYPad::RecordedWriteApplied));
+    QCOMPARE(receipts.last()[0].toULongLong(), generation);
+    QCOMPARE(receipts.last()[1].toInt(), int(VCXYPad::RecordedWriteCancelled));
+    QCOMPARE(output(), disabledOutput);
+    QCOMPARE(pad->currentPosition(), QPointF(8, 16));
+    QCOMPARE(pad->floorPosition(), QVector3D(4, 0, 5));
+    QCOMPARE(pad->horizontalRange(), QPointF(0, 255));
+    QCOMPARE(pad->verticalRange(), QPointF(0, 255));
+    if (heads)
+    {
+        QCOMPARE(pad->activePresetId(), -1);
+        QVERIFY(pad->fixtures()[0].m_enabled && pad->fixtures()[1].m_enabled);
+    }
+    disabled->setDisabled(true);
+    tickAndRenderUniverses(&r.doc, 10);
+    QVERIFY(pad->isDisabled());
+    QCOMPARE(disabledStates.count(), 1);
+    QCOMPARE(receipts.count(), 2);
+    QCOMPARE(pad->awaitPendingWrite(), quint64(0));
+    QCOMPARE(r.recorder.pendingControlRuns(), 0);
+    QCOMPARE(output(), disabledOutput);
 }
 
 void ShowCommandRecorder_Test::xyPadWriter_bindingRetiresExactlyOnce_data()

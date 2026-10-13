@@ -2260,12 +2260,64 @@ void VCXYPad::slotUniverseWritten(quint32 idx, const QByteArray &universeData)
     emit fixturePositionsChanged();
 }
 
+void VCXYPad::setDisabled(bool disable)
+{
+    {
+        QMutexLocker locker(&m_positionValueMutex);
+        if (m_isDisabled == disable)
+            return;
+        if (disable)
+        {
+            m_isDisabled = true;
+            if (m_pendingRecordedWriteGeneration != 0)
+            {
+                m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                         int(RecordedWriteCancelled)));
+                m_pendingRecordedWriteGeneration = 0;
+            }
+            m_positionChanged = false;
+            m_positionApplied = false;
+        }
+        else
+        {
+            prepareWriteFixtures();
+            m_positionChanged = true;
+            // Fader channel caches also contain the old fixture addresses and lifetimes.
+            for (const auto &fader : m_fadersMap)
+                if (!fader.isNull())
+                    fader->requestDelete();
+            m_fadersMap.clear();
+            m_isDisabled = false;
+        }
+        for (const auto &fader : m_fadersMap)
+            if (!fader.isNull())
+                fader->setEnabled(!disable);
+    }
+    // Keep the base notification outside the writer lock.
+    setDocModified();
+    emit disabledStateChanged(disable);
+    reportRecordedWrites();
+}
+
 void VCXYPad::writeDMX(MasterTimer *timer, QList<Universe *> universes)
 {
     Q_UNUSED(timer)
 
     QMutexLocker positionLocker(&m_positionValueMutex);
     QMutexLocker projectionLocker(&m_doc->monitorProperties()->m_floorProjectionMutex);
+    if (isDisabled())
+    {
+        if (m_pendingRecordedWriteGeneration != 0)
+        {
+            m_retiredRecordedWrites.append(qMakePair(m_pendingRecordedWriteGeneration,
+                                                     int(RecordedWriteCancelled)));
+            m_pendingRecordedWriteGeneration = 0;
+            m_positionChanged = false;
+            m_positionApplied = false;
+            QMetaObject::invokeMethod(this, [this]() { reportRecordedWrites(); }, Qt::QueuedConnection);
+        }
+        return;
+    }
     QPointF pt;
     bool floorControl = false;
     QVector3D floorPosition;

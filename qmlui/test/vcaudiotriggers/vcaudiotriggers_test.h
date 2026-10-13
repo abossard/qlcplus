@@ -34,6 +34,12 @@ private slots:
     void eventDelivery();
     void mappedActions_data();
     void mappedActions();
+    void disabledPublication_data();
+    void disabledPublication();
+    void soloFrameMappings_data();
+    void soloFrameMappings();
+    void dmxMappingGuards_data();
+    void dmxMappingGuards();
     void mappingRoundTrip_data();
     void mappingRoundTrip();
     void mappedSubmaster_data();

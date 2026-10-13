@@ -23,10 +23,13 @@
 #include <array>
 #include <cmath>
 #define private public
+#define protected public
 #include "doc.h"
 #include "huematrixeditor.h"
 #include "scriptrunner.h"
 #include "tardis.h"
+#include "vcspeeddial.h"
+#undef protected
 #undef private
 #include "audioanalyzer.h"
 #include "audioview.h"
@@ -52,7 +55,13 @@
 #include "scene.h"
 #include "vcbutton.h"
 #include "vcframe.h"
+#include "vcsoloframe.h"
+#include "vccuelist.h"
+#include "chaser.h"
+#include "chaserstep.h"
 #include "vcslider.h"
+#include "genericfader.h"
+#include "fadechannel.h"
 #include "dmxcapture.h"
 #include "universe.h"
 #include "vcaudiotriggers.h"
@@ -2080,6 +2089,364 @@ void VCAudioTriggers_Test::mappedActions()
     second.setCaptureEnabled(false);
     vc.removeWidgetFromMap(&firstButton);
     vc.removeWidgetFromMap(&secondButton);
+}
+
+void VCAudioTriggers_Test::disabledPublication_data()
+{
+    QTest::addColumn<int>("entry");
+    QTest::addColumn<bool>("active");
+    for (int entry = 0; entry < 3; ++entry)
+        for (bool active : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(entry).arg(active ? "active" : "inactive")))
+                << entry << active;
+}
+
+void VCAudioTriggers_Test::disabledPublication()
+{
+    QFETCH(int, entry);
+    QFETCH(bool, active);
+    Doc doc(nullptr, 1);
+    const auto originalCapture = doc.audioInputCapture();
+    const auto restoreCapture = qScopeGuard([&]() { doc.m_inputCapture = originalCapture; });
+    auto *profile = addProfile(doc, 7);
+    QVERIFY(profile);
+    if (entry == 1)
+    {
+        profile->setAudioSource(AudioProfile::OscSynesthesia);
+        doc.m_inputCapture.clear();
+    }
+    else
+        doc.m_inputCapture.reset(new ConsumerCapture());
+    QQuickView view;
+    FixtureManager fixtureManager(&view, &doc);
+    FunctionManager functionManager(&view, &doc);
+    ContextManager contextManager(&view, &doc, &fixtureManager, &functionManager);
+    VirtualConsole vc(&view, &doc, &contextManager);
+    auto cleanupTardis = [](Tardis *tardis) { delete tardis; Tardis::s_instance = nullptr; };
+    std::unique_ptr<Tardis, decltype(cleanupTardis)> tardis(
+        new Tardis(&view, &doc, nullptr, &fixtureManager, &functionManager,
+                   &contextManager, nullptr, nullptr, &vc), cleanupTardis);
+    tardis->m_busy = true;
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(2);
+    QVERIFY(doc.addFixture(fixture));
+    auto *function = new Scene(&doc);
+    auto *buttonFunction = new Scene(&doc);
+    auto *chaser = new Chaser(&doc);
+    QVERIFY(doc.addFunction(function));
+    QVERIFY(doc.addFunction(buttonFunction));
+    QVERIFY(doc.addFunction(chaser));
+    for (int i = 0; i < 20; ++i)
+        chaser->addStep(ChaserStep(function->id()));
+    MappedButton button(&doc, buttonFunction->id());
+    VCSlider slider(&doc);
+    VCSpeedDial speed(&doc);
+    VCCueList cue(&doc);
+    cue.setChaserID(chaser->id());
+    cue.setNextPrevBehavior(VCCueList::Select);
+    for (VCWidget *widget : std::array<VCWidget *, 4>{&button, &slider, &speed, &cue})
+        vc.addWidgetToMap(widget);
+    VCAudioTriggers audio(&doc, &vc);
+    audio.setAudioProfileId(7);
+    audio.m_snapshotTimer->stop();
+    audio.selectBarForEditing(VCAudioTriggers::BandLow);
+    audio.setBarType(VCAudioTriggers::FunctionBar);
+    audio.setBarFunction(function->id());
+    audio.selectBarForEditing(VCAudioTriggers::BandMid);
+    audio.setBarType(VCAudioTriggers::VCWidgetBar);
+    audio.setBarWidget(button.id());
+    audio.selectBarForEditing(VCAudioTriggers::BandHigh);
+    audio.setBarType(VCAudioTriggers::VCWidgetBar);
+    audio.setBarWidget(slider.id());
+    audio.selectBarForEditing(VCAudioTriggers::BandBeat);
+    audio.setBarType(VCAudioTriggers::VCWidgetBar);
+    audio.setBarWidget(speed.id());
+    audio.selectBarForEditing(VCAudioTriggers::BandKick);
+    audio.setBarType(VCAudioTriggers::VCWidgetBar);
+    audio.setBarWidget(cue.id());
+    audio.selectBarForEditing(VCAudioTriggers::BandLowsPower);
+    audio.setBarType(VCAudioTriggers::DMXBar);
+    audio.setBarDmxChannels({SceneValue(fixture->id(), 0)});
+    audio.setCaptureEnabled(true);
+    AudioSnapshot frame;
+    frame.sourceId = "disable-test";
+    frame.sourceEpoch = 1;
+    frame.frameSequence = 1;
+    frame.available = true;
+    auto publish = [&]() {
+        ++frame.frameSequence;
+        profile->channel()->injectSnapshot(frame);
+        if (entry == 0)
+            audio.slotAubioDataReady(AubioResults{}, 0);
+        else if (entry == 1)
+            audio.slotOscSnapshotInjected();
+        else
+            QVERIFY(QMetaObject::invokeMethod(audio.m_snapshotTimer, "timeout", Qt::DirectConnection));
+    };
+    publish();
+    for (auto &trigger : frame.triggers)
+    {
+        trigger.active = active;
+        trigger.value = 0.73;
+    }
+    frame.lows = 0.83;
+    publish();
+    QCOMPARE(function->stopped(), !active);
+    QCOMPARE(button.state(), active ? VCButton::Active : VCButton::Inactive);
+    const int sliderBefore = slider.value();
+    const auto universes = doc.inputOutputMap()->claimUniverses();
+    const auto release = qScopeGuard([&]() { doc.inputOutputMap()->releaseUniverses(false); });
+    audio.writeDMX(doc.masterTimer(), universes);
+    auto competitor = universes.first()->requestFader();
+    competitor->updateChannel(&doc, universes.first(), fixture->id(), 0, [](FadeChannel &channel) {
+        channel.setStart(0); channel.setTarget(37); channel.setCurrent(37); channel.setReady(true);
+    });
+    competitor->updateChannel(&doc, universes.first(), fixture->id(), 1, [](FadeChannel &channel) {
+        channel.setStart(0); channel.setTarget(91); channel.setCurrent(91); channel.setReady(true);
+    });
+    universes.first()->processFaders(MasterTimer::tick());
+    QCOMPARE(uchar(universes.first()->preGMValues()[0]), uchar(0.83 * 255));
+    const int tapsBefore = speed.m_tapHistory.count();
+    const qint64 lastTapBefore = speed.m_lastTap;
+    const int cueBefore = cue.playbackIndex();
+    QSignalSpy events(&audio, &VCAudioTriggers::audioEvents);
+    QSignalSpy states(&button, &VCButton::stateChanged);
+    QSignalSpy cueSteps(&cue, &VCCueList::playbackIndexChanged);
+    QSignalSpy disabledStates(&audio, &VCWidget::disabledStateChanged);
+    bool notificationLockFree = true;
+    connect(&audio, &VCWidget::disabledStateChanged, &audio, [&]() {
+        const bool acquired = audio.m_mappingsMutex.tryLock();
+        notificationLockFree = notificationLockFree && acquired;
+        if (acquired)
+            audio.m_mappingsMutex.unlock();
+    }, Qt::DirectConnection);
+    audio.setDisabled(true);
+    audio.setDisabled(true);
+    QCOMPARE(disabledStates.count(), 1);
+    QVERIFY(notificationLockFree);
+    QVERIFY(audio.captureEnabled());
+    QCOMPARE(function->stopped(), !active);
+    QCOMPARE(button.state(), active ? VCButton::Active : VCButton::Inactive);
+    for (int publication = 0; publication < 3; ++publication)
+    {
+        frame.available = publication != 2;
+        for (auto &trigger : frame.triggers)
+        {
+            trigger.active = publication == 0;
+            trigger.value = publication == 0 ? 0.19 : 0;
+        }
+        frame.events.beat += 3;
+        frame.events.kick += 2;
+        publish();
+        audio.writeDMX(doc.masterTimer(), universes);
+        universes.first()->processFaders(MasterTimer::tick());
+        QCOMPARE(function->stopped(), !active);
+        QCOMPARE(button.state(), active ? VCButton::Active : VCButton::Inactive);
+        QCOMPARE(slider.value(), sliderBefore);
+        QCOMPARE(speed.m_lastTap, lastTapBefore);
+        QCOMPARE(speed.m_tapHistory.count(), tapsBefore);
+        QCOMPARE(cue.playbackIndex(), cueBefore);
+        QCOMPARE(uchar(universes.first()->preGMValues()[0]), uchar(37));
+        QCOMPARE(uchar(universes.first()->preGMValues()[1]), uchar(91));
+    }
+    QCOMPARE(events.count(), 0);
+    QCOMPARE(states.count(), 0);
+    QCOMPARE(cueSteps.count(), 0);
+    frame.available = true;
+    audio.setDisabled(false);
+    QCOMPARE(disabledStates.count(), 2);
+    QVERIFY(notificationLockFree);
+    publish();
+    QCOMPARE(events.count(), 0);
+    QCOMPARE(cueSteps.count(), 0);
+    QCOMPARE(speed.m_lastTap, lastTapBefore);
+    frame.events.beat++;
+    frame.events.kick++;
+    publish();
+    QCOMPARE(events.count(), 1);
+    QCOMPARE(events.first()[1].toULongLong(), quint64(1));
+    QCOMPARE(events.first()[2].toULongLong(), quint64(1));
+    QCOMPARE(cueSteps.count(), 1);
+    QVERIFY(speed.m_lastTap != 0);
+    audio.setCaptureEnabled(false);
+    for (VCWidget *widget : std::array<VCWidget *, 4>{&button, &slider, &speed, &cue})
+        vc.removeWidgetFromMap(widget);
+}
+
+void VCAudioTriggers_Test::soloFrameMappings_data()
+{
+    QTest::addColumn<QString>("dispatch");
+    QTest::addColumn<bool>("nested");
+    for (const QString &dispatch : {QStringLiteral("manual"), QStringLiteral("audio"), QStringLiteral("reset")})
+        for (bool nested : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(dispatch)
+                .arg(nested ? "nested" : "direct"))) << dispatch << nested;
+}
+
+void VCAudioTriggers_Test::soloFrameMappings()
+{
+    QFETCH(QString, dispatch);
+    QFETCH(bool, nested);
+    const bool resetRelease = dispatch == QLatin1String("reset");
+    Doc doc(nullptr, 0);
+    const auto originalCapture = doc.audioInputCapture();
+    const auto restoreCapture = qScopeGuard([&]() { doc.m_inputCapture = originalCapture; });
+    doc.m_inputCapture.reset(new ConsumerCapture());
+    auto *profile = addProfile(doc, 7);
+    QVERIFY(profile);
+    QQuickView view;
+    FixtureManager fixtureManager(&view, &doc);
+    FunctionManager functionManager(&view, &doc);
+    ContextManager contextManager(&view, &doc, &fixtureManager, &functionManager);
+    VirtualConsole vc(&view, &doc, &contextManager);
+    auto cleanupTardis = [](Tardis *tardis) { delete tardis; Tardis::s_instance = nullptr; };
+    std::unique_ptr<Tardis, decltype(cleanupTardis)> tardis(
+        new Tardis(&view, &doc, nullptr, &fixtureManager, &functionManager,
+                   &contextManager, nullptr, nullptr, &vc), cleanupTardis);
+    tardis->m_busy = true;
+    auto *first = new Scene(&doc);
+    auto *later = new Scene(&doc);
+    QVERIFY(doc.addFunction(first));
+    QVERIFY(doc.addFunction(later));
+    VCSoloFrame solo(&doc, &vc);
+    VCFrame *parent = &solo;
+    if (nested)
+    {
+        parent = new VCFrame(&doc, &vc, &solo);
+        solo.addWidget(nullptr, parent, {});
+    }
+    auto *audio = new VCAudioTriggers(&doc, &vc);
+    audio->setParent(parent);
+    parent->addWidget(nullptr, audio, {});
+    auto *button = new MappedButton(&doc, first->id());
+    button->setParent(resetRelease ? static_cast<QObject *>(&vc) : parent);
+    bool lockFree = false;
+    bool releaseObserved = false;
+    connect(button, &VCWidget::functionStarting, button, [&]() {
+        lockFree = audio->m_mappingsMutex.tryLock();
+        if (lockFree)
+            audio->m_mappingsMutex.unlock();
+        else
+            disconnect(button, nullptr, parent, nullptr); // Fail the lock oracle without hanging the suite.
+    }, Qt::DirectConnection);
+    connect(button, &VCButton::stateChanged, button, [&](int state) {
+        if (!resetRelease || state != VCButton::Inactive)
+            return;
+        releaseObserved = true;
+        lockFree = audio->m_mappingsMutex.tryLock();
+        if (lockFree)
+        {
+            audio->m_mappingsMutex.unlock();
+            audio->resetEventCursor();
+        }
+    }, Qt::DirectConnection);
+    if (resetRelease)
+        vc.addWidgetToMap(button);
+    else
+        parent->addWidget(nullptr, button, {});
+    audio->setAudioProfileId(7);
+    audio->m_snapshotTimer->stop();
+    audio->selectBarForEditing(VCAudioTriggers::BandLow);
+    audio->setBarType(VCAudioTriggers::VCWidgetBar);
+    audio->setBarWidget(button->id());
+    audio->selectBarForEditing(VCAudioTriggers::BandMid);
+    audio->setBarType(VCAudioTriggers::FunctionBar);
+    audio->setBarFunction(later->id());
+    audio->setCaptureEnabled(true);
+    audio->functionStarting(audio, first->id(), 1.0);
+    QVERIFY(audio->captureEnabled());
+    AudioSnapshot frame;
+    frame.available = true;
+    frame.sourceEpoch = 1;
+    frame.frameSequence = 1;
+    profile->channel()->injectSnapshot(frame);
+    audio->processAudioSnapshot();
+    if (dispatch != QLatin1String("manual"))
+    {
+        frame.frameSequence++;
+        frame.triggers[0].active = true;
+        frame.triggers[1].active = !resetRelease;
+        profile->channel()->injectSnapshot(frame);
+        audio->processAudioSnapshot();
+        if (resetRelease)
+        {
+            QVERIFY(audio->captureEnabled());
+            QCOMPARE(button->state(), VCButton::Active);
+            audio->setCaptureEnabled(false);
+            QVERIFY(releaseObserved);
+            QCOMPARE(button->state(), VCButton::Inactive);
+        }
+    }
+    else
+        button->requestStateChange(true);
+    QVERIFY2(lockFree, "Solo callback must run outside the nonrecursive mapping mutex");
+    QVERIFY(!audio->captureEnabled());
+    QVERIFY(later->stopped());
+    for (bool state : audio->m_mappingActive)
+        QVERIFY(!state);
+    for (const auto &mapping : audio->m_bandMappings)
+    {
+        QCOMPARE(double(mapping.lastNorm), 0.0);
+        QVERIFY(!mapping.tapped);
+    }
+}
+
+void VCAudioTriggers_Test::dmxMappingGuards_data()
+{
+    QTest::addColumn<bool>("nullUniverse");
+    QTest::addColumn<double>("scale");
+    QTest::addColumn<int>("floor");
+    for (bool nullUniverse : {false, true})
+        for (int floor : {17, 83})
+            QTest::newRow(qPrintable(QString("%1-floor%2").arg(nullUniverse ? "null" : "missing").arg(floor)))
+                << nullUniverse << (floor == 17 ? 1.7 : 0.5) << floor;
+}
+
+void VCAudioTriggers_Test::dmxMappingGuards()
+{
+    QFETCH(bool, nullUniverse);
+    QFETCH(double, scale);
+    QFETCH(int, floor);
+    Doc doc(nullptr, 1);
+    auto *profile = addProfile(doc, 7);
+    QVERIFY(profile);
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(1);
+    QVERIFY(doc.addFixture(fixture));
+    VCAudioTriggers audio(&doc);
+    audio.setAudioProfileId(7);
+    audio.m_snapshotTimer->stop();
+    audio.selectBarForEditing(VCAudioTriggers::BandKickPower);
+    audio.setBarType(VCAudioTriggers::DMXBar);
+    audio.m_bandMappings[VCAudioTriggers::BandKickPower].absDmxChannels = {512};
+    audio.selectBarForEditing(VCAudioTriggers::BandLowsPower);
+    audio.setBarType(VCAudioTriggers::DMXBar);
+    audio.setBarDmxChannels({SceneValue(fixture->id(), 0)});
+    audio.setBarDmxScale(scale);
+    audio.setBarDmxFloor(floor);
+    audio.m_captureEnabled = true;
+    const auto stopCapture = qScopeGuard([&]() { audio.m_captureEnabled = false; });
+    const auto actual = doc.inputOutputMap()->claimUniverses();
+    const auto release = qScopeGuard([&]() { doc.inputOutputMap()->releaseUniverses(false); });
+    QList<Universe *> supplied = actual;
+    if (nullUniverse)
+        supplied.append(nullptr);
+    AudioSnapshot frame;
+    frame.sourceId = "dmx-guards";
+    frame.sourceEpoch = 1;
+    frame.available = true;
+    frame.lows = 0.31;
+    for (bool available : {true, false, true})
+    {
+        frame.available = available;
+        frame.frameSequence++;
+        profile->channel()->injectSnapshot(frame);
+        audio.processAudioSnapshot();
+        audio.writeDMX(doc.masterTimer(), supplied);
+        actual.first()->processFaders(MasterTimer::tick());
+        const int expected = available ? qMax(floor, int(0.31 * scale * 255)) : 0;
+        QCOMPARE(int(uchar(actual.first()->preGMValues()[0])), expected);
+    }
 }
 
 void VCAudioTriggers_Test::mappingRoundTrip_data()

@@ -331,6 +331,10 @@ private slots:
     void xyPadGroup_multiheadSelectionRestores();
     void xyPadWriter_bindingRetiresExactlyOnce_data();
     void xyPadWriter_bindingRetiresExactlyOnce();
+    void xyPadWriter_disabledTransition_data();
+    void xyPadWriter_disabledTransition();
+    void xyPadWriter_disabledBackwardSeek_data();
+    void xyPadWriter_disabledBackwardSeek();
     void xyPadWriter_cancelledSameValueWrites_data();
     void xyPadWriter_cancelledSameValueWrites();
     void xyPadWriter_floorModeChangeCancels_data();
