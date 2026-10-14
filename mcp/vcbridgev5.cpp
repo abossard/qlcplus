@@ -49,6 +49,7 @@
 
 #include <QQmlEngine>
 #include <QDebug>
+#include <cmath>
 
 // --- Source definition table ---
 // Maps widget class name → valid input source {name, ID, description}.
@@ -187,6 +188,8 @@ static VCButton::ButtonAction buttonActionFromMcp(const QString &action)
 
 QRect VCBridgeV5::snapRect(const QRect &rect) const
 {
+    if (!m_vc->snapping())
+        return rect;
     qreal s = m_vc->snappingSize();
     if (s <= 0)
         return rect;
@@ -203,6 +206,48 @@ QRect VCBridgeV5::snapRect(const QRect &rect) const
 int VCBridgeV5::snappingSize() const
 {
     return qRound(m_vc->snappingSize());
+}
+
+VCWidget *VCBridgeV5::createGeometryWidget(VCFrame *frame, const QString &type,
+                                          const QRect &geometry, int subpage)
+{
+    const qreal scale = frame->scaleFactor();
+    if (!std::isfinite(scale) || scale <= 0)
+    {
+        qWarning() << "VC creation refused: invalid parent scale" << frame->id();
+        return nullptr;
+    }
+    const QRect display = snapRect(geometry);
+    const QVariantMap result = m_vc->createWidgetGeometry(frame->id(), type,
+        QRectF(display.x() / scale, display.y() / scale,
+               display.width() / scale, display.height() / scale),
+        subpage < 0 ? frame->currentPage() : subpage);
+    if (!result.value(QStringLiteral("accepted")).toBool())
+    {
+        qWarning() << "VC creation refused:" << result.value(QStringLiteral("error")).toString();
+        return nullptr;
+    }
+    const QVariantList ids = result.value(QStringLiteral("widgetIDs")).toList();
+    if (ids.size() != 1)
+    {
+        qWarning() << "VC creation returned an invalid widget identity";
+        return nullptr;
+    }
+    return m_vc->widget(ids.first().toUInt());
+}
+
+int VCBridgeV5::createWidgetOnPage(int parentID, const QString &type, const QRect &geo,
+                                  const QString &caption, int subpage)
+{
+    VCFrame *frame = qobject_cast<VCFrame *>(m_vc->widget(parentID));
+    if (!frame)
+        return -1;
+    VCWidget *widget = createGeometryWidget(frame, type, geo, subpage);
+    if (!widget)
+        return -1;
+    if (!caption.isNull())
+        widget->setCaption(caption);
+    return int(widget->id());
 }
 
 int VCBridgeV5::addPage(const QString &name)
@@ -263,10 +308,8 @@ int VCBridgeV5::addFrame(int pageIndex, const QRect &geometry,
     VCPage *page = m_vc->page(pageIndex);
     if (!page) return -1;
 
-    VCWidget *widget = page->addWidget(m_vc->currentPageItem(), solo ? "Solo frame" : "Frame",
-                                       QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(page, solo ? "Solo frame" : "Frame", geometry);
     if (!widget) return -1;
-    widget->setGeometry(snapRect(geometry));
     widget->setCaption(caption);
     return widget->id();
 }
@@ -278,10 +321,8 @@ int VCBridgeV5::addFrameInFrame(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame*>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(nullptr, solo ? "Solo frame" : "Frame",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, solo ? "Solo frame" : "Frame", geometry);
     if (!widget) return -1;
-    widget->setGeometry(snapRect(geometry));
     widget->setCaption(caption);
     return widget->id();
 }
@@ -295,14 +336,12 @@ int VCBridgeV5::addButton(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Button",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Button", geometry);
     if (!widget) return -1;
 
     VCButton *button = qobject_cast<VCButton *>(widget);
     if (button)
     {
-        button->setGeometry(snapRect(geometry));
         button->setCaption(caption);
         if (functionID != Function::invalidId())
             button->setFunctionID(functionID);
@@ -323,14 +362,12 @@ int VCBridgeV5::addSlider(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Slider",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Slider", geometry);
     if (!widget) return -1;
 
     VCSlider *slider = qobject_cast<VCSlider *>(widget);
     if (slider)
     {
-        slider->setGeometry(snapRect(geometry));
         slider->setCaption(caption);
 
         if (mode == "submaster")
@@ -375,14 +412,12 @@ int VCBridgeV5::addXYPadEx(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "XYPad",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "XYPad", geometry);
     if (!widget) return -1;
 
     VCXYPad *xyPad = qobject_cast<VCXYPad *>(widget);
     if (xyPad)
     {
-        xyPad->setGeometry(snapRect(geometry));
 
         for (const XYPadFixtureConfig &cfg : fixtures)
         {
@@ -428,14 +463,12 @@ int VCBridgeV5::addCueList(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Cue list",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Cue list", geometry);
     if (!widget) return -1;
 
     VCCueList *cuelist = qobject_cast<VCCueList *>(widget);
     if (cuelist)
     {
-        cuelist->setGeometry(snapRect(geometry));
         cuelist->setChaserID(chaserID);
         if (!caption.isEmpty())
             cuelist->setCaption(caption);
@@ -450,11 +483,9 @@ int VCBridgeV5::addLabel(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Label",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Label", geometry);
     if (!widget) return -1;
 
-    widget->setGeometry(snapRect(geometry));
     widget->setCaption(text);
     return widget->id();
 }
@@ -609,14 +640,12 @@ int VCBridgeV5::addSpeedDial(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Speed",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Speed", geometry);
     if (!widget) return -1;
 
     VCSpeedDial *speedDial = qobject_cast<VCSpeedDial *>(widget);
     if (speedDial)
     {
-        speedDial->setGeometry(snapRect(geometry));
         for (quint32 fid : functionIDs)
             speedDial->addFunction(fid);
     }
@@ -629,11 +658,9 @@ int VCBridgeV5::addAudioTriggers(int parentID, const QRect &geometry)
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Audio Triggers",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Audio Triggers", geometry);
     if (!widget) return -1;
 
-    widget->setGeometry(snapRect(geometry));
     return widget->id();
 }
 
@@ -709,14 +736,12 @@ int VCBridgeV5::addClock(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Clock",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Clock", geometry);
     if (!widget) return -1;
 
     VCClock *clock = qobject_cast<VCClock *>(widget);
     if (clock)
     {
-        clock->setGeometry(snapRect(geometry));
         if (clockType == "stopwatch")
             clock->setClockType(VCClock::Stopwatch);
         else if (clockType == "countdown")
@@ -733,13 +758,8 @@ int VCBridgeV5::addRecordPanel(int parentID, const QRect &geometry)
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Record Panel",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Record Panel", geometry);
     if (!widget) return -1;
-
-    VCRecordPanel *rp = qobject_cast<VCRecordPanel *>(widget);
-    if (rp)
-        rp->setGeometry(snapRect(geometry));
 
     return widget->id();
 }
@@ -806,9 +826,25 @@ QRect VCBridgeV5::nextWidgetPositionFlow(int parentID, int widgetWidth, int widg
 
 void VCBridgeV5::setWidgetGeometry(int widgetID, const QRect &geo)
 {
+    const QString error = setWidgetGeometryChecked(widgetID, geo);
+    if (!error.isEmpty())
+        qWarning() << "VC geometry edit refused:" << error;
+}
+
+QString VCBridgeV5::setWidgetGeometryChecked(int widgetID, const QRect &geo)
+{
     VCWidget *widget = m_vc->widget(widgetID);
-    if (widget)
-        widget->setGeometry(QRectF(snapRect(geo)));
+    if (!widget)
+        return QStringLiteral("Widget %1 not found").arg(widgetID);
+    const qreal scale = widget->scaleFactor();
+    if (!std::isfinite(scale) || scale <= 0)
+        return QStringLiteral("Widget %1 has an invalid scale").arg(widgetID);
+    const QRect display = snapRect(geo);
+    const QVariantMap result = m_vc->applyGeometryPlan({
+        {quint32(widgetID), QRectF(display.x() / scale, display.y() / scale,
+                                  display.width() / scale, display.height() / scale)}}, false);
+    return result.value(QStringLiteral("accepted")).toBool()
+        ? QString() : result.value(QStringLiteral("error")).toString();
 }
 
 bool VCBridgeV5::removeWidget(int widgetID)
@@ -1216,7 +1252,14 @@ bool VCBridgeV5::setWidgetPage(int widgetID, int pageIndex)
     if (!widget)
         return false;
     VCFrame *frame = qobject_cast<VCFrame *>(widget->parent());
-    return frame && frame->moveWidgetToPage(widget, pageIndex);
+    if (!frame || pageIndex < 0 || pageIndex >= frame->totalPagesNumber())
+        return false;
+    if (widget->page() == pageIndex)
+        return true;
+    const QVariantMap result = m_vc->editStructure({widgetID}, frame->id(), pageIndex);
+    if (!result.value(QStringLiteral("accepted")).toBool())
+        qWarning() << "VC subpage edit refused:" << result.value(QStringLiteral("error")).toString();
+    return result.value(QStringLiteral("accepted")).toBool();
 }
 
 // --- Widget property mutations ---
@@ -1423,10 +1466,16 @@ bool VCBridgeV5::reparentWidget(int widgetID, int newParentID, const QRect &geo)
     VCFrame *targetFrame = qobject_cast<VCFrame*>(newParent);
     if (!targetFrame) return false;
 
-    bool ok = m_vc->reparentWidget(widget, targetFrame);
-    if (ok)
-        widget->setGeometry(QRectF(snapRect(geo)));
-    return ok;
+    const qreal scale = targetFrame->scaleFactor();
+    if (!std::isfinite(scale) || scale <= 0)
+        return false;
+    const QRect display = snapRect(geo);
+    const QVariantMap result = m_vc->editDrop(widgetID, newParentID, targetFrame->currentPage(),
+        QRectF(display.x() / scale, display.y() / scale,
+               display.width() / scale, display.height() / scale));
+    if (!result.value(QStringLiteral("accepted")).toBool())
+        qWarning() << "VC reparent refused:" << result.value(QStringLiteral("error")).toString();
+    return result.value(QStringLiteral("accepted")).toBool();
 }
 
 // --- Matrix widget ---
@@ -1438,14 +1487,12 @@ int VCBridgeV5::addMatrix(int parentID, const QRect &geometry,
     VCFrame *frame = qobject_cast<VCFrame *>(parent);
     if (!frame) return -1;
 
-    VCWidget *widget = frame->addWidget(m_vc->currentPageItem(), "Animation",
-                                        QPoint(geometry.x(), geometry.y()));
+    VCWidget *widget = createGeometryWidget(frame, "Animation", geometry);
     if (!widget) return -1;
 
     VCAnimation *animation = qobject_cast<VCAnimation *>(widget);
     if (animation)
     {
-        animation->setGeometry(snapRect(geometry));
         if (!caption.isEmpty())
             animation->setCaption(caption);
         if (functionID != Function::invalidId())
@@ -1905,18 +1952,63 @@ VCBridge::WidgetSnapshot VCBridgeV5::snapshotPage(int pageIndex) const
 
 void VCBridgeV5::applyLayoutPlan(const LayoutPlan &plan, bool skipSnap)
 {
-    Tardis::instance()->beginBatch("applyLayoutPlan");
-    // Snap geometries to the VC grid before delegating to the shared adapter
-    // so MCP callers preserve the historical snap-to-grid behaviour. Callers
-    // (e.g. gridCompact) that already produced grid-aligned coordinates can
-    // pass skipSnap=true to avoid a second snap that would misalign them.
-    LayoutPlan snapped;
-    snapped.overlaps = plan.overlaps;
-    for (auto it = plan.geometries.constBegin(); it != plan.geometries.constEnd(); ++it)
-        snapped.geometries.insert(it.key(), skipSnap ? it.value() : snapRect(it.value()));
+    const QString error = applyLayoutPlanChecked(plan, skipSnap);
+    if (!error.isEmpty())
+        qWarning() << "VC layout refused:" << error;
+}
 
-    VCLayoutAdapter::applyPlan(m_vc, snapped);
-    Tardis::instance()->endBatch();
+QString VCBridgeV5::applyLayoutPlanChecked(const LayoutPlan &plan, bool skipSnap)
+{
+    QMap<quint32, QRectF> logical;
+    for (auto it = plan.geometries.constBegin(); it != plan.geometries.constEnd(); ++it)
+    {
+        VCWidget *widget = m_vc->widget(it.key());
+        if (!widget)
+            for (int page = 0; page < m_vc->pagesCount(); ++page)
+                if (m_vc->page(page)->id() == quint32(it.key()))
+                    widget = m_vc->page(page);
+        if (!widget)
+            return QStringLiteral("Widget %1 not found").arg(it.key());
+        if (it.value() == widget->geometry().toRect())
+            continue;
+        const qreal scale = widget->scaleFactor();
+        if (!std::isfinite(scale) || scale <= 0)
+            return QStringLiteral("Widget %1 has an invalid scale").arg(it.key());
+        const QRect display = skipSnap ? it.value() : snapRect(it.value());
+        logical.insert(quint32(it.key()), QRectF(display.x() / scale, display.y() / scale,
+                                                display.width() / scale, display.height() / scale));
+    }
+    const QVariantMap result = m_vc->applyGeometryPlan(logical, false);
+    return result.value(QStringLiteral("accepted")).toBool()
+        ? QString() : result.value(QStringLiteral("error")).toString();
+}
+
+VCBridge::LayoutEditResult VCBridgeV5::alignLayout(int frameID, int pageIndex,
+                                                 int columns, int padding, bool dryRun)
+{
+    LayoutEditResult result;
+    VCWidget *root = frameID >= 0 ? m_vc->widget(frameID) : m_vc->page(pageIndex);
+    if (!root)
+    {
+        result.error = QStringLiteral("Frame/page not found");
+        return result;
+    }
+    const QVariantMap preview = m_vc->arrangeLayout(root->id(),
+        QVariantMap{{QStringLiteral("columns"), columns}, {QStringLiteral("pad"), padding},
+                    {QStringLiteral("allowHeightGrowth"), true}}, dryRun);
+    if (!preview.value(QStringLiteral("accepted")).toBool())
+    {
+        result.error = preview.value(QStringLiteral("error")).toString();
+        return result;
+    }
+    for (const QVariant &entry : preview.value(QStringLiteral("geometries")).toList())
+    {
+        const QVariantMap record = entry.toMap();
+        result.geometries.insert(record.value(QStringLiteral("id")).toInt(),
+                                 record.value(QStringLiteral("rect")).toRectF());
+    }
+    result.applied = preview.value(QStringLiteral("applied")).toBool();
+    return result;
 }
 
 bool VCBridgeV5::setFrameGridLayout(int frameID, const QString &mode,

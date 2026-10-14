@@ -15,9 +15,11 @@
 #define VCLAYOUTADAPTER_H
 
 #include "vcbridge.h"  // for WidgetSnapshot, LayoutPlan, ReflowOptions
+#include "gridlayout.h"
 
 class VCWidget;
 class VirtualConsole;
+class VCFrame;
 
 namespace VCLayoutAdapter {
 
@@ -25,7 +27,9 @@ namespace VCLayoutAdapter {
 VCBridge::WidgetSnapshot snapshotFrame(VCWidget *root);
 
 /** Apply a LayoutPlan to live widgets via VCWidget::setGeometry(). */
-void applyPlan(VirtualConsole *vc, const VCBridge::LayoutPlan &plan);
+QVariantMap applyPlan(VirtualConsole *vc, const VCBridge::LayoutPlan &plan);
+GridLayout::LayoutSnapshot capture(VCFrame *root);
+bool sameSnapshot(const GridLayout::LayoutSnapshot &a, const GridLayout::LayoutSnapshot &b);
 
 } // namespace VCLayoutAdapter
 

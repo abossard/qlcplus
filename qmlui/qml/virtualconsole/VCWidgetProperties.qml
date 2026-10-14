@@ -36,9 +36,6 @@ Rectangle
     property bool presetsTabVisible: wObj && selectedWidgetsCount < 2 && wObj.supportsPresets
     property int tabsCount: presetsTabVisible ? 3 : 2
 
-    //Component.onCompleted: wObj = Qt.binding(function() { return virtualConsole.selectedWidget })
-    Component.onDestruction: virtualConsole.resetWidgetSelection()
-
     onWObjChanged:
     {
         wPropsLoader.active = false

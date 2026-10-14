@@ -20,6 +20,7 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QScopedValueRollback>
 
 #include "qlcinputchannel.h"
@@ -27,6 +28,8 @@
 #include "vcwidget.h"
 #include "tardis.h"
 #include "doc.h"
+#include "virtualconsole.h"
+#include <QFontMetricsF>
 
 VCWidget::VCWidget(Doc *doc, QObject *parent)
     : QObject(parent)
@@ -104,7 +107,7 @@ bool VCWidget::initRenderItem(QQuickView *view, QQuickItem *parent,
         return false;
     }
 
-    m_item = qobject_cast<QQuickItem*>(component->create());
+    m_item = createRenderItem(component, view, parent);
     delete component;
 
     if (m_item == nullptr)
@@ -112,7 +115,32 @@ bool VCWidget::initRenderItem(QQuickView *view, QQuickItem *parent,
 
     m_item->setParentItem(parent);
     m_item->setProperty(propertyName, QVariant::fromValue(this));
+    m_item->setProperty("isSelected", isEditing());
     return true;
+}
+
+QQuickItem *VCWidget::createRenderItem(QQmlComponent *component, QQuickView *view, QQuickItem *parent) const
+{
+    QQmlContext *parentContext = qmlContext(parent);
+    auto *context = new QQmlContext(parentContext ? parentContext : view->rootContext());
+    const VirtualConsole *vc = nullptr;
+    for (QObject *owner = this->parent(); owner && !vc; owner = owner->parent())
+        vc = qobject_cast<VirtualConsole *>(owner);
+    QQuickItem *root = vc ? vc->popupRoot() : view->rootObject();
+    if (root)
+        context->setContextProperty("mainView", root);
+    else
+        qWarning() << Q_FUNC_INFO << "Popup host is unavailable";
+    QObject *object = component->create(context);
+    QQuickItem *item = qobject_cast<QQuickItem *>(object);
+    if (!item)
+    {
+        delete object;
+        delete context;
+        return nullptr;
+    }
+    context->setParent(item);
+    return item;
 }
 
 QQuickItem *VCWidget::renderItem() const
@@ -120,9 +148,18 @@ QQuickItem *VCWidget::renderItem() const
     return m_item;
 }
 
+void VCWidget::discardRenderItem()
+{
+    if (VCFrame *frame = qobject_cast<VCFrame *>(this))
+        for (VCWidget *child : frame->children(false))
+            child->discardRenderItem();
+    delete m_item.data();
+    m_item = nullptr;
+}
+
 void VCWidget::enqueueTardisAction(int code, QVariant oldVal, QVariant newVal)
 {
-    if (Tardis::instance() == nullptr)
+    if (Tardis::instance() == nullptr || id() == invalidId() || m_doc == nullptr)
         return;
 
     Tardis *tardis = Tardis::instance();
@@ -154,7 +191,7 @@ bool VCWidget::copyFrom(const VCWidget* widget)
     if (m_hasCustomFont == true)
         setFont(widget->font());
 
-    setGeometry(widget->geometry());
+    setLogicalGeometry(widget->logicalGeometry());
     setCaption(widget->caption());
     setZIndex(widget->zIndex());
 
@@ -318,17 +355,55 @@ QRectF VCWidget::geometry() const
 
 void VCWidget::setGeometry(QRectF rect)
 {
-    QRectF scaled = QRectF(rect.x() / m_scaleFactor, rect.y() / m_scaleFactor,
-                           rect.width() / m_scaleFactor, rect.height() / m_scaleFactor);
+    setLogicalGeometry(QRectF(rect.x() / m_scaleFactor, rect.y() / m_scaleFactor,
+                             rect.width() / m_scaleFactor, rect.height() / m_scaleFactor));
+}
 
-    if (m_geometry == scaled)
+QRectF VCWidget::logicalGeometry() const
+{
+    return m_geometry;
+}
+
+void VCWidget::setLogicalGeometry(QRectF rect)
+{
+    if (m_geometry == rect)
         return;
 
-    enqueueTardisAction(Tardis::VCWidgetGeometry, QVariant(m_geometry), QVariant(scaled));
+    enqueueTardisAction(Tardis::VCWidgetGeometry, QVariant(m_geometry), QVariant(rect));
 
-    m_geometry = scaled;
+    m_geometry = rect;
 
     emit geometryChanged();
+}
+
+QSizeF VCWidget::minimumSize() const
+{
+    const VirtualConsole *vc = nullptr;
+    for (QObject *owner = parent(); owner && !vc; owner = owner->parent())
+        vc = qobject_cast<VirtualConsole *>(owner);
+    const qreal density = vc ? qMax(qreal(1), vc->pixelDensity()) : 1;
+    QSizeF size(12, 10);
+    switch (type())
+    {
+        case SliderWidget: size = QSizeF(10, 25); break;
+        case XYPadWidget: size = QSizeF(25, 25); break;
+        case FrameWidget: case SoloFrameWidget: size = QSizeF(20, 20); break;
+        case CueListWidget: size = QSizeF(40, 25); break;
+        case LabelWidget: size = QSizeF(15, 6); break;
+        case SpeedWidget: size = QSizeF(20, 15); break;
+        case AudioTriggersWidget: size = QSizeF(35, 30); break;
+        case AnimationWidget: size = QSizeF(30, 25); break;
+        case RecordPanelWidget: size = QSizeF(40, 20); break;
+        default: break;
+    }
+    size *= density;
+    if (type() == ButtonWidget || type() == LabelWidget)
+    {
+        const QFontMetricsF metrics(font());
+        size.setWidth(qMax(size.width(), metrics.averageCharWidth() * 4 + density * 3));
+        size.setHeight(qMax(size.height(), metrics.height() + density * 3));
+    }
+    return size;
 }
 
 int VCWidget::zIndex() const
@@ -354,6 +429,11 @@ qreal VCWidget::scaleFactor() const
 
 void VCWidget::setScaleFactor(qreal factor)
 {
+    if (!qIsFinite(factor) || factor <= 0)
+    {
+        qWarning() << Q_FUNC_INFO << "Invalid scale factor" << factor;
+        return;
+    }
     if (m_scaleFactor == factor)
         return;
 
@@ -1355,6 +1435,21 @@ bool VCWidget::loadXMLAppearance(QXmlStreamReader &root)
 bool VCWidget::loadXMLWindowState(QXmlStreamReader &root, int* x, int* y,
                                   int* w, int* h, bool* visible)
 {
+    if (!x || !y || !w || !h)
+        return false;
+    qreal preciseX = 0, preciseY = 0, preciseW = 0, preciseH = 0;
+    if (!loadXMLWindowState(root, &preciseX, &preciseY, &preciseW, &preciseH, visible))
+        return false;
+    *x = preciseX;
+    *y = preciseY;
+    *w = preciseW;
+    *h = preciseH;
+    return true;
+}
+
+bool VCWidget::loadXMLWindowState(QXmlStreamReader &root, qreal* x, qreal* y,
+                                  qreal* w, qreal* h, bool* visible)
+{
     if (root.device() == nullptr || x == nullptr || y == nullptr || w == nullptr || h == nullptr ||
             visible == nullptr)
         return false;
@@ -1362,10 +1457,10 @@ bool VCWidget::loadXMLWindowState(QXmlStreamReader &root, int* x, int* y,
     if (root.name() == KXMLQLCWindowState)
     {
         QXmlStreamAttributes attrs = root.attributes();
-        *x = attrs.value(KXMLQLCWindowStateX).toInt();
-        *y = attrs.value(KXMLQLCWindowStateY).toInt();
-        *w = attrs.value(KXMLQLCWindowStateWidth).toInt();
-        *h = attrs.value(KXMLQLCWindowStateHeight).toInt();
+        *x = attrs.value(KXMLQLCWindowStateX).toDouble();
+        *y = attrs.value(KXMLQLCWindowStateY).toDouble();
+        *w = attrs.value(KXMLQLCWindowStateWidth).toDouble();
+        *h = attrs.value(KXMLQLCWindowStateHeight).toDouble();
         if (attrs.hasAttribute(KXMLQLCWindowStateZ))
             setZIndex(attrs.value(KXMLQLCWindowStateZ).toInt());
 
@@ -1571,7 +1666,7 @@ bool VCWidget::saveXMLWindowState(QXmlStreamWriter *doc) const
 {
     Q_ASSERT(doc != nullptr);
 
-    QRectF r = geometry();
+    QRectF r = logicalGeometry();
 
     /* Window state tag */
     doc->writeStartElement(KXMLQLCWindowState);
@@ -1582,10 +1677,10 @@ bool VCWidget::saveXMLWindowState(QXmlStreamWriter *doc) const
     else
         doc->writeAttribute(KXMLQLCWindowStateVisible, KXMLQLCFalse);
 
-    doc->writeAttribute(KXMLQLCWindowStateX, QString::number((int)r.x()));
-    doc->writeAttribute(KXMLQLCWindowStateY, QString::number((int)r.y()));
-    doc->writeAttribute(KXMLQLCWindowStateWidth, QString::number((int)r.width()));
-    doc->writeAttribute(KXMLQLCWindowStateHeight, QString::number((int)r.height()));
+    doc->writeAttribute(KXMLQLCWindowStateX, QString::number(r.x(), 'g', 17));
+    doc->writeAttribute(KXMLQLCWindowStateY, QString::number(r.y(), 'g', 17));
+    doc->writeAttribute(KXMLQLCWindowStateWidth, QString::number(r.width(), 'g', 17));
+    doc->writeAttribute(KXMLQLCWindowStateHeight, QString::number(r.height(), 'g', 17));
     if (zIndex() != 0)
         doc->writeAttribute(KXMLQLCWindowStateZ, QString::number(zIndex()));
 
@@ -1698,4 +1793,3 @@ bool VCWidget::saveXMLInputControl(QXmlStreamWriter *doc, quint8 controlId, bool
 
     return true;
 }
-

@@ -45,6 +45,27 @@ private slots:
     void cellsOverlap();
 
     void cellWidth_basic();
+
+    void alignTracks_data();
+    void alignTracks();
+
+    void alignFailures_data();
+    void alignFailures();
+
+    void alignHierarchy_data();
+    void alignHierarchy();
+
+    void alignBands_data();
+    void alignBands();
+
+    void compactPlans_data();
+    void compactPlans();
+
+    void fractionalPlans_data();
+    void fractionalPlans();
+
+    void validatePlans_data();
+    void validatePlans();
 };
 
 #endif // GRIDLAYOUT_TEST_H

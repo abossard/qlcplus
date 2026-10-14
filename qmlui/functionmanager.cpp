@@ -20,6 +20,7 @@
 #include <QQmlContext>
 #include <QQmlEngine>
 #include <QDebug>
+#include <QScopedValueRollback>
 #include <algorithm>
 
 #include "audioplugincache.h"
@@ -62,6 +63,7 @@ FunctionManager::FunctionManager(QQuickView *view, Doc *doc, QObject *parent)
     , m_scenePreviewEnabled(false)
     , m_filter(0)
     , m_searchFilter(QString())
+    , m_deferFunctionRemoval(false)
 {
     m_sceneCount = m_chaserCount = m_sequenceCount = m_efxCount = 0;
     m_collectionCount = m_rgbMatrixCount = m_hueMatrixCount = m_scriptCount = 0;
@@ -91,6 +93,22 @@ FunctionManager::FunctionManager(QQuickView *view, Doc *doc, QObject *parent)
 
     connect(m_doc, SIGNAL(loaded()), this, SLOT(slotDocLoaded()));
     connect(m_doc, SIGNAL(functionAdded(quint32)), this, SLOT(slotFunctionAdded(quint32)));
+    connect(m_doc, &Doc::clearing, this, [this]() {
+        m_deferFunctionRemoval = true;
+        clearTree();
+    });
+    connect(m_doc, &Doc::cleared, this, [this]() {
+        m_deferFunctionRemoval = false;
+        updateFunctionsTree();
+        emit selectedFunctionCountChanged(m_selectedIDList.count());
+    });
+    connect(m_doc, &Doc::functionRemoved, this, [this](quint32 id) {
+        const bool wasSelected = m_selectedIDList.removeAll(QVariant(id)) > 0;
+        if (!m_deferFunctionRemoval)
+            updateFunctionsTree();
+        if (wasSelected)
+            emit selectedFunctionCountChanged(m_selectedIDList.count());
+    });
     connect(m_doc->masterTimer(), SIGNAL(functionStarted(quint32)),
             this, SLOT(slotFunctionStarted(quint32)));
     connect(m_doc->masterTimer(), SIGNAL(functionStopped(quint32)),
@@ -515,7 +533,8 @@ QString FunctionManager::functionPath(quint32 id)
 
 void FunctionManager::clearTree()
 {
-    setPreviewEnabled(false);
+    if (m_doc->masterTimer() != nullptr)
+        setPreviewEnabled(false);
     m_selectedIDList.clear();
     m_selectedFolderList.clear();
     m_functionTree->clear();
@@ -896,8 +915,16 @@ void FunctionManager::deleteFunction(quint32 fid)
         funcPath.replace("/", TreeModel::separator());
         fullPath = QString("%1%2%3").arg(funcPath).arg(TreeModel::separator()).arg(f->name());
     }
-    m_doc->deleteFunction(f->id());
-    m_functionTree->removeItem(fullPath);
+    TreeModelItem *entry = m_functionTree->itemAtPath(fullPath);
+    const bool ambiguousPath = entry != nullptr && entry->data(0).value<Function *>() != f;
+    {
+        QScopedValueRollback<bool> deferRemoval(m_deferFunctionRemoval, true);
+        m_doc->deleteFunction(f->id());
+    }
+    if (ambiguousPath)
+        updateFunctionsTree();
+    else
+        m_functionTree->removeItem(fullPath);
 }
 
 void FunctionManager::deleteFunctions(QVariantList IDList)

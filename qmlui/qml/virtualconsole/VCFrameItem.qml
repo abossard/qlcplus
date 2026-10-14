@@ -30,9 +30,12 @@ VCWidgetItem
     property bool dropActive: false
     property bool isSolo: false
     property bool isCollapsed: frameObj ? frameObj.isCollapsed : false
+    property var dropPreview: null
 
     color: dropActive ? UISettings.activeDropArea : (frameObj ? frameObj.backgroundColor : "darkgray")
     clip: true
+    width: frameObj ? (isCollapsed ? UISettings.bigItemHeight * 2 : frameObj.geometry.width) : 100
+    height: frameObj ? (isCollapsed ? frameHeader.height : frameObj.geometry.height) : 100
 
     onFrameObjChanged:
     {
@@ -41,10 +44,48 @@ VCWidgetItem
             frameRoot.border.color = "red"
     }
 
-    onIsCollapsedChanged:
+    function dropPosition(drop)
     {
-        frameRoot.width = isCollapsed ? UISettings.bigItemHeight * 2 : frameObj.geometry.width
-        frameRoot.height = isCollapsed ? UISettings.listItemHeight : frameObj.geometry.height
+        var hotspot = drop.source.wObj ? drop.source.dragHotSpot : Qt.point(0, 0)
+        return Qt.point((drop.x - hotspot.x) / frameObj.scaleFactor,
+                        (drop.y - hotspot.y) / frameObj.scaleFactor)
+    }
+
+    function previewDrop(drop)
+    {
+        if (!frameObj || !drop.source)
+            return
+        var pos = dropPosition(drop)
+        if (drop.source.wObj)
+        {
+            if (drop.source.draggedIDs.length > 1)
+                dropPreview = virtualConsole.previewSelectionDrop(drop.source.draggedIDs, drop.source.wObj.id,
+                                                                  frameObj.id, frameObj.currentPage, pos)
+            else
+            {
+                var rect = drop.source.wObj.logicalGeometry
+                dropPreview = virtualConsole.previewDrop(drop.source.wObj.id, frameObj.id, frameObj.currentPage,
+                                                         Qt.rect(pos.x, pos.y, rect.width, rect.height))
+            }
+            drop.source.previewAccepted = dropPreview.accepted
+            drop.source.previewError = dropPreview.error
+        }
+        else if (drop.source.widgetType)
+        {
+            var type = drop.source.widgetType
+            if (type === "buttonmatrix" || type === "slidermatrix")
+                type = "Frame"
+            dropPreview = virtualConsole.previewCreate(frameObj.id, type, pos, frameObj.currentPage)
+        }
+        else if (drop.keys.indexOf("function") >= 0)
+        {
+            var modifiers = drop.source.modifiers
+            var functionType = (modifiers & Qt.ShiftModifier) ? "Slider" :
+                               (modifiers & Qt.ControlModifier) ? "Cue list" : "Button"
+            dropPreview = virtualConsole.previewCreate(frameObj.id, functionType, pos, frameObj.currentPage)
+        }
+        else
+            dropPreview = null
     }
 
     // Frame header
@@ -52,7 +93,7 @@ VCWidgetItem
     {
         id: frameHeader
         width: parent.width
-        height: UISettings.listItemHeight
+        height: frameObj ? frameObj.contentRect.y * frameObj.scaleFactor : UISettings.listItemHeight
         color: "transparent"
         visible: frameObj ? frameObj.showHeader : false
 
@@ -211,6 +252,8 @@ VCWidgetItem
                 function onLayoutModeChanged() { gridCanvas.requestPaint() }
                 function onGridColumnsChanged() { gridCanvas.requestPaint() }
                 function onGridRowHeightChanged() { gridCanvas.requestPaint() }
+                function onGeometryChanged() { gridCanvas.requestPaint() }
+                function onShowHeaderChanged() { gridCanvas.requestPaint() }
             }
 
             onPaint:
@@ -218,113 +261,143 @@ VCWidgetItem
                 var ctx = getContext("2d")
                 ctx.clearRect(0, 0, width, height)
 
-                if (!visible) return
+                if (!visible || !frameObj) return
+                var guide = virtualConsole.snapGuide(frameObj.id)
+                if (!guide.enabled) return
+                var scale = frameObj.scaleFactor
+                var stepX = guide.step.width * scale
+                var stepY = guide.step.height * scale
+                if (stepX < 2 || stepY < 2) return
+                var left = guide.bounds.x * scale
+                var top = guide.bounds.y * scale
+                var right = left + guide.bounds.width * scale
+                var bottom = top + guide.bounds.height * scale
+                var originX = guide.origin.x * scale
+                var originY = guide.origin.y * scale
+                var gridMode = frameObj.layoutMode === VCFrame.LayoutGrid
+                ctx.strokeStyle = gridMode ? Qt.rgba(0.39, 0.59, 1.0, 0.3) : Qt.rgba(1, 1, 1, 0.5)
+                ctx.lineWidth = gridMode ? 1 : 0.5
 
-                var gridMode = frameObj && frameObj.layoutMode === VCFrame.LayoutGrid
-
-                if (gridMode)
-                {
-                    var cols = frameObj.gridColumns > 0 ? frameObj.gridColumns : 12
-                    var cellW = width / cols
-                    var cellH = frameObj.gridRowHeight > 0 ? frameObj.gridRowHeight : virtualConsole.snappingSize
-                    if (cellW < 2 || cellH < 2) return
-
-                    ctx.strokeStyle = Qt.rgba(0.39, 0.59, 1.0, 0.3) // rgba(100,150,255,0.3)
-                    ctx.lineWidth = 1.0
-
-                    for (var gi = 1; gi < cols; gi++)
-                    {
-                        var gx = gi * cellW
-                        ctx.beginPath()
-                        ctx.moveTo(gx, 0)
-                        ctx.lineTo(gx, height)
-                        ctx.stroke()
-                    }
-
-                    for (var gy = cellH; gy < height; gy += cellH)
-                    {
-                        ctx.beginPath()
-                        ctx.moveTo(0, gy)
-                        ctx.lineTo(width, gy)
-                        ctx.stroke()
-                    }
-                    return
-                }
-
-                var s = virtualConsole.snappingSize
-                if (s < 3) return
-
-                ctx.strokeStyle = Qt.rgba(1, 1, 1, 0.5)
-                ctx.lineWidth = 0.5
-
-                // Vertical lines
-                for (var x = s; x < width; x += s)
+                for (var x = originX + Math.ceil((left - originX) / stepX) * stepX; x < right; x += stepX)
                 {
                     ctx.beginPath()
-                    ctx.moveTo(x, 0)
-                    ctx.lineTo(x, height)
+                    ctx.moveTo(x, top)
+                    ctx.lineTo(x, bottom)
                     ctx.stroke()
                 }
 
-                // Horizontal lines
-                for (var y = s; y < height; y += s)
+                for (var y = originY + Math.ceil((top - originY) / stepY) * stepY; y < bottom; y += stepY)
                 {
                     ctx.beginPath()
-                    ctx.moveTo(0, y)
-                    ctx.lineTo(width, y)
+                    ctx.moveTo(left, y)
+                    ctx.lineTo(right, y)
                     ctx.stroke()
                 }
             }
         }
 
-        onEntered: frameRoot.dropActive = true
-        onExited: frameRoot.dropActive = false
+        Repeater
+        {
+            model: dropPreview ? dropPreview.geometries : []
+            Rectangle
+            {
+                required property var modelData
+                property rect candidate: modelData.rect
+                visible: frameRoot.dropActive
+                x: candidate.x * (frameObj ? frameObj.scaleFactor : 1)
+                y: candidate.y * (frameObj ? frameObj.scaleFactor : 1)
+                width: candidate.width * (frameObj ? frameObj.scaleFactor : 1)
+                height: candidate.height * (frameObj ? frameObj.scaleFactor : 1)
+                color: "transparent"
+                border.width: 2
+                border.color: dropPreview && dropPreview.accepted ? UISettings.highlight : "crimson"
+                z: 100
+            }
+        }
+
+        Text
+        {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 4
+            visible: frameRoot.dropActive && dropPreview && !dropPreview.accepted
+            text: dropPreview ? dropPreview.error : ""
+            color: "white"
+            style: Text.Outline
+            styleColor: "black"
+            wrapMode: Text.Wrap
+            z: 101
+        }
+
+        onEntered: (drag) =>
+        {
+            if (!virtualConsole.editMode)
+            {
+                drag.accepted = false
+                return
+            }
+            frameRoot.previewDrop(drag)
+            if (dropPreview && !dropPreview.targetEligible)
+            {
+                drag.accepted = false
+                frameRoot.dropActive = false
+                frameRoot.dropPreview = null
+                return
+            }
+            frameRoot.dropActive = true
+        }
+        onPositionChanged: (drag) => frameRoot.previewDrop(drag)
+        onExited:
+        {
+            frameRoot.dropActive = false
+            frameRoot.dropPreview = null
+        }
         onDropped: (drop) =>
         {
-            if (frameObj == null || frameRoot.dropActive === false)
+            if (!virtualConsole.editMode || !frameObj || !drop.source)
                 return
 
             frameRoot.dropActive = false
-
-            if (drag.source.wObj === frameObj)
-            {
-                console.log("ERROR: Source and target are the same!!!")
-                return
-            }
-
-            var pos = drag.source.mapToItem(frameRoot, 0, 0)
-            console.log("Item dropped in frame " + frameObj.id + " at pos " + pos)
-
-            // TODO: when frameObj.layoutMode === VCFrame.LayoutGrid, call a
-            // (not-yet-exposed) relayoutGrid() hook on the C++ VCFrame to
-            // re-pack children using GridLayout after drop. Requires additional
-            // C++ integration; deferred.
-
-            //console.log("Drop keys: " + drop.keys)
+            frameRoot.dropPreview = null
+            var pos = frameRoot.dropPosition(drop)
+            var result
             if (drop.keys[0] === "vcwidget")
             {
-                if (drag.source.widgetType)
+                if (drop.source.widgetType)
                 {
-                    if (drag.source.widgetType === "buttonmatrix" || drag.source.widgetType === "slidermatrix")
-                        virtualConsole.requestAddMatrixPopup(frameObj, dropArea, drag.source.widgetType, pos)
+                    if (drop.source.widgetType === "buttonmatrix" || drop.source.widgetType === "slidermatrix")
+                        virtualConsole.requestAddMatrixPopup(frameObj, dropArea, drop.source.widgetType, pos)
                     else
-                        frameObj.addWidget(dropArea, drag.source.widgetType, pos)
+                        result = virtualConsole.createWidget(frameObj.id, drop.source.widgetType, pos, frameObj.currentPage)
                 }
                 else
                 {
-                    // reparent the QML item first
-                    drag.source.parent = dropArea
-                    virtualConsole.moveWidget(drag.source.wObj, frameObj, pos)
-
+                    if (drop.source.draggedIDs.length > 1)
+                        result = virtualConsole.editSelectionDrop(drop.source.draggedIDs, drop.source.wObj.id,
+                                                                 frameObj.id, frameObj.currentPage, pos)
+                    else
+                    {
+                        var rect = drop.source.wObj.logicalGeometry
+                        result = virtualConsole.editDrop(drop.source.wObj.id, frameObj.id, frameObj.currentPage,
+                                                        Qt.rect(pos.x, pos.y, rect.width, rect.height))
+                    }
                 }
             }
             else if (drop.keys[0] === "function")
             {
-                frameObj.addFunctions(dropArea, drag.source.itemsList, pos, drag.source.modifiers)
+                result = virtualConsole.createFunctions(frameObj.id, drop.source.itemsList, pos,
+                                                        drop.source.modifiers, frameObj.currentPage)
             }
             else if (drop.keys[0] === "pasteWidgets")
             {
-                frameObj.addWidgetsFromClipboard(dropArea, virtualConsole.clipboardItemsList(), pos);
+                frameObj.addWidgetsFromClipboard(dropArea, virtualConsole.clipboardItemsList(), Qt.point(drop.x, drop.y));
+            }
+            if (result)
+            {
+                frameRoot.showEditResult(result)
+                if (result.accepted)
+                    drop.acceptProposedAction()
             }
         }
 

@@ -68,6 +68,29 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section!.cases.map(c => c.tags)).toEqual([[], [], [], [], [], ['DMX'], [], []]);
   });
 
+  it.each([
+    { number: '34', commit: '648072986', cases: ['34.1', '34.2', '34.3'], checks: [2, 2, 2] },
+  ])('recognizes upstream $commit packaging review cases', ({ number, commit, cases, checks }) => {
+    const section = parseManualReview(md).sections.find(s => s.number === number);
+    expect(section?.title).toContain(commit);
+    expect(section?.cases.map(c => c.number)).toEqual(cases);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual(checks);
+    expect(section!.cases.map(c => c.tags)).toEqual([[], [], []]);
+    expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
+  });
+
+  it.each([
+    { number: '35', commit: '928fc14be', cases: ['35.1', '35.2', '35.3', '35.4'],
+      checks: [3, 3, 3, 1], tags: [[], ['DMX'], [], []] },
+  ])('recognizes upstream $commit audio and XY review cases', ({ number, commit, cases, checks, tags }) => {
+    const section = parseManualReview(md).sections.find(s => s.number === number);
+    expect(section?.title).toContain(commit);
+    expect(section?.cases.map(c => c.number)).toEqual(cases);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual(checks);
+    expect(section!.cases.map(c => c.tags)).toEqual(tags);
+    expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

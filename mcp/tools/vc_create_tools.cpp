@@ -280,6 +280,12 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 }
                 const std::string refErr = VCRefs::check(item, widgetType, doc, *vcBridge);
                 if (!refErr.empty()) { results.push_back({{"error", refErr}}); continue; }
+                const bool explicitSubpage = item.contains("childPageIndex");
+                auto createOnPage = [&](const QString &type, int parentID, const QRect &geometry,
+                                        const QString &caption = QString()) {
+                    return vcBridge->createWidgetOnPage(parentID, type, geometry, caption,
+                        item.at("childPageIndex").get<int>());
+                };
 
                 // 3. Dispatch to the appropriate creation logic based on type
                 switch (widgetType)
@@ -415,7 +421,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     else
                         geo = vcBridge->nextWidgetPosition(parentID, w, h);
 
-                    int id = vcBridge->addButton(
+                    int id = explicitSubpage ? createOnPage("Button", parentID, geo, caption) : vcBridge->addButton(
                         parentID, geo,
                         funcID >= 0 ? (quint32)funcID : Function::invalidId(),
                         caption,
@@ -433,6 +439,13 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {
                         VCBridge::ButtonConfig btnCfg;
                         bool hasBtnCfg = false;
+                        if (explicitSubpage)
+                        {
+                            btnCfg.functionID = funcID >= 0 ? quint32(funcID) : Function::invalidId();
+                            btnCfg.action = QString::fromStdString(item.value("action", "toggle"));
+                            btnCfg.stopAllFadeTime = item.value("stopAllFadeTime", 0);
+                            hasBtnCfg = true;
+                        }
                         if (item.contains("iconPath")) { btnCfg.iconPath = QString::fromStdString(item["iconPath"].get<std::string>()); hasBtnCfg = true; }
                         if (item.contains("startupIntensityEnabled")) { btnCfg.startupIntensityEnabled = item["startupIntensityEnabled"].get<bool>(); hasBtnCfg = true; }
                         if (item.contains("startupIntensity")) { btnCfg.startupIntensity = item["startupIntensity"].get<double>(); hasBtnCfg = true; }
@@ -457,6 +470,12 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         int existingId = vcBridge->findWidgetByCaption(parentID, "slider", caption);
                         if (existingId >= 0)
                         {
+                            if (item.contains("childPageIndex") &&
+                                !vcBridge->setWidgetPage(existingId, item["childPageIndex"].get<int>()))
+                            {
+                                results.push_back({{"widgetID", existingId}, {"error", "childPageIndex could not be applied"}});
+                                continue;
+                            }
                             if (hasSliderConfig(sliderCfg))
                                 vcBridge->configureSlider(existingId, sliderCfg);
                             if (item.contains("bgColor") || item.contains("fgColor"))
@@ -464,12 +483,6 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                                 QColor bg = item.contains("bgColor") ? QColor(QString::fromStdString(item.at("bgColor").get<std::string>())) : QColor();
                                 QColor fg = item.contains("fgColor") ? QColor(QString::fromStdString(item.at("fgColor").get<std::string>())) : QColor();
                                 vcBridge->setWidgetColors(existingId, bg, fg);
-                            }
-                            if (item.contains("childPageIndex") &&
-                                !vcBridge->setWidgetPage(existingId, item["childPageIndex"].get<int>()))
-                            {
-                                results.push_back({{"widgetID", existingId}, {"error", "childPageIndex is outside the parent frame page range"}});
-                                continue;
                             }
                             results.push_back({{"widgetID", existingId}, {"status", "updated"}});
                             continue;
@@ -500,7 +513,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         if (fid != Function::invalidId()) funcID = (int)fid;
                     }
 
-                    int id = vcBridge->addSlider(
+                    int id = explicitSubpage ? createOnPage("Slider", parentID, geo, caption) : vcBridge->addSlider(
                         parentID, geo,
                         QString::fromStdString(item.value("mode", "level")),
                         caption,
@@ -509,6 +522,15 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     results.push_back({{"widgetID", id}, {"status", "created"}});
                     if (id >= 0)
                     {
+                        if (explicitSubpage)
+                        {
+                            const QString mode = QString::fromStdString(item.value("mode", "level"));
+                            vcBridge->setSliderMode(id, mode);
+                            if (mode == "playback")
+                                vcBridge->setSliderFunction(id, quint32(funcID));
+                            else if (mode == "level")
+                                vcBridge->setSliderChannels(id, channels);
+                        }
                         if (hasSliderConfig(sliderCfg))
                             vcBridge->configureSlider(id, sliderCfg);
                         if (item.contains("widgetStyle"))
@@ -545,9 +567,9 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     bool inverted = item.contains("invertedAppearance") && item.at("invertedAppearance").get<bool>();
 
                     int id = -1;
+                    QList<VCBridge::XYPadFixtureConfig> configs;
                     if (item.contains("fixtures"))
                     {
-                        QList<VCBridge::XYPadFixtureConfig> configs;
                         for (auto &fx : item.at("fixtures"))
                         {
                             VCBridge::XYPadFixtureConfig cfg;
@@ -561,19 +583,29 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                             if (fx.contains("yReverse")) cfg.yReverse = fx.at("yReverse").get<bool>();
                             configs.append(cfg);
                         }
-                        id = vcBridge->addXYPadEx(parentID, geo, configs, displayMode, inverted);
                     }
                     else
                     {
-                        QList<VCBridge::XYPadFixtureConfig> configs;
                         for (auto &fid : item.at("fixtureIDs"))
                         {
                             VCBridge::XYPadFixtureConfig cfg;
                             cfg.fixtureID = fid.get<int>();
                             configs.append(cfg);
                         }
-                        id = vcBridge->addXYPadEx(parentID, geo, configs, displayMode, inverted);
                     }
+                    if (explicitSubpage)
+                    {
+                        id = createOnPage("XYPad", parentID, geo);
+                        if (id >= 0)
+                        {
+                            vcBridge->setXYPadDisplayMode(id, displayMode);
+                            vcBridge->setXYPadInvertedAppearance(id, inverted);
+                            for (const auto &config : configs)
+                                vcBridge->addXYPadFixture(id, config);
+                        }
+                    }
+                    else
+                        id = vcBridge->addXYPadEx(parentID, geo, configs, displayMode, inverted);
 
                     results.push_back({{"widgetID", id}, {"status", "created"}});
                     if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
@@ -622,7 +654,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         if (fid != Function::invalidId()) chaserIDVal = (int)fid;
                     }
 
-                    int id = vcBridge->addCueList(parentID, geo, chaserIDVal, caption);
+                    int id = explicitSubpage ? createOnPage("Cue list", parentID, geo, caption)
+                                            : vcBridge->addCueList(parentID, geo, chaserIDVal, caption);
                     results.push_back({{"widgetID", id}, {"status", "created"}});
                     if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                     {
@@ -634,6 +667,11 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {
                         VCBridge::CueListConfig clCfg;
                         bool hasClCfg = false;
+                        if (explicitSubpage)
+                        {
+                            clCfg.chaserID = quint32(chaserIDVal);
+                            hasClCfg = true;
+                        }
                         if (item.contains("nextPrevBehavior")) { clCfg.nextPrevBehavior = QString::fromStdString(item["nextPrevBehavior"].get<std::string>()); hasClCfg = true; }
                         if (item.contains("playbackLayout")) { clCfg.playbackLayout = QString::fromStdString(item["playbackLayout"].get<std::string>()); hasClCfg = true; }
                         if (item.contains("sideFaderMode")) { clCfg.sideFaderMode = QString::fromStdString(item["sideFaderMode"].get<std::string>()); hasClCfg = true; }
@@ -669,7 +707,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
                     else
                         geo = vcBridge->nextWidgetPosition(parentID, w, h);
-                    int id = vcBridge->addLabel(parentID, geo, text);
+                    int id = explicitSubpage ? createOnPage("Label", parentID, geo, text)
+                                            : vcBridge->addLabel(parentID, geo, text);
                     results.push_back({{"widgetID", id}, {"status", "created"}});
                     if (id >= 0 && (item.contains("bgColor") || item.contains("fgColor")))
                     {
@@ -708,7 +747,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                             funcIDs.append(fid.get<int>());
                     }
 
-                    int id = vcBridge->addSpeedDial(parentID, geo, funcIDs);
+                    int id = explicitSubpage ? createOnPage("Speed", parentID, geo)
+                                            : vcBridge->addSpeedDial(parentID, geo, funcIDs);
                     results.push_back({{"widgetID", id}, {"status", "created"}});
                     if (id >= 0)
                     {
@@ -722,6 +762,18 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         // Apply SpeedDialConfig if functions with multipliers or other config fields present
                         VCBridge::SpeedDialConfig sdCfg;
                         bool hasSdCfg = false;
+                        if (explicitSubpage && !item.contains("functions"))
+                        {
+                            QList<VCBridge::SpeedDialFunctionInfo> functions;
+                            for (quint32 functionID : funcIDs)
+                            {
+                                VCBridge::SpeedDialFunctionInfo info;
+                                info.functionID = functionID;
+                                functions.append(info);
+                            }
+                            sdCfg.functions = functions;
+                            hasSdCfg = true;
+                        }
                         if (item.contains("functions"))
                         {
                             QList<VCBridge::SpeedDialFunctionInfo> funcs;
@@ -756,7 +808,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
                     else
                         geo = vcBridge->nextWidgetPosition(parentID, w, h);
-                    int id = vcBridge->addAudioTriggers(parentID, geo);
+                    int id = explicitSubpage ? createOnPage("Audio Triggers", parentID, geo)
+                                            : vcBridge->addAudioTriggers(parentID, geo);
                     results.push_back({{"widgetID", id}, {"status", "created"}});
                     if (id >= 0)
                     {
@@ -784,7 +837,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
                     else
                         geo = vcBridge->nextWidgetPosition(parentID, w, h);
-                    int id = vcBridge->addClock(
+                    int id = explicitSubpage ? createOnPage("Clock", parentID, geo) : vcBridge->addClock(
                         parentID, geo,
                         QString::fromStdString(item.value("clockType", "clock")));
                     results.push_back({{"widgetID", id}, {"status", "created"}});
@@ -798,6 +851,11 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     {
                         VCBridge::ClockConfig clockCfg;
                         bool hasClockCfg = false;
+                        if (explicitSubpage)
+                        {
+                            clockCfg.clockType = QString::fromStdString(item.value("clockType", "clock"));
+                            hasClockCfg = true;
+                        }
                         if (item.contains("countdownHours")) { clockCfg.countdownH = item["countdownHours"].get<int>(); hasClockCfg = true; }
                         if (item.contains("countdownMinutes")) { clockCfg.countdownM = item["countdownMinutes"].get<int>(); hasClockCfg = true; }
                         if (item.contains("countdownSeconds")) { clockCfg.countdownS = item["countdownSeconds"].get<int>(); hasClockCfg = true; }
@@ -849,7 +907,7 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     else
                         geo = vcBridge->nextWidgetPosition(parentID, w, h);
 
-                    int id = vcBridge->addMatrix(parentID, geo,
+                    int id = explicitSubpage ? createOnPage("Animation", parentID, geo, caption) : vcBridge->addMatrix(parentID, geo,
                         funcID >= 0 ? (quint32)funcID : Function::invalidId(), caption);
                     results.push_back({{"widgetID", id}, {"status", id >= 0 ? "created" : "failed"}});
                     if (id >= 0)
@@ -862,6 +920,11 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         }
                         VCBridge::MatrixConfig matCfg;
                         bool hasMatCfg = false;
+                        if (explicitSubpage)
+                        {
+                            matCfg.functionID = funcID >= 0 ? quint32(funcID) : Function::invalidId();
+                            hasMatCfg = true;
+                        }
                         if (item.contains("instantApply")) { matCfg.instantApply = item["instantApply"].get<bool>(); hasMatCfg = true; }
                         if (item.contains("visibilityMask")) { matCfg.visibilityMask = item["visibilityMask"].get<int>(); hasMatCfg = true; }
                         if (item.contains("colors"))
@@ -913,7 +976,8 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                         geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
                     else
                         geo = vcBridge->nextWidgetPosition(parentID, w, h);
-                    int id = vcBridge->addRecordPanel(parentID, geo);
+                    int id = explicitSubpage ? createOnPage("Record Panel", parentID, geo, caption)
+                                            : vcBridge->addRecordPanel(parentID, geo);
                     results.push_back({{"widgetID", id}, {"status", id >= 0 ? "created" : "failed"}});
                     if (id >= 0)
                     {

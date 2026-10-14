@@ -21,6 +21,7 @@
 #define VCWIDGET_H
 
 #include <QQuickView>
+#include <QPointer>
 #include <QQuickItem>
 #include <QObject>
 #include <QColor>
@@ -78,6 +79,8 @@ typedef struct
     bool allowKeyboard;
 } ExternalControlInfo;
 
+class QQmlComponent;
+
 class VCWidget : public QObject
 {
     Q_OBJECT
@@ -87,6 +90,8 @@ class VCWidget : public QObject
     Q_PROPERTY(QString propertiesResource READ propertiesResource CONSTANT)
     Q_PROPERTY(bool isEditing READ isEditing WRITE setIsEditing NOTIFY isEditingChanged)
     Q_PROPERTY(QRectF geometry READ geometry WRITE setGeometry NOTIFY geometryChanged)
+    Q_PROPERTY(QRectF logicalGeometry READ logicalGeometry NOTIFY geometryChanged)
+    Q_PROPERTY(qreal scaleFactor READ scaleFactor NOTIFY geometryChanged)
     Q_PROPERTY(int zIndex READ zIndex WRITE setZIndex NOTIFY zIndexChanged)
     Q_PROPERTY(bool allowResize READ allowResize WRITE setAllowResize NOTIFY allowResizeChanged)
     Q_PROPERTY(bool isDisabled READ isDisabled WRITE setDisabled NOTIFY disabledStateChanged)
@@ -118,6 +123,7 @@ public:
     virtual void render(QQuickView *view, QQuickItem *parent);
 
     QQuickItem *renderItem() const;
+    void discardRenderItem();
 
 protected:
     /** Helper that creates a QML item from \a qmlUrl, parents it under
@@ -125,6 +131,7 @@ protected:
      *  Sets m_item on success. Returns false on any error. */
     bool initRenderItem(QQuickView *view, QQuickItem *parent,
                         const QString &qmlUrl, const char *propertyName);
+    QQuickItem *createRenderItem(QQmlComponent *component, QQuickView *view, QQuickItem *parent) const;
 
 public:
 
@@ -152,7 +159,7 @@ protected:
     Doc* m_doc;
 
     /** Reference to the onscreen Quick item */
-    QQuickItem *m_item;
+    QPointer<QQuickItem> m_item;
 
     /*********************************************************************
      * ID
@@ -236,6 +243,9 @@ public:
      *  the widget's parent */
     QRectF geometry() const;
     void setGeometry(QRectF rect);
+    QRectF logicalGeometry() const;
+    void setLogicalGeometry(QRectF rect);
+    QSizeF minimumSize() const;
 
     /** Get/Set the widget's scale factor */
     qreal scaleFactor() const;
@@ -705,6 +715,8 @@ protected:
      */
     bool loadXMLWindowState(QXmlStreamReader &root, int* x, int* y,
                             int* w, int* h, bool* visible);
+    bool loadXMLWindowState(QXmlStreamReader &root, qreal* x, qreal* y,
+                            qreal* w, qreal* h, bool* visible);
 
     /** Load an input source from $root with the given $id */
     bool loadXMLInputSource(QXmlStreamReader &root, const quint8& id = 0);

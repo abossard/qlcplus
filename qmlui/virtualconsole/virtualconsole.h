@@ -28,6 +28,8 @@
 #include "previewcontext.h"
 #include "vcwidget.h"
 #include "vcpage.h"
+#include "vcoutlinemodel.h"
+#include "gridlayout.h"
 
 class QXmlStreamReader;
 class QXmlStreamWriter;
@@ -50,6 +52,9 @@ class VirtualConsole final : public PreviewContext
     Q_PROPERTY(qreal snappingSize READ snappingSize WRITE setSnappingSize NOTIFY snappingSizeChanged)
     Q_PROPERTY(VCWidget *selectedWidget READ selectedWidget NOTIFY selectedWidgetChanged)
     Q_PROPERTY(int selectedWidgetsCount READ selectedWidgetsCount NOTIFY selectedWidgetsCountChanged)
+    Q_PROPERTY(QVariantList selectedIDs READ selectedWidgetIDs WRITE setSelectedWidgetIDs NOTIFY selectedWidgetsCountChanged)
+    Q_PROPERTY(VCOutlineModel *outlineModel READ outlineModel CONSTANT)
+    Q_PROPERTY(QVariantList layoutPreview READ layoutPreview NOTIFY layoutPreviewChanged)
     Q_PROPERTY(int clipboardItemsCount READ clipboardItemsCount NOTIFY clipboardItemsCountChanged)
 
 public:
@@ -180,7 +185,7 @@ public:
 
     /** Return a reference to the VC widget with the specified $id.
      *  On invalid $id, NULL is returned */
-    VCWidget *widget(quint32 id) const;
+    Q_INVOKABLE VCWidget *widget(quint32 id) const;
 
     /** Every widget carrying the persistent recording $id. More than one means
      *  the identity is ambiguous; an unknown or null $id returns none. */
@@ -199,11 +204,48 @@ public:
 
     /** Return a list of the currently selected VC widget IDs */
     Q_INVOKABLE QVariantList selectedWidgetIDs() const;
+    Q_INVOKABLE void setSelectedWidgetIDs(QVariantList ids);
+    VCOutlineModel *outlineModel() const;
 
     /** Re-parent a widget to a different target frame and update frame maps/UI parent */
     bool reparentWidget(VCWidget *widget, VCFrame *targetFrame) const;
 
     Q_INVOKABLE void moveWidget(VCWidget *widget, VCFrame *targetFrame, QPoint pos) const;
+    Q_INVOKABLE QVariantMap editStructure(QVariantList ids, quint32 targetFrameID,
+                                         int targetSubpage, int insertionIndex = -1);
+    Q_INVOKABLE QVariantMap editStructureBefore(QVariantList ids, quint32 targetFrameID,
+                                               int targetSubpage, int beforeID = -1);
+    Q_INVOKABLE QVariantMap editGeometry(quint32 id, QRectF logicalRect, bool snap = true);
+    Q_INVOKABLE QVariantMap previewGeometry(quint32 id, QRectF logicalRect, bool snap = true);
+    Q_INVOKABLE QVariantMap editDrop(quint32 id, quint32 targetFrameID, int targetSubpage,
+                                    QRectF logicalRect, int insertionIndex = -1);
+    Q_INVOKABLE QVariantMap previewDrop(quint32 id, quint32 targetFrameID, int targetSubpage,
+                                       QRectF logicalRect, int insertionIndex = -1);
+    QVariantMap applyGeometryPlan(const QMap<quint32, QRectF> &rectangles, bool snap = false);
+    QVariantMap previewGeometryPlan(const QMap<quint32, QRectF> &rectangles) const;
+    Q_INVOKABLE QVariantMap previewLayout(quint32 frameID, QVariantMap options = {});
+    Q_INVOKABLE QVariantMap confirmLayout();
+    Q_INVOKABLE void cancelLayout();
+    Q_INVOKABLE QVariantMap arrangeLayout(quint32 frameID, QVariantMap options, bool dryRun);
+    QVariantList layoutPreview() const;
+    Q_INVOKABLE QVariantMap previewCreate(quint32 targetID, QString type, QPointF logicalPosition,
+                                          int subpage = -1);
+    Q_INVOKABLE QVariantMap createWidget(quint32 targetID, QString type, QPointF logicalPosition,
+                                         int subpage = -1);
+    Q_INVOKABLE QVariantMap previewCreateGeometry(quint32 targetID, QString type, QRectF logicalRect,
+                                                  int subpage = -1);
+    Q_INVOKABLE QVariantMap createWidgetGeometry(quint32 targetID, QString type, QRectF logicalRect,
+                                                 int subpage = -1);
+    Q_INVOKABLE QVariantMap createFunctions(quint32 targetID, QVariantList functionIDs,
+                                            QPointF logicalPosition, int keyModifiers, int subpage = -1);
+    Q_INVOKABLE QVariantMap previewSelectionDrop(QVariantList ids, quint32 anchorID, quint32 targetID,
+                                                 int subpage, QPointF logicalAnchorTopLeft);
+    Q_INVOKABLE QVariantMap editSelectionDrop(QVariantList ids, quint32 anchorID, quint32 targetID,
+                                              int subpage, QPointF logicalAnchorTopLeft);
+    Q_INVOKABLE QVariantMap revealWidget(quint32 id);
+    Q_INVOKABLE QVariantMap revealFramePage(quint32 frameID, int subpage);
+    Q_INVOKABLE QQuickItem *popupRoot(QQuickItem *anchor = nullptr) const;
+    Q_INVOKABLE QVariantMap snapGuide(quint32 frameID) const;
 
     /** Helper methods to handle alignment, label, background/foreground colors,
      *  background image and font when multiple widgets are selected */
@@ -217,6 +259,7 @@ public:
 
     /** Delete the VC widgets with the IDs specified in $IDList */
     Q_INVOKABLE void deleteVCWidgets(QVariantList IDList);
+    Q_INVOKABLE QVariantMap deleteAuthoringWidgets(QVariantList ids);
 
     /** Select all widgets on the current page */
     Q_INVOKABLE void selectAll();
@@ -246,6 +289,62 @@ signals:
     /** A widget joined or left the widget map: created, pasted, loaded,
      *  restored by undo, or deleted */
     void widgetsChanged();
+    void structureAboutToChange();
+    void structureChanged(QVariantList ids);
+    void layoutPreviewChanged();
+    void editRejected(QString error);
+
+private:
+    friend class VCFrame;
+    friend class Tardis;
+    QList<VCWidget *> selectedRoots(const QVariantList &ids, QString *error) const;
+    VCFrame *targetFrame(quint32 id) const;
+    QString geometryError(const QMap<quint32, QRectF> &rectangles,
+                          VCFrame *destination = nullptr, int subpage = -1, bool copying = false) const;
+    QVariantMap pasteWidgets(const QVariantList &ids, quint32 targetID,
+                              QPointF logicalPosition, QQuickItem *renderParent);
+    void commitWidgetDeletion(const QVariantList &ids);
+    QRectF admittedRectangle(VCWidget *widget, VCFrame *parent, QRectF request,
+                             bool snap, QString *error) const;
+    QVariantMap structureEdit(const QVariantList &ids, quint32 targetID, int subpage,
+                              int insertionIndex, const QMap<quint32, QRectF> &rectangles,
+                              bool preview);
+    QVariantMap commitStructure(const QList<VCWidget *> &roots, VCFrame *target, int subpage,
+                                 const QList<VCWidget *> &order, const QMap<quint32, QRectF> &rectangles,
+                                 bool recordHistory = true);
+    bool restoreWidgetParent(quint32 id, quint32 parentID, int subpage, int orderIndex,
+                              quint32 beforeID = VCWidget::invalidId());
+    QVariantMap editResult(bool accepted, bool applied, const QString &error,
+                           const QMap<quint32, QRectF> &rectangles = {},
+                           VCFrame *destination = nullptr, int subpage = -1) const;
+    bool m_authoringBusy = false;
+    VCOutlineModel *m_outlineModel = nullptr;
+    GridLayout::LayoutPlan calculateLayout(quint32 frameID, const QVariantMap &options,
+                                           GridLayout::LayoutSnapshot *source,
+                                           GridLayout::LayoutOptions *values, QString *error) const;
+    QMap<quint32, QRectF> layoutRectangles(const GridLayout::LayoutSnapshot &source,
+                                         const GridLayout::LayoutPlan &plan,
+                                         const GridLayout::LayoutOptions &options, QString *error) const;
+    QVariantMap layoutResult(const GridLayout::LayoutSnapshot &source,
+                              const GridLayout::LayoutPlan &plan,
+                              const QMap<quint32, QRectF> &rectangles) const;
+    GridLayout::LayoutSnapshot m_layoutSource;
+    GridLayout::LayoutSnapshot m_layoutState;
+    GridLayout::LayoutPlan m_layoutPlan;
+    GridLayout::LayoutOptions m_layoutOptions;
+    QVariantList m_layoutPreview;
+    bool m_hasLayoutPreview = false;
+    QVariantMap createPreflight(quint32 targetID, const QString &type, QRectF rect,
+                                int subpage, bool fitDefault, const QString &caption = {}) const;
+    VCWidget *commitWidgetCreation(VCFrame *target, const QString &type, const QRectF &rect,
+                                    int subpage, quint32 functionID = Function::invalidId());
+    QVariantMap selectionDrop(const QVariantList &ids, quint32 anchorID, quint32 targetID,
+                               int subpage, QPointF logicalAnchorTopLeft, bool preview);
+    QVariantMap commitGeometry(const QMap<quint32, QRectF> &rectangles);
+    QString nativeAuthoringError(VCWidget *widget) const;
+    void reportEdit(const QVariantMap &result);
+    mutable QHash<quint32, int> m_unlockedPagePINs;
+    QSet<QQuickItem *> m_selectionProjections;
 
 protected:
     /** Create a new widget ID */

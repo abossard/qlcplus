@@ -26,6 +26,15 @@ Rectangle
     color: "transparent"
 
     property int page: -1
+    property alias contentItem: vcPage.contentItem
+    property alias contentX: vcPage.contentX
+    property alias contentY: vcPage.contentY
+    property alias interactive: vcPage.interactive
+
+    function cancelFlick()
+    {
+        vcPage.cancelFlick()
+    }
 
     onPageChanged: virtualConsole.renderPage(vcPage, vcPage.contentItem, page)
 

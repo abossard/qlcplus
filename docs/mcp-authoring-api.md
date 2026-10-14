@@ -158,3 +158,35 @@ arrays retain their existing text representation.
 
 These contracts do not establish physical output or device confirmation. Use
 the bounded verification tools separately when checking a patch or effect.
+
+## Virtual Console layout
+
+`vc_reflow_frame` keeps its existing `flow` and `gridCompact` modes.
+`algorithm: align` preserves stored sibling order, hierarchy and control sizes.
+It aligns local rows and columns using their occupants' dimensions rather than
+forcing every control into one uniform cell.
+Button/slider size overrides and `framePad` are legacy flow options; `align`
+rejects them instead of ignoring them.
+
+Use `dryRun: true` to inspect the proposed changes. Page requests still default
+to preview; frame requests retain their existing apply default. Fit errors
+identify insufficient space instead of applying part of a layout. An apply
+refusal returns `error` and `applied: false`.
+
+The native VC outline shows pages, frames and frame subpages beside Functions.
+Search matches captions, types or widget IDs and keeps ancestor context.
+Selection is shared with the canvas. Outline drops change sibling order or
+move controls into the indicated frame subpage.
+
+Layout, nesting and sibling order belong to the existing workspace. Use normal
+Save or Save As, not a separate layout store. Legacy workspaces remain readable;
+their initial sibling order is inferred without moving controls.
+
+The v5 writer preserves fractional logical coordinates, including when saving
+at non-unit zoom. Existing integer-coordinate workspaces remain readable.
+Older v5 builds and the v4 UI may not read fractional coordinates correctly;
+keep a separate copy before opening a newly saved workspace in those versions.
+
+Sibling order and frame-subpage history are local authoring state. Existing
+network reparent messages retain their parent-ID format; they do not synchronize
+the new local order/subpage metadata.

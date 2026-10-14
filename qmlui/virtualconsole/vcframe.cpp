@@ -37,6 +37,10 @@
 #include "virtualconsole.h"
 #include "vcaudiotriggers.h"
 #include "vcrecordpanel.h"
+#include <QQmlExpression>
+#include <QQmlContext>
+#include <algorithm>
+#include <cmath>
 
 static const quint64 encKey = 0x5131632B5067334B; // this is "Q1c+Pg3K"
 
@@ -105,7 +109,7 @@ void VCFrame::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
-    m_item = qobject_cast<QQuickItem*>(component->create());
+    m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create frame component" << component->errors();
     delete component;
@@ -114,6 +118,7 @@ void VCFrame::render(QQuickView *view, QQuickItem *parent)
 
     m_item->setParentItem(parent);
     m_item->setProperty("frameObj", QVariant::fromValue(this));
+    m_item->setProperty("isSelected", isEditing());
 
     if (m_pagesMap.count() > 0)
     {
@@ -170,7 +175,8 @@ bool VCFrame::copyFrom(const VCWidget *widget)
     setGridRowHeight(frame->gridRowHeight());
     setGridCompact(frame->gridCompact());
 
-    QListIterator <VCWidget*> it(widget->findChildren<VCWidget*>());
+    m_pageLabels = frame->m_pageLabels;
+    QListIterator <VCWidget*> it(frame->children(false));
     while (it.hasNext() == true)
     {
         VCWidget *child = it.next();
@@ -196,11 +202,12 @@ bool VCFrame::copyFrom(const VCWidget *widget)
         }
     }
 
-    if (multiPageMode())
-        setPage(frame->currentPage());
-
     /* Copy common stuff */
-    return VCWidget::copyFrom(widget);
+    const bool copied = VCWidget::copyFrom(widget);
+    setCurrentPage(frame->currentPage());
+    for (VCWidget *child : children(false))
+        child->setVisible(child->page() == currentPage());
+    return copied;
 }
 
 bool VCFrame::hasChildren() const
@@ -211,26 +218,148 @@ bool VCFrame::hasChildren() const
 QList<VCWidget *> VCFrame::children(bool recursive) const
 {
     QList<VCWidget *> widgetsList;
-
-    if (recursive == false)
-        return m_pagesMap.keys();
-    else
+    for (VCWidget *widget : m_childOrder)
     {
-        foreach (VCWidget *widget, m_pagesMap.keys())
+        if (m_pagesMap.contains(widget))
         {
             widgetsList.append(widget);
-            if (widget->type() == FrameWidget || widget->type() == SoloFrameWidget)
-            {
-                VCFrame *frame = qobject_cast<VCFrame *>(widget);
+            if (recursive)
+                if (VCFrame *frame = qobject_cast<VCFrame *>(widget))
                 widgetsList.append(frame->children(true));
-            }
         }
     }
-
     return widgetsList;
 }
 
+QVariantList VCFrame::orderedChildIDs(int subpage) const
+{
+    QVariantList ids;
+    for (VCWidget *child : children(false))
+        if (m_pagesMap.value(child) == subpage)
+            ids.append(child->id());
+    return ids;
+}
+
+QRectF VCFrame::contentRect() const
+{
+    qreal top = 0;
+    if (showHeader())
+    {
+        top = m_vc ? m_vc->pixelDensity() * 7 : 28;
+        if (m_vc && m_vc->view() && m_vc->view()->rootObject())
+        {
+            QObject *root = m_vc->view()->rootObject();
+            QQmlExpression expression(qmlContext(root), root, "UISettings.listItemHeight");
+            QVariant height = expression.evaluate();
+            if (!expression.hasError() && height.toReal() > 0)
+                top = height.toReal();
+            else
+                qWarning() << Q_FUNC_INFO << "Cannot measure frame header" << expression.error();
+        }
+    }
+    const QSizeF size = logicalGeometry().size();
+    return QRectF(0, top, size.width(), qMax(qreal(0), size.height() - top));
+}
+
+void VCFrame::setChildOrder(int subpage, const QList<VCWidget *> &order)
+{
+    QList<VCWidget *> old;
+    for (VCWidget *child : m_childOrder)
+        if (m_pagesMap.value(child) == subpage)
+            old.append(child);
+    if (old == order)
+        return;
+    for (VCWidget *child : old)
+        m_childOrder.removeAll(child);
+    m_childOrder.append(order);
+    setDocModified();
+    emit childOrderChanged(subpage);
+}
+
+void VCFrame::inferChildOrder()
+{
+    const auto byRow = [](VCWidget *a, VCWidget *b) {
+        const QRectF ar = a->logicalGeometry(), br = b->logicalGeometry();
+        if (ar.y() != br.y()) return ar.y() < br.y();
+        if (ar.x() != br.x()) return ar.x() < br.x();
+        return a->id() < b->id();
+    };
+    const auto byColumn = [](VCWidget *a, VCWidget *b) {
+        const QRectF ar = a->logicalGeometry(), br = b->logicalGeometry();
+        if (ar.x() != br.x()) return ar.x() < br.x();
+        if (ar.y() != br.y()) return ar.y() < br.y();
+        return a->id() < b->id();
+    };
+    QList<VCWidget *> ordered;
+    for (int page = 0; page < totalPagesNumber(); ++page)
+    {
+        QList<VCWidget *> candidates;
+        for (VCWidget *child : m_childOrder)
+            if (m_pagesMap.value(child) == page)
+                candidates.append(child);
+        if (qobject_cast<VCPage *>(this))
+        {
+            QList<VCWidget *> byX = candidates;
+            std::sort(byX.begin(), byX.end(), byColumn);
+            QList<QList<VCWidget *>> columns;
+            qreal right = 0;
+            bool valid = true;
+            for (VCWidget *child : byX)
+            {
+                const QRectF rect = child->logicalGeometry();
+                if (!qIsFinite(rect.left()) || !qIsFinite(rect.right()) ||
+                    !qIsFinite(rect.top()) || !qIsFinite(rect.bottom()) ||
+                    rect.width() <= 0 || rect.height() <= 0)
+                {
+                    valid = false;
+                    break;
+                }
+                if (columns.isEmpty() || rect.left() >= right)
+                {
+                    columns.append(QList<VCWidget *>{child});
+                    right = rect.right();
+                }
+                else
+                {
+                    columns.last().append(child);
+                    right = qMax(right, rect.right());
+                }
+            }
+            if (valid && columns.size() > 1)
+            {
+                for (auto &column : columns)
+                {
+                    std::sort(column.begin(), column.end(), byRow);
+                    ordered.append(column);
+                }
+                continue;
+            }
+        }
+        std::sort(candidates.begin(), candidates.end(), byRow);
+        const qreal tolerance = 1;
+        while (!candidates.isEmpty())
+        {
+            const qreal anchor = candidates.first()->logicalGeometry().y();
+            QList<VCWidget *> row;
+            while (!candidates.isEmpty() &&
+                   candidates.first()->logicalGeometry().y() - anchor <= tolerance)
+                row.append(candidates.takeFirst());
+            std::sort(row.begin(), row.end(), byColumn);
+            ordered.append(row);
+        }
+    }
+    for (VCWidget *child : m_childOrder)
+        if (!ordered.contains(child))
+            ordered.append(child);
+    m_childOrder = ordered;
+}
+
 VCWidget *VCFrame::addWidget(QQuickItem *parent, QString wType, QPoint pos)
+{
+    return addWidgetUnchecked(parent, wType, pos);
+}
+
+VCWidget *VCFrame::addWidgetUnchecked(QQuickItem *parent, QString wType, QPoint pos)
 {
     VCWidget::WidgetType type = stringToType(wType);
 
@@ -416,17 +545,29 @@ VCWidget *VCFrame::addWidget(QQuickItem *parent, QString wType, QPoint pos)
 
 void VCFrame::addWidget(QQuickItem *parent, VCWidget *widget, QPoint pos)
 {
+    const qreal scale = qobject_cast<VCPage *>(this) ? qobject_cast<VCPage *>(this)->pageScale() : scaleFactor();
+    QPointF logicalPosition = QPointF(pos) / scale;
     if (m_vc->snapping())
     {
-        pos.setX(qRound((qreal)pos.x() / m_vc->snappingSize()) * m_vc->snappingSize());
-        pos.setY(qRound((qreal)pos.y() / m_vc->snappingSize()) * m_vc->snappingSize());
+        const qreal step = m_vc->snappingSize();
+        if (step > 0)
+        {
+            logicalPosition.setX(std::round(logicalPosition.x() / step) * step);
+            logicalPosition.setY(std::round(logicalPosition.y() / step) * step);
+        }
     }
 
     QQmlEngine::setObjectOwnership(widget, QQmlEngine::CppOwnership);
     m_vc->addWidgetToMap(widget);
     Tardis::instance()->enqueueAction(Tardis::VCWidgetCreate, this->id(), QVariant(),
                                       Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, widget->id()));
-    widget->setGeometry(QRect(pos.x(), pos.y(), widget->geometry().width(), widget->geometry().height()));
+    QRectF rect = widget->logicalGeometry();
+    rect.moveTopLeft(logicalPosition);
+    widget->setLogicalGeometry(rect);
+    widget->setScaleFactor(scale);
+    if (VCFrame *frame = qobject_cast<VCFrame *>(widget))
+        for (VCWidget *child : frame->children(true))
+            child->setScaleFactor(scale);
     addWidgetToPageMap(widget);
     checkSubmasterConnection(widget);
     widget->render(m_vc->view(), parent);
@@ -434,10 +575,36 @@ void VCFrame::addWidget(QQuickItem *parent, VCWidget *widget, QPoint pos)
 
 void VCFrame::addWidgetMatrix(QQuickItem *parent, QString matrixType, QPoint pos, QSize matrixSize, QSize widgetSize, bool soloFrame)
 {
+    QString error = m_vc->nativeAuthoringError(this);
+    if (matrixSize.width() <= 0 || matrixSize.height() <= 0 ||
+        widgetSize.width() <= 0 || widgetSize.height() <= 0 ||
+        (matrixType != "buttonmatrix" && matrixType != "slidermatrix"))
+        error = tr("Invalid widget matrix dimensions or type");
+    VCWidget prototype(nullptr, this);
+    prototype.setType(matrixType == "buttonmatrix" ? ButtonWidget : SliderWidget);
+    prototype.setupLookAndFeel(m_vc->pixelDensity(), currentPage());
+    const QSizeF minimum = prototype.minimumSize();
+    if (widgetSize.width() < minimum.width() || widgetSize.height() < minimum.height())
+        error = tr("Matrix controls are below their usable minimum size");
+    const qreal density = m_vc->pixelDensity();
+    const QSizeF extent(qMax(matrixSize.width() * qreal(widgetSize.width()) + density * 2, density * 20),
+                         qMax(matrixSize.height() * qreal(widgetSize.height()) + density * 2, density * 20));
+    QRectF matrixRect(QPointF(pos), extent);
+    if (error.isEmpty())
+    {
+        const QVariantMap preview = m_vc->previewCreateGeometry(id(), soloFrame ? "Solo frame" : "Frame",
+                                                               matrixRect, currentPage());
+        if (!preview.value("accepted").toBool())
+            error = preview.value("error").toString();
+    }
+    if (!error.isEmpty())
+    {
+        m_vc->reportEdit(m_vc->editResult(false, false, error));
+        return;
+    }
     VCFrame *frame;
-    int totalWidth = (matrixSize.width() * widgetSize.width()) + (m_vc->pixelDensity() * 2);
-    int totalHeight = (matrixSize.height() * widgetSize.height()) + (m_vc->pixelDensity() * 2);
-    int yPos = m_vc->pixelDensity();
+    qreal totalWidth = extent.width(), totalHeight = extent.height();
+    qreal yPos = density;
 
     qDebug() << "Matrix size" << matrixSize << "widget size" << widgetSize;
     qDebug() << "Frame total width" << totalWidth << ", height" << totalHeight;
@@ -452,28 +619,30 @@ void VCFrame::addWidgetMatrix(QQuickItem *parent, QString matrixType, QPoint pos
         frame = new VCFrame(m_doc, m_vc, this);
     }
 
-    if (m_vc->snapping())
-    {
-        pos.setX(qRound((qreal)pos.x() / m_vc->snappingSize()) * m_vc->snappingSize());
-        pos.setY(qRound((qreal)pos.y() / m_vc->snappingSize()) * m_vc->snappingSize());
-    }
-
     QQmlEngine::setObjectOwnership(frame, QQmlEngine::CppOwnership);
     m_vc->addWidgetToMap(frame);
     Tardis::instance()->enqueueAction(Tardis::VCWidgetCreate, this->id(), QVariant(),
                                       Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, frame->id()));
-    frame->setGeometry(QRect(pos.x(), pos.y(), totalWidth, totalHeight));
+    frame->setLogicalGeometry(QRectF(pos.x(), pos.y(), totalWidth, totalHeight));
     frame->setShowHeader(false);
     setupWidget(frame, currentPage());
 
     for (int row = 0; row < matrixSize.height(); row++)
     {
-        int xPos = m_vc->pixelDensity();
+        qreal xPos = density;
 
         for (int col = 0; col < matrixSize.width(); col++)
         {
-            VCWidget *widget = frame->addWidget(nullptr, matrixType == "buttonmatrix" ? "Button" : "Slider", QPoint(xPos, yPos));
-            widget->setGeometry(QRectF(xPos, yPos, widgetSize.width(), widgetSize.height()));
+            VCWidget *widget = frame->addWidgetUnchecked(nullptr, matrixType == "buttonmatrix" ? "Button" : "Slider",
+                                                        QPointF(xPos, yPos).toPoint());
+            if (!widget)
+            {
+                qCritical() << Q_FUNC_INFO << "Admitted matrix control type could not be constructed";
+                m_vc->deleteVCWidgets({frame->id()});
+                emit m_vc->editRejected(tr("Cannot construct the widget matrix"));
+                return;
+            }
+            widget->setLogicalGeometry(QRectF(xPos, yPos, widgetSize.width(), widgetSize.height()));
             xPos += widgetSize.width();
         }
         yPos += widgetSize.height();
@@ -484,32 +653,9 @@ void VCFrame::addWidgetMatrix(QQuickItem *parent, QString matrixType, QPoint pos
 
 void VCFrame::addWidgetsFromClipboard(QQuickItem *parent, QVariantList idsList, QPoint pos)
 {
-    QPoint currPos = pos;
-
-    for (QVariant wID : idsList)
-    {
-        VCWidget *widget = m_vc->widget(wID.toUInt());
-        if (widget == nullptr)
-            continue;
-
-        // do not allow pasting an item into itself
-        if (widget->id() == this->id())
-            continue;
-
-        VCWidget *copy = widget->createCopy(this);
-        addWidget(parent, copy, currPos);
-
-        currPos.setX(currPos.x() + copy->geometry().width());
-        if (currPos.x() >= geometry().width())
-        {
-            currPos.setX(pos.x());
-            currPos.setY(currPos.y() + copy->geometry().height());
-        }
-    }
-
-    // if this was a cut operation, remove the source widgets
-    // and reset the clipboard
-    m_vc->flushClipboardAfterPaste(this->id());
+    const qreal scale = qobject_cast<VCPage *>(this)
+        ? qobject_cast<VCPage *>(this)->pageScale() : scaleFactor();
+    m_vc->reportEdit(m_vc->pasteWidgets(idsList, id(), QPointF(pos) / scale, parent));
 }
 
 void VCFrame::addFunctions(QQuickItem *parent, QVariantList idsList, QPoint pos, int keyModifiers)
@@ -620,6 +766,7 @@ void VCFrame::deleteChildren()
         }
         /* Remove the widget from the frame pages map */
         m_pagesMap.remove(widget);
+        m_childOrder.removeAll(widget);
         /* Remove it also from the global VC widgets map */
         m_vc->removeWidgetFromMap(widget);
         delete widget;
@@ -632,6 +779,10 @@ void VCFrame::setupWidget(VCWidget *widget, int page)
         widget->setupLookAndFeel(m_vc->pixelDensity(), page);
 
     addWidgetToPageMap(widget);
+    widget->setScaleFactor(qobject_cast<VCPage *>(this) ? qobject_cast<VCPage *>(this)->pageScale() : scaleFactor());
+    if (VCFrame *frame = qobject_cast<VCFrame *>(widget))
+        for (VCWidget *child : frame->children(true))
+            child->setScaleFactor(widget->scaleFactor());
 
     if (widget->type() != VCWidget::SliderWidget ||
             qobject_cast<VCSlider *>(widget)->sliderMode() != VCSlider::SliderMode::Submaster)
@@ -650,7 +801,7 @@ void VCFrame::checkSubmasterConnection(VCWidget *widget)
 
         // always connect a slider in case it emits a submaster signal
         connect(slider, SIGNAL(submasterValueChanged(qreal)),
-                this, SLOT(slotSubmasterValueChanged(qreal)));
+                this, SLOT(slotSubmasterValueChanged(qreal)), Qt::UniqueConnection);
 
         if (slider->sliderMode() == VCSlider::SliderMode::Submaster)
         {
@@ -662,7 +813,12 @@ void VCFrame::checkSubmasterConnection(VCWidget *widget)
 
 void VCFrame::addWidgetToPageMap(VCWidget *widget)
 {
+    if (!m_childOrder.contains(widget))
+        m_childOrder.append(widget);
     m_pagesMap.insert(widget, widget->page());
+    if (VCSlider *slider = qobject_cast<VCSlider *>(widget))
+        connect(slider, SIGNAL(submasterValueChanged(qreal)),
+                this, SLOT(slotSubmasterValueChanged(qreal)), Qt::UniqueConnection);
 
     // if we're a normal Frame and we have a Solo Frame parent
     // then passthrough the widget functionStarting signal.
@@ -671,7 +827,7 @@ void VCFrame::addWidgetToPageMap(VCWidget *widget)
     if (xmlTagName() == KXMLQLCVCFrame && hasSoloParent() == true)
     {
         qDebug() << "------ FRAME ----- connect";
-        connect(widget, &VCWidget::functionStarting, this, &VCWidget::functionStarting);
+        connect(widget, &VCWidget::functionStarting, this, &VCWidget::functionStarting, Qt::UniqueConnection);
     }
 
     // otherwise, if we're a Solo Frame, connect the widget
@@ -679,13 +835,18 @@ void VCFrame::addWidgetToPageMap(VCWidget *widget)
     if (xmlTagName() == KXMLQLCVCSoloFrame)
     {
         qDebug() << "------ SOLO FRAME ----- connect";
-        connect(widget, &VCWidget::functionStarting, this, &VCFrame::slotFunctionStarting);
+        connect(widget, &VCWidget::functionStarting, this, &VCFrame::slotFunctionStarting, Qt::UniqueConnection);
     }
+    emit childOrderChanged(widget->page());
 }
 
 void VCFrame::removeWidgetFromPageMap(VCWidget *widget)
 {
     m_pagesMap.remove(widget);
+    m_childOrder.removeAll(widget);
+    if (VCSlider *slider = qobject_cast<VCSlider *>(widget))
+        disconnect(slider, SIGNAL(submasterValueChanged(qreal)),
+                   this, SLOT(slotSubmasterValueChanged(qreal)));
 
     // disconnect function start event. See addWidgetToPageMap
     if (xmlTagName() == KXMLQLCVCFrame && hasSoloParent() == true)
@@ -699,6 +860,51 @@ void VCFrame::removeWidgetFromPageMap(VCWidget *widget)
         qDebug() << "------ SOLO FRAME --//--- disconnect";
         disconnect(widget, &VCWidget::functionStarting, this, &VCFrame::slotFunctionStarting);
     }
+    emit childOrderChanged(widget->page());
+}
+
+void VCFrame::refreshFunctionRouting()
+{
+    for (VCWidget *child : children(false))
+    {
+        disconnect(child, &VCWidget::functionStarting, this, &VCWidget::functionStarting);
+        disconnect(child, &VCWidget::functionStarting, this, &VCFrame::slotFunctionStarting);
+        if (type() == SoloFrameWidget)
+            connect(child, &VCWidget::functionStarting, this, &VCFrame::slotFunctionStarting, Qt::UniqueConnection);
+        else if (hasSoloParent())
+            connect(child, &VCWidget::functionStarting, this, &VCWidget::functionStarting, Qt::UniqueConnection);
+        if (VCFrame *frame = qobject_cast<VCFrame *>(child))
+            frame->refreshFunctionRouting();
+    }
+}
+
+QList<VCWidget *> VCFrame::reconcileSubmasters(const QList<VCWidget *> &arrivals)
+{
+    VCSlider *driver = qobject_cast<VCSlider *>(m_submasterDriver.data());
+    if (!driver || !m_pagesMap.contains(driver) || driver->sliderMode() != VCSlider::Submaster)
+    {
+        driver = nullptr;
+        for (VCWidget *child : children(false))
+            if (VCSlider *slider = qobject_cast<VCSlider *>(child))
+                if (slider->sliderMode() == VCSlider::Submaster)
+                    driver = slider;
+    }
+    for (VCWidget *child : arrivals)
+        if (VCSlider *slider = qobject_cast<VCSlider *>(child))
+            if (slider->sliderMode() == VCSlider::Submaster)
+                driver = slider;
+    const qreal value = driver ? qreal(driver->value()) / UCHAR_MAX * driver->intensity() : 1;
+    const bool changed = value != m_submasterValue;
+    m_submasterDriver = driver;
+    m_submasterValue = value;
+    QList<VCWidget *> effects;
+    for (VCWidget *child : changed ? children(false) : arrivals)
+    {
+        VCSlider *slider = qobject_cast<VCSlider *>(child);
+        if (!slider || slider->sliderMode() != VCSlider::Submaster)
+            effects.append(child);
+    }
+    return effects;
 }
 
 bool VCFrame::moveWidgetToPage(VCWidget *widget, int pageIndex)
@@ -707,13 +913,20 @@ bool VCFrame::moveWidgetToPage(VCWidget *widget, int pageIndex)
         pageIndex < 0 || pageIndex >= totalPagesNumber())
         return false;
 
+    const int previousPage = widget->page();
+    if (previousPage == pageIndex)
+        return true;
     m_pagesMap.remove(widget);
+    m_childOrder.removeAll(widget);
     widget->setPage(pageIndex);
     widget->remapInputSources(pageIndex);
     m_pagesMap.insert(widget, pageIndex);
+    m_childOrder.append(widget);
     widget->setVisible(pageIndex == currentPage());
     widget->updateFeedback();
     setDocModified();
+    emit childOrderChanged(previousPage);
+    emit childOrderChanged(pageIndex);
     return true;
 }
 
@@ -1068,6 +1281,8 @@ void VCFrame::slotSubmasterValueChanged(qreal submasterValue)
 void VCFrame::applySubmasterValue(qreal submasterValue, VCWidget *submaster)
 {
     m_submasterValue = submasterValue;
+    if (submaster)
+        m_submasterDriver = submaster;
 
     QListIterator <VCWidget*> it(this->findChildren<VCWidget*>());
     while (it.hasNext() == true)
@@ -1430,6 +1645,7 @@ bool VCFrame::loadXML(QXmlStreamReader &root)
     loadXMLCommon(root);
 
     int currentPage = 0;
+    const bool storedOrder = root.attributes().value(KXMLQLCVCFrameChildOrder) == QStringLiteral("1");
 
     /* Children */
     while (root.readNextStartElement())
@@ -1437,10 +1653,10 @@ bool VCFrame::loadXML(QXmlStreamReader &root)
         if (root.name() == KXMLQLCWindowState)
         {
             /* Frame geometry (visibility is ignored) */
-            int x = 0, y = 0, w = 0, h = 0;
+            qreal x = 0, y = 0, w = 0, h = 0;
             bool visible = false;
             loadXMLWindowState(root, &x, &y, &w, &h, &visible);
-            setGeometry(QRect(x, y, w, h));
+            setLogicalGeometry(QRectF(x, y, w, h));
         }
         else if (root.name() == KXMLQLCVCWidgetAppearance)
         {
@@ -1583,6 +1799,8 @@ bool VCFrame::loadXML(QXmlStreamReader &root)
 
     if (multiPageMode() == true)
         setCurrentPage(currentPage);
+    if (!storedOrder)
+        inferChildOrder();
 
     return true;
 }
@@ -1593,6 +1811,7 @@ bool VCFrame::saveXML(QXmlStreamWriter *doc) const
 
     /* VC Frame entry */
     doc->writeStartElement(xmlTagName());
+    doc->writeAttribute(KXMLQLCVCFrameChildOrder, QStringLiteral("1"));
 
     saveXMLCommon(doc);
 

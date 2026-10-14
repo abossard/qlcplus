@@ -21,6 +21,7 @@
 #define VCFRAME_H
 
 #include "vcwidget.h"
+#include <QPointer>
 
 #define KXMLQLCVCFrame              QStringLiteral("Frame")
 #define KXMLQLCVCFrameAllowChildren QStringLiteral("AllowChildren")  // LEGACY
@@ -31,6 +32,7 @@
 #define KXMLQLCVCFrameEnableSource  QStringLiteral("Enable")
 #define KXMLQLCVCFrameShowEnableButton QStringLiteral("ShowEnableButton")
 #define KXMLQLCVCFramePIN           QStringLiteral("PIN")
+#define KXMLQLCVCFrameChildOrder    QStringLiteral("ChildOrder")
 
 #define KXMLQLCVCFrameMultipage     QStringLiteral("Multipage")
 #define KXMLQLCVCFramePagesNumber   QStringLiteral("PagesNum")
@@ -72,6 +74,7 @@ class VCFrame : public VCWidget
     Q_PROPERTY(int totalPagesNumber READ totalPagesNumber WRITE setTotalPagesNumber NOTIFY totalPagesNumberChanged)
     Q_PROPERTY(int PIN READ PIN WRITE setPIN NOTIFY PINChanged)
     Q_PROPERTY(QStringList pageLabels READ pageLabels NOTIFY pageLabelsChanged)
+    Q_PROPERTY(QRectF contentRect READ contentRect NOTIFY geometryChanged)
 
     Q_PROPERTY(LayoutMode layoutMode READ layoutMode WRITE setLayoutMode NOTIFY layoutModeChanged)
     Q_PROPERTY(int gridColumns READ gridColumns WRITE setGridColumns NOTIFY gridColumnsChanged)
@@ -123,6 +126,8 @@ public:
     /** Returns a list of the children widgets with the specified
      *  $recursive method */
     QList<VCWidget *>children(bool recursive = false) const;
+    Q_INVOKABLE QVariantList orderedChildIDs(int subpage) const;
+    QRectF contentRect() const;
 
     /** Add a new widget of type $wType at position $pos to this frame.
      *  $parent is used only to render the new widget */
@@ -171,6 +176,17 @@ public:
 
     /** Move a direct child to a multipage slot without changing the visible page. */
     bool moveWidgetToPage(VCWidget *widget, int pageIndex);
+
+signals:
+    void childOrderChanged(int subpage);
+
+private:
+    friend class VirtualConsole;
+    void setChildOrder(int subpage, const QList<VCWidget *> &order);
+    void inferChildOrder();
+    void refreshFunctionRouting();
+    QList<VCWidget *> reconcileSubmasters(const QList<VCWidget *> &arrivals);
+    VCWidget *addWidgetUnchecked(QQuickItem *parent, QString type, QPoint position);
 
 protected:
     void setupWidget(VCWidget *widget, int page);
@@ -281,6 +297,7 @@ protected:
     /** This holds a map of pages/widgets to be
      *  shown/hidden when page is changed */
     QMap <VCWidget *, int> m_pagesMap;
+    QList<VCWidget *> m_childOrder;
 
     /*********************************************************************
      * PIN
@@ -326,6 +343,7 @@ private:
 
 private:
     qreal m_submasterValue;
+    QPointer<VCWidget> m_submasterDriver;
 
     /*********************************************************************
      * External input

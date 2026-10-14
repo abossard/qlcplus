@@ -31,6 +31,41 @@
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 
+namespace {
+
+template<typename Rectangle>
+nlohmann::json layoutResult(const QMap<int, Rectangle> &geometries,
+                            const QList<VCBridge::OverlapInfo> &remainingOverlaps,
+                            const std::string &algorithm, bool applied)
+{
+    using Json = nlohmann::json;
+    Json changes = Json::array();
+    for (auto it = geometries.constBegin(); it != geometries.constEnd(); ++it)
+        changes.push_back({
+            {"widgetID", it.key()},
+            {"geometry", {{"x", it.value().x()}, {"y", it.value().y()},
+                          {"width", it.value().width()}, {"height", it.value().height()}}}
+        });
+    Json overlaps = Json::array();
+    for (const auto &overlap : remainingOverlaps)
+        overlaps.push_back({
+            {"widgetA", overlap.widgetA}, {"widgetB", overlap.widgetB},
+            {"intersection", {{"x", overlap.intersection.x()}, {"y", overlap.intersection.y()},
+                              {"width", overlap.intersection.width()}, {"height", overlap.intersection.height()}}}
+        });
+    return Json{{"applied", applied}, {"algorithm", algorithm},
+                {"widgetsMoved", geometries.size()}, {"changes", changes},
+                {"remainingOverlaps", overlaps}};
+}
+
+nlohmann::json layoutResult(const VCBridge::LayoutPlan &plan,
+                            const std::string &algorithm, bool applied)
+{
+    return layoutResult(plan.geometries, plan.overlaps, algorithm, applied);
+}
+
+}
+
 void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge)
 {
     using Json = nlohmann::json;
@@ -336,9 +371,10 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
         {"pageIndex", {{"type", "integer"}, {"description",
             "Page index (0-based). Auto-detects column layout from x-positions and reflows within each column. "
             "Defaults to dryRun=true. Used only if frameID is not provided."}}},
-        {"algorithm", {{"type", "string"}, {"enum", {"flow", "gridCompact"}}, {"description",
+        {"algorithm", {{"type", "string"}, {"enum", {"flow", "gridCompact", "align"}}, {"description",
             "Layout algorithm. flow (default) = existing flow layout. "
-            "gridCompact = grid-based Grafana-style vertical compaction using the frame's grid settings."}}},
+            "gridCompact = grid-based vertical compaction using the frame's grid settings. "
+            "align = order-preserving variable row/column tracks, retaining control sizes and hierarchy."}}},
         {"columns", {{"type", "integer"}, {"description",
             "Number of columns for flow grid. 0 or omit for auto-compute from width."}}},
         {"pad", {{"type", "integer"}, {"description", "Padding between widgets in pixels (default 5)"}}},
@@ -361,13 +397,38 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             if (!err.empty()) return err;
 
             static const Json kEnums = {
-                {"algorithm", {{"enum", {"flow", "gridCompact"}}}}
+                {"algorithm", {{"enum", {"flow", "gridCompact", "align"}}}}
             };
             err = validateEnums(args, kEnums);
             if (!err.empty()) return err;
 
             std::string algorithm = VCValidate::canonicalEnum(
                 args.value("algorithm", std::string("flow")), kEnums["algorithm"]["enum"]);
+
+            if (algorithm == "align")
+            {
+                for (const char *option : {"buttonWidth", "buttonHeight", "sliderWidth", "sliderHeight", "framePad"})
+                    if (args.contains(option))
+                        return Json({{"error", std::string(option) +
+                            " is not supported by align, which preserves control sizes"}}).dump();
+                if (!args.contains("frameID") && !args.contains("pageIndex"))
+                    return Json({{"error", "Provide frameID or pageIndex"}}).dump();
+                const char *targetField = args.contains("frameID") ? "frameID" : "pageIndex";
+                const auto target = mcp::jsonInteger(args.at(targetField), 0, mcp::kMaxId);
+                const auto columns = mcp::jsonInteger(args.value("columns", Json(0)), 0, mcp::kMaxId);
+                const auto padding = mcp::jsonInteger(args.value("pad", Json(5)), 0, mcp::kMaxId);
+                if (!target || !columns || !padding)
+                    return Json({{"error", "Alignment target, columns and pad must be nonnegative integers"}}).dump();
+                if (args.contains("dryRun") && !args.at("dryRun").is_boolean())
+                    return Json({{"error", "dryRun must be a boolean"}}).dump();
+                const bool isPage = !args.contains("frameID");
+                const bool dryRun = args.value("dryRun", isPage);
+                const auto result = vcBridge->alignLayout(isPage ? -1 : int(*target),
+                    isPage ? int(*target) : -1, int(*columns), int(*padding), dryRun);
+                if (!result.error.isEmpty())
+                    return Json({{"error", result.error.toStdString()}, {"applied", false}}).dump();
+                return layoutResult(result.geometries, {}, algorithm, result.applied).dump();
+            }
 
             VCBridge::ReflowOptions opts;
             opts.columns = args.value("columns", 0);
@@ -480,42 +541,18 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             }
 
             if (!dryRun)
-                vcBridge->applyLayoutPlan(plan, algorithm == "gridCompact");
-
-            // Build response
-            Json result;
-            result["applied"] = !dryRun;
-            result["algorithm"] = algorithm;
-            result["widgetsMoved"] = (int)plan.geometries.size();
-
-            Json changes = Json::array();
-            for (auto it = plan.geometries.constBegin(); it != plan.geometries.constEnd(); ++it)
             {
-                changes.push_back({
-                    {"widgetID", it.key()},
-                    {"geometry", {{"x", it.value().x()}, {"y", it.value().y()},
-                                  {"width", it.value().width()}, {"height", it.value().height()}}}
-                });
+                const QString applyError = vcBridge->applyLayoutPlanChecked(plan, algorithm == "gridCompact");
+                if (!applyError.isEmpty())
+                    return Json({{"error", applyError.toStdString()}, {"applied", false}}).dump();
             }
-            result["changes"] = changes;
 
-            Json overlapArr = Json::array();
-            for (const auto &ov : plan.overlaps)
-            {
-                overlapArr.push_back({
-                    {"widgetA", ov.widgetA}, {"widgetB", ov.widgetB},
-                    {"intersection", {
-                        {"x", ov.intersection.x()}, {"y", ov.intersection.y()},
-                        {"width", ov.intersection.width()}, {"height", ov.intersection.height()}
-                    }}
-                });
-            }
-            result["remainingOverlaps"] = overlapArr;
-            return result.dump();
+            return layoutResult(plan, algorithm, !dryRun).dump();
             });
         }
     )
     .set_description("Reflow widgets within a frame or page. "
+                     "algorithm=align: preserves stored sibling order, hierarchy and control sizes, aligns variable tracks and reports fit errors. "
                      "algorithm=flow (default): arranges buttons/sliders in a grid, recursively reflows nested frames, resizes the frame to fit. "
                      "algorithm=gridCompact (frameID only): Grafana-style vertical compaction using the frame's gridColumns/gridRowHeight — "
                      "snaps widgets to cells and drops them as far up as possible without overlapping. "

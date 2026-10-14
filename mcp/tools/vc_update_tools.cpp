@@ -523,16 +523,6 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
 
                 // 3. Apply changes only after validation passes
                 Json changes = Json::array();
-                try {
-
-                if (item.contains("caption"))
-                {
-                    bool ok = vcBridge->setWidgetCaption(wid,
-                        QString::fromStdString(item.at("caption").get<std::string>()));
-                    changes.push_back({{"property", "caption"}, {"status", ok ? "ok" : "failed"}});
-                }
-
-                // Geometry: update only specified fields, preserve others
                 if (item.contains("x") || item.contains("y") ||
                     item.contains("width") || item.contains("height"))
                 {
@@ -541,8 +531,21 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     if (item.contains("y")) geo.moveTop(item.at("y").get<int>());
                     if (item.contains("width")) geo.setWidth(item.at("width").get<int>());
                     if (item.contains("height")) geo.setHeight(item.at("height").get<int>());
-                    vcBridge->setWidgetGeometry(wid, geo);
+                    const QString geometryError = vcBridge->setWidgetGeometryChecked(wid, geo);
+                    if (!geometryError.isEmpty())
+                    {
+                        itemError(geometryError.toStdString());
+                        continue;
+                    }
                     changes.push_back({{"property", "geometry"}, {"status", "ok"}});
+                }
+                try {
+
+                if (item.contains("caption"))
+                {
+                    bool ok = vcBridge->setWidgetCaption(wid,
+                        QString::fromStdString(item.at("caption").get<std::string>()));
+                    changes.push_back({{"property", "caption"}, {"status", ok ? "ok" : "failed"}});
                 }
 
                 if (item.contains("functionID") && (widgetType == VCType::Button || widgetType == VCType::Slider))

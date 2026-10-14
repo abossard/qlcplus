@@ -25,6 +25,15 @@ private slots:
     void invalidButtonAction_rejectedBeforeMutation_data();
     void invalidButtonAction_rejectedBeforeMutation();
     void setupVCTools_remainRegistered();
+    void alignmentAlgorithm_advertised();
+    void layoutApplyFailure_reported();
+    void geometryFailure_preservesOtherFields_data();
+    void geometryFailure_preservesOtherFields();
+    void alignmentDispatch_preservesFractionalGeometry();
+    void alignmentSizingOptions_rejected_data();
+    void alignmentSizingOptions_rejected();
+    void rejectedSubpageUpsert_preservesFields_data();
+    void rejectedSubpageUpsert_preservesFields();
 
 private:
     Doc *m_doc = nullptr;

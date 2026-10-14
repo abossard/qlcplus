@@ -101,7 +101,7 @@ void VCAnimation::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
-    m_item = qobject_cast<QQuickItem*>(component->create());
+    m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create animation component" << component->errors();
     delete component;
@@ -1216,9 +1216,9 @@ bool VCAnimation::loadXML(QXmlStreamReader &root)
         if (root.name() == KXMLQLCWindowState)
         {
             bool visible = false;
-            int x = 0, y = 0, w = 0, h = 0;
+            qreal x = 0, y = 0, w = 0, h = 0;
             loadXMLWindowState(root, &x, &y, &w, &h, &visible);
-            setGeometry(QRect(x, y, w, h));
+            setLogicalGeometry(QRectF(x, y, w, h));
         }
         else if (root.name() == KXMLQLCVCWidgetAppearance)
         {

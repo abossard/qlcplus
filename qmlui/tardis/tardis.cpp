@@ -237,9 +237,13 @@ void Tardis::undoAction()
 
         qDebug() << "Undo action" << actionToString(action.m_action);
 
-        m_historyIndex--;
-
         int code = processAction(action, true);
+        if (code < 0)
+        {
+            qWarning() << Q_FUNC_INFO << "History step refused" << action.m_action << action.m_objID;
+            break;
+        }
+        m_historyIndex--;
 
         /* If there are active network connections, send the action there too */
         forwardActionToNetwork(code, action, true);
@@ -282,6 +286,12 @@ void Tardis::redoAction()
         qDebug() << "Redo action" << actionToString(action.m_action);
 
         int code = processAction(action, false);
+        if (code < 0)
+        {
+            --m_historyIndex;
+            qWarning() << Q_FUNC_INFO << "History step refused" << action.m_action << action.m_objID;
+            break;
+        }
 
         /* If there are active network connections, send the action there too */
         forwardActionToNetwork(code, action);
@@ -332,6 +342,18 @@ void Tardis::forwardActionToNetwork(int code, TardisAction &action, bool undo)
         netAction.m_action = code;
         netAction.m_newValue = action.m_oldValue;
         netAction.m_oldValue = action.m_newValue;
+    }
+    if (code == VCWidgetReparent && netAction.m_newValue.metaType().id() == QMetaType::QVariantMap)
+    {
+        const QVariantMap before = netAction.m_oldValue.toMap();
+        const QVariantMap after = netAction.m_newValue.toMap();
+        if (!before.isEmpty() && before.value("parentID") == after.value("parentID"))
+        {
+            qInfo() << Q_FUNC_INFO << "Console order and subpage history is local; no legacy wire representation";
+            return;
+        }
+        netAction.m_newValue = after.value("parentID");
+        if (!before.isEmpty()) netAction.m_oldValue = before.value("parentID");
     }
 
     QMetaObject::invokeMethod(m_networkManager, "sendAction", Qt::QueuedConnection,
@@ -1452,15 +1474,27 @@ int Tardis::processAction(TardisAction &action, bool undo)
 
         case VCWidgetGeometry:
         {
-            auto member = std::mem_fn(&VCWidget::setGeometry);
+            auto member = std::mem_fn(&VCWidget::setLogicalGeometry);
             member(qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID)), value->toRectF());
         }
         break;
         case VCWidgetReparent:
         {
-            VCWidget *widget = qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID));
-            VCFrame *targetFrame = qobject_cast<VCFrame *>(m_virtualConsole->widget(value->toUInt()));
-            m_virtualConsole->reparentWidget(widget, targetFrame);
+            if (value->metaType().id() == QMetaType::QVariantMap)
+            {
+                const QVariantMap location = value->toMap();
+                if (!m_virtualConsole->restoreWidgetParent(action.m_objID, location.value("parentID").toUInt(),
+                    location.value("subpage").toInt(), location.value("orderIndex", -1).toInt(),
+                    location.value("beforeID", VCWidget::invalidId()).toUInt()))
+                    return -1;
+            }
+            else
+            {
+                VCWidget *widget = m_virtualConsole->widget(action.m_objID);
+                VCFrame *targetFrame = qobject_cast<VCFrame *>(m_virtualConsole->widget(value->toUInt()));
+                if (!m_virtualConsole->reparentWidget(widget, targetFrame))
+                    return -1;
+            }
         }
         break;
         case VCWidgetCaption:

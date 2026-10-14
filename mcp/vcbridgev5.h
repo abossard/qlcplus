@@ -24,6 +24,8 @@
 
 class Doc;
 class VirtualConsole;
+class VCFrame;
+class VCWidget;
 
 class VCBridgeV5 : public VCBridge
 {
@@ -172,6 +174,12 @@ public:
     WidgetSnapshot snapshotFrame(int frameID) const override;
     WidgetSnapshot snapshotPage(int pageIndex) const override;
     void applyLayoutPlan(const LayoutPlan &plan, bool skipSnap = false) override;
+    QString applyLayoutPlanChecked(const LayoutPlan &plan, bool skipSnap = false) override;
+    LayoutEditResult alignLayout(int frameID, int pageIndex, int columns,
+                                 int padding, bool dryRun) override;
+    QString setWidgetGeometryChecked(int widgetID, const QRect &geo) override;
+    int createWidgetOnPage(int parentID, const QString &type, const QRect &geo,
+                           const QString &caption, int subpage) override;
 
     // Frame grid layout
     bool setFrameGridLayout(int frameID, const QString &mode,
@@ -183,6 +191,8 @@ public:
 private:
     /** Round a rectangle's position and size to the nearest grid multiple */
     QRect snapRect(const QRect &rect) const;
+    VCWidget *createGeometryWidget(VCFrame *frame, const QString &type, const QRect &geometry,
+                                    int subpage = -1);
 
     Doc *m_doc;
     VirtualConsole *m_vc;

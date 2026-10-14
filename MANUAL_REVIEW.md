@@ -1942,6 +1942,77 @@ hashes and preservation manifests are retained under
 The manual, hardware, native-panel and installed-package checks below remain
 pending. No live application was restarted or lighting output changed.
 
+**2026-10-10 verification refresh**
+
+`git fetch upstream master` and `git ls-remote upstream refs/heads/master`
+returned `9ddbc62d590c77a059397d9e2ce2357d69fbfd88`. This tip is already
+contained in `mcp-server` HEAD `6a8cc924552d99dee5dc03c35cf0c5c32e7ce341`.
+`git merge --no-edit upstream/master` reported `Already up to date.`
+No incoming changes, conflict resolutions, or refactors were needed.
+
+From the repository root, this build passed:
+
+```bash
+cmake --build build --target qlcplus5 upstreamintegration_test upstream3d_test rgbscript_test mcp_script_tool_test mcp_stage_tools_test -j8
+```
+
+| Executable | Selection | Passed |
+|------------|-----------|--------|
+| `build/qmlui/test/upstreamintegration/upstreamintegration_test` | Full suite | 171 |
+| `build/qmlui/test/upstream3d/upstream3d_test` | Full suite | 53 |
+| `build/engine/test/rgbscript/rgbscript_test` | Full suite, from source `engine/test/rgbscript` | 39 |
+| `build/mcp/test/mcp_script_tool_test` | Full suite | 79 |
+| `build/mcp/test/mcp_stage_tools_test` | Full suite, including channel groups and invalid-input rejection | 36 |
+
+All 378 QtTest passes include setup/cleanup; no failures or skips.
+Executables ran directly with `QT_QPA_PLATFORM=offscreen`,
+`QT_QUICK_BACKEND=software`, and separate disposable home/config/temp
+directories. CTest still reports zero registered tests.
+
+From `tools/manual-review`,
+`npm test -- src/parser-real.test.ts src/parser.test.ts` passed all 41 tests.
+`plutil -lint platforms/macos/Info.plist platforms/macos/Info.plist.qmlui`
+passed from the repository root. HEAD and the index remained unchanged;
+the checkout was clean after native verification. Only this evidence block
+is added. Section 33's eight cases, 16 unsigned checks, and blank sign-off
+remain unchanged. Logs are retained in
+`~/.copilot/session-state/483e4a49-af92-4f06-a1f2-8e95e9b1ebf7/files/upstream-refresh-2026-10-10/`.
+GPU, hardware, native-panel, and installed-package checks remain pending.
+No live application was restarted or lighting output changed.
+
+**2026-10-11 verification refresh**
+
+`git fetch mcallegari master` and `git ls-remote mcallegari refs/heads/master`
+confirmed upstream tip `9ddbc62d590c77a059397d9e2ce2357d69fbfd88`.
+`git merge --no-edit mcallegari/master` reported `Already up to date.`;
+`mcp-server` HEAD remains `6a8cc924552d99dee5dc03c35cf0c5c32e7ce341`.
+There are no incoming commits, conflicts, or new refactors.
+
+This build passed from the repository root:
+
+```bash
+cmake --build build --target qlcplus5 upstreamintegration_test upstream3d_test rgbscript_test mcp_script_tool_test mcp_stage_tools_test -j8
+```
+
+All five full suites passed: `upstreamintegration_test` (171),
+`upstream3d_test` (53), `rgbscript_test` (39), `mcp_script_tool_test` (79),
+and `mcp_stage_tools_test` (36). The 378 QtTest passes include setup/cleanup;
+there were no failures or skips. Executables ran directly with
+`-maxwarnings 0`, offscreen/software rendering, disposable home/config/temp
+directories and an empty plugin directory. RGB scripts ran from source
+`engine/test/rgbscript` for resource lookup. CTest lists zero registered tests.
+
+From `tools/manual-review`,
+`npm test -- src/parser-real.test.ts src/parser.test.ts` passed all 41 tests.
+From the repository root,
+`plutil -lint platforms/macos/Info.plist platforms/macos/Info.plist.qmlui`
+passed. Existing checklist edits, unsigned checks, sign-off tables, tracked
+source files, HEAD and index remain unchanged apart from this insertion.
+Logs and preservation artifacts are in
+`~/.copilot/session-state/434decaf-6f78-49b1-9c62-9994a64bf75c/files/upstream-refresh-2026-10-11/`.
+GPU, hardware, native-panel and installed-package checks remain pending.
+No live application was restarted or lighting output changed.
+
 ### 33.1 Function tree and editor interaction
 
 - ☐ Rename root and nested functions from their editors, including a running function and a freshly duplicated function. Confirm the tree updates once, selection stays understandable, and running indicators remain visible.
@@ -1993,3 +2064,152 @@ output levels.
 | Multi-head rendering and Stage Wizard | | | | |
 | Physical fixture mapping | | | | |
 | Installed packages | | | | |
+
+---
+
+## 34. Upstream 648072986 macOS signing and packaging
+
+Upstream `6480729864cf1e40d3b204691a6c681b649aa064` consolidates
+distribution signing in `platforms/macos/sign_app.sh`, enables credential-gated
+CI signing/notarization, imports the signing keychain immediately before use,
+and adds optional local notarization through `NOTARY_PROFILE`.
+
+The fork retains its separate ad-hoc signing step when either the certificate
+or identity is absent. That step does not enable hardened runtime. Developer
+ID signing uses the upstream helper unchanged. MCP build/release jobs and
+Homebrew artifacts remain present. The fork's CMake-native plist version
+replacement remains in place; it already avoids the BSD `sed -i` issue fixed
+upstream and does not create backup files.
+
+Use disposable installations, not the running development application.
+Developer ID and notarized-package checks require authorized release
+credentials and a produced artifact. Leave unavailable checks unsigned.
+
+**2026-10-12 automated verification**
+
+From the repository root, this build passed:
+
+```bash
+cmake --build build --target qlcplus5 upstreamintegration_test upstream3d_test rgbscript_test mcp_script_tool_test mcp_stage_tools_test -j8
+```
+
+The five full Qt suites passed: `upstreamintegration_test` (171),
+`upstream3d_test` (53), `rgbscript_test` (39), `mcp_script_tool_test` (79),
+and `mcp_stage_tools_test` (36). All 378 passes include setup/cleanup;
+there were no failures or skips. Tests ran with `-maxwarnings 0`,
+offscreen/software rendering and disposable home/config/temp/plugin paths.
+RGB scripts ran from source `engine/test/rgbscript` for resource lookup.
+
+`bash -n create-dmg.sh platforms/macos/sign_app.sh` and
+`plutil -lint platforms/macos/Info.plist platforms/macos/Info.plist.qmlui`
+passed. Four parameterized packaging checks passed using
+`python3 "$EVIDENCE/verify_packaging.py"`: YAML parsing and all eight
+certificate/identity/notary combinations, unchanged upstream signing steps,
+mocked signing order and failure propagation, invalid arguments, and both
+plist variants with paths containing spaces. These checks use a fake
+`codesign`, not real distribution credentials or Apple notarization.
+`EVIDENCE` is
+`~/.copilot/session-state/d541be00-b3be-47ac-8caf-0c84ef61f229/files/upstream-integration-2026-10-12/`;
+build and Qt/packaging logs are retained there.
+
+From `tools/manual-review`,
+`npm test -- src/parser-real.test.ts src/parser.test.ts` passed all 42 tests,
+including section 34's three cases, six pending checks and empty hardware
+tags. Pre-existing checklist text and sign-off entries remain unchanged.
+Actual credentialed CI, Gatekeeper, DMG/Homebrew installation and all manual
+checks below remain untested. No live application was restarted or lighting
+output changed.
+
+### 34.1 Credential-free MCP and Homebrew application
+
+- ☐ Install the credential-free CI DMG on macOS, including Tahoe when available. Launch through Finder and open a disposable workspace. Confirm normal application identity and no dyld Team ID mismatch.
+- ☐ Repeat with the Homebrew application artifact. Open the Virtual Console and 3D view and check normal appearance and plugin availability without replacing the active development installation.
+
+### 34.2 Developer ID distribution and notarization
+
+- ☐ On a clean macOS test account, download a signed and notarized CI DMG. Open it through Finder and launch the installed application without disabling Gatekeeper. Check that the first-launch prompts identify the expected publisher and allow normal launch.
+- ☐ Open a disposable workspace through Finder in the signed application. Check normal file association, QML rendering and plugin availability. If local packaging is used, repeat with a package produced using `SIGNATURE` and `NOTARY_PROFILE`.
+
+### 34.3 DMG installation experience
+
+- ☐ Open the produced DMG and check the background, volume icon, application icon and Applications shortcut. Confirm the layout remains usable and the application can be dragged into Applications.
+- ☐ Launch the installed application after ejecting the DMG. Confirm normal startup and workspace opening without depending on the mounted image.
+
+---
+
+## 35. October 2026 upstream audio and XYPad through 928fc14be
+
+**Checked 2026-10-14:** `git fetch upstream master` and
+`git ls-remote upstream refs/heads/master` both identify
+`928fc14be168d31b7074405d52083305a4456a40`. That tip is already the
+second parent of `mcp-server` HEAD `e58f61c0a`. No additional merge or
+production refactor was needed.
+
+The upstream changes cover disabled XYPad/audio widgets (`ce5dfcd95`),
+audio triggers inside Solo Frames (`2b59e1877`), and spectrum bar controls
+and mapping-list height (`928fc14be`). The fork retains shared audio
+profiles, named mapping sources and recorded XY settlement. Its bank
+controls replace upstream's legacy bar-count spinbox; the mapping table
+uses its contents' implicit height.
+
+**Automated verification on the current working tree**
+
+From the repository root:
+
+```bash
+cmake --build build --target qlcplus5 vcaudiotriggers_test vcxypad_test showcommandrecorder_test mcp_vc_validation_test -j8
+cmake --build build --target showcommandrecorder_test mcp_vc_validation_test -j8
+```
+
+The first command built `qlcplus5` and `vcaudiotriggers_test`, then failed
+linking `vcxypad_test`. Its test substitutes lack the current local
+`VirtualConsole::staticMetaObject`, `pixelDensity`, `popupRoot` and
+`VCFrame::staticMetaObject`, `children` symbols. The second command passed.
+No unrelated source or test substitutes were changed to mask that failure.
+
+With `QT_QPA_PLATFORM=offscreen`, `QT_QUICK_BACKEND=software` and
+`-maxwarnings 0`, these direct binary runs were performed:
+
+| Command, relative to repository root | Result |
+|---|---|
+| `build/qmlui/test/vcaudiotriggers/vcaudiotriggers_test -maxwarnings 0` | 198 passed, 0 failed, 0 skipped |
+| `build/qmlui/test/showcommandrecorder/showcommandrecorder_test xyPadWriter_disabledTransition xyPadWriter_disabledBackwardSeek -maxwarnings 0` | 2 passed, 44 failed, 0 skipped |
+| `build/mcp/test/mcp_vc_validation_test -maxwarnings 0` | 76 passed, 0 failed, 0 skipped |
+
+The recorded XY cases fail during setup because `addXYPad` returns null,
+before they exercise disable/seek behavior. Audio and XY runs used separate
+scratch working directories and home/config paths. Counts include
+setup/cleanup. Build and execution logs are retained in
+`~/.copilot/session-state/41ac6173-133b-4f1d-a4f4-e8c3794e7b97/files/upstream-check/`.
+The current-tree XY failures must be resolved before manual sign-off.
+No running application was restarted and no hardware output was exercised.
+
+From `tools/manual-review`,
+`npm test -- src/parser-real.test.ts src/parser.test.ts` passed all 43 tests,
+including the four cases, ten pending checks and hardware tags below.
+The original checklist text remains a byte-identical prefix. Other work
+changed `upstreamintegration_test.cpp`, `gridlayout.cpp`, `gridlayout.h` and
+`virtualconsole.cpp` during this check, so the binary results do not certify
+those later edits. HEAD and the Git index remain unchanged.
+
+### 35.1 Spectrum controls and mapping-table visibility
+
+- ☐ In a disposable workspace, open an Audio Triggers widget's properties and change the Low, Mid and High bank sizes through their supported range. Close and reopen the panel; confirm the values, meters and labels remain coherent without clipped controls.
+- ☐ Expand Spectrum Bar Mappings and scroll through the full table at both narrow and wide panel sizes. Confirm the header, final row and double-height mapping controls are visible and usable.
+- ☐ Use two widgets sharing an audio profile. Change a bank setting on one and inspect the other; confirm the shared profile remains clear in the UI and no controls unexpectedly reset.
+
+### 35.2 Disabled audio and XY widgets [DMX]
+
+- ☐ While audio mappings and XY movement drive disposable fixtures, disable each widget directly, then through its parent frame. Confirm mapped actions stop and held XY/audio output no longer overrides another active control.
+- ☐ Re-enable the widgets and frame. Confirm XY output resumes at the current position without a stale jump, and audio mappings follow current levels rather than replaying old hits.
+- ☐ With mappings paused but the audio widget enabled, confirm meters still update. Contrast this with disabling the whole widget, and check the UI makes the two states distinguishable.
+
+### 35.3 Audio triggers in Solo Frames
+
+- ☐ Place an Audio Triggers widget and a scene button in a Solo Frame. Enable mappings, then start the scene button; confirm audio capture/mappings deactivate and cannot immediately retrigger the competing scene.
+- ☐ Repeat with the audio widget inside a nested frame within the Solo Frame. Confirm the same visible exclusivity and no frozen controls.
+- ☐ Re-enable audio mappings and trigger a mapped button. Confirm the initiating audio widget does not deactivate itself and the resulting lighting transition feels continuous.
+
+### 35.4 Sign-off
+
+- ☐ After the automated XY failures are resolved, record reviewer, date, workspace, audio source and hardware used, plus pass/fail notes for each case above. Leave unavailable hardware checks unsigned.

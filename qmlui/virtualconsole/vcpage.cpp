@@ -54,7 +54,9 @@ VCPage::~VCPage()
 
 void VCPage::resetProperties(int pageIndex)
 {
-    setGeometry(QRect(0, 0, 1920, 1080));
+    m_pageScale = 1;
+    setScaleFactor(1);
+    setLogicalGeometry(QRectF(0, 0, 1920, 1080));
     setFont(QFont("Roboto Condensed", 16));
     setCaption(tr("Page %1").arg(pageIndex + 1));
     VCFrame::initializeProperties();
@@ -72,7 +74,14 @@ qreal VCPage::pageScale() const
 
 void VCPage::setPageScale(qreal factor)
 {
-    m_pageScale = m_pageScale + factor;
+    const qreal scale = m_pageScale + factor;
+    if (!qIsFinite(scale) || scale <= 0)
+    {
+        qWarning() << Q_FUNC_INFO << "Invalid page scale" << scale;
+        return;
+    }
+    m_pageScale = scale;
+    setScaleFactor(scale);
 
     foreach (VCWidget* child, children(true))
         child->setScaleFactor(m_pageScale);

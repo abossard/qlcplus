@@ -36,31 +36,30 @@ Rectangle
     visible: wObj ? wObj.isVisible : true
 
     property VCWidget wObj: null
-    property bool isSelected: false
+    property bool isSelected: wObj ? virtualConsole.selectedIDs.indexOf(wObj.id) >= 0 : false
     property int handleSize: Math.min(UISettings.iconSizeMedium, Math.min(height / 2.5, width / 2.5))
-
-    Drag.source: wRoot
-    Drag.keys: [ "vcwidget" ]
-    Drag.active: dragMouseArea.drag.active
-    Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
-
-    onIsSelectedChanged:
+    property point dragHotSpot: Qt.point(0, 0)
+    property var draggedIDs: []
+    property bool moving: false
+    property bool resizing: false
+    property rect resizeIntent: Qt.rect(0, 0, 0, 0)
+    property rect previewRect: Qt.rect(0, 0, 0, 0)
+    property bool previewAccepted: true
+    property string previewError: ""
+    property var layoutCandidate:
     {
-        if (wObj)
-            wObj.isEditing = isSelected
+        if (!wObj)
+            return null
+        var plan = virtualConsole.layoutPreview
+        for (var i = 0; i < plan.length; ++i)
+            if (plan[i].id === wObj.id)
+                return plan[i]
+        return null
     }
 
     function setCommonProperties(obj)
     {
-        if (obj === null)
-            return;
-
         wObj = obj
-        if (wObj.isEditing)
-        {
-            isSelected = true
-            virtualConsole.setWidgetSelection(wObj.id, wRoot, isSelected, true)
-        }
     }
 
     function setBgImageMargins(m)
@@ -68,68 +67,53 @@ Rectangle
         bgImage.anchors.margins = m
     }
 
-    function getGridFrame()
+    function showEditResult(result)
     {
-        // Walk up parent chain to find a VCFrame in Grid layout mode
-        var p = wRoot.parent
-        while (p)
+        if (!result.accepted)
         {
-            if (p.frameObj !== undefined && p.frameObj !== null &&
-                p.frameObj.layoutMode === VCFrame.LayoutGrid)
-                return p.frameObj
-            p = p.parent
-        }
-        return null
-    }
-
-    function snapToGrid()
-    {
-        var gf = getGridFrame()
-        if (gf !== null)
-        {
-            var cols = gf.gridColumns > 0 ? gf.gridColumns : 12
-            var cellW = wRoot.parent ? wRoot.parent.width / cols : 0
-            var cellH = gf.gridRowHeight > 0 ? gf.gridRowHeight : virtualConsole.snappingSize
-            if (cellW > 0 && cellH > 0)
-            {
-                x = Math.round(x / cellW) * cellW
-                y = Math.round(y / cellH) * cellH
-                width = Math.max(Math.round(width / cellW) * cellW, cellW)
-                height = Math.max(Math.round(height / cellH) * cellH, cellH)
-            }
-            return
-        }
-
-        if (virtualConsole.snapping)
-        {
-            var s = virtualConsole.snappingSize
-            if (s > 0)
-            {
-                x = Math.round(x / s) * s
-                y = Math.round(y / s) * s
-                width = Math.max(Math.round(width / s) * s, s)
-                height = Math.max(Math.round(height / s) * s, s)
-            }
+            editError.message = result.error
+            editError.open()
         }
     }
 
-    function updateGeometry(d)
+    function cancelGesture()
     {
-        d.target = null
+        moving = false
+        resizing = false
+        virtualConsole.enableFlicking(true)
+    }
 
-        snapToGrid()
+    function showResizePreview(rect)
+    {
+        resizeIntent = rect
+        var result = virtualConsole.previewGeometry(wObj.id, rect)
+        previewAccepted = result.accepted
+        previewError = result.error
+        var candidate = result.accepted && result.geometries.length ? result.geometries[0].rect : rect
+        var scale = wObj.scaleFactor
+        var scenePos = wRoot.parent.mapToItem(gestureGhost.parent, candidate.x * scale, candidate.y * scale)
+        previewRect = Qt.rect(scenePos.x, scenePos.y, candidate.width * scale, candidate.height * scale)
+    }
 
-        if (height < UISettings.iconSizeMedium)
-            height = UISettings.iconSizeMedium
-        if (width < UISettings.iconSizeMedium)
-            width = UISettings.iconSizeMedium
+    Keys.onEscapePressed: (event) =>
+    {
+        if (moving || resizing)
+        {
+            cancelGesture()
+            event.accepted = true
+        }
+    }
 
-        wObj.geometry = Qt.rect(x, y, width, height)
-
-        x = Qt.binding(function() { return wObj ? wObj.geometry.x : 0 })
-        y = Qt.binding(function() { return wObj ? wObj.geometry.y : 0 })
-        width = Qt.binding(function() { return wObj ? wObj.geometry.width : 100 })
-        height = Qt.binding(function() { return wObj ? wObj.geometry.height : 100 })
+    onVisibleChanged: if (!visible && (moving || resizing)) cancelGesture()
+    Component.onDestruction: if (moving || resizing) virtualConsole.enableFlicking(true)
+    Connections
+    {
+        target: virtualConsole
+        function onEditModeChanged()
+        {
+            if (!virtualConsole.editMode)
+                wRoot.cancelGesture()
+        }
     }
 
     Image
@@ -141,7 +125,98 @@ Rectangle
         fillMode: Image.PreserveAspectFit
     }
 
-    // resize area
+    Item
+    {
+        id: previewViewport
+        parent: virtualConsole.selectedPage >= 0 ? virtualConsole.currentPageItem() : null
+        width: parent ? parent.width : 0
+        height: parent ? parent.height : 0
+        clip: true
+        z: moving || resizing ? 200 : 180
+        visible: wRoot.visible && virtualConsole.editMode && (moving || resizing || layoutCandidate !== null)
+    }
+
+    Item
+    {
+        id: layoutGhost
+        parent: previewViewport
+        property point position:
+        {
+            if (!layoutCandidate || !wObj)
+                return Qt.point(0, 0)
+            var renderedPage = virtualConsole.currentPageItem()
+            if (!renderedPage || !renderedPage.contentItem)
+                return Qt.point(0, 0)
+            return Qt.point(layoutCandidate.pageRect.x * wObj.scaleFactor - renderedPage.contentX,
+                            layoutCandidate.pageRect.y * wObj.scaleFactor - renderedPage.contentY)
+        }
+        x: position.x
+        y: position.y
+        width: layoutCandidate && wObj ? layoutCandidate.pageRect.width * wObj.scaleFactor : 0
+        height: layoutCandidate && wObj ? layoutCandidate.pageRect.height * wObj.scaleFactor : 0
+        visible: layoutCandidate && wRoot.visible && virtualConsole.editMode &&
+                 layoutCandidate.pageIndex === virtualConsole.selectedPage
+        z: 180
+        Rectangle
+        {
+            anchors.fill: parent
+            color: wObj ? wObj.backgroundColor : UISettings.bgStrong
+            opacity: 0.65
+            border.color: UISettings.highlight
+            border.width: 2
+            Text
+            {
+                anchors.fill: parent
+                anchors.margins: 4
+                text: wObj ? wObj.caption : ""
+                color: UISettings.fgMain
+                font.family: UISettings.robotoFontName
+                font.pixelSize: UISettings.textSizeDefault
+                elide: Text.ElideRight
+                wrapMode: Text.Wrap
+            }
+        }
+    }
+
+    Item
+    {
+        id: gestureGhost
+        parent: previewViewport
+        x: wRoot.previewRect.x
+        y: wRoot.previewRect.y
+        width: wRoot.previewRect.width
+        height: wRoot.previewRect.height
+        z: 200
+        visible: wRoot.moving || wRoot.resizing
+
+        Drag.active: wRoot.moving
+        Drag.source: wRoot
+        Drag.keys: [ "vcwidget" ]
+        Drag.hotSpot: wRoot.dragHotSpot
+        Drag.onActiveChanged: UISettings.internalDragActive = Drag.active
+
+        Rectangle
+        {
+            anchors.fill: parent
+            color: wRoot.wObj ? wRoot.wObj.backgroundColor : UISettings.bgStrong
+            opacity: 0.7
+            border.width: 2
+            border.color: wRoot.previewAccepted ? UISettings.highlight : "crimson"
+
+            Text
+            {
+                anchors.fill: parent
+                anchors.margins: 4
+                text: wRoot.wObj ? wRoot.wObj.caption : ""
+                color: UISettings.fgMain
+                font.family: UISettings.robotoFontName
+                font.pixelSize: UISettings.textSizeDefault
+                wrapMode: Text.Wrap
+                elide: Text.ElideRight
+            }
+        }
+    }
+
     Rectangle
     {
         id: resizeLayer
@@ -149,240 +224,145 @@ Rectangle
         color: "transparent"
         border.width: isSelected ? 3 : 2
         border.color: isSelected ? "yellow" : UISettings.bgLight
-        // this must be above the widget root but
-        // underneath the widget children (if any)
         z: isSelected ? 99 : 1
         visible: virtualConsole && virtualConsole.editMode && wObj && wObj.allowResize
 
-        // mouse area to select and move the widget
         MouseArea
         {
             id: dragMouseArea
             anchors.fill: parent
-            drag.threshold: 10
             preventStealing: true
 
-            property bool dragRemapped: false
-            property bool flickingDisabled: false
+            property point pressedScene
+            property bool gestureEnabled: false
+            property bool startedMoving: false
+            property int pressedModifiers: 0
 
             onPressed: (mouse) =>
             {
-                if (virtualConsole.editMode)
-                {
-                    isSelected = !isSelected
-                    virtualConsole.enableFlicking(false)
-                    flickingDisabled = true
-                    virtualConsole.setWidgetSelection(wObj.id, wRoot, isSelected, mouse.modifiers & Qt.ControlModifier)
-                    drag.target = wRoot
-                }
-
-                dragRemapped = false
+                wRoot.forceActiveFocus()
+                var multi = (mouse.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0
+                if (!isSelected || multi)
+                    virtualConsole.setWidgetSelection(wObj.id, wRoot, multi ? !isSelected : true, multi)
+                dragHotSpot = Qt.point(mouse.x, mouse.y)
+                pressedScene = mapToItem(gestureGhost.parent, mouse.x, mouse.y)
+                gestureEnabled = true
+                startedMoving = false
+                pressedModifiers = mouse.modifiers
+                virtualConsole.enableFlicking(false)
             }
 
             onPositionChanged: (mouse) =>
             {
-                if (drag.active && drag.target !== null && dragRemapped == false)
+                if (!pressed || !gestureEnabled)
+                    return
+                var scenePos = mapToItem(gestureGhost.parent, mouse.x, mouse.y)
+                if (!moving && Math.abs(scenePos.x - pressedScene.x) + Math.abs(scenePos.y - pressedScene.y) < 10)
+                    return
+                if (!moving)
                 {
-                    var remappedPos = wRoot.mapToItem(virtualConsole.currentPageItem(), 0, 0);
-                    wObj.geometry = Qt.rect(remappedPos.x, remappedPos.y, wRoot.width, wRoot.height)
-                    wRoot.parent = virtualConsole.currentPageItem()
-                    dragRemapped = true
-                    if (isSelected == false)
+                    virtualConsole.setWidgetSelection(wObj.id, wRoot, true, true)
+                    draggedIDs = virtualConsole.selectedIDs
+                }
+                previewAccepted = true
+                previewError = ""
+                previewRect = Qt.rect(scenePos.x - dragHotSpot.x, scenePos.y - dragHotSpot.y, wRoot.width, wRoot.height)
+                startedMoving = true
+                moving = true
+            }
+
+            onReleased:
+            {
+                if (moving)
+                    gestureGhost.Drag.drop()
+                else if (gestureEnabled && !startedMoving && !pressedModifiers)
+                    virtualConsole.setWidgetSelection(wObj.id, wRoot, true, false)
+                gestureEnabled = false
+                cancelGesture()
+            }
+            onCanceled:
+            {
+                gestureEnabled = false
+                cancelGesture()
+            }
+
+            Connections
+            {
+                target: wRoot
+                function onMovingChanged()
+                {
+                    if (!wRoot.moving)
+                        dragMouseArea.gestureEnabled = false
+                }
+            }
+        }
+
+        Repeater
+        {
+            model: 4
+
+            Image
+            {
+                id: corner
+                required property int index
+                property bool leftEdge: index === 0 || index === 3
+                property bool topEdge: index < 2
+                width: handleSize
+                height: width
+                x: leftEdge ? 0 : resizeLayer.width - width
+                y: topEdge ? 0 : resizeLayer.height - height
+                rotation: [180, 270, 0, 90][index]
+                source: "qrc:/arrow-corner.svg"
+                sourceSize: Qt.size(handleSize, handleSize)
+                visible: isSelected && wObj && wObj.allowResize
+
+                MouseArea
+                {
+                    anchors.fill: parent
+                    cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+                    preventStealing: true
+                    property point startPoint
+                    property rect startRect
+
+                    onPressed: (mouse) =>
                     {
-                        isSelected = true
-                        virtualConsole.setWidgetSelection(wObj.id, wRoot, isSelected, mouse.modifiers & Qt.ControlModifier)
+                        wRoot.forceActiveFocus()
+                        startPoint = mapToItem(wRoot.parent, mouse.x, mouse.y)
+                        startRect = wObj.logicalGeometry
+                        resizing = true
+                        virtualConsole.enableFlicking(false)
+                        showResizePreview(startRect)
                     }
-                }
 
-                if (drag.active)
-                {
-                    var gf = getGridFrame()
-                    if (gf !== null)
+                    onPositionChanged: (mouse) =>
                     {
-                        var cols = gf.gridColumns > 0 ? gf.gridColumns : 12
-                        var cellW = wRoot.parent ? wRoot.parent.width / cols : 0
-                        var cellH = gf.gridRowHeight > 0 ? gf.gridRowHeight : virtualConsole.snappingSize
-                        if (cellW > 0 && cellH > 0)
-                        {
-                            wRoot.x = Math.round(wRoot.x / cellW) * cellW
-                            wRoot.y = Math.round(wRoot.y / cellH) * cellH
-                        }
+                        if (!pressed || !resizing)
+                            return
+                        var p = mapToItem(wRoot.parent, mouse.x, mouse.y)
+                        var dx = (p.x - startPoint.x) / wObj.scaleFactor
+                        var dy = (p.y - startPoint.y) / wObj.scaleFactor
+                        showResizePreview(Qt.rect(startRect.x + (corner.leftEdge ? dx : 0),
+                                                  startRect.y + (corner.topEdge ? dy : 0),
+                                                  startRect.width + (corner.leftEdge ? -dx : dx),
+                                                  startRect.height + (corner.topEdge ? -dy : dy)))
                     }
-                    else if (virtualConsole.snapping)
+
+                    onReleased:
                     {
-                        var s = virtualConsole.snappingSize
-                        if (s > 0)
-                        {
-                            wRoot.x = Math.round(wRoot.x / s) * s
-                            wRoot.y = Math.round(wRoot.y / s) * s
-                        }
+                        if (resizing)
+                            showEditResult(virtualConsole.editGeometry(wObj.id, resizeIntent))
+                        cancelGesture()
                     }
+                    onCanceled: cancelGesture()
                 }
-            }
-
-            onReleased: (mouse) =>
-            {
-                if (drag.active && drag.target !== null)
-                {
-                    wRoot.Drag.drop()
-                    drag.target = null
-                    dragRemapped = false
-                }
-                if (flickingDisabled)
-                {
-                    virtualConsole.enableFlicking(true)
-                    flickingDisabled = false
-                }
-
-                // Restore bindings broken by Qt's drag mechanism
-                wRoot.x = Qt.binding(function() { return wObj ? wObj.geometry.x : 0 })
-                wRoot.y = Qt.binding(function() { return wObj ? wObj.geometry.y : 0 })
-                wRoot.width = Qt.binding(function() { return wObj ? wObj.geometry.width : 100 })
-                wRoot.height = Qt.binding(function() { return wObj ? wObj.geometry.height : 100 })
             }
         }
+    }
 
-        // top-left corner
-        Image
-        {
-            id: tlHandle
-            rotation: 180
-            width: handleSize
-            height: width
-            source: "qrc:/arrow-corner.svg"
-            sourceSize: Qt.size(handleSize, handleSize)
-            visible: isSelected && wObj && wObj.allowResize
-
-            MouseArea
-            {
-                anchors.fill: parent
-                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-
-                onPressed:
-                {
-                    drag.target = tlHandle
-                    drag.threshold = 0
-                }
-                onPositionChanged:
-                {
-                    if (drag.target == null)
-                        return;
-                    drag.maximumX = wRoot.width - handleSize
-                    drag.maximumY = wRoot.height - handleSize
-                    wRoot.x += tlHandle.x
-                    wRoot.width -= tlHandle.x
-                    wRoot.height -= tlHandle.y
-                    wRoot.y += tlHandle.y
-                    wRoot.snapToGrid()
-                }
-                onReleased: wRoot.updateGeometry(drag)
-            }
-        }
-        // top-right corner
-        Image
-        {
-            id: trHandle
-            width: handleSize
-            height: width
-            x: parent.width - handleSize
-            rotation: 270
-            source: "qrc:/arrow-corner.svg"
-            sourceSize: Qt.size(handleSize, handleSize)
-            visible: isSelected && wObj && wObj.allowResize
-
-            MouseArea
-            {
-                anchors.fill: parent
-                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-
-                onPressed:
-                {
-                    drag.target = trHandle
-                    drag.threshold = 0
-                    drag.minimumX = handleSize
-                }
-                onPositionChanged:
-                {
-                    if (drag.target == null)
-                        return;
-                    drag.maximumY = wRoot.height - handleSize
-                    wRoot.width = trHandle.x + trHandle.width
-                    wRoot.height -= trHandle.y
-                    wRoot.y += trHandle.y
-                    wRoot.snapToGrid()
-                }
-                onReleased: wRoot.updateGeometry(drag)
-            }
-        }
-        // bottom-right corner
-        Image
-        {
-            id: brHandle
-            width: handleSize
-            height: width
-            x: parent.width - handleSize
-            y: parent.height - handleSize
-            source: "qrc:/arrow-corner.svg"
-            sourceSize: Qt.size(handleSize, handleSize)
-            visible: isSelected && wObj && wObj.allowResize
-
-            MouseArea
-            {
-                anchors.fill: parent
-                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-                onPressed:
-                {
-                    drag.target = brHandle
-                    drag.threshold = 0
-                    drag.minimumX = handleSize
-                    drag.minimumY = handleSize
-                }
-                onPositionChanged:
-                {
-                    if (drag.target == null)
-                        return;
-                    wRoot.width = brHandle.x + brHandle.width
-                    wRoot.height = brHandle.y + brHandle.height
-                    wRoot.snapToGrid()
-                }
-                onReleased: wRoot.updateGeometry(drag)
-            }
-        }
-        // bottom-left corner
-        Image
-        {
-            id: blHandle
-            rotation: 90
-            width: handleSize
-            height: width
-            y: parent.height - handleSize
-            source: "qrc:/arrow-corner.svg"
-            sourceSize: Qt.size(handleSize, handleSize)
-            visible: isSelected && wObj && wObj.allowResize
-
-            MouseArea
-            {
-                anchors.fill: parent
-                cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
-
-                onPressed:
-                {
-                    drag.target = blHandle
-                    drag.threshold = 0
-                    drag.minimumY = handleSize
-                }
-                onPositionChanged:
-                {
-                    if (drag.target == null)
-                        return;
-                    drag.maximumX = wRoot.width - handleSize
-                    wRoot.height = blHandle.y + blHandle.height
-                    wRoot.x += blHandle.x
-                    wRoot.width -= blHandle.x
-                    wRoot.snapToGrid()
-                }
-                onReleased: wRoot.updateGeometry(drag)
-            }
-        }
+    CustomPopupDialog
+    {
+        id: editError
+        objectName: "vcEditError"
+        title: qsTr("Cannot edit control")
     }
 }

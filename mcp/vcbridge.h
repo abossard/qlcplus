@@ -23,6 +23,7 @@
 #include <QColor>
 #include <QKeySequence>
 #include <QRect>
+#include <QRectF>
 #include <QString>
 #include <QVariant>
 #include <QList>
@@ -564,6 +565,15 @@ public:
     // Resize an existing widget
     virtual void setWidgetGeometry(int widgetID, const QRect &geo)
         { Q_UNUSED(widgetID); Q_UNUSED(geo); }
+    virtual QString setWidgetGeometryChecked(int widgetID, const QRect &geo)
+        { Q_UNUSED(widgetID); Q_UNUSED(geo); return QStringLiteral("Geometry editing is not supported by this bridge"); }
+    virtual int createWidgetOnPage(int parentID, const QString &type, const QRect &geo,
+                                   const QString &caption, int subpage)
+    {
+        Q_UNUSED(parentID); Q_UNUSED(type); Q_UNUSED(geo);
+        Q_UNUSED(caption); Q_UNUSED(subpage);
+        return -1;
+    }
 
     /** Pure-math flow layout helper: computes position for the childCount-th widget. */
     static QRect computeFlowPosition(int parentWidth, int headerHeight,
@@ -958,6 +968,24 @@ public:
         { Q_UNUSED(pageIndex); return WidgetSnapshot(); }
     virtual void applyLayoutPlan(const LayoutPlan &plan, bool skipSnap = false)
         { Q_UNUSED(plan); Q_UNUSED(skipSnap); }
+    virtual QString applyLayoutPlanChecked(const LayoutPlan &plan, bool skipSnap = false)
+        { Q_UNUSED(plan); Q_UNUSED(skipSnap); return QStringLiteral("Layout application is not supported by this bridge"); }
+
+    struct LayoutEditResult
+    {
+        QMap<int, QRectF> geometries;
+        QString error;
+        bool applied = false;
+    };
+    virtual LayoutEditResult alignLayout(int frameID, int pageIndex, int columns,
+                                         int padding, bool dryRun)
+    {
+        Q_UNUSED(frameID); Q_UNUSED(pageIndex); Q_UNUSED(columns);
+        Q_UNUSED(padding); Q_UNUSED(dryRun);
+        LayoutEditResult result;
+        result.error = QStringLiteral("Ordered alignment is not supported by this bridge");
+        return result;
+    }
 
     // Frame grid layout accessors. Implementations should locate the frame by id
     // and cast to VCFrame. Return false / empty result when the widget is not a frame.

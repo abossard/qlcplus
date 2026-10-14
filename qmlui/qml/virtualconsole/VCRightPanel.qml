@@ -26,6 +26,10 @@ import "."
 
 SidePanel
 {
+    objectName: "vcFunctionsPane"
+    expandedWidth: Math.min(UISettings.sidePanelWidth,
+                           Math.max(collapseWidth + UISettings.textSizeDefault * 10,
+                                    Math.min(UISettings.textSizeDefault * 17, parent.width * 0.2)))
     onContentLoaded: (item, ID) =>
     {
         if (item.functionID)
@@ -58,27 +62,28 @@ SidePanel
                 faColor: "limegreen"
                 ButtonGroup.group: vcButtonsGroup
                 autoExclusive: false
+                checked: isOpen && loaderSource === "qrc:/WidgetsList.qml"
                 tooltip: ShortcutUtils.withShortcut(qsTr("Add a new widget to the console"), "Ctrl+]")
                 onClicked:
                 {
-                    checked = !checked
-                    virtualConsole.editMode = false
-                    if (checked)
+                    var open = !checked
+                    if (open)
                         loaderSource = "qrc:/WidgetsList.qml"
-                    animatePanel(checked)
+                    animatePanel(open)
                 }
             }
 
             IconButton
             {
                 id: editModeButton
+                objectName: "vcEditModeToggle"
+                Accessible.name: qsTr("Enable or disable console editing")
                 z: 2
                 width: iconSize
                 height: iconSize
                 imgSource: "qrc:/edit.svg"
                 border.color: checked ? "red" : "#1D1D1D"
                 checked: virtualConsole.editMode
-                ButtonGroup.group: vcButtonsGroup
                 autoExclusive: false
                 tooltip: ShortcutUtils.withShortcut(qsTr("Enable/Disable the widgets edit mode"), "Ctrl+]")
 
@@ -86,9 +91,13 @@ SidePanel
 
                 onCheckedChanged:
                 {
-                    if (checked)
+                    if (checked && (!isOpen || loaderSource === ""))
+                    {
                         loaderSource = "qrc:/VCWidgetProperties.qml"
-                    animatePanel(checked)
+                        animatePanel(true)
+                    }
+                    else if (!checked && loaderSource === "qrc:/VCWidgetProperties.qml")
+                        animatePanel(false)
                 }
 
                 SequentialAnimation on border.color
@@ -101,7 +110,30 @@ SidePanel
             }
             IconButton
             {
+                id: propertiesButton
+                objectName: "vcPropertiesToggle"
+                width: iconSize
+                height: iconSize
+                imgSource: "qrc:/edit.svg"
+                visible: virtualConsole.editMode
+                checked: isOpen && loaderSource === "qrc:/VCWidgetProperties.qml"
+                ButtonGroup.group: vcButtonsGroup
+                autoExclusive: false
+                tooltip: qsTr("Control properties")
+                Accessible.name: qsTr("Control properties")
+                onClicked:
+                {
+                    var open = !(isOpen && loaderSource === "qrc:/VCWidgetProperties.qml")
+                    if (open)
+                        loaderSource = "qrc:/VCWidgetProperties.qml"
+                    animatePanel(open)
+                }
+            }
+            IconButton
+            {
                 id: funcEditor
+                objectName: "vcFunctionsToggle"
+                Accessible.name: qsTr("Functions")
                 z: 2
                 width: iconSize
                 height: iconSize
@@ -109,13 +141,13 @@ SidePanel
                 tooltip: ShortcutUtils.withShortcut(qsTr("Function Manager"), "Ctrl+]")
                 ButtonGroup.group: vcButtonsGroup
                 autoExclusive: false
+                checked: isOpen && loaderSource === "qrc:/FunctionManager.qml"
                 onClicked:
                 {
-                    checked = !checked
-                    virtualConsole.editMode = false
-                    if (checked)
+                    var open = !checked
+                    if (open)
                         loaderSource = "qrc:/FunctionManager.qml"
-                    animatePanel(checked)
+                    animatePanel(open)
                 }
             }
 
@@ -128,6 +160,7 @@ SidePanel
                 faSource: FontAwesome.fa_minus
                 faColor: "crimson"
                 tooltip: qsTr("Remove the selected widgets")
+                enabled: virtualConsole.editMode
                 counter: virtualConsole.selectedWidgetsCount
                 onClicked:
                 {
@@ -140,7 +173,20 @@ SidePanel
                 {
                     id: deleteWidgetsPopup
                     title: qsTr("Delete selected widgets")
-                    onAccepted: virtualConsole.deleteVCWidgets(virtualConsole.selectedWidgetIDs())
+                    onAccepted:
+                    {
+                        var result = virtualConsole.deleteAuthoringWidgets(virtualConsole.selectedWidgetIDs())
+                        if (!result.accepted)
+                        {
+                            deleteError.message = result.error
+                            deleteError.open()
+                        }
+                    }
+                }
+                CustomPopupDialog
+                {
+                    id: deleteError
+                    title: qsTr("Cannot delete controls")
                 }
             }
 
@@ -153,6 +199,7 @@ SidePanel
                 faSource: FontAwesome.fa_copy
                 faColor: UISettings.fgMain
                 tooltip: qsTr("Copy the selected widgets to clipboard")
+                enabled: virtualConsole.editMode
                 counter: virtualConsole.selectedWidgetsCount
                 onClicked: virtualConsole.copyToClipboard()
             }
@@ -166,6 +213,7 @@ SidePanel
                 faSource: FontAwesome.fa_scissors
                 faColor: UISettings.fgMain
                 tooltip: qsTr("Cut the selected widgets to clipboard")
+                enabled: virtualConsole.editMode
                 counter: virtualConsole.selectedWidgetsCount
                 onClicked: virtualConsole.cutToClipboard()
             }
@@ -179,6 +227,7 @@ SidePanel
                 faSource: FontAwesome.fa_paste
                 faColor: UISettings.fgMain
                 tooltip: qsTr("Paste widgets from clipboard")
+                enabled: virtualConsole.editMode
                 counter: virtualConsole.clipboardItemsCount
                 onClicked: virtualConsole.pasteFromClipboard()
 

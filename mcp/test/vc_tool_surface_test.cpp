@@ -7,6 +7,7 @@
 #include "tool_registry.h"
 #include "vcbridge.h"
 #include "doc.h"
+#include "function.h"
 
 #include <fastmcpp/tools/manager.hpp>
 
@@ -88,6 +89,9 @@ public:
     }
     bool setWidgetPage(int widgetID, int pageIndex) override
     {
+        ++pageMoveCalls;
+        if (rejectPageMoves)
+            return false;
         if (!details.contains(widgetID) || pageIndex < 0 || pageIndex >= 3)
             return false;
         details[widgetID].childPageIndex = pageIndex;
@@ -118,11 +122,56 @@ public:
     }
     bool configureButton(int widgetID, const ButtonConfig &config) override
     {
-        if (!config.action.has_value())
-            return details.contains(widgetID);
-        return setButtonAction(widgetID, *config.action);
+        if (!details.contains(widgetID))
+            return false;
+        if (config.functionID)
+            details[widgetID].functionID = *config.functionID;
+        return !config.action || setButtonAction(widgetID, *config.action);
+    }
+    int createWidgetOnPage(int parentID, const QString &type, const QRect &geometry,
+                           const QString &caption, int subpage) override
+    {
+        if (type != "Button")
+            return -1;
+        const int id = addButton(parentID, geometry, Function::invalidId(),
+                                 caption, QStringLiteral("toggle"), 0);
+        details[id].childPageIndex = subpage;
+        return id;
+    }
+    WidgetSnapshot snapshotFrame(int frameID) const override
+    {
+        WidgetSnapshot snapshot;
+        snapshot.id = frameID;
+        snapshot.type = 4;
+        snapshot.geometry = QRect(0, 0, 400, 300);
+        WidgetSnapshot button;
+        button.id = 100;
+        button.type = 1;
+        button.geometry = QRect(5, 45, 100, 60);
+        snapshot.children.append(button);
+        return snapshot;
+    }
+    LayoutEditResult alignLayout(int frameID, int pageIndex, int columns,
+                                 int padding, bool dryRun) override
+    {
+        ++alignmentCalls;
+        alignmentFrame = frameID;
+        alignmentPage = pageIndex;
+        alignmentColumns = columns;
+        alignmentPadding = padding;
+        LayoutEditResult result;
+        result.geometries.insert(100, QRectF(1.25, 45, 100.5, 60));
+        result.applied = !dryRun;
+        return result;
     }
 
+    int alignmentCalls = 0;
+    int alignmentFrame = -1;
+    int alignmentPage = -1;
+    int alignmentColumns = -1;
+    int alignmentPadding = -1;
+    bool rejectPageMoves = false;
+    int pageMoveCalls = 0;
     int actuationCalls = 0;
     int creationCalls = 0;
     int configurationCalls = 0;
@@ -446,6 +495,133 @@ void VCToolSurface_Test::setupVCTools_remainRegistered()
 
     for (const char *name : {"vc_create_widgets", "vc_map_inputs", "vc_reflow_frame"})
         QVERIFY2(tm.has(name), name);
+}
+
+void VCToolSurface_Test::alignmentAlgorithm_advertised()
+{
+    TestVCBridge bridge;
+    fastmcpp::tools::ToolManager tm;
+    registerVCLayoutTools(tm, m_doc, &bridge);
+    const Json algorithms = tm.input_schema_for("vc_reflow_frame")
+        .at("properties").at("algorithm").at("enum");
+    QVERIFY(std::find(algorithms.begin(), algorithms.end(), Json("align")) != algorithms.end());
+}
+
+void VCToolSurface_Test::layoutApplyFailure_reported()
+{
+    TestVCBridge bridge;
+    fastmcpp::tools::ToolManager tm;
+    registerVCLayoutTools(tm, m_doc, &bridge);
+    const Json result = parsedToolResult(tm.invoke(
+        "vc_reflow_frame", Json{{"frameID", 42}, {"dryRun", false}}));
+    QVERIFY2(result.contains("error"), result.dump().c_str());
+    QVERIFY(!result.value("applied", false));
+}
+
+void VCToolSurface_Test::geometryFailure_preservesOtherFields_data()
+{
+    QTest::addColumn<QByteArray>("geometry");
+    QTest::newRow("move") << QByteArray(R"({"x":10,"y":20})");
+    QTest::newRow("resize") << QByteArray(R"({"width":160,"height":90})");
+}
+
+void VCToolSurface_Test::geometryFailure_preservesOtherFields()
+{
+    QFETCH(QByteArray, geometry);
+    TestVCBridge bridge;
+    VCBridge::WidgetDetails button;
+    button.id = 100;
+    button.type = "Button";
+    button.machineType = "button";
+    button.caption = "Original";
+    button.geometry = QRect(5, 45, 100, 60);
+    bridge.details.insert(button.id, button);
+    Json item = Json::parse(geometry.constData());
+    item["widgetID"] = 100;
+    item["caption"] = "Changed";
+    fastmcpp::tools::ToolManager tm;
+    registerVCUpdateTools(tm, m_doc, &bridge);
+    const Json result = parsedToolResult(tm.invoke(
+        "vc_update_widgets", Json{{"items", Json::array({item})}}));
+    QVERIFY2(result.at(0).contains("error"), result.dump().c_str());
+    QCOMPARE(bridge.details.value(100).caption, QString("Original"));
+    QCOMPARE(bridge.details.value(100).geometry, QRect(5, 45, 100, 60));
+    QCOMPARE(bridge.configurationCalls, 0);
+}
+
+void VCToolSurface_Test::alignmentDispatch_preservesFractionalGeometry()
+{
+    TestVCBridge bridge;
+    fastmcpp::tools::ToolManager tm;
+    registerVCLayoutTools(tm, m_doc, &bridge);
+    const Json result = parsedToolResult(tm.invoke("vc_reflow_frame",
+        Json{{"algorithm", "align"}, {"frameID", 42}, {"columns", 3},
+             {"pad", 7}, {"dryRun", true}}));
+    QVERIFY2(!result.contains("error"), result.dump().c_str());
+    QCOMPARE(bridge.alignmentCalls, 1);
+    QCOMPARE(bridge.alignmentFrame, 42);
+    QCOMPARE(bridge.alignmentPage, -1);
+    QCOMPARE(bridge.alignmentColumns, 3);
+    QCOMPARE(bridge.alignmentPadding, 7);
+    QVERIFY(!result.at("applied").get<bool>());
+    QCOMPARE(result.at("changes").at(0).at("geometry").at("x").get<double>(), 1.25);
+    QCOMPARE(result.at("changes").at(0).at("geometry").at("width").get<double>(), 100.5);
+}
+
+void VCToolSurface_Test::alignmentSizingOptions_rejected_data()
+{
+    QTest::addColumn<QString>("option");
+    for (const char *option : {"buttonWidth", "buttonHeight", "sliderWidth", "sliderHeight", "framePad"})
+        QTest::newRow(option) << QString::fromLatin1(option);
+}
+
+void VCToolSurface_Test::alignmentSizingOptions_rejected()
+{
+    QFETCH(QString, option);
+    TestVCBridge bridge;
+    fastmcpp::tools::ToolManager tm;
+    registerVCLayoutTools(tm, m_doc, &bridge);
+    Json request{{"algorithm", "align"}, {"frameID", 42}, {"dryRun", true}};
+    request[option.toStdString()] = 100;
+    const Json result = parsedToolResult(tm.invoke("vc_reflow_frame", request));
+    QVERIFY2(result.contains("error"), result.dump().c_str());
+    QCOMPARE(bridge.alignmentCalls, 0);
+}
+
+void VCToolSurface_Test::rejectedSubpageUpsert_preservesFields_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::newRow("slider") << QStringLiteral("slider");
+    QTest::newRow("frame") << QStringLiteral("frame");
+}
+
+void VCToolSurface_Test::rejectedSubpageUpsert_preservesFields()
+{
+    QFETCH(QString, type);
+    TestVCBridge bridge;
+    VCBridge::WidgetDetails widget;
+    widget.id = 101;
+    widget.parentID = 42;
+    widget.type = type == "slider" ? "Slider" : "Frame";
+    widget.machineType = type;
+    widget.caption = "Existing";
+    widget.childPageIndex = 0;
+    widget.clickAndGoType = "none";
+    bridge.details.insert(widget.id, widget);
+    bridge.rejectPageMoves = true;
+    Json item{{"type", type.toStdString()}, {"parentID", 42},
+              {"caption", "Existing"}, {"childPageIndex", 2}};
+    if (type == "slider")
+        item["clickAndGoType"] = "colors";
+    fastmcpp::tools::ToolManager tm;
+    registerVCCreateTools(tm, m_doc, &bridge);
+    const Json result = parsedToolResult(tm.invoke("vc_create_widgets",
+        Json{{"items", Json::array({item})}}));
+    QVERIFY2(result.at(0).contains("error"), result.dump().c_str());
+    QCOMPARE(bridge.pageMoveCalls, type == "slider" ? 1 : 0);
+    QCOMPARE(bridge.configurationCalls, 0);
+    QCOMPARE(bridge.details.value(101).childPageIndex, 0);
+    QCOMPARE(bridge.details.value(101).clickAndGoType, QStringLiteral("none"));
 }
 
 QTEST_MAIN(VCToolSurface_Test)

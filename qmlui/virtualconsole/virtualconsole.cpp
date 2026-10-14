@@ -23,6 +23,13 @@
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QSet>
+#include <QSignalBlocker>
+#include <QScopedValueRollback>
+#include <memory>
+#include <vector>
+#include <cmath>
+#include <QPointer>
+#include <QTimer>
 #include <algorithm>
 
 #include "virtualconsole.h"
@@ -51,6 +58,12 @@
 
 namespace
 {
+bool finiteEdges(const QRectF &rect)
+{
+    return qIsFinite(rect.left()) && qIsFinite(rect.top()) &&
+           qIsFinite(rect.right()) && qIsFinite(rect.bottom());
+}
+
 /** Provenance of a mapped external event, taken from the plugin actually
  *  patched to its input universe. Only a MIDI or OSC control surface is a
  *  person operating something: ArtNet, E1.31, loopback and audio-driven feeds
@@ -119,6 +132,7 @@ VirtualConsole::VirtualConsole(QQuickView *view, Doc *doc,
         m_contextManager->registerContext(page->previewContext());
         m_pages.append(page);
     }
+    m_outlineModel = new VCOutlineModel(this, this);
 
     view->rootContext()->setContextProperty("virtualConsole", this);
     qmlRegisterUncreatableType<GrandMaster>("org.qlcplus.classes", 1, 0, "GrandMaster", "Can't create a GrandMaster!");
@@ -163,6 +177,8 @@ qreal VirtualConsole::pixelDensity() const
 
 void VirtualConsole::resetContents()
 {
+    cancelLayout();
+    m_unlockedPagePINs.clear();
     int pageIndex = 0;
     resetWidgetSelection();
     setEditMode(false);
@@ -178,6 +194,8 @@ void VirtualConsole::resetContents()
 
     m_widgetsMap.clear();
     m_latestWidgetId = 0;
+    for (VCPage *page : m_pages)
+        addWidgetToMap(page);
     m_selectedPage = 0;
     m_loadStatus = Cleared;
 }
@@ -372,6 +390,11 @@ void VirtualConsole::renderPage(QQuickItem *parent, QQuickItem *contentItem, int
     QRectF pageRect = m_pages.at(page)->geometry();
     parent->setProperty("contentWidth", pageRect.width());
     parent->setProperty("contentHeight", pageRect.height());
+    VCPage *pageObject = m_pages.at(page);
+    connect(pageObject, &VCWidget::geometryChanged, parent, [pageObject, parent]() {
+        parent->setProperty("contentWidth", pageObject->geometry().width());
+        parent->setProperty("contentHeight", pageObject->geometry().height());
+    });
 
     qDebug() << "[VC] renderPage. Parent:" << parent << "contents rect:" << pageRect;
 
@@ -434,6 +457,7 @@ void VirtualConsole::addPage(int index)
 {
     VCPage *page = new VCPage(m_view, m_doc, this, index, this);
     QQmlEngine::setObjectOwnership(page, QQmlEngine::CppOwnership);
+    addWidgetToMap(page);
     m_contextManager->registerContext(page->previewContext());
     m_pages.insert(index, page);
 
@@ -456,10 +480,10 @@ void VirtualConsole::deletePage(int index)
 
     m_pages.at(index)->deleteChildren();
     VCPage *page = m_pages.takeAt(index);
+    m_unlockedPagePINs.remove(page->id());
+    removeWidgetFromMap(page);
     m_contextManager->unregisterContext(page->previewContext()->name());
     delete page;
-
-    m_itemsMap.clear();
 
     emit pagesCountChanged();
 
@@ -533,6 +557,8 @@ bool VirtualConsole::validatePagePIN(int index, QString PIN, bool remember) cons
 
     if (remember)
         m_pages.at(index)->validatePIN();
+    else
+        m_unlockedPagePINs.insert(m_pages.at(index)->id(), m_pages.at(index)->PIN());
 
     return true;
 }
@@ -551,6 +577,7 @@ void VirtualConsole::setSelectedPage(int selectedPage)
     if (m_selectedPage == clampedPage)
         return;
 
+    m_unlockedPagePINs.remove(m_pages.at(m_selectedPage)->id());
     m_selectedPage = clampedPage;
     emit selectedPageChanged(clampedPage);
     if (m_editMode)
@@ -627,6 +654,11 @@ void VirtualConsole::removeWidgetFromMap(VCWidget *widget)
     if (widget == nullptr)
         return;
 
+    if (m_itemsMap.remove(widget->id()) > 0)
+    {
+        emit selectedWidgetChanged();
+        emit selectedWidgetsCountChanged();
+    }
     if (m_widgetsMap.remove(widget->id()) > 0)
         emit widgetsChanged();
 }
@@ -655,53 +687,82 @@ QList<VCWidget *> VirtualConsole::widgetsByRecordingId(const QUuid &id) const
 
 void VirtualConsole::setWidgetSelection(quint32 wID, QQuickItem *item, bool enable, bool multi)
 {
-    VCWidget *vcWidget = nullptr;
-
-    if (multi == false)
-    {
-        // disable any previously selected widget
-        QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
-        while (it.hasNext())
-        {
-            it.next();
-            QQuickItem *uiWidget = it.value();
-            vcWidget = m_widgetsMap[it.key()];
-            uiWidget->setProperty("isSelected", false);
-            vcWidget->setIsEditing(false);
-        }
-        m_itemsMap.clear();
-    }
+    if (!editMode())
+        return;
+    VCWidget *vcWidget = widget(wID);
+    if (!vcWidget)
+        return;
+    if (!multi)
+        resetWidgetSelection();
 
     if (enable)
     {
-        if (item != nullptr)
-            m_itemsMap[wID] = item;
-
-        vcWidget = m_widgetsMap[wID];
-
-        if (vcWidget != nullptr)
-            vcWidget->setIsEditing(true);
-
-        if (selectedWidgetsCount() == 1)
-            emit selectedWidgetChanged();
+        QQuickItem *projection = item ? item : vcWidget->renderItem();
+        m_itemsMap[wID] = projection;
+        vcWidget->setIsEditing(nativeAuthoringError(vcWidget).isEmpty());
+        if (projection)
+        {
+            projection->setProperty("isSelected", true);
+            if (!m_selectionProjections.contains(projection))
+            {
+                m_selectionProjections.insert(projection);
+                connect(projection, &QObject::destroyed, this, [this, projection]() {
+                    m_selectionProjections.remove(projection);
+                    for (auto it = m_itemsMap.begin(); it != m_itemsMap.end(); ++it)
+                        if (it.value() == projection) it.value() = nullptr;
+                });
+            }
+        }
     }
     else
     {
-        m_itemsMap.remove(wID);
-
-        vcWidget = m_widgetsMap[wID];
-
-        if (vcWidget != nullptr)
-            vcWidget->setIsEditing(false);
+        QQuickItem *projection = m_itemsMap.take(wID);
+        if (projection)
+            projection->setProperty("isSelected", false);
+        vcWidget->setIsEditing(false);
     }
 
+    emit selectedWidgetChanged();
     emit selectedWidgetsCountChanged();
+}
+
+void VirtualConsole::setSelectedWidgetIDs(QVariantList ids)
+{
+    QSignalBlocker block(this);
+    resetWidgetSelection();
+    if (editMode())
+    {
+        QSet<quint32> visited;
+        for (const QVariant &value : ids)
+        {
+            bool valid = false;
+            quint32 id = value.toUInt(&valid);
+            if (valid && !visited.contains(id))
+            {
+                visited.insert(id);
+                setWidgetSelection(id, nullptr, true, true);
+            }
+        }
+    }
+    block.unblock();
+    emit selectedWidgetChanged();
+    emit selectedWidgetsCountChanged();
+}
+
+VCOutlineModel *VirtualConsole::outlineModel() const
+{
+    return m_outlineModel;
 }
 
 void VirtualConsole::resetWidgetSelection()
 {
-    foreach (QQuickItem *widget, m_itemsMap)
-        widget->setProperty("isSelected", false);
+    for (auto it = m_itemsMap.constBegin(); it != m_itemsMap.constEnd(); ++it)
+    {
+        if (it.value())
+            it.value()->setProperty("isSelected", false);
+        if (VCWidget *selected = widget(it.key()))
+            selected->setIsEditing(false);
+    }
     m_itemsMap.clear();
 
     emit selectedWidgetChanged();
@@ -752,55 +813,1279 @@ void VirtualConsole::moveWidget(VCWidget *widget, VCFrame *targetFrame, QPoint p
 {
     if (widget == nullptr || targetFrame == nullptr)
         return;
-
-    VCFrame *sourceFrame = qobject_cast<VCFrame*>(widget->parent());
-
-    if (sourceFrame != nullptr && sourceFrame != targetFrame)
-    {
-        Tardis::instance()->enqueueAction(Tardis::VCWidgetReparent, widget->id(),
-                                          QVariant(sourceFrame->id()),
-                                          QVariant(targetFrame->id()));
-        reparentWidget(widget, targetFrame);
-    }
-
-    if (snapping())
-    {
-        pos.setX(qRound((qreal)pos.x() / snappingSize()) * snappingSize());
-        pos.setY(qRound((qreal)pos.y() / snappingSize()) * snappingSize());
-    }
-
-    QRectF wRect = widget->geometry();
-    wRect.moveTopLeft(pos);
-    widget->setGeometry(wRect);
-
-    qDebug() << "New widget geometry:" << widget->geometry();
+    VirtualConsole *owner = const_cast<VirtualConsole *>(this);
+    const qreal scale = qobject_cast<VCPage *>(targetFrame)
+        ? qobject_cast<VCPage *>(targetFrame)->pageScale() : targetFrame->scaleFactor();
+    QRectF rect = widget->logicalGeometry();
+    rect.moveTopLeft(QPointF(pos) / scale);
+    owner->reportEdit(owner->editDrop(widget->id(), targetFrame->id(), targetFrame->currentPage(), rect));
 }
 
 bool VirtualConsole::reparentWidget(VCWidget *widget, VCFrame *targetFrame) const
 {
     if (widget == nullptr || targetFrame == nullptr)
         return false;
+    return const_cast<VirtualConsole *>(this)->restoreWidgetParent(
+        widget->id(), targetFrame->id(), targetFrame->currentPage(), -1);
+}
 
-    VCFrame *sourceFrame = qobject_cast<VCFrame*>(widget->parent());
-    if (sourceFrame == nullptr || sourceFrame == targetFrame)
-        return false;
+VCFrame *VirtualConsole::targetFrame(quint32 id) const
+{
+    if (VCFrame *frame = qobject_cast<VCFrame *>(widget(id)))
+        return frame;
+    for (VCPage *page : m_pages)
+        if (page->id() == id)
+            return page;
+    return nullptr;
+}
 
-    sourceFrame->removeWidgetFromPageMap(widget);
-    widget->setPage(targetFrame->currentPage());
-    targetFrame->addWidgetToPageMap(widget);
-    widget->setParent(targetFrame);
-
-    QQuickItem *widgetItem = widget->renderItem();
-    QQuickItem *targetFrameItem = targetFrame->renderItem();
-    if (widgetItem != nullptr && targetFrameItem != nullptr)
+QList<VCWidget *> VirtualConsole::selectedRoots(const QVariantList &ids, QString *error) const
+{
+    QSet<quint32> requested;
+    for (const QVariant &value : ids)
     {
-        QString chName = QString("frameDropArea%1").arg(targetFrame->id());
-        QQuickItem *childrenArea = qobject_cast<QQuickItem*>(targetFrameItem->findChild<QObject *>(chName));
-        if (childrenArea != nullptr)
-            widgetItem->setParentItem(childrenArea);
+        bool valid = false;
+        const quint32 id = value.toUInt(&valid);
+        VCWidget *entry = valid ? widget(id) : nullptr;
+        if (!entry || qobject_cast<VCPage *>(entry))
+        {
+            *error = tr("Unknown or non-editable widget %1").arg(value.toString());
+            return {};
+        }
+        requested.insert(id);
     }
+    QList<VCWidget *> roots;
+    for (VCPage *page : m_pages)
+        for (VCWidget *entry : page->children(true))
+        {
+            if (!requested.contains(entry->id()))
+                continue;
+            bool ancestorSelected = false;
+            for (QObject *parent = entry->parent(); parent; parent = parent->parent())
+                if (VCWidget *ancestor = qobject_cast<VCWidget *>(parent))
+                    if (requested.contains(ancestor->id()))
+                        ancestorSelected = true;
+            if (!ancestorSelected)
+                roots.append(entry);
+        }
+    if (!requested.isEmpty() && roots.isEmpty())
+        *error = tr("Selection is not attached to a console page");
+    return roots;
+}
 
-    return true;
+QVariantMap VirtualConsole::editResult(bool accepted, bool applied, const QString &error,
+                                       const QMap<quint32, QRectF> &rectangles,
+                                       VCFrame *destination, int subpage) const
+{
+    QVariantList ids, geometries;
+    for (auto it = rectangles.constBegin(); it != rectangles.constEnd(); ++it)
+    {
+        VCWidget *entry = widget(it.key());
+        VCFrame *parent = destination ? destination
+            : (entry ? qobject_cast<VCFrame *>(entry->parent()) : nullptr);
+        ids.append(it.key());
+        geometries.append(QVariantMap{{"id", it.key()}, {"rect", it.value()},
+            {"parentID", parent ? QVariant(parent->id()) : QVariant(-1)},
+            {"subpage", subpage >= 0 ? subpage : (entry ? entry->page() : 0)}});
+    }
+    return {{"accepted", accepted}, {"applied", applied}, {"error", error}, {"targetEligible", true},
+            {"widgetIDs", ids}, {"geometries", geometries}};
+}
+
+QString VirtualConsole::geometryError(const QMap<quint32, QRectF> &rectangles,
+                                      VCFrame *destination, int subpage, bool copying) const
+{
+    const auto less = GridLayout::less;
+    const auto area = [&less](const QRectF &a, const QRectF &b) {
+        const qreal left = qMax(a.left(), b.left()), right = qMin(a.right(), b.right());
+        const qreal top = qMax(a.top(), b.top()), bottom = qMin(a.bottom(), b.bottom());
+        return less(left, right) && less(top, bottom) ? (right - left) * (bottom - top) : qreal(0);
+    };
+    const auto excess = [&less](qreal required, qreal available) {
+        return less(available, required) ? required - available : qreal(0);
+    };
+    const auto outside = [&excess](const QRectF &rect, const QRectF &bounds) {
+        return excess(bounds.left(), rect.left()) + excess(bounds.top(), rect.top()) +
+               excess(rect.right(), bounds.right()) + excess(rect.bottom(), bounds.bottom());
+    };
+    for (auto it = rectangles.constBegin(); it != rectangles.constEnd(); ++it)
+    {
+        VCWidget *entry = widget(it.key());
+        if (!entry)
+            return tr("Unknown widget %1").arg(it.key());
+        const QRectF rect = it.value();
+        const QRectF original = entry->logicalGeometry();
+        if (!copying && !destination && rect == original)
+            continue;
+        if (!qIsFinite(rect.x()) || !qIsFinite(rect.y()) ||
+            !qIsFinite(rect.width()) || !qIsFinite(rect.height()) ||
+            rect.width() <= 0 || rect.height() <= 0)
+            return tr("Invalid geometry for widget %1").arg(it.key());
+        const QSizeF minimum = entry->minimumSize();
+        if ((less(rect.width(), minimum.width()) && (copying || less(rect.width(), original.width()))) ||
+            (less(rect.height(), minimum.height()) && (copying || less(rect.height(), original.height()))))
+            return tr("Widget %1 is below its usable minimum size").arg(it.key());
+        VCFrame *parent = destination ? destination : qobject_cast<VCFrame *>(entry->parent());
+        if (!parent && !qobject_cast<VCPage *>(entry))
+            return tr("Widget %1 has no parent frame").arg(it.key());
+        QRectF bounds = parent ? parent->contentRect() : QRectF(QPointF(0, 0), rect.size());
+        if (parent && !destination && rectangles.contains(parent->id()))
+        {
+            const QSizeF size = rectangles.value(parent->id()).size();
+            bounds.setWidth(size.width());
+            bounds.setHeight(qMax(qreal(0), size.height() - bounds.top()));
+        }
+        if (!finiteEdges(bounds))
+            return tr("Invalid content bounds for widget %1").arg(entry->id());
+        if (parent && (less(rect.left(), bounds.left()) || less(rect.top(), bounds.top()) ||
+                       less(bounds.right(), rect.right()) || less(bounds.bottom(), rect.bottom())))
+        {
+            const bool sameDomain = entry->parent() == parent && (subpage < 0 || entry->page() == subpage);
+            const bool improved = !copying && sameDomain &&
+                !less(rect.left(), qMin(bounds.left(), original.left())) &&
+                !less(rect.top(), qMin(bounds.top(), original.top())) &&
+                !less(qMax(bounds.right(), original.right()), rect.right()) &&
+                !less(qMax(bounds.bottom(), original.bottom()), rect.bottom());
+            if (!improved)
+                return tr("Widget %1 does not fit frame %2 content").arg(it.key()).arg(parent->id());
+        }
+
+        QList<VCWidget *> siblings = parent ? parent->children(false) : QList<VCWidget *>{};
+        if (destination && !copying)
+            for (auto moved = rectangles.constBegin(); moved != rectangles.constEnd(); ++moved)
+                if (!siblings.contains(widget(moved.key())))
+                    siblings.append(widget(moved.key()));
+        const int page = subpage >= 0 ? subpage : entry->page();
+        for (VCWidget *sibling : siblings)
+        {
+            if (!sibling || (!copying && sibling == entry) ||
+                (copying ? sibling->page() != page :
+                 ((!rectangles.contains(sibling->id()) && sibling->page() != page) ||
+                  (!destination && sibling->page() != page))))
+                continue;
+            const QRectF siblingRect = copying ? sibling->logicalGeometry()
+                                               : rectangles.value(sibling->id(), sibling->logicalGeometry());
+            const bool sameDomain = entry->parent() == parent && entry->page() == page &&
+                                    sibling->parent() == parent && sibling->page() == page;
+            const qreal before = !copying && sameDomain ? area(entry->logicalGeometry(), sibling->logicalGeometry()) : 0;
+            if (less(before, area(rect, siblingRect)))
+                return tr("Widget %1 would obscure widget %2").arg(entry->id()).arg(sibling->id());
+        }
+        if (copying)
+            for (auto other = rectangles.constBegin(); other != rectangles.constEnd(); ++other)
+                if (other.key() != it.key() && area(rect, other.value()) > 0)
+                    return tr("Pasted widgets %1 and %2 would overlap").arg(it.key()).arg(other.key());
+        if (VCFrame *frame = qobject_cast<VCFrame *>(entry))
+        {
+            QRectF childBounds = frame->contentRect();
+            const QRectF oldBounds = childBounds;
+            childBounds.setWidth(rect.width());
+            childBounds.setHeight(qMax(qreal(0), rect.height() - childBounds.top()));
+            for (VCWidget *child : frame->children(false))
+            {
+                const QRectF childRect = rectangles.value(child->id(), child->logicalGeometry());
+                if (less(outside(child->logicalGeometry(), oldBounds), outside(childRect, childBounds)))
+                    return tr("Frame %1 would clip child %2").arg(frame->id()).arg(child->id());
+            }
+        }
+    }
+    return {};
+}
+
+QRectF VirtualConsole::admittedRectangle(VCWidget *entry, VCFrame *parent, QRectF request,
+                                        bool snap, QString *error) const
+{
+    if (!entry || !parent || !qIsFinite(request.x()) || !qIsFinite(request.y()) ||
+        !qIsFinite(request.width()) || !qIsFinite(request.height()) ||
+        request.width() <= 0 || request.height() <= 0)
+    {
+        *error = tr("Invalid widget geometry or parent");
+        return {};
+    }
+    const QRectF bounds = parent->contentRect();
+    if (!finiteEdges(bounds))
+    {
+        *error = tr("Frame %1 has invalid content bounds").arg(parent->id());
+        return {};
+    }
+    const QSizeF minimum = entry->minimumSize();
+    const QRectF old = entry->logicalGeometry();
+    const QVariantMap guide = snapGuide(parent->id());
+    const qreal grid = snap && guide.value("enabled").toBool() ? guide.value("step").toSizeF().width() : 0;
+    auto nearest = [grid](qreal value) {
+        return grid > 0 ? std::round(value / grid) * grid : value;
+    };
+    auto up = [grid](qreal value) {
+        return grid > 0 ? GridLayout::snapUp(value, grid) : value;
+    };
+    auto down = [grid](qreal value) {
+        return grid > 0 ? -GridLayout::snapUp(-value, grid) : value;
+    };
+    auto equal = [](qreal a, qreal b) {
+        return a == b || qAbs(a - b) <= GridLayout::arithmeticTolerance(a, b);
+    };
+    const bool resizeX = !equal(request.width(), old.width());
+    const bool resizeY = !equal(request.height(), old.height());
+    struct Axis
+    {
+        qreal origin;
+        qreal size;
+    };
+    const auto axis = [&](qreal requestedOrigin, qreal requestedSize,
+                          qreal oldOrigin, qreal oldSize, qreal minimumSize,
+                          qreal boundStart, qreal boundEnd, bool otherResize) -> Axis {
+        const auto fail = [&]() -> Axis {
+            *error = tr("Widget %1 cannot fit its minimum size and snap grid in frame %2")
+                .arg(entry->id()).arg(parent->id());
+            return {};
+        };
+        const bool resizing = !equal(requestedSize, oldSize);
+        const bool originalExtent = qIsFinite(oldSize) && oldSize > 0;
+        const bool fixedEnd = originalExtent && resizing &&
+                              equal(requestedOrigin + requestedSize, oldOrigin + oldSize);
+        const bool fixedOrigin = originalExtent && !fixedEnd && (resizing || otherResize) &&
+                                 equal(requestedOrigin, oldOrigin);
+        if (fixedOrigin || fixedEnd)
+        {
+            // Legacy clipping may stay or improve; geometryError checks the actual bounds.
+            boundStart = qMin(boundStart, oldOrigin);
+            boundEnd = qMax(boundEnd, oldOrigin + oldSize);
+        }
+        qreal origin = fixedOrigin ? oldOrigin : nearest(requestedOrigin);
+        qreal size = resizing ? requestedSize : oldSize;
+        if (resizing)
+        {
+            const qreal required = up(minimumSize);
+            qreal end = fixedEnd ? oldOrigin + oldSize : nearest(requestedOrigin + requestedSize);
+            if (fixedEnd)
+            {
+                const qreal first = up(boundStart);
+                qreal last = down(end - required);
+                if (GridLayout::less(end, boundStart) || GridLayout::less(boundEnd, end) ||
+                    GridLayout::less(last, first))
+                    return fail();
+                last = qMax(first, last);
+                origin = qBound(first, origin, last);
+                size = end - origin;
+            }
+            else if (fixedOrigin)
+            {
+                qreal first = up(origin + required);
+                const qreal last = down(boundEnd);
+                if (GridLayout::less(origin, boundStart) || GridLayout::less(boundEnd, origin) ||
+                    GridLayout::less(last, first))
+                    return fail();
+                first = qMin(first, last);
+                end = qBound(first, end, last);
+                size = end - origin;
+            }
+            else
+                size = qMax(required, end - origin);
+            if (GridLayout::less(size, required))
+                return fail();
+            size = qMax(size, minimumSize);
+        }
+        if (fixedOrigin || fixedEnd)
+        {
+            if (GridLayout::less(origin, boundStart) || GridLayout::less(boundEnd, origin + size))
+                return fail();
+            return {origin, size};
+        }
+        const qreal first = up(boundStart);
+        qreal last = down(boundEnd - size);
+        if (GridLayout::less(boundEnd, first + size))
+            return fail();
+        last = qMax(first, last);
+        return {qBound(first, origin, last), size};
+    };
+    const Axis horizontal = axis(request.left(), request.width(), old.left(), old.width(),
+                                 minimum.width(), bounds.left(), bounds.right(), resizeY);
+    if (!error->isEmpty())
+        return {};
+    const Axis vertical = axis(request.top(), request.height(), old.top(), old.height(),
+                               minimum.height(), bounds.top(), bounds.bottom(), resizeX);
+    if (!error->isEmpty())
+        return {};
+    return QRectF(horizontal.origin, vertical.origin, horizontal.size, vertical.size);
+}
+
+QVariantMap VirtualConsole::previewGeometry(quint32 id, QRectF logicalRect, bool snap)
+{
+    VCWidget *entry = widget(id);
+    QString error;
+    if (!entry || qobject_cast<VCPage *>(entry))
+        return editResult(false, false, tr("Unknown or non-editable widget %1").arg(id));
+    error = nativeAuthoringError(entry);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    QRectF rect = admittedRectangle(entry, qobject_cast<VCFrame *>(entry->parent()), logicalRect, snap, &error);
+    QMap<quint32, QRectF> rectangles{{id, rect}};
+    if (error.isEmpty())
+        error = geometryError(rectangles);
+    return editResult(error.isEmpty(), false, error, error.isEmpty() ? rectangles : QMap<quint32, QRectF>{});
+}
+
+QVariantMap VirtualConsole::editGeometry(quint32 id, QRectF logicalRect, bool snap)
+{
+    QVariantMap preview = previewGeometry(id, logicalRect, snap);
+    if (!preview.value("accepted").toBool())
+        return preview;
+    const QRectF rect = preview.value("geometries").toList().first().toMap().value("rect").toRectF();
+    return applyGeometryPlan({{id, rect}});
+}
+
+QVariantMap VirtualConsole::applyGeometryPlan(const QMap<quint32, QRectF> &rectangles, bool snap)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    QMap<quint32, QRectF> candidates = rectangles;
+    QString error;
+    if (snap)
+        for (auto it = candidates.begin(); it != candidates.end(); ++it)
+        {
+            VCWidget *entry = widget(it.key());
+            it.value() = admittedRectangle(entry, entry ? qobject_cast<VCFrame *>(entry->parent()) : nullptr,
+                                           it.value(), true, &error);
+            if (!error.isEmpty())
+                return editResult(false, false, error);
+        }
+    error = geometryError(candidates);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    return commitGeometry(candidates);
+}
+
+QVariantMap VirtualConsole::previewGeometryPlan(const QMap<quint32, QRectF> &rectangles) const
+{
+    const QString error = geometryError(rectangles);
+    return editResult(error.isEmpty(), false, error, error.isEmpty() ? rectangles : QMap<quint32, QRectF>{});
+}
+
+QVariantMap VirtualConsole::commitGeometry(const QMap<quint32, QRectF> &candidates)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    bool changed = false;
+    for (auto it = candidates.constBegin(); it != candidates.constEnd(); ++it)
+        changed = changed || widget(it.key())->logicalGeometry() != it.value();
+    if (!changed)
+        return editResult(true, false, {}, candidates);
+    QScopedValueRollback<bool> busy(m_authoringBusy, true);
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (auto it = candidates.constBegin(); it != candidates.constEnd(); ++it)
+        blockers.emplace_back(new QSignalBlocker(widget(it.key())));
+    Tardis *tardis = Tardis::instance();
+    if (tardis) tardis->beginBatch("consoleGeometryEdit");
+    for (auto it = candidates.constBegin(); it != candidates.constEnd(); ++it)
+        widget(it.key())->setLogicalGeometry(it.value());
+    m_doc->setModified();
+    if (tardis) tardis->endBatch();
+    blockers.clear();
+    for (auto it = candidates.constBegin(); it != candidates.constEnd(); ++it)
+        emit widget(it.key())->geometryChanged();
+    return editResult(true, true, {}, candidates);
+}
+
+QVariantMap VirtualConsole::previewDrop(quint32 id, quint32 targetFrameID, int targetSubpage,
+                                        QRectF logicalRect, int insertionIndex)
+{
+    VCWidget *entry = widget(id);
+    VCFrame *target = targetFrame(targetFrameID);
+    for (QObject *ancestor = target; ancestor; ancestor = ancestor->parent())
+        if (ancestor == entry)
+        {
+            QVariantMap result = editResult(false, false, tr("Cannot move a frame into itself or a descendant"));
+            result["targetEligible"] = false;
+            return result;
+        }
+    QString error;
+    QRectF rect = admittedRectangle(entry, target, logicalRect, true, &error);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    if (entry->parent() == target && entry->page() == targetSubpage && insertionIndex < 0)
+    {
+        error = geometryError({{id, rect}});
+        return editResult(error.isEmpty(), false, error, error.isEmpty() ? QMap<quint32, QRectF>{{id, rect}} : QMap<quint32, QRectF>{});
+    }
+    return structureEdit({id}, targetFrameID, targetSubpage, insertionIndex, {{id, rect}}, true);
+}
+
+QVariantMap VirtualConsole::editDrop(quint32 id, quint32 targetFrameID, int targetSubpage,
+                                     QRectF logicalRect, int insertionIndex)
+{
+    const QVariantMap preview = previewDrop(id, targetFrameID, targetSubpage, logicalRect, insertionIndex);
+    if (!preview.value("accepted").toBool())
+        return preview;
+    const QRectF rect = preview.value("geometries").toList().first().toMap().value("rect").toRectF();
+    if (widget(id)->parent() == targetFrame(targetFrameID) && widget(id)->page() == targetSubpage && insertionIndex < 0)
+        return applyGeometryPlan({{id, rect}});
+    return structureEdit({id}, targetFrameID, targetSubpage, insertionIndex, {{id, rect}}, false);
+}
+
+QVariantMap VirtualConsole::editStructure(QVariantList ids, quint32 targetFrameID,
+                                          int targetSubpage, int insertionIndex)
+{
+    return structureEdit(ids, targetFrameID, targetSubpage, insertionIndex, {}, false);
+}
+
+QVariantMap VirtualConsole::editStructureBefore(QVariantList ids, quint32 targetFrameID,
+                                                int targetSubpage, int beforeID)
+{
+    VCFrame *target = targetFrame(targetFrameID);
+    if (!target)
+        return editResult(false, false, tr("Unknown target frame %1").arg(targetFrameID));
+    QString error = nativeAuthoringError(target);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    const QList<VCWidget *> roots = selectedRoots(ids, &error);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    for (VCWidget *root : roots)
+    {
+        error = nativeAuthoringError(root);
+        if (!error.isEmpty())
+            return editResult(false, false, error);
+    }
+    const QVariantList order = target->orderedChildIDs(targetSubpage);
+    int index = -1;
+    if (beforeID >= 0)
+    {
+        for (int i = 0; i < order.size(); ++i)
+            if (order[i].toUInt() == quint32(beforeID))
+                index = i;
+        if (index < 0)
+            return editResult(false, false, tr("Insertion anchor %1 is not in the target subpage").arg(beforeID));
+    }
+    return editStructure(ids, targetFrameID, targetSubpage, index);
+}
+
+QVariantMap VirtualConsole::structureEdit(const QVariantList &ids, quint32 targetID, int subpage,
+                                          int insertionIndex, const QMap<quint32, QRectF> &rectangles,
+                                          bool preview)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    VCFrame *target = targetFrame(targetID);
+    if (!target || subpage < 0 || subpage >= target->totalPagesNumber())
+        return editResult(false, false, tr("Invalid target frame or subpage"));
+    QString error;
+    const QList<VCWidget *> roots = selectedRoots(ids, &error);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    if (roots.isEmpty())
+        return editResult(false, false, tr("No widgets selected"));
+    QMap<quint32, QRectF> candidates;
+    for (VCWidget *root : roots)
+    {
+        for (QObject *ancestor = target; ancestor; ancestor = ancestor->parent())
+            if (ancestor == root)
+                return editResult(false, false, tr("Cannot move widget %1 into itself or a descendant").arg(root->id()));
+        candidates.insert(root->id(), rectangles.value(root->id(), root->logicalGeometry()));
+    }
+    QList<VCWidget *> order;
+    for (VCWidget *child : target->children(false))
+        if (child->page() == subpage)
+            order.append(child);
+    if (insertionIndex < -1 || insertionIndex > order.size())
+        return editResult(false, false, tr("Invalid insertion position"));
+    int adjustedIndex = insertionIndex < 0 ? order.size() : insertionIndex;
+    for (int i = 0; i < (insertionIndex < 0 ? order.size() : insertionIndex); ++i)
+        if (roots.contains(order[i]))
+            --adjustedIndex;
+    for (VCWidget *root : roots)
+        order.removeAll(root);
+    for (int i = 0; i < roots.size(); ++i)
+        order.insert(adjustedIndex + i, roots[i]);
+    error = geometryError(candidates, target, subpage);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    if (preview)
+        return editResult(true, false, {}, candidates, target, subpage);
+
+    bool changed = false;
+    QVariantList oldOrder = target->orderedChildIDs(subpage), newOrder;
+    for (VCWidget *entry : order) newOrder.append(entry->id());
+    changed = oldOrder != newOrder;
+    for (VCWidget *root : roots)
+        changed = changed || root->parent() != target || root->page() != subpage ||
+                  root->logicalGeometry() != candidates.value(root->id());
+    if (!changed)
+        return editResult(true, false, {}, candidates, target, subpage);
+    return commitStructure(roots, target, subpage, order, candidates);
+}
+
+QVariantMap VirtualConsole::commitStructure(const QList<VCWidget *> &roots, VCFrame *target, int subpage,
+                                            const QList<VCWidget *> &order,
+                                            const QMap<quint32, QRectF> &candidates, bool recordHistory)
+{
+    QScopedValueRollback<bool> busy(m_authoringBusy, true);
+    cancelLayout();
+    emit structureAboutToChange();
+    QSet<VCFrame *> frames{target};
+    QSet<VCWidget *> affected;
+    for (VCWidget *root : roots)
+    {
+        frames.insert(qobject_cast<VCFrame *>(root->parent()));
+        affected.insert(root);
+        if (VCFrame *frame = qobject_cast<VCFrame *>(root))
+            for (VCWidget *child : frame->children(true))
+                affected.insert(child);
+    }
+    std::vector<std::unique_ptr<QSignalBlocker>> blockers;
+    for (VCFrame *frame : frames) if (frame) blockers.emplace_back(new QSignalBlocker(frame));
+    for (VCWidget *entry : affected) if (!frames.contains(qobject_cast<VCFrame *>(entry)))
+        blockers.emplace_back(new QSignalBlocker(entry));
+    Tardis *tardis = Tardis::instance();
+    if (tardis) tardis->beginBatch("consoleStructureEdit");
+    QHash<VCFrame *, QList<VCWidget *>> arrivals;
+    QSet<VCFrame *> ancestryFrames;
+    QMap<quint32, QVariantMap> oldLocations;
+    for (VCWidget *root : roots)
+    {
+        VCFrame *source = qobject_cast<VCFrame *>(root->parent());
+        const QVariantList sourceOrder = source->orderedChildIDs(root->page());
+        const int index = sourceOrder.indexOf(QVariant(root->id()));
+        oldLocations[root->id()] = {{"parentID", source->id()}, {"subpage", root->page()}, {"orderIndex", index},
+            {"beforeID", index + 1 < sourceOrder.size() ? sourceOrder[index + 1] : QVariant(VCWidget::invalidId())}};
+    }
+    for (VCWidget *root : roots)
+    {
+        VCFrame *source = qobject_cast<VCFrame *>(root->parent());
+        const bool moved = source != target || root->page() != subpage;
+        if (source != target)
+        {
+            ancestryFrames.insert(source);
+            ancestryFrames.insert(target);
+            arrivals[target].append(root);
+        }
+        const int index = order.indexOf(root);
+        const QVariantMap location{{"parentID", target->id()}, {"subpage", subpage}, {"orderIndex", index},
+            {"beforeID", index + 1 < order.size() ? QVariant(order[index + 1]->id()) : QVariant(VCWidget::invalidId())}};
+        if (recordHistory && tardis && oldLocations.value(root->id()) != location)
+            tardis->enqueueAction(Tardis::VCWidgetReparent, root->id(), oldLocations.value(root->id()), location);
+        if (moved)
+        {
+            source->removeWidgetFromPageMap(root);
+            root->setParent(target);
+            root->setPage(subpage);
+            root->remapInputSources(subpage);
+            target->addWidgetToPageMap(root);
+            root->setVisible(subpage == target->currentPage());
+            root->setScaleFactor(qobject_cast<VCPage *>(target)
+                ? qobject_cast<VCPage *>(target)->pageScale() : target->scaleFactor());
+            if (VCFrame *frame = qobject_cast<VCFrame *>(root))
+            {
+                for (VCWidget *child : frame->children(true))
+                    child->setScaleFactor(root->scaleFactor());
+                frame->refreshFunctionRouting();
+            }
+            QQuickItem *item = root->renderItem();
+            QQuickItem *parentItem = target->renderItem();
+            if (item && parentItem && parentItem->window())
+            {
+                QQuickItem *area = parentItem->findChild<QQuickItem *>(QString("frameDropArea%1").arg(target->id()));
+                if (area) item->setParentItem(area);
+                else
+                {
+                    qWarning() << Q_FUNC_INFO << "Target render item has no child area" << target->id();
+                    root->discardRenderItem();
+                }
+            }
+            else if (item)
+                root->discardRenderItem();
+        }
+        root->setLogicalGeometry(candidates.value(root->id()));
+    }
+    target->setChildOrder(subpage, order);
+    QSet<VCWidget *> gainEffects;
+    for (VCFrame *frame : ancestryFrames)
+        for (VCWidget *entry : frame->reconcileSubmasters(arrivals.value(frame)))
+            gainEffects.insert(entry);
+    for (VCWidget *entry : gainEffects)
+    {
+        bool covered = false;
+        for (QObject *parent = entry->parent(); parent; parent = parent->parent())
+            if (gainEffects.contains(qobject_cast<VCWidget *>(parent)))
+                covered = true;
+        if (!covered)
+        {
+            VCFrame *parent = qobject_cast<VCFrame *>(entry->parent());
+            entry->adjustIntensity(parent->m_submasterValue * parent->intensity());
+        }
+    }
+    for (VCPage *page : m_pages)
+    {
+        page->resetInputSourcesMap();
+        for (const auto &source : page->inputSources())
+            page->mapInputSource(source, page, false);
+        page->mapChildrenInputSources();
+        page->buildKeySequenceMap();
+    }
+    updatePageInputs();
+    m_doc->setModified();
+    if (tardis) tardis->endBatch();
+    blockers.clear();
+    for (VCWidget *entry : affected)
+    {
+        emit entry->geometryChanged();
+        emit entry->pageChanged(entry->page());
+        emit entry->isVisibleChanged(entry->isVisible());
+    }
+    for (VCFrame *frame : frames)
+        if (frame)
+            for (int page = 0; page < frame->totalPagesNumber(); ++page)
+                emit frame->childOrderChanged(page);
+    QVariantMap result = editResult(true, true, {}, candidates, target, subpage);
+    QVariantList committedIDs;
+    for (VCWidget *root : roots) committedIDs.append(root->id());
+    result["widgetIDs"] = committedIDs;
+    emit structureChanged(committedIDs);
+    return result;
+}
+
+bool VirtualConsole::restoreWidgetParent(quint32 id, quint32 parentID, int subpage, int orderIndex, quint32 beforeID)
+{
+    VCWidget *entry = widget(id);
+    VCFrame *target = targetFrame(parentID);
+    if (m_authoringBusy || !entry || !target || qobject_cast<VCPage *>(entry) ||
+        subpage < 0 || subpage >= target->totalPagesNumber())
+    {
+        qWarning() << Q_FUNC_INFO << "Cannot restore widget parent, page or order" << id << parentID << subpage;
+        return false;
+    }
+    for (QObject *parent = target; parent; parent = parent->parent())
+        if (parent == entry)
+        {
+            qWarning() << Q_FUNC_INFO << "Refusing cyclic parent restoration" << id << parentID;
+            return false;
+        }
+    QList<VCWidget *> order;
+    for (VCWidget *child : target->children(false))
+        if (child != entry && child->page() == subpage)
+            order.append(child);
+    int insertion = orderIndex < 0 ? order.size() : qBound(0, orderIndex, int(order.size()));
+    if (beforeID != VCWidget::invalidId())
+        for (int i = 0; i < order.size(); ++i)
+            if (order[i]->id() == beforeID)
+                insertion = i;
+    order.insert(insertion, entry);
+    return commitStructure({entry}, target, subpage, order, {{id, entry->logicalGeometry()}}, false)
+        .value("accepted").toBool();
+}
+
+GridLayout::LayoutPlan VirtualConsole::calculateLayout(quint32 frameID, const QVariantMap &options,
+                                                       GridLayout::LayoutSnapshot *source,
+                                                       GridLayout::LayoutOptions *values,
+                                                       QString *error) const
+{
+    VCFrame *root = targetFrame(frameID);
+    if (!root)
+    {
+        *error = tr("Unknown layout container %1").arg(frameID);
+        return {};
+    }
+    const QSet<QString> allowed{"algorithm", "padding", "pad", "gap", "columns",
+                               "allowGrowth", "allowHeightGrowth", "allowWidthGrowth"};
+    for (auto it = options.constBegin(); it != options.constEnd(); ++it)
+        if (!allowed.contains(it.key()))
+        {
+            *error = tr("Unknown layout option %1").arg(it.key());
+            return {};
+        }
+    *source = VCLayoutAdapter::capture(root);
+    const QString algorithm = options.value("algorithm", "align").toString();
+    if (algorithm != "align" && algorithm != "compact")
+    {
+        *error = tr("Unknown layout algorithm %1").arg(algorithm);
+        return {};
+    }
+    if (options.contains("columns"))
+    {
+        bool valid;
+        int columns = options.value("columns").toInt(&valid);
+        if (!valid || columns < 0)
+        {
+            *error = tr("Invalid layout column count");
+            return {};
+        }
+        for (auto &container : source->containers)
+            if (container.id == frameID)
+                for (auto &page : container.pages)
+                    page.columns = columns;
+    }
+    values->padding = options.value("padding", options.value("pad", 5)).toReal();
+    values->gap = options.value("gap", values->padding).toReal();
+    values->allowHeightGrowth = options.value("allowHeightGrowth", options.value("allowGrowth", false)).toBool();
+    values->allowWidthGrowth = options.value("allowWidthGrowth", false).toBool();
+    GridLayout::LayoutPlan plan = algorithm == "compact" ? GridLayout::compact(*source, *values)
+                                                         : GridLayout::align(*source, *values);
+    if (!plan.ok())
+        *error = QString("%1: %2 (widget %3, parent %4, required %5, available %6)")
+            .arg(plan.error.code, plan.error.message).arg(plan.error.widgetId).arg(plan.error.parentId)
+            .arg(plan.error.required).arg(plan.error.available);
+    return plan;
+}
+
+QMap<quint32, QRectF> VirtualConsole::layoutRectangles(const GridLayout::LayoutSnapshot &source,
+                                                      const GridLayout::LayoutPlan &plan,
+                                                      const GridLayout::LayoutOptions &options,
+                                                      QString *error) const
+{
+    QMap<quint32, QRectF> rectangles;
+    const GridLayout::Diagnostic diagnostic = GridLayout::validate(source, plan, options);
+    if (!diagnostic.code.isEmpty())
+    {
+        *error = QString("%1: %2").arg(diagnostic.code, diagnostic.message);
+        return {};
+    }
+    for (const auto &placement : plan.placements)
+    {
+        const auto original = std::find_if(source.items.begin(), source.items.end(),
+            [&](const auto &item) { return item.id == placement.id; });
+        if (original == source.items.end() || original->parentId != placement.parentId ||
+            original->subpage != placement.subpage || original->order != placement.order ||
+            rectangles.contains(placement.id))
+        {
+            *error = tr("Layout policy changed widget identity, hierarchy or order");
+            return {};
+        }
+        rectangles.insert(placement.id, placement.rect);
+    }
+    for (const auto &growth : plan.growth)
+    {
+        VCFrame *frame = targetFrame(growth.id);
+        const auto original = std::find_if(source.containers.begin(), source.containers.end(),
+            [&](const auto &container) { return container.id == growth.id; });
+        if (!frame || original == source.containers.end())
+        {
+            *error = tr("Layout policy returned an unknown container");
+            return {};
+        }
+        QRectF rect = rectangles.value(growth.id, frame->logicalGeometry());
+        rect.setSize(growth.size);
+        rectangles.insert(growth.id, rect);
+    }
+    if (rectangles.contains(source.rootId) && !qobject_cast<VCPage *>(targetFrame(source.rootId)))
+        *error = geometryError({{source.rootId, rectangles.value(source.rootId)}});
+    return rectangles;
+}
+
+QVariantMap VirtualConsole::layoutResult(const GridLayout::LayoutSnapshot &source,
+                                         const GridLayout::LayoutPlan &plan,
+                                         const QMap<quint32, QRectF> &rectangles) const
+{
+    QVariantMap result = editResult(true, false, {}, rectangles);
+    QVariantList geometries = result.value("geometries").toList();
+    for (QVariant &value : geometries)
+    {
+        QVariantMap geometry = value.toMap();
+        VCWidget *entry = widget(geometry.value("id").toUInt());
+        QRectF pageRect = geometry.value("rect").toRectF();
+        VCPage *page = qobject_cast<VCPage *>(entry);
+        for (QObject *parent = entry ? entry->parent() : nullptr; parent; parent = parent->parent())
+        {
+            if ((page = qobject_cast<VCPage *>(parent)))
+                break;
+            if (VCWidget *ancestor = qobject_cast<VCWidget *>(parent))
+                pageRect.translate(rectangles.value(ancestor->id(), ancestor->logicalGeometry()).topLeft());
+        }
+        geometry["pageRect"] = pageRect;
+        geometry["pageIndex"] = m_pages.indexOf(page);
+        value = geometry;
+    }
+    result["geometries"] = geometries;
+    QVariantList growth;
+    QStringList warnings;
+    for (const auto &item : plan.growth)
+    {
+        const auto original = std::find_if(source.containers.begin(), source.containers.end(),
+            [&](const auto &container) { return container.id == item.id; });
+        growth.append(QVariantMap{{"id", item.id}, {"from", original->size}, {"to", item.size}});
+        warnings.append(tr("Frame %1 grows from %2 x %3 to %4 x %5")
+            .arg(item.id).arg(original->size.width()).arg(original->size.height())
+            .arg(item.size.width()).arg(item.size.height()));
+    }
+    result["growth"] = growth;
+    result["warnings"] = warnings;
+    return result;
+}
+
+QVariantList VirtualConsole::layoutPreview() const
+{
+    return m_layoutPreview;
+}
+
+void VirtualConsole::cancelLayout()
+{
+    m_hasLayoutPreview = false;
+    m_layoutSource = {};
+    m_layoutState = {};
+    m_layoutPlan = {};
+    m_layoutOptions = {};
+    if (!m_layoutPreview.isEmpty())
+    {
+        m_layoutPreview.clear();
+        emit layoutPreviewChanged();
+    }
+}
+
+QVariantMap VirtualConsole::previewLayout(quint32 frameID, QVariantMap options)
+{
+    const QString accessError = nativeAuthoringError(targetFrame(frameID));
+    if (!accessError.isEmpty())
+        return editResult(false, false, accessError);
+    cancelLayout();
+    QString error;
+    GridLayout::LayoutSnapshot source;
+    GridLayout::LayoutOptions values;
+    GridLayout::LayoutPlan plan = calculateLayout(frameID, options, &source, &values, &error);
+    QMap<quint32, QRectF> rectangles;
+    if (error.isEmpty())
+        rectangles = layoutRectangles(source, plan, values, &error);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    QVariantMap result = layoutResult(source, plan, rectangles);
+    // Retain actual state, not option-adjusted columns, as the stale-edit baseline.
+    m_layoutSource = source;
+    m_layoutState = VCLayoutAdapter::capture(targetFrame(frameID));
+    m_layoutPlan = plan;
+    m_layoutOptions = values;
+    m_layoutPreview = result.value("geometries").toList();
+    m_hasLayoutPreview = true;
+    emit layoutPreviewChanged();
+    return result;
+}
+
+QVariantMap VirtualConsole::confirmLayout()
+{
+    if (!m_hasLayoutPreview)
+        return editResult(false, false, tr("No prepared layout"));
+    VCFrame *root = targetFrame(m_layoutSource.rootId);
+    const QString accessError = nativeAuthoringError(root);
+    if (!accessError.isEmpty())
+    {
+        cancelLayout();
+        return editResult(false, false, accessError);
+    }
+    if (!root || !VCLayoutAdapter::sameSnapshot(m_layoutState, VCLayoutAdapter::capture(root)))
+    {
+        cancelLayout();
+        return editResult(false, false, tr("Prepared layout is stale; preview it again"));
+    }
+    QString error;
+    QMap<quint32, QRectF> rectangles = layoutRectangles(m_layoutSource, m_layoutPlan, m_layoutOptions, &error);
+    QVariantMap result = error.isEmpty() ? commitGeometry(rectangles) : editResult(false, false, error);
+    cancelLayout();
+    return result;
+}
+
+QVariantMap VirtualConsole::arrangeLayout(quint32 frameID, QVariantMap options, bool dryRun)
+{
+    QString error;
+    GridLayout::LayoutSnapshot source;
+    GridLayout::LayoutOptions values;
+    GridLayout::LayoutPlan plan = calculateLayout(frameID, options, &source, &values, &error);
+    QMap<quint32, QRectF> rectangles;
+    if (error.isEmpty())
+        rectangles = layoutRectangles(source, plan, values, &error);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    QVariantMap result = layoutResult(source, plan, rectangles);
+    if (!dryRun)
+    {
+        QVariantMap applied = commitGeometry(rectangles);
+        if (!applied.value("accepted").toBool())
+            return applied;
+        result["applied"] = applied.value("applied");
+    }
+    return result;
+}
+
+QVariantMap VirtualConsole::createPreflight(quint32 targetID, const QString &type, QRectF rect,
+                                           int subpage, bool fitDefault, const QString &caption) const
+{
+    const auto less = GridLayout::less;
+    VCFrame *target = targetFrame(targetID);
+    const VCWidget::WidgetType widgetType = VCWidget::stringToType(type);
+    if (!target || widgetType == VCWidget::UnknownWidget)
+        return editResult(false, false, tr("Unknown target frame or widget type %1").arg(type));
+    const int page = subpage < 0 ? target->currentPage() : subpage;
+    if (page < 0 || page >= target->totalPagesNumber())
+        return editResult(false, false, tr("Invalid target subpage %1").arg(page));
+    VCWidget prototype(nullptr, target);
+    prototype.setType(widgetType);
+    prototype.setupLookAndFeel(pixelDensity(), page);
+    quint32 nextID = m_latestWidgetId;
+    while (m_widgetsMap.contains(nextID) || nextID == VCWidget::invalidId())
+        ++nextID;
+    prototype.setCaption(caption.isEmpty() ? QString("%1 %2").arg(type).arg(nextID + 1) : caption);
+    const QSizeF minimum = prototype.minimumSize();
+    const QRectF bounds = target->contentRect();
+    if (fitDefault)
+    {
+        QSizeF preferred = minimum * (widgetType == VCWidget::FrameWidget ||
+                                     widgetType == VCWidget::SoloFrameWidget ? 2 : 1.5);
+        preferred.setWidth(qMin(preferred.width(), bounds.width()));
+        preferred.setHeight(qMin(preferred.height(), bounds.height()));
+        rect.setSize(preferred);
+        QString error;
+        rect = admittedRectangle(&prototype, target, rect, true, &error);
+        if (!error.isEmpty())
+            return editResult(false, false, error);
+    }
+    if (!finiteEdges(bounds) || !qIsFinite(rect.x()) || !qIsFinite(rect.y()) ||
+        !qIsFinite(rect.width()) || !qIsFinite(rect.height()) ||
+        less(rect.width(), minimum.width()) || less(rect.height(), minimum.height()) ||
+        less(rect.left(), bounds.left()) || less(rect.top(), bounds.top()) ||
+        less(bounds.right(), rect.right()) || less(bounds.bottom(), rect.bottom()))
+    {
+        QVariantMap result = editResult(false, false, tr("New %1 cannot fit its usable size in frame %2 content")
+                                        .arg(type).arg(targetID));
+        result["minimumSize"] = minimum;
+        result["contentRect"] = bounds;
+        result["requestedRect"] = rect;
+        return result;
+    }
+    for (VCWidget *sibling : target->children(false))
+        if (sibling->page() == page &&
+            less(qMax(rect.left(), sibling->logicalGeometry().left()),
+                 qMin(rect.right(), sibling->logicalGeometry().right())) &&
+            less(qMax(rect.top(), sibling->logicalGeometry().top()),
+                 qMin(rect.bottom(), sibling->logicalGeometry().bottom())))
+            return editResult(false, false, tr("New control would obscure widget %1").arg(sibling->id()));
+    QVariantMap result = editResult(true, false, {});
+    result["minimumSize"] = minimum;
+    result["rect"] = rect;
+    result["geometries"] = QVariantList{QVariantMap{{"id", -1}, {"rect", rect},
+                                                   {"parentID", targetID}, {"subpage", page}}};
+    return result;
+}
+
+QVariantMap VirtualConsole::previewCreate(quint32 targetID, QString type, QPointF logicalPosition, int subpage)
+{
+    const QString error = nativeAuthoringError(targetFrame(targetID));
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    return createPreflight(targetID, type, QRectF(logicalPosition, QSizeF(1, 1)), subpage, true);
+}
+
+QVariantMap VirtualConsole::previewCreateGeometry(quint32 targetID, QString type, QRectF logicalRect, int subpage)
+{
+    return createPreflight(targetID, type, logicalRect, subpage, false);
+}
+
+VCWidget *VirtualConsole::commitWidgetCreation(VCFrame *target, const QString &type,
+                                               const QRectF &rect, int subpage, quint32 functionID)
+{
+    QQuickItem *area = nullptr;
+    if (target->renderItem())
+        area = target->renderItem()->findChild<QQuickItem *>(QString("frameDropArea%1").arg(target->id()));
+    VCWidget *created = target->addWidgetUnchecked(area, type, rect.topLeft().toPoint());
+    if (!created)
+        return nullptr;
+    created->setLogicalGeometry(rect);
+    target->moveWidgetToPage(created, subpage);
+    if (functionID != Function::invalidId())
+    {
+        if (VCButton *button = qobject_cast<VCButton *>(created)) button->setFunctionID(functionID);
+        else if (VCSlider *slider = qobject_cast<VCSlider *>(created)) slider->setControlledFunction(functionID);
+        else if (VCCueList *list = qobject_cast<VCCueList *>(created)) list->setChaserID(functionID);
+        created->setCaption(m_doc->function(functionID)->name());
+    }
+    created->setVisible(subpage == target->currentPage());
+    return created;
+}
+
+QVariantMap VirtualConsole::createWidget(quint32 targetID, QString type, QPointF logicalPosition, int subpage)
+{
+    QVariantMap preview = previewCreate(targetID, type, logicalPosition, subpage);
+    if (!preview.value("accepted").toBool())
+        return preview;
+    return createWidgetGeometry(targetID, type, preview.value("rect").toRectF(), subpage);
+}
+
+QVariantMap VirtualConsole::createWidgetGeometry(quint32 targetID, QString type, QRectF logicalRect, int subpage)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    QVariantMap preview = previewCreateGeometry(targetID, type, logicalRect, subpage);
+    if (!preview.value("accepted").toBool())
+        return preview;
+    VCFrame *target = targetFrame(targetID);
+    const int page = subpage < 0 ? target->currentPage() : subpage;
+    QScopedValueRollback<bool> busy(m_authoringBusy, true);
+    emit structureAboutToChange();
+    QSignalBlocker blockOwner(this);
+    QSignalBlocker blockParent(target);
+    Tardis *tardis = Tardis::instance();
+    if (tardis) tardis->beginBatch("consoleCreate");
+    VCWidget *created = commitWidgetCreation(target, type, logicalRect, page);
+    if (tardis) tardis->endBatch();
+    if (!created)
+    {
+        qWarning() << Q_FUNC_INFO << "Admitted widget type could not be created" << type;
+        return editResult(false, false, tr("Cannot construct widget type %1").arg(type));
+    }
+    m_doc->setModified();
+    QVariantMap result = editResult(true, true, {}, {{created->id(), logicalRect}});
+    blockParent.unblock();
+    blockOwner.unblock();
+    emit target->childOrderChanged(page);
+    emit widgetsChanged();
+    emit structureChanged({created->id()});
+    return result;
+}
+
+QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList functionIDs,
+                                           QPointF logicalPosition, int keyModifiers, int subpage)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    VCFrame *target = targetFrame(targetID);
+    if (!target || functionIDs.isEmpty())
+        return editResult(false, false, tr("Missing target frame or Functions"));
+    const QString accessError = nativeAuthoringError(target);
+    if (!accessError.isEmpty())
+        return editResult(false, false, accessError);
+    const int page = subpage < 0 ? target->currentPage() : subpage;
+    const QString type = keyModifiers & Qt::ShiftModifier ? "Slider"
+        : (keyModifiers & Qt::ControlModifier ? "Cue list" : "Button");
+    const QRectF bounds = target->contentRect();
+    QPointF position = logicalPosition;
+    qreal rowHeight = 0;
+    QVector<QPair<quint32, QRectF>> creations;
+    for (const QVariant &value : functionIDs)
+    {
+        Function *function = m_doc->function(value.toUInt());
+        if (!function || (type == "Cue list" && function->type() != Function::ChaserType))
+            return editResult(false, false, tr("Invalid Function %1 for %2").arg(value.toString(), type));
+        QVariantMap preview = createPreflight(targetID, type, QRectF(position, QSizeF(1, 1)),
+                                              page, true, function->name());
+        if (!preview.value("accepted").toBool())
+            return preview;
+        QRectF rect = preview.value("rect").toRectF();
+        if (!creations.isEmpty() && (rect.left() < position.x() || rect.right() > bounds.right()))
+        {
+            position = QPointF(qMax(bounds.left(), logicalPosition.x()), position.y() + rowHeight);
+            rowHeight = 0;
+            preview = createPreflight(targetID, type, QRectF(position, rect.size()), page, true, function->name());
+            if (!preview.value("accepted").toBool())
+                return preview;
+            rect = preview.value("rect").toRectF();
+        }
+        for (const auto &existing : creations)
+            if (rect.intersects(existing.second))
+                return editResult(false, false, tr("Insufficient content space for all dropped Functions"));
+        creations.append(qMakePair(function->id(), rect));
+        rowHeight = qMax(rowHeight, rect.height());
+        position = QPointF(rect.right() + qMax(qreal(1), snappingSize()), rect.top());
+    }
+    QScopedValueRollback<bool> busy(m_authoringBusy, true);
+    emit structureAboutToChange();
+    QSignalBlocker blockOwner(this), blockParent(target);
+    Tardis *tardis = Tardis::instance();
+    if (tardis) tardis->beginBatch("consoleFunctionDrop");
+    QMap<quint32, QRectF> rectangles;
+    for (const auto &creation : creations)
+    {
+        VCWidget *created = commitWidgetCreation(target, type, creation.second, page, creation.first);
+        Q_ASSERT(created);
+        rectangles.insert(created->id(), creation.second);
+    }
+    if (tardis) tardis->endBatch();
+    m_doc->setModified();
+    blockOwner.unblock();
+    blockParent.unblock();
+    emit target->childOrderChanged(page);
+    emit widgetsChanged();
+    QVariantMap result = editResult(true, true, {}, rectangles);
+    emit structureChanged(result.value("widgetIDs").toList());
+    return result;
+}
+
+QVariantMap VirtualConsole::previewSelectionDrop(QVariantList ids, quint32 anchorID, quint32 targetID,
+                                                 int subpage, QPointF logicalAnchorTopLeft)
+{
+    return selectionDrop(ids, anchorID, targetID, subpage, logicalAnchorTopLeft, true);
+}
+
+QVariantMap VirtualConsole::editSelectionDrop(QVariantList ids, quint32 anchorID, quint32 targetID,
+                                              int subpage, QPointF logicalAnchorTopLeft)
+{
+    return selectionDrop(ids, anchorID, targetID, subpage, logicalAnchorTopLeft, false);
+}
+
+QVariantMap VirtualConsole::selectionDrop(const QVariantList &ids, quint32 anchorID, quint32 targetID,
+                                          int subpage, QPointF logicalAnchorTopLeft, bool preview)
+{
+    QString error;
+    const QList<VCWidget *> roots = selectedRoots(ids, &error);
+    VCFrame *target = targetFrame(targetID);
+    VCWidget *anchor = widget(anchorID);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    if (!target || !anchor || roots.isEmpty() || subpage < 0 || subpage >= target->totalPagesNumber() ||
+        !qIsFinite(logicalAnchorTopLeft.x()) || !qIsFinite(logicalAnchorTopLeft.y()))
+        return editResult(false, false, tr("Invalid selection drop target or anchor"));
+    VCWidget *anchorRoot = nullptr;
+    for (QObject *ancestor = anchor; ancestor; ancestor = ancestor->parent())
+        if (roots.contains(qobject_cast<VCWidget *>(ancestor)))
+            anchorRoot = qobject_cast<VCWidget *>(ancestor);
+    if (!anchorRoot)
+        return editResult(false, false, tr("Drag anchor is not in the selected roots"));
+    QObject *sourceParent = roots.first()->parent();
+    const int sourcePage = roots.first()->page();
+    QRectF occupied = roots.first()->logicalGeometry();
+    for (VCWidget *root : roots)
+    {
+        error = nativeAuthoringError(root);
+        if (!error.isEmpty())
+            return editResult(false, false, error);
+        if (root->parent() != sourceParent || root->page() != sourcePage)
+            return editResult(false, false, tr("Move a selection from one parent and subpage at a time"));
+        for (QObject *ancestor = target; ancestor; ancestor = ancestor->parent())
+            if (ancestor == root)
+            {
+                QVariantMap result = editResult(false, false, tr("Cannot move a frame into itself or a descendant"));
+                result["targetEligible"] = false;
+                return result;
+            }
+        occupied = occupied.united(root->logicalGeometry());
+    }
+    error = nativeAuthoringError(target);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    QPointF anchorOffset;
+    for (VCWidget *entry = anchor; entry && entry != anchorRoot;
+         entry = qobject_cast<VCWidget *>(entry->parent()))
+        anchorOffset += entry->logicalGeometry().topLeft();
+    const QRectF bounds = target->contentRect();
+    const QPointF oldAnchor = anchorRoot->logicalGeometry().topLeft();
+    QPointF desiredAnchor = logicalAnchorTopLeft - anchorOffset;
+    const qreal grid = snapping() ? snappingSize() : 0;
+    const qreal minX = oldAnchor.x() + bounds.left() - occupied.left();
+    const qreal maxX = oldAnchor.x() + bounds.right() - occupied.right();
+    const qreal minY = oldAnchor.y() + bounds.top() - occupied.top();
+    const qreal maxY = oldAnchor.y() + bounds.bottom() - occupied.bottom();
+    auto bounded = [grid](qreal value, qreal low, qreal high, bool *valid) {
+        if (grid > 0)
+        {
+            low = std::ceil(low / grid) * grid;
+            high = std::floor(high / grid) * grid;
+            value = std::round(value / grid) * grid;
+        }
+        if (high < low) { *valid = false; return qreal(0); }
+        return qBound(low, value, high);
+    };
+    bool fits = true;
+    desiredAnchor.setX(bounded(desiredAnchor.x(), minX, maxX, &fits));
+    desiredAnchor.setY(bounded(desiredAnchor.y(), minY, maxY, &fits));
+    if (!fits)
+        return editResult(false, false, tr("Selected group cannot fit the target content and snap grid"));
+    const QPointF delta = desiredAnchor - oldAnchor;
+    QMap<quint32, QRectF> rectangles;
+    for (VCWidget *root : roots)
+        rectangles.insert(root->id(), root->logicalGeometry().translated(delta));
+    if (sourceParent == target && sourcePage == subpage)
+    {
+        error = geometryError(rectangles);
+        if (!error.isEmpty())
+            return editResult(false, false, error);
+        return preview ? editResult(true, false, {}, rectangles) : applyGeometryPlan(rectangles);
+    }
+    return structureEdit(ids, targetID, subpage, -1, rectangles, preview);
+}
+
+QVariantMap VirtualConsole::revealWidget(quint32 id)
+{
+    VCWidget *entry = widget(id);
+    if (!entry)
+        entry = targetFrame(id);
+    if (!entry)
+        return editResult(false, false, tr("Unknown widget %1").arg(id));
+    QList<VCFrame *> ancestors;
+    VCPage *owningPage = qobject_cast<VCPage *>(entry);
+    for (QObject *owner = entry->parent(); owner; owner = owner->parent())
+        if (VCFrame *frame = qobject_cast<VCFrame *>(owner))
+        {
+            ancestors.prepend(frame);
+            if (VCPage *page = qobject_cast<VCPage *>(frame))
+                owningPage = page;
+        }
+    if (!owningPage)
+        return editResult(false, false, tr("Widget is not attached to a console page"));
+    const QString accessError = nativeAuthoringError(entry);
+    if (!accessError.isEmpty())
+        return editResult(false, false, accessError);
+    if (owningPage->previewContext()->detached() &&
+        (!owningPage->previewContext()->view() || !owningPage->previewContext()->view()->rootObject()))
+        return editResult(false, false, tr("Detached page view is unavailable"));
+    setSelectedPage(m_pages.indexOf(owningPage));
+    VCWidget *child = entry;
+    for (auto it = ancestors.crbegin(); it != ancestors.crend(); ++it)
+    {
+        (*it)->setCollapsed(false);
+        (*it)->setCurrentPage(child->page());
+        child = *it;
+    }
+    QRectF pageRect = entry->logicalGeometry();
+    for (QObject *owner = entry->parent(); owner && owner != owningPage; owner = owner->parent())
+        if (VCWidget *ancestor = qobject_cast<VCWidget *>(owner))
+            pageRect.translate(ancestor->logicalGeometry().topLeft());
+    QPointer<VCWidget> guarded(entry);
+    const qreal scale = owningPage->pageScale();
+    QTimer::singleShot(0, this, [this, guarded, pageRect, scale]() {
+        QTimer::singleShot(0, this, [this, guarded, pageRect, scale]() {
+            if (!guarded) return;
+            QQuickItem *view = currentPageItem();
+            if (!view)
+            {
+                emit editRejected(tr("Console page view is unavailable"));
+                return;
+            }
+            const QRectF displayed(pageRect.topLeft() * scale, pageRect.size() * scale);
+            qreal x = view->property("contentX").toReal(), y = view->property("contentY").toReal();
+            if (displayed.left() < x) x = displayed.left();
+            else if (displayed.right() > x + view->width()) x = displayed.right() - view->width();
+            if (displayed.top() < y) y = displayed.top();
+            else if (displayed.bottom() > y + view->height()) y = displayed.bottom() - view->height();
+            view->setProperty("contentX", qMax(qreal(0), x));
+            view->setProperty("contentY", qMax(qreal(0), y));
+        });
+    });
+    QVariantMap result = editResult(true, true, {});
+    result["pageIndex"] = m_pages.indexOf(owningPage);
+    result["rect"] = pageRect;
+    return result;
+}
+
+QVariantMap VirtualConsole::revealFramePage(quint32 frameID, int subpage)
+{
+    VCFrame *frame = targetFrame(frameID);
+    if (!frame || subpage < 0 || subpage >= frame->totalPagesNumber())
+        return editResult(false, false, tr("Invalid frame subpage"));
+    QVariantMap result = revealWidget(frameID);
+    if (result.value("accepted").toBool())
+    {
+        frame->setCollapsed(false);
+        frame->setCurrentPage(subpage);
+    }
+    return result;
+}
+
+QQuickItem *VirtualConsole::popupRoot(QQuickItem *anchor) const
+{
+    Q_UNUSED(anchor)
+    return m_mainView ? m_mainView->rootObject() : nullptr;
+}
+
+QVariantMap VirtualConsole::snapGuide(quint32 frameID) const
+{
+    VCFrame *frame = targetFrame(frameID);
+    if (!frame)
+        return {{"error", tr("Unknown snap target frame %1").arg(frameID)}};
+    return {{"origin", QPointF(0, 0)}, {"step", QSizeF(snappingSize(), snappingSize())},
+            {"bounds", frame->contentRect()}, {"enabled", snapping() && snappingSize() > 0}};
 }
 
 void VirtualConsole::setWidgetsAlignment(VCWidget *refWidget, int alignment)
@@ -808,7 +2093,8 @@ void VirtualConsole::setWidgetsAlignment(VCWidget *refWidget, int alignment)
     if (refWidget == nullptr)
         return;
 
-    QRectF refGeom = refWidget->geometry();
+    QRectF refGeom = refWidget->logicalGeometry();
+    QMap<quint32, QRectF> rectangles;
 
     QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
     while (it.hasNext())
@@ -816,39 +2102,52 @@ void VirtualConsole::setWidgetsAlignment(VCWidget *refWidget, int alignment)
         it.next();
 
         VCWidget *widget = m_widgetsMap[it.key()];
-        QRectF wGeom = widget->geometry();
+        const QString error = nativeAuthoringError(widget);
+        if (!error.isEmpty())
+        {
+            reportEdit(editResult(false, false, error));
+            return;
+        }
+        if (widget->parent() != refWidget->parent() || widget->page() != refWidget->page())
+        {
+            reportEdit(editResult(false, false, tr("Align a selection from one parent and subpage at a time")));
+            return;
+        }
+        QRectF wGeom = widget->logicalGeometry();
 
         switch(alignment)
         {
             case Qt::AlignTop:
-                widget->setGeometry(QRect(wGeom.x(), refGeom.y(), wGeom.width(), wGeom.height()));
+                wGeom.moveTop(refGeom.y());
             break;
             case Qt::AlignLeft:
-                widget->setGeometry(QRect(refGeom.x(), wGeom.y(), wGeom.width(), wGeom.height()));
+                wGeom.moveLeft(refGeom.x());
             break;
             case Qt::AlignRight:
             {
                 // TODO: for now, let's do an ignorant alignment, without considering
                 // that widgets can be nested into VC frames...
-                int right = refGeom.x() + refGeom.width();
-                widget->setGeometry(QRect(right - wGeom.width(), wGeom.y(), wGeom.width(), wGeom.height()));
+                const qreal right = refGeom.x() + refGeom.width();
+                wGeom.moveLeft(right - wGeom.width());
             }
             break;
             case Qt::AlignBottom:
             {
                 // TODO: for now, let's do an ignorant alignment, without considering
                 // that widgets can be nested into VC frames...
-                int bottom = refGeom.y() + refGeom.height();
-                widget->setGeometry(QRect(wGeom.x(), bottom - wGeom.height(), wGeom.width(), wGeom.height()));
+                const qreal bottom = refGeom.y() + refGeom.height();
+                wGeom.moveTop(bottom - wGeom.height());
             }
             break;
         }
+        rectangles.insert(widget->id(), wGeom);
     }
+    reportEdit(applyGeometryPlan(rectangles));
 }
 
 void VirtualConsole::setWidgetsDistribution(int direction)
 {
-    if (m_widgetsMap.count() < 3)
+    if (m_itemsMap.count() < 3)
         return;
 
     qreal min = 1000000;
@@ -869,7 +2168,19 @@ void VirtualConsole::setWidgetsDistribution(int direction)
         it.next();
 
         VCWidget *widget = m_widgetsMap[it.key()];
-        QRectF wGeom = widget->geometry();
+        const QString error = nativeAuthoringError(widget);
+        if (!error.isEmpty())
+        {
+            reportEdit(editResult(false, false, error));
+            return;
+        }
+        if (!sortedWidgets.isEmpty() &&
+            (widget->parent() != sortedWidgets.first()->parent() || widget->page() != sortedWidgets.first()->page()))
+        {
+            reportEdit(editResult(false, false, tr("Distribute a selection from one parent and subpage at a time")));
+            return;
+        }
+        QRectF wGeom = widget->logicalGeometry();
         qreal pos = direction == Qt::Horizontal ? wGeom.x() : wGeom.y();
         qreal size = direction == Qt::Horizontal ? wGeom.width() : wGeom.height();
         int i = 0;
@@ -904,24 +2215,27 @@ void VirtualConsole::setWidgetsDistribution(int direction)
     gap = ((max - min) - widgetsSize) / (sortedWidgets.count() - 1);
 
     qreal newPos = min;
+    QMap<quint32, QRectF> rectangles;
 
     for (int idx = 0; idx < sortedWidgets.count(); idx++)
     {
         VCWidget *widget = sortedWidgets[idx];
-        QRectF wGeom = widget->geometry();
+        QRectF wGeom = widget->logicalGeometry();
         qreal size = direction == Qt::Horizontal ? wGeom.width() : wGeom.height();
 
         // the first and last widget don't need any adjustment
         if (idx > 0 && idx < sortedWidgets.count() - 1)
         {
             if (direction == Qt::Horizontal)
-                widget->setGeometry(QRect(newPos, wGeom.y(), wGeom.width(), wGeom.height()));
+                wGeom.moveLeft(newPos);
             else
-                widget->setGeometry(QRect(wGeom.x(), newPos, wGeom.width(), wGeom.height()));
+                wGeom.moveTop(newPos);
         }
 
         newPos += size + gap;
+        rectangles.insert(widget->id(), wGeom);
     }
+    reportEdit(applyGeometryPlan(rectangles));
 }
 
 void VirtualConsole::setWidgetsCaption(QString caption)
@@ -986,6 +2300,17 @@ void VirtualConsole::setWidgetsFont(QFont font)
 
 void VirtualConsole::deleteVCWidgets(QVariantList IDList)
 {
+    if (m_authoringBusy)
+    {
+        qWarning() << Q_FUNC_INFO << "Deletion refused during another console commit";
+        return;
+    }
+    commitWidgetDeletion(IDList);
+}
+
+void VirtualConsole::commitWidgetDeletion(const QVariantList &IDList)
+{
+    cancelLayout();
     foreach (QVariant id, IDList)
     {
         quint32 wID = id.toUInt();
@@ -1011,7 +2336,7 @@ void VirtualConsole::deleteVCWidgets(QVariantList IDList)
                  * child, otherwise the page maps would keep dangling pointers */
                 for (VCPage *page : m_pages)
                     page->removeWidgetFromMaps(child);
-                m_widgetsMap.remove(child->id());
+                removeWidgetFromMap(child);
             }
         }
 
@@ -1025,14 +2350,57 @@ void VirtualConsole::deleteVCWidgets(QVariantList IDList)
         Tardis::instance()->enqueueAction(Tardis::VCWidgetDelete, parent->id(),
                                           Tardis::instance()->actionToByteArray(Tardis::VCWidgetDelete, w->id()),
                                           QVariant());
-        m_widgetsMap.remove(wID);
+        removeWidgetFromMap(w);
 
         /* 4- perform the actual widget deletion */
         delete w;
     }
-    m_itemsMap.clear();
     if (IDList.isEmpty() == false)
         emit widgetsChanged();
+}
+
+QString VirtualConsole::nativeAuthoringError(VCWidget *entry) const
+{
+    if (App *app = qobject_cast<App *>(m_mainView))
+        if (!(app->accessMask() & App::AC_VCEditing))
+            return tr("Virtual Console editing is unavailable");
+    for (QObject *owner = entry; owner; owner = owner->parent())
+        if (VCPage *page = qobject_cast<VCPage *>(owner))
+            if (page->requirePIN() && m_unlockedPagePINs.value(page->id(), -1) != page->PIN())
+                return tr("Unlock the protected console page before editing");
+    return {};
+}
+
+void VirtualConsole::reportEdit(const QVariantMap &result)
+{
+    if (!result.value("accepted").toBool())
+    {
+        const QString error = result.value("error").toString();
+        qWarning() << Q_FUNC_INFO << error;
+        emit editRejected(error);
+    }
+}
+
+QVariantMap VirtualConsole::deleteAuthoringWidgets(QVariantList ids)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    QString error;
+    const QList<VCWidget *> roots = selectedRoots(ids, &error);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    QVariantList rootIDs;
+    for (VCWidget *root : roots)
+    {
+        error = nativeAuthoringError(root);
+        if (!error.isEmpty())
+            return editResult(false, false, error);
+        rootIDs.append(root->id());
+    }
+    deleteVCWidgets(rootIDs);
+    QVariantMap result = editResult(true, !roots.isEmpty(), {});
+    result["widgetIDs"] = rootIDs;
+    return result;
 }
 
 void VirtualConsole::selectAll()
@@ -1045,8 +2413,7 @@ void VirtualConsole::selectAll()
     {
         QQuickItem *item = qobject_cast<QQuickItem *>(m_view->rootObject()->findChild<QObject *>(
             QString("vcWidget_%1").arg(child->id())));
-        if (item)
-            setWidgetSelection(child->id(), item, true, true);
+        setWidgetSelection(child->id(), item, true, true);
     }
 }
 
@@ -1064,26 +2431,18 @@ void VirtualConsole::nudgeWidgets(int dx, int dy)
     if (m_itemsMap.isEmpty())
         return;
 
-    qreal step = snappingSize();
-    for (auto it = m_itemsMap.begin(); it != m_itemsMap.end(); ++it)
+    QString error;
+    const QList<VCWidget *> roots = selectedRoots(selectedWidgetIDs(), &error);
+    if (!error.isEmpty() || roots.isEmpty())
     {
-        VCWidget *w = m_widgetsMap.value(it.key());
-        if (w == nullptr)
-            continue;
-
-        QRectF geo = w->geometry();
-        geo.translate(qRound(dx * step), qRound(dy * step));
-        if (geo.x() < 0) geo.moveLeft(0);
-        if (geo.y() < 0) geo.moveTop(0);
-        w->setGeometry(geo);
-
-        QQuickItem *item = it.value();
-        if (item)
-        {
-            item->setX(geo.x());
-            item->setY(geo.y());
-        }
+        reportEdit(editResult(false, false, error.isEmpty() ? tr("No widgets selected") : error));
+        return;
     }
+    VCWidget *anchor = roots.first();
+    VCFrame *parent = qobject_cast<VCFrame *>(anchor->parent());
+    const qreal step = snappingSize() > 0 ? snappingSize() : 1;
+    reportEdit(editSelectionDrop(selectedWidgetIDs(), anchor->id(), parent->id(), anchor->page(),
+                                 anchor->logicalGeometry().topLeft() + QPointF(dx * step, dy * step)));
 }
 
 void VirtualConsole::autoLayoutPage()
@@ -1215,10 +2574,9 @@ void VirtualConsole::autoLayoutPage()
 
 VCWidget *VirtualConsole::selectedWidget() const
 {
-    if (m_itemsMap.isEmpty())
-        return qobject_cast<VCWidget *>(page(m_selectedPage));
-
-    return m_widgetsMap[m_itemsMap.firstKey()];
+    VCWidget *selected = m_itemsMap.isEmpty() ? qobject_cast<VCWidget *>(page(m_selectedPage))
+                                            : widget(m_itemsMap.firstKey());
+    return nativeAuthoringError(selected).isEmpty() ? selected : nullptr;
 }
 
 void VirtualConsole::requestAddMatrixPopup(VCFrame *frame, QQuickItem *parent, QString widgetType, QPoint pos)
@@ -1288,7 +2646,6 @@ void VirtualConsole::pasteFromClipboard()
 {
     VCFrame *frame = nullptr;
     QQuickItem *renderParent = nullptr;
-    QPoint currPos(0, 0);
 
     QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
     while (it.hasNext())
@@ -1301,8 +2658,6 @@ void VirtualConsole::pasteFromClipboard()
         {
             frame = qobject_cast<VCFrame*>(widget);
             renderParent = it.value();
-            // y position below the frame header
-            currPos = QPoint(0, pixelDensity() * 7);
             break;
         }
     }
@@ -1316,28 +2671,184 @@ void VirtualConsole::pasteFromClipboard()
         renderParent = currentPageItem();
     }
 
-    for (QVariant wID : m_clipboardIDList)
+    reportEdit(pasteWidgets(m_clipboardIDList, frame->id(), frame->contentRect().topLeft(), renderParent));
+}
+
+QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 targetID,
+                                         QPointF logicalPosition, QQuickItem *renderParent)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    VCFrame *target = targetFrame(targetID);
+    if (!target)
+        return editResult(false, false, tr("Unknown target frame"));
+    QString error = nativeAuthoringError(target);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    const QList<VCWidget *> roots = selectedRoots(ids, &error);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    if (roots.isEmpty())
+        return editResult(false, false, tr("No widgets to paste"));
+    if (m_clipboardIsCut && ids != m_clipboardIDList)
+        return editResult(false, false, tr("The cut clipboard changed; select its current widgets again"));
+    const int subpage = target->currentPage();
+    const QRectF bounds = target->contentRect();
+    const QVariantMap guide = snapGuide(targetID);
+    const qreal step = guide.value("enabled").toBool() ? guide.value("step").toSizeF().width() : 0;
+    QPointF position = logicalPosition;
+    qreal rowHeight = 0;
+    QMap<quint32, QRectF> rectangles;
+    for (VCWidget *root : roots)
     {
-        VCWidget *cWidget = widget(wID.toUInt());
-        if (cWidget == nullptr)
-            continue;
-
-        // do not allow pasting an item into itself
-        if (cWidget->id() == frame->id())
-            continue;
-
-        VCWidget *copy = cWidget->createCopy(frame);
-        frame->addWidget(renderParent, copy, currPos);
-
-        currPos.setX(currPos.x() + copy->geometry().width());
-        if (currPos.x() >= frame->geometry().width())
+        error = nativeAuthoringError(root);
+        if (!error.isEmpty())
+            return editResult(false, false, error);
+        for (QObject *ancestor = target; ancestor; ancestor = ancestor->parent())
+            if (ancestor == root)
+                return editResult(false, false, tr("Cannot paste a frame into itself or its descendants"));
+        if (root->type() == VCWidget::UnknownWidget)
+            return editResult(false, false, tr("Cannot copy an unknown widget type"));
+        if (VCFrame *frame = qobject_cast<VCFrame *>(root))
         {
-            currPos.setX(0);
-            currPos.setY(currPos.y() + copy->geometry().height());
+            GridLayout::LayoutSnapshot snapshot = VCLayoutAdapter::capture(frame);
+            for (auto &container : snapshot.containers)
+                for (auto &page : container.pages)
+                    page.snappingEnabled = false;
+            GridLayout::LayoutPlan identity;
+            for (const auto &item : snapshot.items)
+                identity.placements.append({item.id, item.parentId, item.subpage, item.order, item.rect});
+            const auto diagnostic = GridLayout::validate(snapshot, identity, {});
+            if (!diagnostic.code.isEmpty())
+                return editResult(false, false, diagnostic.message);
+        }
+        if (step > 0)
+        {
+            position.setX(std::round(position.x() / step) * step);
+            position.setY(std::round(position.y() / step) * step);
+        }
+        QRectF rect = root->logicalGeometry();
+        rect.moveTopLeft(position);
+        rectangles.insert(root->id(), rect);
+        rowHeight = qMax(rowHeight, rect.height());
+        position.setX(rect.right());
+        if (position.x() >= bounds.right())
+        {
+            position = QPointF(logicalPosition.x(), position.y() + rowHeight);
+            rowHeight = 0;
         }
     }
+    error = geometryError(rectangles, target, subpage, true);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
 
-    flushClipboardAfterPaste(frame->id());
+    QScopedValueRollback<bool> busy(m_authoringBusy, true);
+    cancelLayout();
+    emit structureAboutToChange();
+    QSignalBlocker blockOwner(this), blockDoc(m_doc);
+    QSet<VCFrame *> parents{target};
+    for (VCWidget *root : roots)
+        parents.insert(qobject_cast<VCFrame *>(root->parent()));
+    std::vector<std::unique_ptr<QSignalBlocker>> parentBlockers;
+    for (VCFrame *frame : parents)
+        if (frame)
+            parentBlockers.emplace_back(new QSignalBlocker(frame));
+    const bool wasModified = m_doc->isModified();
+    const quint32 previousID = m_latestWidgetId;
+    const QVariantList previousSelection = selectedWidgetIDs();
+    QMap<quint32, QRectF> copies;
+    QList<VCWidget *> created;
+    const qreal scale = qobject_cast<VCPage *>(target)
+        ? qobject_cast<VCPage *>(target)->pageScale() : target->scaleFactor();
+    {
+        QScopedValueRollback<LoadStatus> staging(m_loadStatus, Loading);
+        for (VCWidget *root : roots)
+        {
+            VCWidget *copy = root->createCopy(target);
+            if (!copy)
+            {
+                for (VCWidget *entry : created)
+                {
+                    target->removeWidgetFromPageMap(entry);
+                    removeWidgetFromMap(entry);
+                    delete entry;
+                }
+                m_latestWidgetId = previousID;
+                if (!wasModified)
+                    m_doc->resetModified();
+                qCritical() << Q_FUNC_INFO << "Admitted widget could not be copied" << root->id();
+                return editResult(false, false, tr("Cannot copy widget %1").arg(root->id()));
+            }
+            QQmlEngine::setObjectOwnership(copy, QQmlEngine::CppOwnership);
+            const QRectF rect = rectangles.value(root->id());
+            copy->setLogicalGeometry(rect);
+            copy->setPage(subpage);
+            copy->remapInputSources(subpage);
+            copy->setScaleFactor(scale);
+            if (VCFrame *frame = qobject_cast<VCFrame *>(copy))
+                for (VCWidget *child : frame->children(true))
+                    child->setScaleFactor(scale);
+            copy->setVisible(subpage == target->currentPage());
+            addWidgetToMap(copy);
+            target->addWidgetToPageMap(copy);
+            created.append(copy);
+            copies.insert(copy->id(), rect);
+        }
+    }
+    Tardis *tardis = Tardis::instance();
+    if (tardis)
+    {
+        tardis->beginBatch("consolePaste");
+        for (VCWidget *copy : created)
+            tardis->enqueueAction(Tardis::VCWidgetCreate, targetID, {},
+                                  tardis->actionToByteArray(Tardis::VCWidgetCreate, copy->id()));
+    }
+    if (m_clipboardIsCut)
+    {
+        QVariantList sourceIDs;
+        for (VCWidget *root : roots)
+            sourceIDs.append(root->id());
+        commitWidgetDeletion(sourceIDs);
+        m_clipboardIDList.clear();
+        m_clipboardIsCut = false;
+    }
+    for (VCWidget *entry : target->reconcileSubmasters(created))
+        entry->adjustIntensity(target->m_submasterValue * target->intensity());
+    for (VCWidget *copy : created)
+    {
+        if (VCFrame *frame = qobject_cast<VCFrame *>(copy))
+            frame->refreshFunctionRouting();
+        copy->render(m_view, renderParent);
+    }
+    for (VCPage *page : m_pages)
+    {
+        page->resetInputSourcesMap();
+        for (const auto &source : page->inputSources())
+            page->mapInputSource(source, page, false);
+        page->mapChildrenInputSources();
+        page->buildKeySequenceMap();
+    }
+    updatePageInputs();
+    if (tardis)
+        tardis->endBatch();
+    parentBlockers.clear();
+    blockOwner.unblock();
+    blockDoc.unblock();
+    m_doc->setModified();
+    for (VCFrame *frame : parents)
+        if (frame)
+            for (int page = 0; page < frame->totalPagesNumber(); ++page)
+                emit frame->childOrderChanged(page);
+    if (previousSelection != selectedWidgetIDs())
+    {
+        emit selectedWidgetChanged();
+        emit selectedWidgetsCountChanged();
+    }
+    emit clipboardItemsCountChanged();
+    emit widgetsChanged();
+    QVariantMap result = editResult(true, true, {}, copies);
+    emit structureChanged(result.value("widgetIDs").toList());
+    return result;
 }
 
 QVariantList VirtualConsole::clipboardItemsList() const
@@ -1821,6 +3332,8 @@ void VirtualConsole::handleKeyEvent(QKeyEvent *e, bool pressed)
 
 bool VirtualConsole::loadXML(QXmlStreamReader &root)
 {
+    cancelLayout();
+    m_unlockedPagePINs.clear();
     int currPageIdx = 0;
 
     if (root.name() != KXMLQLCVirtualConsole)
@@ -1830,6 +3343,14 @@ bool VirtualConsole::loadXML(QXmlStreamReader &root)
     }
 
     m_loadStatus = Loading;
+    for (VCPage *page : m_pages)
+        for (auto it = m_widgetsMap.begin(); it != m_widgetsMap.end(); )
+        {
+            if (it.value() == page)
+                it = m_widgetsMap.erase(it);
+            else
+                ++it;
+        }
 
     while (root.readNextStartElement())
     {
@@ -2036,7 +3557,10 @@ void VirtualConsole::postLoad()
     QList<VCWidget *> widgetsList;
 
     foreach (VCPage *page, m_pages)
+    {
+        widgetsList.append(page);
         widgetsList.append(page->children(true));
+    }
 
     foreach (VCWidget *widget, widgetsList)
     {
@@ -2061,4 +3585,5 @@ void VirtualConsole::postLoad()
      *  to roll */
     foreach (VCPage *page, m_pages)
         page->mapChildrenInputSources();
+    emit widgetsChanged();
 }

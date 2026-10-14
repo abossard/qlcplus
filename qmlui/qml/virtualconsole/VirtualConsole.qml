@@ -55,7 +55,12 @@ Rectangle
         }
         else if (event.key === Qt.Key_Delete || event.key === Qt.Key_Backspace)
         {
-            virtualConsole.deleteVCWidgets(virtualConsole.selectedWidgetIDs())
+            var result = virtualConsole.deleteAuthoringWidgets(virtualConsole.selectedWidgetIDs())
+            if (!result.accepted)
+            {
+                layoutError.message = result.error
+                layoutError.open()
+            }
             event.accepted = true
         }
         else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right ||
@@ -77,8 +82,23 @@ Rectangle
     property string contextName: "VC"
     property int selectedPage: virtualConsole.selectedPage
     property bool docLoaded: qlcplus.docLoaded
+    property bool outlineOpen: false
+    property real outlineWidth: Math.min(UISettings.sidePanelWidth, UISettings.textSizeDefault * 14, width * 0.18)
 
     Component.onCompleted: virtualConsole.editMode = false
+
+    Connections
+    {
+        target: virtualConsole
+        function onEditRejected(error)
+        {
+            if (vcContainer.visible)
+            {
+                layoutError.message = error
+                layoutError.open()
+            }
+        }
+    }
 
     Shortcut
     {
@@ -146,10 +166,53 @@ Rectangle
         height: parent.height
     }
 
+    VCOutline
+    {
+        id: outlinePane
+        objectName: "vcOutlinePane"
+        visible: outlineOpen && (qlcplus.accessMask & App.AC_VCEditing)
+        width: Math.min(outlineWidth, Math.max(UISettings.iconSizeMedium * 3,
+                                              vcContainer.width - rightSidePanel.width - UISettings.iconSizeMedium * 4))
+        height: parent.height
+        z: 5
+    }
+
+    Rectangle
+    {
+        id: outlineDivider
+        visible: outlinePane.visible
+        x: outlinePane.width
+        width: Math.max(3, screenPixelDensity * UISettings.scalingFactor * 0.9)
+        height: parent.height
+        color: dividerMouse.containsMouse || dividerMouse.pressed ? UISettings.highlight : UISettings.bgLighter
+        z: 6
+        MouseArea
+        {
+            id: dividerMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.SplitHCursor
+            property real startWidth: 0
+            property real startX: 0
+            onPressed: (mouse) =>
+            {
+                startWidth = outlinePane.width
+                startX = mapToItem(vcContainer, mouse.x, mouse.y).x
+            }
+            onPositionChanged: (mouse) =>
+            {
+                if (pressed)
+                    outlineWidth = Math.max(UISettings.iconSizeMedium * 3,
+                                            startWidth + mapToItem(vcContainer, mouse.x, mouse.y).x - startX)
+            }
+        }
+    }
+
     Rectangle
     {
         id: centerView
-        width: parent.width - ((qlcplus.accessMask & App.AC_VCEditing) ? rightSidePanel.width : 0)
+        x: outlinePane.visible ? outlinePane.width + outlineDivider.width : 0
+        width: Math.max(0, parent.width - x - ((qlcplus.accessMask & App.AC_VCEditing) ? rightSidePanel.width : 0))
         height: parent.height
         color: "transparent"
         clip: true
@@ -173,6 +236,20 @@ Rectangle
                 anchors.fill: parent
                 spacing: 5
                 ButtonGroup { id: vcToolbarGroup }
+
+                IconButton
+                {
+                    objectName: "vcOutlineToggle"
+                    Accessible.name: qsTr("Show or hide console outline")
+                    width: vcToolbar.height
+                    height: width
+                    visible: qlcplus.accessMask & App.AC_VCEditing
+                    imgSource: "qrc:/folder.svg"
+                    tooltip: qsTr("Show/Hide console outline")
+                    checkable: true
+                    checked: outlineOpen
+                    onToggled: outlineOpen = checked
+                }
 
                 Repeater
                 {
@@ -285,8 +362,22 @@ Rectangle
                     height: width
                     visible: virtualConsole.editMode
                     imgSource: "qrc:/grid.svg"
-                    tooltip: qsTr("Auto-layout all widgets on this page")
-                    onClicked: virtualConsole.autoLayoutPage()
+                    tooltip: qsTr("Preview ordered row and column alignment")
+                    onClicked:
+                    {
+                        var selected = virtualConsole.selectedWidget
+                        var target = selected && (selected.type === VCWidget.FrameWidget ||
+                                                   selected.type === VCWidget.SoloFrameWidget) ?
+                                     selected : virtualConsole.page(selectedPage)
+                        var result = virtualConsole.previewLayout(target.id, { allowGrowth: true })
+                        layoutPreviewPopup.title = qsTr("Align %1").arg(target.caption)
+                        var warnings = result.warnings ? result.warnings.join("\n") : ""
+                        layoutPreviewPopup.message = result.accepted ?
+                                    qsTr("Align controls in stored order. Control sizes and hierarchy are preserved. Confirm to apply.") +
+                                    (warnings.length ? "\n\n" + warnings : "") : result.error
+                        layoutPreviewPopup.previewAccepted = result.accepted
+                        layoutPreviewPopup.open()
+                    }
                     RobotoText
                     {
                         anchors.centerIn: parent
@@ -297,6 +388,7 @@ Rectangle
 
                 ZoomItem
                 {
+                    objectName: "vcZoomControls"
                     width: UISettings.iconSizeMedium * 2
                     implicitHeight: vcToolbar.height - 2
                     fontColor: UISettings.bgStrong
@@ -321,6 +413,37 @@ Rectangle
                 pageLoader.item.page = selectedPage
             }
         }
+    }
+
+    CustomPopupDialog
+    {
+        id: layoutPreviewPopup
+        objectName: "vcLayoutPreview"
+        title: qsTr("Align console controls")
+        property bool previewAccepted: false
+        onAccepted:
+        {
+            if (previewAccepted)
+            {
+                var result = virtualConsole.confirmLayout()
+                if (!result.accepted)
+                {
+                    layoutError.message = result.error
+                    layoutError.open()
+                }
+            }
+            else
+                virtualConsole.cancelLayout()
+        }
+        onRejected: virtualConsole.cancelLayout()
+        onClosed: virtualConsole.cancelLayout()
+    }
+
+    CustomPopupDialog
+    {
+        id: layoutError
+        objectName: "vcLayoutError"
+        title: qsTr("Cannot edit console")
     }
 
 

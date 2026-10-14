@@ -286,6 +286,7 @@ private:
 
     quint32 m_filter;
     QString m_searchFilter;
+    bool m_deferFunctionRemoval;
 
     int m_sceneCount, m_chaserCount, m_sequenceCount, m_efxCount;
     int m_collectionCount, m_rgbMatrixCount, m_hueMatrixCount, m_scriptCount;
