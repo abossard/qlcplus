@@ -294,9 +294,25 @@ identify insufficient space instead of applying part of a layout. An apply
 refusal returns `error` and `applied: false`.
 
 The native VC outline shows pages, frames and frame subpages beside Functions.
-Search matches captions, types or widget IDs and keeps ancestor context.
+Search matches captions, types, widget IDs, device names and controller-assignment
+details, and keeps ancestor context.
 Selection is shared with the canvas. Outline drops change sibling order or
 move controls into the indicated frame subpage.
+
+Select an outline node to inspect its assignment table, grouped by input
+device. The Widget, Input and Feedback columns show a compact overview; hover
+over a row or focus it with the keyboard for full details. Scroll horizontally
+when the columns do not fit the pane. The summary covers the whole subtree,
+distinguishes the node's own assignments, and counts assigned widgets and input
+bindings. Filtering does not
+change those totals or the inspection scope. Keyboard shortcuts are excluded.
+MIDI details retain raw addresses; feedback routes and stored values describe
+configuration, not confirmed event or LED delivery.
+
+The summary refreshes once per second while the authorized outline is visible.
+Inspection does not change assignments or send feedback. The explicit
+**Show widget** action can clear search, switch console pages, mark the workspace
+modified and send existing navigation feedback.
 
 Layout, nesting and sibling order belong to the existing workspace. Use normal
 Save or Save As, not a separate layout store. Legacy workspaces remain readable;

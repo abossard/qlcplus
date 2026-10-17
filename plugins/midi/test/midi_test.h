@@ -28,6 +28,12 @@ class Midi_Test final : public QObject
 
 private slots:
     void midiToInput();
+    void describeInputChannel_data();
+    void describeInputChannel();
+    void describeChannelSelection_data();
+    void describeChannelSelection();
+    void describeFeedbackChannel_data();
+    void describeFeedbackChannel();
 };
 
 #endif

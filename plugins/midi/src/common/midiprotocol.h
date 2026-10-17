@@ -26,6 +26,58 @@
 
 namespace QLCMIDIProtocol
 {
+    enum class MidiInputMessageType : uchar
+    {
+        Unknown = 0,
+        ControlChange,
+        Note,
+        NoteAftertouch,
+        ProgramChange,
+        ChannelAftertouch,
+        PitchWheel,
+        BeatPlayback,
+        BeatClock,
+        BeatStop
+    };
+
+    struct MidiInputChannelDescriptor
+    {
+        quint32 rawChannel = 0;
+        quint32 qlcChannel = 0;
+        MidiInputMessageType type = MidiInputMessageType::Unknown;
+        uchar messageValue = 0;
+        bool hasMessageValue = false;
+        uchar packedMidiChannelIndex = 0;
+    };
+
+    enum class MidiChannelSelectionState : uchar
+    {
+        Unknown = 0,
+        Fixed,
+        Omni,
+        Invalid
+    };
+
+    struct MidiChannelSelectionDescriptor
+    {
+        MidiChannelSelectionState state = MidiChannelSelectionState::Unknown;
+        uchar channelIndex = 0;
+    };
+
+    enum class MidiFeedbackChannelState : uchar
+    {
+        Unknown = 0,
+        Fixed,
+        Omni,
+        Invalid
+    };
+
+    struct MidiFeedbackChannelDescriptor
+    {
+        MidiFeedbackChannelState state = MidiFeedbackChannelState::Unknown;
+        uchar channelIndex = 0;
+    };
+
     /**
      * Convert MIDI message to QLC input data
      *
@@ -70,6 +122,28 @@ namespace QLCMIDIProtocol
                         uchar midiChannel, bool sendNoteOff,
                         uchar* cmd, uchar* data1,
                         uchar* data2);
+
+    /**
+     * Decode a QLC MIDI-mapped input channel into a readable description.
+     * The raw channel is preserved and the packed OMNI source channel is
+     * exposed separately from the message-specific channel offset.
+     */
+    MidiInputChannelDescriptor describeInputChannel(quint32 rawChannel);
+
+    /**
+     * Describe the configured MIDI channel parameter semantics.
+     * When the parameter is missing, native behavior defaults to fixed channel 1.
+     */
+    MidiChannelSelectionDescriptor describeChannelSelection(bool routeResolved,
+                                                            bool parameterPresent,
+                                                            int parameterValue);
+
+    /**
+     * Describe the effective feedback channel derived from configured channel
+     * and optional feedback modifier.
+     */
+    MidiFeedbackChannelDescriptor describeFeedbackChannel(const MidiChannelSelectionDescriptor& selection,
+                                                          int feedbackModifier);
 }
 
 /****************************************************************************

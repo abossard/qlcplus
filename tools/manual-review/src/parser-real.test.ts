@@ -91,6 +91,18 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
   });
 
+  it.each([
+    { number: '36', cases: ['36.1', '36.2', '36.3', '36.4', '36.5', '36.6'],
+      checks: [2, 2, 2, 2, 2, 1], tags: [[], [], ['MIDI'], [], [], []] },
+  ])('recognizes section $number VC assignment review cases', ({ number, cases, checks, tags }) => {
+    const section = parseManualReview(md).sections.find(s => s.number === number);
+    expect(section?.title).toContain('VC assignment');
+    expect(section?.cases.map(c => c.number)).toEqual(cases);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual(checks);
+    expect(section!.cases.map(c => c.tags)).toEqual(tags);
+    expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

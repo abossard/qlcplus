@@ -185,3 +185,132 @@ bool QLCMIDIProtocol::feedbackToMidi(quint32 channel, uchar value,
 
     return true;
 }
+
+QLCMIDIProtocol::MidiInputChannelDescriptor QLCMIDIProtocol::describeInputChannel(quint32 rawChannel)
+{
+    MidiInputChannelDescriptor desc;
+    desc.rawChannel = rawChannel;
+    desc.qlcChannel = rawChannel & 0x0FFF;
+    desc.packedMidiChannelIndex = uchar((rawChannel >> 12) & 0x0F);
+
+    if (desc.qlcChannel <= CHANNEL_OFFSET_CONTROL_CHANGE_MAX)
+    {
+        desc.type = MidiInputMessageType::ControlChange;
+        desc.messageValue = uchar(desc.qlcChannel - CHANNEL_OFFSET_CONTROL_CHANGE);
+        desc.hasMessageValue = true;
+    }
+    else if (desc.qlcChannel >= CHANNEL_OFFSET_NOTE && desc.qlcChannel <= CHANNEL_OFFSET_NOTE_MAX)
+    {
+        desc.type = MidiInputMessageType::Note;
+        desc.messageValue = uchar(desc.qlcChannel - CHANNEL_OFFSET_NOTE);
+        desc.hasMessageValue = true;
+    }
+    else if (desc.qlcChannel >= CHANNEL_OFFSET_NOTE_AFTERTOUCH &&
+             desc.qlcChannel <= CHANNEL_OFFSET_NOTE_AFTERTOUCH_MAX)
+    {
+        desc.type = MidiInputMessageType::NoteAftertouch;
+        desc.messageValue = uchar(desc.qlcChannel - CHANNEL_OFFSET_NOTE_AFTERTOUCH);
+        desc.hasMessageValue = true;
+    }
+    else if (desc.qlcChannel >= CHANNEL_OFFSET_PROGRAM_CHANGE &&
+             desc.qlcChannel <= CHANNEL_OFFSET_PROGRAM_CHANGE_MAX)
+    {
+        desc.type = MidiInputMessageType::ProgramChange;
+        desc.messageValue = uchar(desc.qlcChannel - CHANNEL_OFFSET_PROGRAM_CHANGE);
+        desc.hasMessageValue = true;
+    }
+    else if (desc.qlcChannel == CHANNEL_OFFSET_CHANNEL_AFTERTOUCH)
+    {
+        desc.type = MidiInputMessageType::ChannelAftertouch;
+    }
+    else if (desc.qlcChannel == CHANNEL_OFFSET_PITCH_WHEEL)
+    {
+        desc.type = MidiInputMessageType::PitchWheel;
+    }
+    else if (desc.qlcChannel == CHANNEL_OFFSET_MBC_PLAYBACK)
+    {
+        desc.type = MidiInputMessageType::BeatPlayback;
+    }
+    else if (desc.qlcChannel == CHANNEL_OFFSET_MBC_BEAT)
+    {
+        desc.type = MidiInputMessageType::BeatClock;
+    }
+    else if (desc.qlcChannel == CHANNEL_OFFSET_MBC_STOP)
+    {
+        desc.type = MidiInputMessageType::BeatStop;
+    }
+
+    return desc;
+}
+
+QLCMIDIProtocol::MidiChannelSelectionDescriptor QLCMIDIProtocol::describeChannelSelection(bool routeResolved,
+                                                                                            bool parameterPresent,
+                                                                                            int parameterValue)
+{
+    MidiChannelSelectionDescriptor desc;
+    if (routeResolved == false)
+    {
+        desc.state = MidiChannelSelectionState::Unknown;
+        return desc;
+    }
+
+    if (parameterPresent == false)
+    {
+        desc.state = MidiChannelSelectionState::Fixed;
+        desc.channelIndex = 0;
+        return desc;
+    }
+
+    if (parameterValue == MAX_MIDI_CHANNELS)
+    {
+        desc.state = MidiChannelSelectionState::Omni;
+        return desc;
+    }
+
+    if (parameterValue >= 0 && parameterValue < MAX_MIDI_CHANNELS)
+    {
+        desc.state = MidiChannelSelectionState::Fixed;
+        desc.channelIndex = uchar(parameterValue);
+        return desc;
+    }
+
+    desc.state = MidiChannelSelectionState::Invalid;
+    return desc;
+}
+
+QLCMIDIProtocol::MidiFeedbackChannelDescriptor
+QLCMIDIProtocol::describeFeedbackChannel(const MidiChannelSelectionDescriptor& selection, int feedbackModifier)
+{
+    MidiFeedbackChannelDescriptor desc;
+
+    if (selection.state == MidiChannelSelectionState::Unknown)
+    {
+        desc.state = MidiFeedbackChannelState::Unknown;
+        return desc;
+    }
+
+    if (selection.state == MidiChannelSelectionState::Invalid)
+    {
+        desc.state = MidiFeedbackChannelState::Invalid;
+        return desc;
+    }
+
+    const int modifier = (feedbackModifier >= 0) ? feedbackModifier : 0;
+
+    if (selection.state == MidiChannelSelectionState::Omni)
+    {
+        desc.state = (modifier > 0) ? MidiFeedbackChannelState::Invalid : MidiFeedbackChannelState::Omni;
+        return desc;
+    }
+
+    const int effective = int(selection.channelIndex) + modifier;
+    if (effective < 0 || effective >= MAX_MIDI_CHANNELS)
+    {
+        desc.state = MidiFeedbackChannelState::Invalid;
+        return desc;
+    }
+
+    desc.state = MidiFeedbackChannelState::Fixed;
+    desc.channelIndex = uchar(effective);
+    return desc;
+}

@@ -27,8 +27,12 @@
 #include <QCryptographicHash>
 #include <QUuid>
 #include <algorithm>
+#include <functional>
 
+#define private public
 #include "app.h"
+#include "ioplugincache.h"
+#undef private
 #include "contextmanager.h"
 #include "doc.h"
 #include "djmanager.h"
@@ -71,6 +75,7 @@
 #include "vcbridgev5.h"
 #include "vclayoutadapter.h"
 #include "qlcfixturemode.h"
+#include "qlcinputchannel.h"
 #include "fixtureutils.h"
 
 #define private public
@@ -149,6 +154,15 @@ private slots:
     void vcGeometryAdmission_data();
     void vcGeometryAdmission();
     void vcOutlineInventory();
+    void vcOutlineAssignmentSummary_data();
+    void vcOutlineAssignmentSummary();
+    void vcOutlineScopeFallback_data();
+    void vcOutlineScopeFallback();
+    void vcOutlineRouteResolution_data();
+    void vcOutlineRouteResolution();
+    void vcOutlineAssignmentPaneLifecycle();
+    void vcOutlineAssignmentSummaryClipping_data();
+    void vcOutlineAssignmentSummaryClipping();
     void vcPanesCoexist_data();
     void vcPanesCoexist();
     void vcLayoutPreview_data();
@@ -235,6 +249,65 @@ private:
     QTemporaryDir m_settings;
     std::unique_ptr<App> m_app;
 };
+
+namespace
+{
+class OutlineRoutePlugin final : public QLCIOPlugin
+{
+public:
+    explicit OutlineRoutePlugin(const QString &name)
+        : m_name(name)
+    {
+    }
+
+    void init() override {}
+    QString name() const override { return m_name; }
+    int capabilities() const override { return QLCIOPlugin::Input | QLCIOPlugin::Output | QLCIOPlugin::Feedback; }
+    QString pluginInfo() const override { return m_name; }
+    QStringList inputs() override { return {QStringLiteral("Input A"), QStringLiteral("Input B")}; }
+    QStringList inputsUID() override { return {QStringLiteral("input-uid-a"), QStringLiteral("input-uid-b")}; }
+    QString inputInfo(quint32 line) override { return QStringLiteral("Input %1").arg(line); }
+    bool openInput(quint32 input, quint32 universe) override
+    {
+        addToMap(universe, input, QLCIOPlugin::Input);
+        return true;
+    }
+    void closeInput(quint32 input, quint32 universe) override
+    {
+        removeFromMap(universe, input, QLCIOPlugin::Input);
+    }
+    QStringList outputs() override { return {QStringLiteral("Output A"), QStringLiteral("Output B")}; }
+    QStringList outputsUID() override { return {QStringLiteral("output-uid-a"), QStringLiteral("output-uid-b")}; }
+    QString outputInfo(quint32 line) override { return QStringLiteral("Output %1").arg(line); }
+    bool openOutput(quint32 output, quint32 universe) override
+    {
+        addToMap(universe, output, QLCIOPlugin::Output);
+        return true;
+    }
+    void closeOutput(quint32 output, quint32 universe) override
+    {
+        removeFromMap(universe, output, QLCIOPlugin::Output);
+    }
+    void writeUniverse(quint32, quint32, const QByteArray &, bool) override {}
+    void setParameter(quint32 universe, quint32 line, Capability type, QString name, QVariant value) override
+    {
+        ++setParameterCalls;
+        QLCIOPlugin::setParameter(universe, line, type, name, value);
+    }
+
+    int setParameterCalls = 0;
+
+private:
+    QString m_name;
+};
+
+OutlineRoutePlugin *installOutlineRoutePlugin(Doc *doc, const QString &name)
+{
+    auto *plugin = new OutlineRoutePlugin(name);
+    doc->ioPluginCache()->m_plugins.append(plugin);
+    return plugin;
+}
+}
 
 void UpstreamIntegration_Test::vcCanonicalGeometry_data()
 {
@@ -615,6 +688,1388 @@ void UpstreamIntegration_Test::vcOutlineInventory()
     QCOMPARE(counts.value(frameID), 1);
     QCOMPARE(counts.value(button->id()), 1);
     QCOMPARE(subpages, 3);
+}
+
+void UpstreamIntegration_Test::vcOutlineAssignmentSummary_data()
+{
+    QTest::addColumn<QString>("scopeKind");
+    QTest::newRow("page") << QString("page");
+    QTest::newRow("frame") << QString("frame");
+    QTest::newRow("subpage") << QString("subpage");
+    QTest::newRow("leaf") << QString("leaf");
+}
+
+void UpstreamIntegration_Test::vcOutlineAssignmentSummary()
+{
+    QFETCH(QString, scopeKind);
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+    vc->addWidgetToMap(frame);
+    vc->page(0)->addWidgetToPageMap(frame);
+    frame->setMultiPageMode(true);
+    frame->setTotalPagesNumber(2);
+    const quint32 frameID = frame->id();
+    auto *first = new VCButton(m_app->doc(), frame);
+    auto *second = new VCButton(m_app->doc(), frame);
+    vc->addWidgetToMap(first);
+    vc->addWidgetToMap(second);
+    frame->addWidgetToPageMap(first);
+    frame->addWidgetToPageMap(second);
+    first->setPage(0);
+    second->setPage(1);
+    first->setCaption("Alpha");
+    second->setCaption("Beta");
+    const auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets({frameID});
+        vc->outlineModel()->setDiagnosticsActive(false);
+        vc->outlineModel()->setFilterText(QString());
+        vc->outlineModel()->setInspectionScopeKey(QString());
+    });
+
+    vc->createAndAddInputSource(vc->page(0), 0, 9);
+    vc->createAndAddInputSource(first, 0, 10);
+    vc->createAndAddInputSource(first, 0, 11);
+    vc->createAndAddInputSource(second, 0, (1u << 16) | 12u);
+
+    VCOutlineModel *model = vc->outlineModel();
+    model->setFilterText(QString());
+    model->setDiagnosticsActive(true);
+
+    const QString pageKey = QString("widget:%1").arg(vc->page(0)->id());
+    const QString frameKey = QString("widget:%1").arg(frameID);
+    const QString firstKey = QString("widget:%1").arg(first->id());
+    const QString subpageKey = QString("subpage:%1:0").arg(frameID);
+    const QString scopeKey =
+        scopeKind == "page" ? pageKey : scopeKind == "frame" ? frameKey : scopeKind == "subpage" ? subpageKey : firstKey;
+    QTRY_VERIFY(model->indexForKey(scopeKey).isValid());
+    model->setInspectionScopeKey(scopeKey);
+    QTRY_COMPARE(model->inspectionScopeKey(), scopeKey);
+
+    QVariantMap summary;
+    if (scopeKind == "page")
+    {
+        QTRY_COMPARE(model->assignmentSummary().value("inputBindingCount").toInt(), 4);
+        summary = model->assignmentSummary();
+        QCOMPARE(summary.value("inputBindingCount").toInt(), 4);
+        QCOMPARE(summary.value("assignedWidgetCount").toInt(), 3);
+        QCOMPARE(summary.value("ownInputBindingCount").toInt(), 1);
+        QCOMPARE(summary.value("descendantInputBindingCount").toInt(), 3);
+    }
+    else if (scopeKind == "frame")
+    {
+        QTRY_COMPARE(model->assignmentSummary().value("inputBindingCount").toInt(), 3);
+        summary = model->assignmentSummary();
+        QCOMPARE(summary.value("inputBindingCount").toInt(), 3);
+        QCOMPARE(summary.value("assignedWidgetCount").toInt(), 2);
+        QCOMPARE(summary.value("ownInputBindingCount").toInt(), 0);
+        QCOMPARE(summary.value("descendantInputBindingCount").toInt(), 3);
+    }
+    else if (scopeKind == "subpage")
+    {
+        QTRY_COMPARE(model->assignmentSummary().value("inputBindingCount").toInt(), 2);
+        summary = model->assignmentSummary();
+        QCOMPARE(summary.value("inputBindingCount").toInt(), 2);
+        QCOMPARE(summary.value("assignedWidgetCount").toInt(), 1);
+        QCOMPARE(summary.value("ownInputBindingCount").toInt(), 0);
+        QCOMPARE(summary.value("descendantInputBindingCount").toInt(), 2);
+    }
+    else
+    {
+        QTRY_COMPARE(model->assignmentSummary().value("inputBindingCount").toInt(), 2);
+        summary = model->assignmentSummary();
+        QCOMPARE(summary.value("inputBindingCount").toInt(), 2);
+        QCOMPARE(summary.value("assignedWidgetCount").toInt(), 1);
+        QCOMPARE(summary.value("ownInputBindingCount").toInt(), 2);
+        QCOMPARE(summary.value("descendantInputBindingCount").toInt(), 0);
+    }
+
+    QAbstractItemModel *rows = model->assignmentRows();
+    QVERIFY(rows != nullptr);
+    QVERIFY(rows->rowCount() > 0);
+    for (int index = 0; index < rows->rowCount(); ++index)
+    {
+        const QVariantMap row = rows->index(index, 0).data().toMap();
+        QVERIFY(row.contains("sourceChannelRaw"));
+        QVERIFY(row.contains("inputRouteAvailability"));
+        QCOMPARE(row.value("inputRouteAvailability").toString(), QString("unresolved"));
+        QVERIFY(row.contains("deviceGroupKey"));
+        QVERIFY(row.contains("deviceGroupLabel"));
+        QVERIFY(row.contains("deviceGroupStart"));
+    }
+
+    const QVariantMap beforeFilter = model->assignmentSummary();
+    model->setFilterText("Alpha");
+    QTRY_VERIFY(model->indexForKey(firstKey).isValid());
+    QCOMPARE(model->inspectionScopeKey(), scopeKey);
+    QCOMPARE(model->assignmentSummary(), beforeFilter);
+}
+
+void UpstreamIntegration_Test::vcOutlineScopeFallback_data()
+{
+    QTest::addColumn<QString>("scenario");
+    QTest::newRow("subpage-removed") << QString("subpage-removed");
+    QTest::newRow("widget-deleted") << QString("widget-deleted");
+    QTest::newRow("reparent-then-delete") << QString("reparent-then-delete");
+}
+
+void UpstreamIntegration_Test::vcOutlineScopeFallback()
+{
+    QFETCH(QString, scenario);
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+    vc->addWidgetToMap(frame);
+    vc->page(0)->addWidgetToPageMap(frame);
+    frame->setMultiPageMode(true);
+    frame->setTotalPagesNumber(2);
+    const quint32 frameID = frame->id();
+    auto *child = new VCButton(m_app->doc(), frame);
+    vc->addWidgetToMap(child);
+    frame->addWidgetToPageMap(child);
+    child->setPage(1);
+    const quint32 childID = child->id();
+    VCFrame *target = nullptr;
+    const auto cleanup = qScopeGuard([&]() {
+        QVariantList ids{frameID};
+        if (target != nullptr)
+            ids.append(target->id());
+        vc->deleteVCWidgets(ids);
+        vc->outlineModel()->setDiagnosticsActive(false);
+        vc->outlineModel()->setInspectionScopeKey(QString());
+    });
+
+    VCOutlineModel *model = vc->outlineModel();
+    model->setDiagnosticsActive(true);
+    QTRY_VERIFY(model->indexForKey(QString("widget:%1").arg(frameID)).isValid());
+    QTRY_VERIFY(model->indexForKey(QString("widget:%1").arg(childID)).isValid());
+    const QString frameKey = QString("widget:%1").arg(frameID);
+
+    if (scenario == "subpage-removed")
+    {
+        model->setInspectionScopeKey(QString("subpage:%1:1").arg(frameID));
+        QTRY_COMPARE(model->inspectionScopeKey(), QString("subpage:%1:1").arg(frameID));
+        frame->setMultiPageMode(false);
+        QTRY_COMPARE(model->inspectionScopeKey(), frameKey);
+    }
+    else
+    {
+        if (scenario == "widget-deleted")
+        {
+            model->setInspectionScopeKey(QString("widget:%1").arg(childID));
+            QTRY_COMPARE(model->inspectionScopeKey(), QString("widget:%1").arg(childID));
+            vc->deleteVCWidgets({childID});
+            QTRY_COMPARE(model->inspectionScopeKey(), QString("subpage:%1:1").arg(frameID));
+        }
+        else
+        {
+            target = new VCFrame(m_app->doc(), vc, vc->page(0));
+            vc->addWidgetToMap(target);
+            vc->page(0)->addWidgetToPageMap(target);
+            const quint32 targetID = target->id();
+            QTRY_VERIFY(model->indexForKey(QString("widget:%1").arg(targetID)).isValid());
+            QVERIFY(vc->reparentWidget(child, target));
+            QCoreApplication::processEvents();
+            model->setInspectionScopeKey(QString("widget:%1").arg(childID));
+            QTRY_COMPARE(model->inspectionScopeKey(), QString("widget:%1").arg(childID));
+            vc->deleteVCWidgets({childID});
+            QTRY_COMPARE(model->inspectionScopeKey(), QString("widget:%1").arg(targetID));
+        }
+    }
+}
+
+void UpstreamIntegration_Test::vcOutlineRouteResolution_data()
+{
+    QTest::addColumn<QString>("scenario");
+    QTest::newRow("route-facts") << QString("route-facts");
+    QTest::newRow("poll-route-change") << QString("poll-route-change");
+    QTest::newRow("filtered-group-start") << QString("filtered-group-start");
+    QTest::newRow("direction-specific-feedback") << QString("direction-specific-feedback");
+    QTest::newRow("shared-across-slots") << QString("shared-across-slots");
+    QTest::newRow("search-output-device") << QString("search-output-device");
+    QTest::newRow("search-widget-type") << QString("search-widget-type");
+    QTest::newRow("non-midi-message") << QString("non-midi-message");
+    QTest::newRow("midi-plugin-no-profile-decodes") << QString("midi-plugin-no-profile-decodes");
+    QTest::newRow("non-midi-plugin-midi-profile-no-decode") << QString("non-midi-plugin-midi-profile-no-decode");
+    QTest::newRow("malformed-midi-channel-raw-retained") << QString("malformed-midi-channel-raw-retained");
+    QTest::newRow("midi-input-non-midi-feedback") << QString("midi-input-non-midi-feedback");
+    QTest::newRow("non-midi-input-midi-feedback") << QString("non-midi-input-midi-feedback");
+    QTest::newRow("omni-packed-nonzero-subpage-label") << QString("omni-packed-nonzero-subpage-label");
+    QTest::newRow("stable-values-role") << QString("stable-values-role");
+}
+
+void UpstreamIntegration_Test::vcOutlineRouteResolution()
+{
+    QFETCH(QString, scenario);
+    VirtualConsole *vc = m_app->virtualConsole();
+    VCOutlineModel *model = vc->outlineModel();
+    auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+    vc->addWidgetToMap(frame);
+    vc->page(0)->addWidgetToPageMap(frame);
+    const quint32 frameID = frame->id();
+
+    auto *alpha = new VCButton(m_app->doc(), frame);
+    auto *beta = new VCButton(m_app->doc(), frame);
+    vc->addWidgetToMap(alpha);
+    vc->addWidgetToMap(beta);
+    frame->addWidgetToPageMap(alpha);
+    frame->addWidgetToPageMap(beta);
+    alpha->setCaption("Alpha");
+    beta->setCaption("Beta");
+
+    InputOutputMap *ioMap = m_app->doc()->inputOutputMap();
+    const QString midiPluginName = QStringLiteral("Outline MIDI %1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const QString oscPluginName = QStringLiteral("Outline OSC %1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    OutlineRoutePlugin *midiPlugin = installOutlineRoutePlugin(m_app->doc(), midiPluginName);
+    OutlineRoutePlugin *oscPlugin = installOutlineRoutePlugin(m_app->doc(), oscPluginName);
+
+    const QString profileSuffix = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    auto *midiProfile = new QLCInputProfile();
+    midiProfile->setManufacturer(QStringLiteral("Tests"));
+    midiProfile->setModel(QStringLiteral("MIDI Surface %1").arg(profileSuffix));
+    midiProfile->setType(QLCInputProfile::MIDI);
+    auto *midiChannel = new QLCInputChannel();
+    midiChannel->setName(QStringLiteral("Fader 8"));
+    midiProfile->insertChannel(7, midiChannel);
+    QVERIFY(ioMap->addProfile(midiProfile));
+
+    auto *oscProfile = new QLCInputProfile();
+    oscProfile->setManufacturer(QStringLiteral("Tests"));
+    oscProfile->setModel(QStringLiteral("OSC Surface %1").arg(profileSuffix));
+    oscProfile->setType(QLCInputProfile::OSC);
+    auto *oscChannel = new QLCInputChannel();
+    oscChannel->setName(QStringLiteral("OSC 1"));
+    oscProfile->insertChannel(12, oscChannel);
+    QVERIFY(ioMap->addProfile(oscProfile));
+
+    const auto cleanup = qScopeGuard([&]() {
+        model->setDiagnosticsActive(false);
+        model->setFilterText(QString());
+        model->setInspectionScopeKey(QString());
+        vc->deleteVCWidgets({frameID});
+    });
+
+    QString input0Plugin = midiPluginName;
+    QString input0ProfileName = midiProfile->name();
+    QString output0Plugin = midiPluginName;
+    quint32 output0Line = 1;
+    QString input1ProfileName = oscProfile->name();
+
+    if (scenario == "midi-plugin-no-profile-decodes")
+        input0ProfileName.clear();
+    else if (scenario == "non-midi-plugin-midi-profile-no-decode")
+        input1ProfileName = midiProfile->name();
+    else if (scenario == "midi-input-non-midi-feedback")
+    {
+        output0Plugin = oscPluginName;
+        output0Line = 0;
+    }
+    else if (scenario == "non-midi-input-midi-feedback")
+    {
+        input0Plugin = oscPluginName;
+        input0ProfileName = oscProfile->name();
+    }
+
+    QVERIFY(ioMap->setInputPatch(0, input0Plugin, QString(), QString(), 0, input0ProfileName));
+    QVERIFY(ioMap->setOutputPatch(0, output0Plugin, QString(), QString(), output0Line, true));
+    InputPatch *inputPatch = ioMap->inputPatch(0);
+    QVERIFY(inputPatch != nullptr);
+    const QVariant malformedMidiChannel = QStringLiteral("bad");
+    inputPatch->setPluginParameter(QStringLiteral("midichannel"),
+                                   scenario == "malformed-midi-channel-raw-retained" ? malformedMidiChannel : QVariant(16));
+    OutputPatch *feedbackPatch = ioMap->feedbackPatch(0);
+    QVERIFY(feedbackPatch != nullptr);
+    const QVariant malformedOutputMidiChannel = QStringLiteral("broken");
+    feedbackPatch->setPluginParameter(QStringLiteral("midichannel"),
+                                      scenario == "malformed-midi-channel-raw-retained" ? malformedOutputMidiChannel : QVariant(3));
+
+    QVERIFY(ioMap->setInputPatch(1, oscPluginName, QString(), QString(), 1, input1ProfileName));
+
+    const quint32 midiRawChannel = (2u << 12) | 7u;
+    vc->createAndAddInputSource(alpha, 0, midiRawChannel);
+    vc->createAndAddInputSource(beta, 1, 12);
+    vc->createAndAddInputSource(beta, 99, 42);
+    const QList<QSharedPointer<QLCInputSource>> alphaSources = alpha->inputSources();
+    QVERIFY(!alphaSources.isEmpty());
+    QSharedPointer<QLCInputSource> midiSource = alphaSources.first();
+    QVERIFY(!midiSource.isNull());
+    midiSource->setFeedbackExtraParams(QLCInputFeedback::UpperValue, 2);
+
+    model->setDiagnosticsActive(true);
+    const QString frameKey = QStringLiteral("widget:%1").arg(frameID);
+    QTRY_VERIFY(model->indexForKey(frameKey).isValid());
+    model->setInspectionScopeKey(frameKey);
+    QTRY_COMPARE(model->inspectionScopeKey(), frameKey);
+
+    auto rowsByUniverse = [&]() {
+        QHash<int, QVariantMap> rows;
+        QAbstractItemModel *rowsModel = model->assignmentRows();
+        for (int rowIndex = 0; rowIndex < rowsModel->rowCount(); ++rowIndex)
+        {
+            const QVariantMap row = rowsModel->index(rowIndex, 0).data().toMap();
+            rows.insert(row.value(QStringLiteral("sourceUniverse")).toInt(), row);
+        }
+        return rows;
+    };
+
+    if (scenario == "route-facts")
+    {
+        QHash<int, QVariantMap> rows;
+        QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+        QVERIFY(rows.contains(1));
+        QVERIFY(rows.contains(99));
+
+        const QVariantMap midiRow = rows.value(0);
+        QCOMPARE(midiRow.value(QStringLiteral("inputRouteAvailability")).toString(), QStringLiteral("resolved"));
+        QVERIFY(!midiRow.value(QStringLiteral("inputDeviceName")).toString().isEmpty());
+        QCOMPARE(midiRow.value(QStringLiteral("inputPlugin")).toString(), midiPluginName);
+        QCOMPARE(midiRow.value(QStringLiteral("inputLine")).toInt(), 0);
+        QVERIFY(!midiRow.value(QStringLiteral("inputUID")).toString().isEmpty());
+        QVERIFY(!midiRow.value(QStringLiteral("outputDeviceName")).toString().isEmpty());
+        QCOMPARE(midiRow.value(QStringLiteral("outputPlugin")).toString(), midiPluginName);
+        QCOMPARE(midiRow.value(QStringLiteral("outputLine")).toInt(), 1);
+        QVERIFY(!midiRow.value(QStringLiteral("outputUID")).toString().isEmpty());
+        QCOMPARE(midiRow.value(QStringLiteral("midiRouteResolved")).toBool(), true);
+        QVERIFY(midiRow.value(QStringLiteral("midiSelectionState")).toString() != QStringLiteral("unknown"));
+        QCOMPARE(midiRow.value(QStringLiteral("sourceLabel")).toString().contains(QStringLiteral("Fader 8")), true);
+        QVERIFY(midiRow.value(QStringLiteral("inputParameters")).canConvert<QVariantMap>());
+        QVERIFY(midiRow.value(QStringLiteral("outputParameters")).canConvert<QVariantMap>());
+
+        const QVariantMap oscRow = rows.value(1);
+        QCOMPARE(oscRow.value(QStringLiteral("inputRouteAvailability")).toString(), QStringLiteral("resolved"));
+        QCOMPARE(oscRow.value(QStringLiteral("inputPlugin")).toString(), oscPluginName);
+        QCOMPARE(oscRow.value(QStringLiteral("midiRouteResolved")).toBool(), false);
+        QCOMPARE(oscRow.value(QStringLiteral("midiSelectionState")).toString(), QStringLiteral("unknown"));
+
+        const QVariantMap invalidRow = rows.value(99);
+        QCOMPARE(invalidRow.value(QStringLiteral("inputRouteAvailability")).toString(), QStringLiteral("invalidUniverse"));
+        QCOMPARE(invalidRow.value(QStringLiteral("deviceGroupLabel")).toString(), QStringLiteral("Invalid universe U100"));
+    }
+    else if (scenario == "poll-route-change")
+    {
+        QHash<int, QVariantMap> rows;
+        QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+        const QString initialUid = rows.value(0).value(QStringLiteral("inputUID")).toString();
+        QVERIFY(ioMap->setInputPatch(0, midiPluginName, QString(), QString(), 1, midiProfile->name()));
+        QTRY_VERIFY((rows = rowsByUniverse()).value(0).value(QStringLiteral("inputUID")).toString() != initialUid);
+    }
+    else
+    {
+        if (scenario == "filtered-group-start")
+        {
+            vc->createAndAddInputSource(beta, 0, midiRawChannel + 1);
+            QTRY_VERIFY(model->assignmentRows()->rowCount() >= 3);
+            model->setFilterText(QStringLiteral("Beta"));
+            QTRY_VERIFY(model->assignmentRows()->rowCount() >= 1);
+            bool checked = false;
+            for (int rowIndex = 0; rowIndex < model->assignmentRows()->rowCount(); ++rowIndex)
+            {
+                const QVariantMap row = model->assignmentRows()->index(rowIndex, 0).data().toMap();
+                if (row.value(QStringLiteral("widgetPath")).toString().contains(QStringLiteral("Beta")) &&
+                    row.value(QStringLiteral("sourceUniverse")).toInt() == 0)
+                {
+                    QCOMPARE(row.value(QStringLiteral("deviceGroupStart")).toBool(), true);
+                    checked = true;
+                    break;
+                }
+            }
+            QVERIFY(checked);
+        }
+        else if (scenario == "direction-specific-feedback")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+            const QVariantMap midiRow = rows.value(0);
+            QCOMPARE(midiRow.value(QStringLiteral("midiSelectionState")).toString(), QStringLiteral("omni"));
+            QCOMPARE(midiRow.value(QStringLiteral("midiFeedbackUpperState")).toString(), QStringLiteral("fixed"));
+            QCOMPARE(midiRow.value(QStringLiteral("midiFeedbackUpperChannelIndex")).toInt(), 5);
+            QCOMPARE(midiRow.value(QStringLiteral("midiFeedbackUpperLabel")).toString(), QStringLiteral("Channel 6"));
+            QCOMPARE(midiRow.value(QStringLiteral("midiFeedbackState")).toString(), QStringLiteral("unknown"));
+            QVERIFY(midiRow.value(QStringLiteral("midiSelectionLabel")).toString().startsWith(QStringLiteral("OMNI")));
+        }
+        else if (scenario == "shared-across-slots")
+        {
+            QSharedPointer<QLCInputSource> sameAddressDifferentSlot(new QLCInputSource());
+            sameAddressDifferentSlot->setID(1);
+            sameAddressDifferentSlot->setUniverse(0);
+            sameAddressDifferentSlot->setChannel(midiRawChannel);
+            alpha->addInputSource(sameAddressDifferentSlot);
+            QTRY_VERIFY(model->assignmentRows()->rowCount() >= 4);
+            int sharedRows = 0;
+            for (int rowIndex = 0; rowIndex < model->assignmentRows()->rowCount(); ++rowIndex)
+            {
+                const QVariantMap row = model->assignmentRows()->index(rowIndex, 0).data().toMap();
+                if (row.value(QStringLiteral("sourceUniverse")).toInt() == 0 &&
+                    row.value(QStringLiteral("sourceChannelRaw")).toUInt() == midiRawChannel)
+                {
+                    QVERIFY(row.value(QStringLiteral("sharedAssignment")).toBool());
+                    QCOMPARE(row.value(QStringLiteral("sharedAssignmentLabel")).toString(),
+                             QStringLiteral("Shared physical input address"));
+                    ++sharedRows;
+                }
+            }
+            QCOMPARE(sharedRows, 2);
+        }
+        else if (scenario == "search-output-device")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+            const QString outputName = rows.value(0).value(QStringLiteral("outputDeviceName")).toString();
+            QVERIFY(!outputName.isEmpty());
+            model->setFilterText(outputName);
+            QTRY_VERIFY(model->assignmentRows()->rowCount() >= 1);
+        }
+        else if (scenario == "search-widget-type")
+        {
+            model->setFilterText(QStringLiteral("Button"));
+            QTRY_VERIFY(model->assignmentRows()->rowCount() >= 1);
+        }
+        else if (scenario == "non-midi-message")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(1));
+            const QVariantMap oscRow = rows.value(1);
+            QCOMPARE(oscRow.value(QStringLiteral("midiRouteResolved")).toBool(), false);
+            QCOMPARE(oscRow.value(QStringLiteral("midiMessageType")).toString(), QStringLiteral("unknown"));
+            QCOMPARE(oscRow.value(QStringLiteral("midiMessageLabel")).toString(), QStringLiteral("Unknown"));
+            QCOMPARE(oscRow.value(QStringLiteral("midiSelectionState")).toString(), QStringLiteral("unknown"));
+        }
+        else if (scenario == "midi-plugin-no-profile-decodes")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+            const QVariantMap row = rows.value(0);
+            QCOMPARE(row.value(QStringLiteral("inputPlugin")).toString(), midiPluginName);
+            QCOMPARE(row.value(QStringLiteral("inputProfileName")).toString(), QStringLiteral("None"));
+            QCOMPARE(row.value(QStringLiteral("midiRouteResolved")).toBool(), true);
+            QCOMPARE(row.value(QStringLiteral("midiMessageType")).toString(), QStringLiteral("controlChange"));
+            QVERIFY(row.value(QStringLiteral("midiMessageLabel")).toString() != QStringLiteral("Unknown"));
+        }
+        else if (scenario == "non-midi-plugin-midi-profile-no-decode")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(1));
+            const QVariantMap row = rows.value(1);
+            QCOMPARE(row.value(QStringLiteral("inputPlugin")).toString(), oscPluginName);
+            QCOMPARE(row.value(QStringLiteral("inputProfileName")).toString(), midiProfile->name());
+            QCOMPARE(row.value(QStringLiteral("midiRouteResolved")).toBool(), false);
+            QCOMPARE(row.value(QStringLiteral("midiMessageType")).toString(), QStringLiteral("unknown"));
+            QCOMPARE(row.value(QStringLiteral("midiMessageLabel")).toString(), QStringLiteral("Unknown"));
+        }
+        else if (scenario == "malformed-midi-channel-raw-retained")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+            const QVariantMap row = rows.value(0);
+            QCOMPARE(row.value(QStringLiteral("midiRouteResolved")).toBool(), true);
+            QCOMPARE(row.value(QStringLiteral("midiParameterPresent")).toBool(), true);
+            QCOMPARE(row.value(QStringLiteral("midiParameterValid")).toBool(), false);
+            QCOMPARE(row.value(QStringLiteral("midiParameterValue")).toString(), malformedMidiChannel.toString());
+            QCOMPARE(row.value(QStringLiteral("midiSelectionState")).toString(), QStringLiteral("invalid"));
+            QCOMPARE(row.value(QStringLiteral("midiOutputParameterPresent")).toBool(), true);
+            QCOMPARE(row.value(QStringLiteral("midiOutputParameterValid")).toBool(), false);
+            QCOMPARE(row.value(QStringLiteral("midiOutputParameterValue")).toString(), malformedOutputMidiChannel.toString());
+            QCOMPARE(row.value(QStringLiteral("midiOutputSelectionState")).toString(), QStringLiteral("invalid"));
+        }
+        else if (scenario == "midi-input-non-midi-feedback")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+            const QVariantMap row = rows.value(0);
+            QCOMPARE(row.value(QStringLiteral("midiRouteResolved")).toBool(), true);
+            QCOMPARE(row.value(QStringLiteral("midiOutputRouteResolved")).toBool(), false);
+            QCOMPARE(row.value(QStringLiteral("midiMessageType")).toString(), QStringLiteral("controlChange"));
+            QCOMPARE(row.value(QStringLiteral("midiFeedbackLowerState")).toString(), QStringLiteral("unknown"));
+            QCOMPARE(row.value(QStringLiteral("midiFeedbackUpperState")).toString(), QStringLiteral("unknown"));
+            QCOMPARE(row.value(QStringLiteral("midiFeedbackMonitorState")).toString(), QStringLiteral("unknown"));
+        }
+        else if (scenario == "non-midi-input-midi-feedback")
+        {
+            QHash<int, QVariantMap> rows;
+            QTRY_VERIFY((rows = rowsByUniverse()).contains(0));
+            const QVariantMap row = rows.value(0);
+            QCOMPARE(row.value(QStringLiteral("midiRouteResolved")).toBool(), false);
+            QCOMPARE(row.value(QStringLiteral("midiOutputRouteResolved")).toBool(), true);
+            QCOMPARE(row.value(QStringLiteral("midiMessageType")).toString(), QStringLiteral("unknown"));
+            QCOMPARE(row.value(QStringLiteral("midiOutputSelectionState")).toString(), QStringLiteral("fixed"));
+            QCOMPARE(row.value(QStringLiteral("midiOutputSelectionLabel")).toString(), QStringLiteral("Channel 4"));
+        }
+        else if (scenario == "omni-packed-nonzero-subpage-label")
+        {
+            const quint32 omniPackedWithSubpage = (5u << 16) | (3u << 12) | 7u;
+            vc->createAndAddInputSource(alpha, 0, omniPackedWithSubpage);
+            QTRY_VERIFY(model->assignmentRows()->rowCount() >= 4);
+            QVariantMap omniRow;
+            for (int rowIndex = 0; rowIndex < model->assignmentRows()->rowCount(); ++rowIndex)
+            {
+                const QVariantMap row = model->assignmentRows()->index(rowIndex, 0).data().toMap();
+                if (row.value(QStringLiteral("sourceChannelRaw")).toUInt() == omniPackedWithSubpage)
+                {
+                    omniRow = row;
+                    break;
+                }
+            }
+            QVERIFY(!omniRow.isEmpty());
+            QCOMPARE(omniRow.value(QStringLiteral("midiSelectionState")).toString(), QStringLiteral("omni"));
+            QCOMPARE(omniRow.value(QStringLiteral("midiPackedChannelIndex")).toInt(), 3);
+            QVERIFY(omniRow.value(QStringLiteral("midiSelectionLabel")).toString().contains(QStringLiteral("assigned channel 4")));
+            QVERIFY(!omniRow.value(QStringLiteral("midiSelectionLabel")).toString().contains(QStringLiteral("assigned channel 1")));
+        }
+        else
+        {
+            QAbstractItemModel *rowsModel = model->assignmentRows();
+            QVERIFY(rowsModel != nullptr);
+            auto valuesRoleName = [&]() {
+                return QString::fromLatin1(rowsModel->roleNames().value(Qt::UserRole + 1));
+            };
+            QTRY_VERIFY(rowsModel->rowCount() > 0);
+            QCOMPARE(valuesRoleName(), QStringLiteral("values"));
+            QVERIFY(rowsModel->index(0, 0).data(Qt::UserRole + 1).canConvert<QVariantMap>());
+            model->setFilterText(QStringLiteral("No matching route token"));
+            QTRY_COMPARE(rowsModel->rowCount(), 0);
+            QCOMPARE(valuesRoleName(), QStringLiteral("values"));
+            model->setFilterText(QString());
+            QTRY_VERIFY(rowsModel->rowCount() > 0);
+            QCOMPARE(valuesRoleName(), QStringLiteral("values"));
+        }
+    }
+
+    QVERIFY(midiPlugin->setParameterCalls > 0);
+    const int writesBefore = midiPlugin->setParameterCalls + oscPlugin->setParameterCalls;
+    QTest::qWait(1100);
+    QCoreApplication::processEvents();
+    QCOMPARE(midiPlugin->setParameterCalls + oscPlugin->setParameterCalls, writesBefore);
+}
+
+void UpstreamIntegration_Test::vcOutlineAssignmentPaneLifecycle()
+{
+    VirtualConsole *vc = m_app->virtualConsole();
+    VCOutlineModel *model = vc->outlineModel();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+
+    const QString oldContext = contexts->currentContext();
+    const bool oldVisible = m_app->isVisible();
+    const QSize oldSize = m_app->size();
+    const bool oldEdit = vc->editMode();
+    const int oldMask = m_app->accessMask();
+    const QString oldFilter = model->filterText();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    const bool wasModified = m_app->doc()->isModified();
+    const int oldPagePin = vc->page(0)->PIN();
+    InputOutputMap *ioMap = m_app->doc()->inputOutputMap();
+    InputPatch *oldInputPatch = ioMap->inputPatch(0);
+    const QString oldInputPlugin = oldInputPatch ? oldInputPatch->pluginName() : QStringLiteral("None");
+    const QString oldInputUid = oldInputPatch ? oldInputPatch->inputUID() : QString();
+    const QString oldInputName = oldInputPatch ? oldInputPatch->inputName() : QString();
+    const quint32 oldInputLine = oldInputPatch ? oldInputPatch->input() : 0;
+    const QString oldInputProfile = oldInputPatch ? oldInputPatch->profileName() : QString();
+    const QMap<QString, QVariant> oldInputParameters =
+        oldInputPatch ? oldInputPatch->getPluginParameters() : QMap<QString, QVariant>();
+    OutputPatch *oldFeedbackPatch = ioMap->feedbackPatch(0);
+    const QString oldFeedbackPlugin = oldFeedbackPatch ? oldFeedbackPatch->pluginName() : QStringLiteral("None");
+    const QString oldFeedbackUid = oldFeedbackPatch ? oldFeedbackPatch->outputUID() : QString();
+    const QString oldFeedbackName = oldFeedbackPatch ? oldFeedbackPatch->outputName() : QString();
+    const quint32 oldFeedbackLine = oldFeedbackPatch ? oldFeedbackPatch->output() : 0;
+    const QMap<QString, QVariant> oldFeedbackParameters =
+        oldFeedbackPatch ? oldFeedbackPatch->getPluginParameters() : QMap<QString, QVariant>();
+
+    auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+    vc->addWidgetToMap(frame);
+    vc->page(0)->addWidgetToPageMap(frame);
+    const quint32 frameID = frame->id();
+    auto *button = new VCButton(m_app->doc(), frame);
+    vc->addWidgetToMap(button);
+    frame->addWidgetToPageMap(button);
+    button->setCaption(QString("Alpha Route with wrapped route identity ").repeated(8));
+    const quint32 buttonID = button->id();
+
+    const QString pluginName = QStringLiteral("Outline Lifecycle MIDI %1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    installOutlineRoutePlugin(m_app->doc(), pluginName);
+
+    const QString profileSuffix = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    auto *profile = new QLCInputProfile();
+    profile->setManufacturer(QStringLiteral("Tests"));
+    profile->setModel(QStringLiteral("MIDI Surface %1").arg(profileSuffix));
+    profile->setType(QLCInputProfile::MIDI);
+    auto *channel = new QLCInputChannel();
+    channel->setName(QStringLiteral("Fader 7"));
+    profile->insertChannel(6, channel);
+    QVERIFY(ioMap->addProfile(profile));
+    QVERIFY(ioMap->setInputPatch(0, pluginName, QString(), QString(), 0, profile->name()));
+    QVERIFY(ioMap->setOutputPatch(0, pluginName, QString(), QString(), 1, true));
+
+    const quint32 midiRawChannel = (3u << 12) | 6u;
+    vc->createAndAddInputSource(button, 0, midiRawChannel);
+    QSharedPointer<QLCInputSource> sharedAddress(new QLCInputSource());
+    sharedAddress->setID(1);
+    sharedAddress->setUniverse(0);
+    sharedAddress->setChannel(midiRawChannel);
+    button->addInputSource(sharedAddress);
+
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/VirtualConsole.qml"));
+    std::unique_ptr<QObject> object(component.create(qmlContext(m_app->rootObject())));
+    auto *console = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY2(console, qPrintable(component.errorString()));
+    console->setParentItem(m_app->rootObject());
+    console->setWidth(1280);
+    console->setHeight(820);
+    QVERIFY(console->setProperty("outlineOpen", true));
+
+    const auto cleanup = qScopeGuard([&]() {
+        model->setInspectionScopeKey(QString());
+        model->setFilterText(oldFilter);
+        model->setDiagnosticsActive(false);
+        vc->setSelectedWidgetIDs(oldSelection);
+        vc->setEditMode(oldEdit);
+        vc->page(0)->setPIN(oldPagePin);
+        m_app->setAccessMask(oldMask);
+        ioMap->setInputPatch(0, oldInputPlugin, oldInputUid, oldInputName, oldInputLine, oldInputProfile);
+        InputPatch *restoredInputPatch = ioMap->inputPatch(0);
+        if (restoredInputPatch != nullptr)
+        {
+            const QMap<QString, QVariant> currentInputParameters = restoredInputPatch->getPluginParameters();
+            for (auto it = currentInputParameters.begin(); it != currentInputParameters.end(); ++it)
+            {
+                if (!oldInputParameters.contains(it.key()))
+                    restoredInputPatch->setPluginParameter(it.key(), QVariant());
+            }
+            for (auto it = oldInputParameters.begin(); it != oldInputParameters.end(); ++it)
+                restoredInputPatch->setPluginParameter(it.key(), it.value());
+        }
+        ioMap->setOutputPatch(0, oldFeedbackPlugin, oldFeedbackUid, oldFeedbackName, oldFeedbackLine, true);
+        OutputPatch *restoredFeedbackPatch = ioMap->feedbackPatch(0);
+        if (restoredFeedbackPatch != nullptr)
+        {
+            const QMap<QString, QVariant> currentFeedbackParameters = restoredFeedbackPatch->getPluginParameters();
+            for (auto it = currentFeedbackParameters.begin(); it != currentFeedbackParameters.end(); ++it)
+            {
+                if (!oldFeedbackParameters.contains(it.key()))
+                    restoredFeedbackPatch->setPluginParameter(it.key(), QVariant());
+            }
+            for (auto it = oldFeedbackParameters.begin(); it != oldFeedbackParameters.end(); ++it)
+                restoredFeedbackPatch->setPluginParameter(it.key(), it.value());
+        }
+        vc->deleteVCWidgets({frameID});
+        contexts->switchToContext(oldContext);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (!wasModified)
+            m_app->doc()->resetModified();
+    });
+
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(1280, 820);
+    m_app->setAccessMask(oldMask | App::AC_VCEditing);
+    contexts->switchToContext("VC");
+    vc->setEditMode(false);
+    vc->setSelectedWidgetIDs({});
+    m_app->doc()->resetModified();
+
+    auto *outline = console->findChild<QQuickItem *>("vcOutlinePane");
+    auto *assignmentPane = console->findChild<QQuickItem *>("vcAssignmentSummaryPane");
+    auto *assignmentScroll = console->findChild<QQuickItem *>("vcAssignmentSummaryScroll");
+    auto *totalsText = console->findChild<QQuickItem *>("vcAssignmentSummaryTotals");
+    auto *search = console->findChild<QQuickItem *>("vcOutlineSearch");
+    auto *errorDialog = console->findChild<QObject *>("vcOutlineError");
+    QVERIFY(outline);
+    QVERIFY(assignmentPane);
+    QVERIFY(assignmentScroll);
+    QVERIFY(totalsText);
+    QVERIFY(search);
+    QVERIFY(errorDialog);
+    QTRY_VERIFY(outline->isVisible());
+    QTRY_VERIFY(assignmentPane->isVisible());
+    QTRY_VERIFY(outline->property("diagnosticsEligible").toBool());
+    model->setDiagnosticsActive(true);
+
+    const QString buttonKey = QStringLiteral("widget:%1").arg(buttonID);
+    QTRY_VERIFY(model->indexForKey(buttonKey).isValid());
+    QVERIFY(QMetaObject::invokeMethod(outline, "selectKey", Q_ARG(QVariant, buttonKey), Q_ARG(QVariant, 0)));
+    QTRY_COMPARE(model->inspectionScopeKey(), buttonKey);
+    QCOMPARE(vc->selectedWidgetIDs(), QVariantList());
+    QVERIFY(!m_app->doc()->isModified());
+
+    QVariantMap summary;
+    QTRY_VERIFY((summary = model->assignmentSummary()).value("inputBindingCount").toInt() > 0);
+    QCOMPARE(summary.value("assignedWidgetCount").toInt(), 1);
+    QCOMPARE(summary.value("ownAssignedWidgetCount").toInt(), 1);
+    QCOMPARE(summary.value("descendantAssignedWidgetCount").toInt(), 0);
+    QCOMPARE(summary.value("ownInputBindingCount").toInt(), 2);
+    QCOMPARE(summary.value("descendantInputBindingCount").toInt(), 0);
+
+    const QString totalsLabel = totalsText->property("text").toString();
+    QVERIFY(totalsLabel.contains("Widgets 1"));
+    QVERIFY(totalsLabel.contains("Inputs 2"));
+    QVERIFY(assignmentPane->width() > 0);
+
+    const auto textItemContaining = [](QQuickItem *root, const QString &needle) -> QQuickItem * {
+        if (root == nullptr)
+            return nullptr;
+        QList<QQuickItem *> pending{root};
+        while (!pending.isEmpty())
+        {
+            QQuickItem *candidate = pending.takeLast();
+            if (candidate->property("text").isValid() &&
+                candidate->property("text").toString().contains(needle))
+                return candidate;
+            const auto children = candidate->childItems();
+            for (QQuickItem *child : children)
+                pending.append(child);
+        }
+        return nullptr;
+    };
+
+    auto rowForUniverse = [&](int universe) {
+        QVariantMap row;
+        QAbstractItemModel *rowsModel = model->assignmentRows();
+        for (int index = 0; index < rowsModel->rowCount(); ++index)
+        {
+            const QVariantMap candidate = rowsModel->index(index, 0).data().toMap();
+            if (candidate.value(QStringLiteral("sourceUniverse")).toInt() == universe)
+            {
+                row = candidate;
+                break;
+            }
+        }
+        return row;
+    };
+
+    QVariantMap midiRow;
+    QTRY_VERIFY(!(midiRow = rowForUniverse(0)).isEmpty());
+    QVERIFY(!midiRow.value(QStringLiteral("inputDeviceName")).toString().isEmpty());
+    QCOMPARE(midiRow.value(QStringLiteral("inputPlugin")).toString(), pluginName);
+    QCOMPARE(midiRow.value(QStringLiteral("deviceGroupStart")).toBool(), true);
+    QVERIFY(!midiRow.value(QStringLiteral("deviceGroupLabel")).toString().isEmpty());
+    QVERIFY(midiRow.value(QStringLiteral("sharedAssignment")).toBool());
+    QCOMPARE(midiRow.value(QStringLiteral("sharedAssignmentLabel")).toString(),
+             QStringLiteral("Shared physical input address"));
+
+    QQuickItem *groupHeadingText = nullptr;
+    QTRY_VERIFY((groupHeadingText = textItemContaining(
+                    assignmentPane, midiRow.value(QStringLiteral("deviceGroupLabel")).toString())) != nullptr);
+    QVERIFY(groupHeadingText->height() > 0);
+
+    QQuickItem *widgetPathText = nullptr;
+    QTRY_VERIFY((widgetPathText = textItemContaining(
+                    assignmentPane, midiRow.value(QStringLiteral("widgetPath")).toString())) != nullptr);
+    QVERIFY(widgetPathText->height() > 0);
+
+    const auto findVisibleShowButton = [&](const QString &requiredInputUid) -> QQuickItem * {
+        QList<QQuickItem *> pending{assignmentPane};
+        while (!pending.isEmpty())
+        {
+            QQuickItem *candidate = pending.takeLast();
+            if (candidate->objectName() == QStringLiteral("vcAssignmentShowWidget") &&
+                candidate->isVisible() &&
+                candidate->width() > 0 &&
+                candidate->height() > 0 &&
+                candidate->window() == m_app.get())
+            {
+                const QString candidateDetails = candidate->property("detailsText").toString();
+                if (candidateDetails.contains(QStringLiteral("UID %1").arg(requiredInputUid)))
+                    return candidate;
+            }
+            const auto children = candidate->childItems();
+            for (QQuickItem *child : children)
+                pending.append(child);
+        }
+        return nullptr;
+    };
+
+    QQuickItem *showButton = nullptr;
+    QTRY_VERIFY((showButton = findVisibleShowButton(midiRow.value(QStringLiteral("inputUID")).toString())) != nullptr);
+    const QString detailsText = showButton->property("detailsText").toString();
+    QVERIFY(detailsText.contains(QStringLiteral("Input route:")));
+    QVERIFY(detailsText.contains(QStringLiteral("UID %1").arg(midiRow.value(QStringLiteral("inputUID")).toString())));
+    QVERIFY(detailsText.contains(QStringLiteral("Shared physical input address")));
+    QVERIFY(detailsText.contains(midiRow.value(QStringLiteral("widgetPath")).toString()));
+    QVERIFY(detailsText.contains(midiRow.value(QStringLiteral("midiMessageLabel")).toString()));
+    QVERIFY(detailsText.contains(midiRow.value(QStringLiteral("midiSelectionLabel")).toString()));
+    QVERIFY(detailsText.contains(midiRow.value(QStringLiteral("midiOutputSelectionLabel")).toString()));
+    QVERIFY(detailsText.contains(midiRow.value(QStringLiteral("midiFeedbackLowerLabel")).toString()));
+    QVERIFY(detailsText.contains(midiRow.value(QStringLiteral("midiFeedbackUpperLabel")).toString()));
+    QVERIFY(detailsText.contains(midiRow.value(QStringLiteral("midiFeedbackMonitorLabel")).toString()));
+
+    const auto focusAncestorByObjectName = [](QQuickItem *item, const QString &objectName) -> QQuickItem * {
+        QQuickItem *current = item;
+        while (current != nullptr)
+        {
+            if (current->objectName() == objectName)
+                return current;
+            current = current->parentItem();
+        }
+        return nullptr;
+    };
+    const auto tabStopsInSubtree = [](QQuickItem *root) -> int {
+        if (root == nullptr)
+            return 0;
+        int count = 0;
+        QList<QQuickItem *> pending{root};
+        while (!pending.isEmpty())
+        {
+            QQuickItem *candidate = pending.takeLast();
+            if (candidate->property("activeFocusOnTab").toBool() &&
+                candidate->isVisible() &&
+                candidate->width() > 0 &&
+                candidate->height() > 0)
+            {
+                ++count;
+            }
+            const auto children = candidate->childItems();
+            for (QQuickItem *child : children)
+                pending.append(child);
+        }
+        return count;
+    };
+    const int maxTabSteps = qMax(8, tabStopsInSubtree(console) + 4);
+    search->forceActiveFocus();
+    QTRY_VERIFY(search->hasActiveFocus());
+
+    QQuickItem *focusedAssignmentRow = nullptr;
+    for (int step = 0; step < maxTabSteps && focusedAssignmentRow == nullptr; ++step)
+    {
+        QTest::keyClick(m_app.get(), Qt::Key_Tab);
+        QCoreApplication::processEvents();
+        QQuickItem *activeFocusItem = m_app->activeFocusItem();
+        focusedAssignmentRow = focusAncestorByObjectName(activeFocusItem, QStringLiteral("vcAssignmentTableRow"));
+    }
+    QVERIFY2(focusedAssignmentRow != nullptr, "Tab traversal from search did not reach assignment row focus");
+    QTRY_VERIFY(focusedAssignmentRow->property("activeFocus").toBool());
+    const QString focusedDetails = focusedAssignmentRow->property("detailsText").toString();
+    QVERIFY(focusedDetails.contains(QStringLiteral("Widget path:")));
+    QVERIFY(focusedDetails.contains(midiRow.value(QStringLiteral("widgetPath")).toString()));
+    QVERIFY(focusedDetails.contains(midiRow.value(QStringLiteral("midiMessageLabel")).toString()));
+    QVERIFY(focusedDetails.contains(midiRow.value(QStringLiteral("midiSelectionLabel")).toString()));
+
+    QQuickItem *focusedShowButton = nullptr;
+    for (int step = 0; step < maxTabSteps && focusedShowButton == nullptr; ++step)
+    {
+        QTest::keyClick(m_app.get(), Qt::Key_Tab);
+        QCoreApplication::processEvents();
+        focusedShowButton = focusAncestorByObjectName(
+            m_app->activeFocusItem(), QStringLiteral("vcAssignmentShowWidget"));
+    }
+    QVERIFY2(focusedShowButton != nullptr, "Tab traversal from assignment row did not reach Show button");
+    QVERIFY(focusedShowButton->property("activeFocusOnTab").toBool());
+
+    bool searchReachedByBacktab = false;
+    for (int step = 0; step < maxTabSteps; ++step)
+    {
+        QTest::keyClick(m_app.get(), Qt::Key_Backtab, Qt::ShiftModifier);
+        QCoreApplication::processEvents();
+        if (search->hasActiveFocus())
+        {
+            searchReachedByBacktab = true;
+            break;
+        }
+    }
+    QVERIFY2(searchReachedByBacktab, "Shift+Tab traversal from table did not return focus to search");
+
+    QVERIFY(search->setProperty("text", "Alpha Route"));
+    QTRY_COMPARE(model->filterText(), QString("Alpha Route"));
+    QTRY_COMPARE(model->assignmentRows()->rowCount(), 2);
+
+    QVERIFY(assignmentScroll->isVisible());
+    const QVariantMap rowBeforeIdlePoll = rowForUniverse(0);
+    QVERIFY(!rowBeforeIdlePoll.value(QStringLiteral("assignmentKey")).toString().isEmpty());
+    QTest::qWait(1200);
+    QCoreApplication::processEvents();
+    QCOMPARE(rowForUniverse(0).value(QStringLiteral("assignmentKey")).toString(),
+             rowBeforeIdlePoll.value(QStringLiteral("assignmentKey")).toString());
+
+    vc->page(0)->setPIN(1234);
+    QCOMPARE(showButton->property("text").toString(), QStringLiteral("Show"));
+
+    QQuickItem *showWidgetButton = nullptr;
+    QTRY_VERIFY((showWidgetButton = findVisibleShowButton(rowBeforeIdlePoll.value(QStringLiteral("inputUID")).toString())) != nullptr);
+    QVERIFY(showWidgetButton != nullptr);
+    QVERIFY(showWidgetButton->window() == m_app.get());
+
+    const QPointF buttonCenterScene = showWidgetButton->mapToScene(
+        QPointF(showWidgetButton->width() / 2.0, showWidgetButton->height() / 2.0));
+    QPointF buttonCenterInScroll = assignmentScroll->mapFromScene(buttonCenterScene);
+    if (buttonCenterInScroll.y() < 0 || buttonCenterInScroll.y() > assignmentScroll->height())
+    {
+        const qreal targetY = assignmentScroll->property("contentY").toReal() +
+                              buttonCenterInScroll.y() -
+                              (assignmentScroll->height() / 2.0);
+        assignmentScroll->setProperty("contentY", qMax<qreal>(0.0, targetY));
+        QCoreApplication::processEvents();
+        const QPointF recenteredScene = showWidgetButton->mapToScene(
+            QPointF(showWidgetButton->width() / 2.0, showWidgetButton->height() / 2.0));
+        buttonCenterInScroll = assignmentScroll->mapFromScene(recenteredScene);
+    }
+
+    const QPointF localClickF = showWidgetButton->mapToItem(
+        m_app->rootObject(), QPointF(showWidgetButton->width() / 2.0, showWidgetButton->height() / 2.0));
+    const QPoint localClick = localClickF.toPoint();
+    QVERIFY(localClick.x() >= 0 && localClick.x() < m_app->width());
+    QVERIFY(localClick.y() >= 0 && localClick.y() < m_app->height());
+    QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, localClick);
+    QTRY_COMPARE(search->property("text").toString(), QString());
+    QTRY_VERIFY(errorDialog->property("visible").toBool());
+    QVERIFY(!errorDialog->property("message").toString().isEmpty());
+    QMetaObject::invokeMethod(errorDialog, "close");
+    vc->page(0)->setPIN(0);
+
+    const QString uidBeforeStop = rowForUniverse(0).value(QStringLiteral("inputUID")).toString();
+    QVERIFY(!uidBeforeStop.isEmpty());
+    m_app->setAccessMask(oldMask & ~App::AC_VCEditing);
+    model->setDiagnosticsActive(false);
+    QVERIFY(ioMap->setInputPatch(0, pluginName, QString(), QString(), 1, profile->name()));
+    QTest::qWait(1200);
+    QCoreApplication::processEvents();
+    QCOMPARE(rowForUniverse(0).value(QStringLiteral("inputUID")).toString(), uidBeforeStop);
+
+    m_app->setAccessMask(oldMask);
+    QTRY_VERIFY(outline->property("diagnosticsEligible").toBool());
+    model->setDiagnosticsActive(true);
+    QTRY_VERIFY(rowForUniverse(0).value(QStringLiteral("inputUID")).toString() != uidBeforeStop);
+
+    QVERIFY(console->setProperty("outlineOpen", false));
+    QTRY_VERIFY(!outline->property("diagnosticsEligible").toBool());
+    QVERIFY(console->setProperty("outlineOpen", true));
+    QTRY_VERIFY(outline->property("diagnosticsEligible").toBool());
+
+    const QString artifactsDir = qEnvironmentVariable("MINIME_ARTIFACTS_DIR");
+    if (!artifactsDir.isEmpty())
+    {
+        QDir().mkpath(artifactsDir);
+        const QString screenshotPath = artifactsDir + "/vc-assignment-summary-pane.png";
+        const QImage image = m_app->grabWindow();
+        image.save(screenshotPath);
+    }
+}
+
+void UpstreamIntegration_Test::vcOutlineAssignmentSummaryClipping_data()
+{
+    QTest::addColumn<int>("appWidth");
+    QTest::addColumn<int>("appHeight");
+    QTest::addColumn<int>("outlineWidth");
+    QTest::addColumn<bool>("expectHorizontalOverflow");
+    QTest::newRow("default-pane") << 1656 << 970 << 226 << true;
+    QTest::newRow("narrow-overflow-pane") << 1656 << 970 << 150 << true;
+    QTest::newRow("wide-pane") << 1800 << 970 << 400 << false;
+}
+
+void UpstreamIntegration_Test::vcOutlineAssignmentSummaryClipping()
+{
+    QFETCH(int, appWidth);
+    QFETCH(int, appHeight);
+    QFETCH(int, outlineWidth);
+    QFETCH(bool, expectHorizontalOverflow);
+
+    VirtualConsole *vc = m_app->virtualConsole();
+    VCOutlineModel *model = vc->outlineModel();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+
+    const QString oldContext = contexts->currentContext();
+    const bool oldVisible = m_app->isVisible();
+    const QSize oldSize = m_app->size();
+    const bool oldEdit = vc->editMode();
+    const int oldMask = m_app->accessMask();
+    const QString oldFilter = model->filterText();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    const bool wasModified = m_app->doc()->isModified();
+
+    auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+    vc->addWidgetToMap(frame);
+    vc->page(0)->addWidgetToPageMap(frame);
+    frame->setMultiPageMode(true);
+    frame->setTotalPagesNumber(2);
+    const quint32 frameID = frame->id();
+    auto *first = new VCButton(m_app->doc(), frame);
+    auto *second = new VCButton(m_app->doc(), frame);
+    vc->addWidgetToMap(first);
+    vc->addWidgetToMap(second);
+    frame->addWidgetToPageMap(first);
+    frame->addWidgetToPageMap(second);
+    first->setPage(0);
+    second->setPage(1);
+    first->setCaption(QStringLiteral("EXP-Frau-Button-A"));
+    second->setCaption(QStringLiteral("EXP-Frau-Button-B"));
+
+    const auto cleanup = qScopeGuard([&]() {
+        model->setInspectionScopeKey(QString());
+        model->setFilterText(oldFilter);
+        model->setDiagnosticsActive(false);
+        vc->setSelectedWidgetIDs(oldSelection);
+        vc->setEditMode(oldEdit);
+        vc->deleteVCWidgets({frameID});
+        contexts->switchToContext(oldContext);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (!wasModified)
+            m_app->doc()->resetModified();
+    });
+
+    InputOutputMap *ioMap = m_app->doc()->inputOutputMap();
+    const QString pluginName = QStringLiteral("Outline Clip MIDI %1")
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    installOutlineRoutePlugin(m_app->doc(), pluginName);
+
+    auto *profile = new QLCInputProfile();
+    profile->setManufacturer(QStringLiteral("Tests"));
+    profile->setModel(QStringLiteral("Clipping Surface %1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces)));
+    profile->setType(QLCInputProfile::MIDI);
+    QVERIFY(ioMap->addProfile(profile));
+
+    QVERIFY(ioMap->setInputPatch(0, pluginName, QString(), QString(), 0, profile->name()));
+    QVERIFY(ioMap->setOutputPatch(0, pluginName, QString(), QString(), 1, true));
+    InputPatch *inputPatch = ioMap->inputPatch(0);
+    QVERIFY(inputPatch != nullptr);
+    inputPatch->setPluginParameter(QStringLiteral("midichannel"), QVariant(16));
+    OutputPatch *feedbackPatch = ioMap->feedbackPatch(0);
+    QVERIFY(feedbackPatch != nullptr);
+    feedbackPatch->setPluginParameter(QStringLiteral("midichannel"), QVariant(2));
+
+    for (quint32 control = 7; control < 28; ++control)
+    {
+        const quint32 packed = (3u << 12) | control;
+        vc->createAndAddInputSource(second, 0, packed);
+    }
+
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/VirtualConsole.qml"));
+    std::unique_ptr<QObject> object(component.create(qmlContext(m_app->rootObject())));
+    auto *console = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY2(console, qPrintable(component.errorString()));
+    console->setParentItem(m_app->rootObject());
+    console->setWidth(appWidth);
+    console->setHeight(appHeight);
+    QVERIFY(console->setProperty("outlineOpen", true));
+
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(appWidth, appHeight);
+    m_app->setAccessMask(oldMask | App::AC_VCEditing);
+    contexts->switchToContext("VC");
+    vc->setEditMode(false);
+    vc->setSelectedWidgetIDs({});
+    m_app->doc()->resetModified();
+
+    auto *outline = console->findChild<QQuickItem *>("vcOutlinePane");
+    auto *assignmentPane = console->findChild<QQuickItem *>("vcAssignmentSummaryPane");
+    auto *assignmentScroll = console->findChild<QQuickItem *>("vcAssignmentSummaryScroll");
+    auto *assignmentRowsColumn = console->findChild<QQuickItem *>("vcAssignmentRowsColumn");
+    auto *search = console->findChild<QQuickItem *>("vcOutlineSearch");
+    auto *scrollBar = console->findChild<QQuickItem *>("vcAssignmentSummaryScrollBar");
+    auto *horizontalScrollBar = console->findChild<QQuickItem *>("vcAssignmentSummaryScrollBarHorizontal");
+    auto *errorDialog = console->findChild<QObject *>("vcOutlineError");
+    auto *headerWidget = console->findChild<QQuickItem *>("vcAssignmentHeaderWidget");
+    auto *headerInput = console->findChild<QQuickItem *>("vcAssignmentHeaderInput");
+    auto *headerFeedback = console->findChild<QQuickItem *>("vcAssignmentHeaderFeedback");
+    QVERIFY(outline);
+    QVERIFY(assignmentPane);
+    QVERIFY(assignmentScroll);
+    QVERIFY(assignmentRowsColumn);
+    QVERIFY(search);
+    QVERIFY(scrollBar);
+    QVERIFY(errorDialog);
+    QVERIFY(headerWidget);
+    QVERIFY(headerInput);
+    QVERIFY(headerFeedback);
+    QTRY_VERIFY(outline->isVisible());
+    QTRY_VERIFY(assignmentPane->isVisible());
+    if (outlineWidth > 0)
+    {
+        QVERIFY(console->setProperty("outlineWidth", outlineWidth));
+        QCoreApplication::processEvents();
+    }
+
+    const QString leafKey = QStringLiteral("widget:%1").arg(second->id());
+    model->setDiagnosticsActive(true);
+    QVERIFY(search->setProperty("text", QStringLiteral("Button-B")));
+    QTRY_COMPARE(model->filterText(), QStringLiteral("Button-B"));
+    QTRY_VERIFY(model->indexForKey(leafKey).isValid());
+    QVERIFY(QMetaObject::invokeMethod(outline, "selectKey", Q_ARG(QVariant, leafKey), Q_ARG(QVariant, 0)));
+    QTRY_COMPARE(model->inspectionScopeKey(), leafKey);
+    QTRY_VERIFY(model->assignmentSummary().value("inputBindingCount").toInt() > 0);
+
+    QTRY_VERIFY(model->assignmentRows()->rowCount() > 0);
+
+    const auto itemWithObjectName = [](QQuickItem *root, const QString &targetName) -> QQuickItem * {
+        if (root == nullptr)
+            return nullptr;
+        QList<QQuickItem *> pending{root};
+        while (!pending.isEmpty())
+        {
+            QQuickItem *candidate = pending.takeLast();
+            if (candidate->property("objectName").toString() == targetName)
+                return candidate;
+            const auto children = candidate->childItems();
+            for (QQuickItem *child : children)
+                pending.append(child);
+        }
+        return nullptr;
+    };
+    const auto countItemsWithObjectName = [](QQuickItem *root, const QString &targetName) -> int {
+        if (root == nullptr)
+            return 0;
+        int count = 0;
+        QList<QQuickItem *> pending{root};
+        while (!pending.isEmpty())
+        {
+            QQuickItem *candidate = pending.takeLast();
+            if (candidate->property("objectName").toString() == targetName)
+                ++count;
+            const auto children = candidate->childItems();
+            for (QQuickItem *child : children)
+                pending.append(child);
+        }
+        return count;
+    };
+
+    QTRY_VERIFY(assignmentScroll->isVisible());
+    QTRY_COMPARE(countItemsWithObjectName(assignmentPane, QStringLiteral("vcAssignmentSummaryRow")),
+                 model->assignmentRows()->rowCount());
+    const QVariantMap firstRow = model->assignmentRows()->index(0, 0).data().toMap();
+    QVERIFY(!firstRow.isEmpty());
+
+    QQuickItem *widgetCell = nullptr;
+    QTRY_VERIFY((widgetCell = itemWithObjectName(assignmentPane, QStringLiteral("vcAssignmentCellWidget"))) != nullptr);
+    QVERIFY(widgetCell->property("text").toString().contains(QStringLiteral("Button-B")));
+
+    QQuickItem *inputCell = nullptr;
+    QTRY_VERIFY((inputCell = itemWithObjectName(assignmentPane, QStringLiteral("vcAssignmentCellInput"))) != nullptr);
+    QVERIFY(!inputCell->property("text").toString().isEmpty());
+
+    QQuickItem *feedbackCell = nullptr;
+    QTRY_VERIFY((feedbackCell = itemWithObjectName(assignmentPane, QStringLiteral("vcAssignmentCellFeedback"))) != nullptr);
+    QVERIFY(!feedbackCell->property("text").toString().isEmpty());
+
+    QQuickItem *showButton = nullptr;
+    QTRY_VERIFY((showButton = itemWithObjectName(assignmentPane, QStringLiteral("vcAssignmentShowWidget"))) != nullptr);
+    QVERIFY(showButton->property("text").toString() == QStringLiteral("Show"));
+    QVERIFY(showButton->property("activeFocusOnTab").toBool());
+    const QString detailsText = showButton->property("detailsText").toString();
+    QVERIFY(detailsText.contains(QStringLiteral("Source raw:")));
+    QVERIFY(detailsText.contains(QStringLiteral("Route parameters: input")));
+    QVERIFY(detailsText.contains(QStringLiteral("Widget path:")));
+    QVERIFY(detailsText.contains(QStringLiteral("Input labels:")));
+    QVERIFY(detailsText.contains(QStringLiteral("Output labels:")));
+    QVERIFY(detailsText.contains(QStringLiteral("Feedback labels:")));
+
+    QVariantMap detailsRow;
+    for (int rowIndex = 0; rowIndex < model->assignmentRows()->rowCount(); ++rowIndex)
+    {
+        const QVariantMap candidate = model->assignmentRows()->index(rowIndex, 0).data().toMap();
+        const QString uid = candidate.value(QStringLiteral("inputUID")).toString();
+        const QString channel = QString::number(candidate.value(QStringLiteral("sourceChannel")).toInt());
+        const QString packed = QString::number(candidate.value(QStringLiteral("sourceChannelRaw")).toInt());
+        if (!uid.isEmpty() &&
+            detailsText.contains(QStringLiteral("UID %1").arg(uid)) &&
+            detailsText.contains(QStringLiteral("channel %1").arg(channel)) &&
+            detailsText.contains(QStringLiteral("packed %1").arg(packed)))
+        {
+            detailsRow = candidate;
+            break;
+        }
+    }
+    QVERIFY(!detailsRow.isEmpty());
+    QVERIFY(detailsText.contains(detailsRow.value(QStringLiteral("widgetPath")).toString()));
+    QVERIFY(detailsText.contains(detailsRow.value(QStringLiteral("midiMessageLabel")).toString()));
+    QVERIFY(detailsText.contains(detailsRow.value(QStringLiteral("midiSelectionLabel")).toString()));
+    QVERIFY(detailsText.contains(detailsRow.value(QStringLiteral("midiOutputSelectionLabel")).toString()));
+    QVERIFY(detailsText.contains(detailsRow.value(QStringLiteral("midiFeedbackLowerLabel")).toString()));
+    QVERIFY(detailsText.contains(detailsRow.value(QStringLiteral("midiFeedbackUpperLabel")).toString()));
+    QVERIFY(detailsText.contains(detailsRow.value(QStringLiteral("midiFeedbackMonitorLabel")).toString()));
+
+    QCOMPARE(headerWidget->property("text").toString(), QStringLiteral("Widget"));
+    QCOMPARE(headerInput->property("text").toString(), QStringLiteral("Input"));
+    QCOMPARE(headerFeedback->property("text").toString(), QStringLiteral("Feedback"));
+    QCOMPARE(headerWidget->property("elide").toInt(), static_cast<int>(Qt::ElideRight));
+    QCOMPARE(headerInput->property("elide").toInt(), static_cast<int>(Qt::ElideRight));
+    QCOMPARE(headerFeedback->property("elide").toInt(), static_cast<int>(Qt::ElideRight));
+
+    const auto horizontalBounds = [&](QQuickItem *item) {
+        const QPointF left = item->mapToItem(assignmentScroll, QPointF(0, 0));
+        return QPair<qreal, qreal>(left.x(), left.x() + item->width());
+    };
+
+    const auto widgetHeaderBounds = horizontalBounds(headerWidget);
+    const auto inputHeaderBounds = horizontalBounds(headerInput);
+    const auto feedbackHeaderBounds = horizontalBounds(headerFeedback);
+    const auto widgetCellBounds = horizontalBounds(widgetCell);
+    const auto inputCellBounds = horizontalBounds(inputCell);
+    const auto feedbackCellBounds = horizontalBounds(feedbackCell);
+    const qreal tolerance = 1.0;
+    QVERIFY(std::abs(widgetHeaderBounds.first - widgetCellBounds.first) <= tolerance);
+    QVERIFY(std::abs(inputHeaderBounds.first - inputCellBounds.first) <= tolerance);
+    QVERIFY(std::abs(feedbackHeaderBounds.first - feedbackCellBounds.first) <= tolerance);
+    QVERIFY(std::abs((widgetHeaderBounds.second - widgetHeaderBounds.first) -
+                     (widgetCellBounds.second - widgetCellBounds.first)) <= tolerance);
+    QVERIFY(std::abs((inputHeaderBounds.second - inputHeaderBounds.first) -
+                     (inputCellBounds.second - inputCellBounds.first)) <= tolerance);
+    QVERIFY(std::abs((feedbackHeaderBounds.second - feedbackHeaderBounds.first) -
+                     (feedbackCellBounds.second - feedbackCellBounds.first)) <= tolerance);
+
+    QVERIFY(headerWidget->width() >= (headerWidget->property("implicitWidth").toReal() * 0.8));
+    QVERIFY(headerInput->width() >= (headerInput->property("implicitWidth").toReal() * 0.8));
+    QVERIFY(headerFeedback->width() >= (headerFeedback->property("implicitWidth").toReal() * 0.8));
+
+    QTRY_VERIFY(scrollBar->isVisible());
+
+    qreal viewportWidth = assignmentScroll->width();
+    qreal contentWidth = assignmentScroll->property("contentWidth").toReal();
+    const qreal viewportHeight = assignmentScroll->height();
+    qreal contentHeight = assignmentScroll->property("contentHeight").toReal();
+    if (outlineWidth >= 0)
+    {
+        QVERIFY(console->setProperty("outlineWidth", outlineWidth));
+        QCoreApplication::processEvents();
+    }
+
+    viewportWidth = assignmentScroll->width();
+    contentWidth = assignmentScroll->property("contentWidth").toReal();
+    contentHeight = assignmentScroll->property("contentHeight").toReal();
+    if (expectHorizontalOverflow)
+    {
+        viewportWidth = assignmentScroll->width();
+        contentWidth = assignmentScroll->property("contentWidth").toReal();
+        contentHeight = assignmentScroll->property("contentHeight").toReal();
+        const QString overflowMsg = QStringLiteral("forced outline %1, actual outline %2, viewport %3, content %4")
+                                        .arg(outlineWidth)
+                                        .arg(outline->width())
+                                        .arg(viewportWidth)
+                                        .arg(contentWidth);
+        QVERIFY2(contentWidth > (viewportWidth + 0.5), qPrintable(overflowMsg));
+        QVERIFY2(contentHeight > (viewportHeight + 0.5),
+                 qPrintable(QStringLiteral("vertical overflow missing: viewport=%1 content=%2")
+                                .arg(viewportHeight)
+                                .arg(contentHeight)));
+        QVERIFY(horizontalScrollBar != nullptr);
+        QTRY_VERIFY(horizontalScrollBar->isVisible());
+        QVERIFY(horizontalScrollBar->property("position").isValid());
+        assignmentScroll->setProperty("contentX", 0.0);
+        QCoreApplication::processEvents();
+        const qreal startX = assignmentScroll->property("contentX").toReal();
+        QVERIFY(horizontalScrollBar->setProperty("position", 1.0));
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(assignmentScroll->property("contentX").toReal() > startX + 0.5);
+
+        assignmentScroll->setFocus(true);
+        const qreal beforeKeyX = assignmentScroll->property("contentX").toReal();
+        QTest::keyClick(m_app.get(), Qt::Key_Right);
+        QCoreApplication::processEvents();
+        const qreal afterKeyX = assignmentScroll->property("contentX").toReal();
+        QVERIFY(afterKeyX >= beforeKeyX - 0.5);
+    }
+    else if (horizontalScrollBar != nullptr)
+    {
+        QVERIFY2(contentWidth <= (viewportWidth + 0.5),
+                 qPrintable(QStringLiteral("unexpected horizontal overflow: viewportWidth=%1 contentWidth=%2 maxX=%3")
+                                .arg(viewportWidth)
+                                .arg(contentWidth)
+                                .arg(qMax<qreal>(0.0, contentWidth - viewportWidth))));
+    }
+
+    const qreal maxX = qMax<qreal>(0.0, contentWidth - viewportWidth);
+    assignmentScroll->setProperty("contentX", maxX);
+    const qreal maxY = qMax<qreal>(0.0, contentHeight - viewportHeight);
+    assignmentScroll->setProperty("contentY", maxY);
+    QCoreApplication::processEvents();
+
+    const auto scrollBarBounds = horizontalBounds(scrollBar);
+    const auto showBounds = horizontalBounds(showButton);
+    const QString showBarMsg = QStringLiteral("showRight=%1 barLeft=%2 maxX=%3 contentWidth=%4 viewportWidth=%5")
+                                   .arg(showBounds.second)
+                                   .arg(scrollBarBounds.first)
+                                   .arg(maxX)
+                                   .arg(contentWidth)
+                                   .arg(viewportWidth);
+    const auto verticalBounds = [&](QQuickItem *item) {
+        const QPointF top = item->mapToItem(assignmentScroll, QPointF(0, 0));
+        return QPair<qreal, qreal>(top.y(), top.y() + item->height());
+    };
+    const auto ancestorByName = [](QQuickItem *item, const QString &targetName) -> QQuickItem * {
+        QQuickItem *current = item;
+        while (current != nullptr)
+        {
+            if (current->objectName() == targetName)
+                return current;
+            current = current->parentItem();
+        }
+        return nullptr;
+    };
+
+    if (expectHorizontalOverflow)
+    {
+        const auto horizontalBarBounds = verticalBounds(horizontalScrollBar);
+        QQuickItem *bottomShowButton = nullptr;
+        qreal bestBottom = -1.0;
+        QList<QQuickItem *> pending{assignmentPane};
+        while (!pending.isEmpty())
+        {
+            QQuickItem *candidate = pending.takeLast();
+            if (candidate->objectName() == QStringLiteral("vcAssignmentShowWidget") &&
+                candidate->isVisible() &&
+                candidate->width() > 0 &&
+                candidate->height() > 0)
+            {
+                const auto candidateBounds = verticalBounds(candidate);
+                const bool intersectsVisiblePane = candidateBounds.second > 0.0 &&
+                                                   candidateBounds.first < assignmentScroll->height();
+                if (intersectsVisiblePane &&
+                    candidateBounds.second > bestBottom)
+                {
+                    bestBottom = candidateBounds.second;
+                    bottomShowButton = candidate;
+                }
+            }
+            const auto children = candidate->childItems();
+            for (QQuickItem *child : children)
+                pending.append(child);
+        }
+        QVERIFY(bottomShowButton != nullptr);
+        QQuickItem *bottomRow = ancestorByName(bottomShowButton, QStringLiteral("vcAssignmentTableRow"));
+        QVERIFY(bottomRow != nullptr);
+        const auto bottomRowBounds = verticalBounds(bottomRow);
+        const auto bottomShowBounds = verticalBounds(bottomShowButton);
+        const auto bottomShowHorizontal = horizontalBounds(bottomShowButton);
+        qDebug() << "ASSIGNMENT_OVERFLOW_GEOMETRY"
+                 << "outline" << outline->width()
+                 << "viewport" << viewportWidth
+                 << "content" << contentWidth
+                 << "maxX" << maxX
+                 << "maxY" << maxY
+                 << "showRight" << bottomShowHorizontal.second
+                 << "barLeft" << scrollBarBounds.first
+                 << "rowBottom" << bottomRowBounds.second
+                 << "showBottom" << bottomShowBounds.second
+                 << "hBarTop" << horizontalBarBounds.first;
+
+        QVERIFY(bottomShowBounds.first >= bottomRowBounds.first - tolerance);
+        QVERIFY(bottomShowBounds.second <= bottomRowBounds.second + tolerance);
+        QVERIFY(bottomShowBounds.second <= horizontalBarBounds.first + tolerance);
+        QVERIFY(bottomShowHorizontal.second <= scrollBarBounds.first + tolerance);
+
+        vc->page(0)->setPIN(1234);
+        const QPointF localClickF = bottomShowButton->mapToItem(
+            m_app->rootObject(), QPointF(bottomShowButton->width() / 2.0, bottomShowButton->height() / 2.0));
+        const QPoint localClick = localClickF.toPoint();
+        QVERIFY(localClick.x() >= 0 && localClick.x() < m_app->width());
+        QVERIFY(localClick.y() >= 0 && localClick.y() < m_app->height());
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, localClick);
+        QTRY_VERIFY(errorDialog->property("visible").toBool());
+        QVERIFY(!errorDialog->property("message").toString().isEmpty());
+        QMetaObject::invokeMethod(errorDialog, "close");
+        vc->page(0)->setPIN(0);
+    }
+    QVERIFY2(showBounds.second <= (scrollBarBounds.first + tolerance), qPrintable(showBarMsg));
+
+    const auto widgetHeaderAtMax = horizontalBounds(headerWidget);
+    const auto inputHeaderAtMax = horizontalBounds(headerInput);
+    const auto feedbackHeaderAtMax = horizontalBounds(headerFeedback);
+    const auto widgetCellAtMax = horizontalBounds(widgetCell);
+    const auto inputCellAtMax = horizontalBounds(inputCell);
+    const auto feedbackCellAtMax = horizontalBounds(feedbackCell);
+    QVERIFY(std::abs(widgetHeaderAtMax.first - widgetCellAtMax.first) <= tolerance);
+    QVERIFY(std::abs(inputHeaderAtMax.first - inputCellAtMax.first) <= tolerance);
+    QVERIFY(std::abs(feedbackHeaderAtMax.first - feedbackCellAtMax.first) <= tolerance);
 }
 
 void UpstreamIntegration_Test::vcPanesCoexist_data()

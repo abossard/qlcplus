@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 import QtQml.Models
+import org.qlcplus.classes 1.0
 
 import "."
 
@@ -18,6 +19,10 @@ FocusScope {
     property bool dragging: false
     property bool dragCanceled: false
     property string dropHint: ""
+    readonly property bool diagnosticsEligible: visible && width > 0 && height > 0 &&
+                                                (qlcplus.accessMask & App.AC_VCEditing)
+    readonly property var scopeSummary: outlineModel ? outlineModel.assignmentSummary : ({})
+    readonly property int assignmentVisibleRows: assignmentRowsRepeater ? assignmentRowsRepeater.count : 0
     Accessible.role: Accessible.Tree
     Accessible.name: qsTr("Console outline")
 
@@ -35,6 +40,8 @@ FocusScope {
 
     function selectKey(key, modifiers) {
         focusedKey = key;
+        if (outlineModel)
+            outlineModel.inspectionScopeKey = key;
         if (!virtualConsole.editMode)
             return;
         var row = outlineModel.rowData(key);
@@ -91,6 +98,41 @@ FocusScope {
     function reveal(key) {
         var row = outlineModel.rowData(key);
         reportResult(row.rowKind === 2 ? virtualConsole.revealFramePage(row.parentID, row.subpageIndex) : virtualConsole.revealWidget(row.widgetID));
+    }
+
+    function ensureExpandedToKey(key) {
+        if (!outlineModel || !key || key.length === 0)
+            return;
+        var row = outlineModel.rowData(key);
+        var expanded = expandedKeys.slice();
+        while (row.parentKey && row.parentKey.length > 0) {
+            if (expanded.indexOf(row.parentKey) < 0)
+                expanded.push(row.parentKey);
+            row = outlineModel.rowData(row.parentKey);
+        }
+        expandedKeys = expanded;
+    }
+
+    function showAssignmentWidget(row) {
+        if (!row || !row.widgetKey || row.widgetKey.length === 0)
+            return;
+        if (search.text.length > 0)
+            search.clear();
+        ensureExpandedToKey(row.widgetKey);
+        reveal(row.widgetKey);
+    }
+
+    function compactMapString(mapValue) {
+        if (!mapValue)
+            return "-";
+        var keys = Object.keys(mapValue);
+        if (keys.length === 0)
+            return "-";
+        keys.sort();
+        var pairs = [];
+        for (var i = 0; i < keys.length; ++i)
+            pairs.push(keys[i] + "=" + mapValue[keys[i]]);
+        return pairs.join(", ");
     }
 
     Keys.onPressed: event => {
@@ -162,7 +204,17 @@ FocusScope {
             }
         }
     }
-    Component.onCompleted: outline.expandNewRoots()
+
+    onDiagnosticsEligibleChanged: {
+        if (outlineModel)
+            outlineModel.diagnosticsActive = diagnosticsEligible;
+    }
+
+    Component.onCompleted: {
+        outline.expandNewRoots();
+        if (outlineModel)
+            outlineModel.diagnosticsActive = diagnosticsEligible;
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -206,9 +258,10 @@ FocusScope {
                 outlineModel.filterText = text
             Keys.priority: Keys.AfterItem
             Keys.onPressed: event => {
-                if (event.key === Qt.Key_Escape)
+                if (event.key === Qt.Key_Escape) {
                     clear();
-                event.accepted = true;
+                    event.accepted = true;
+                }
             }
             ToolButton {
                 id: clearSearch
@@ -257,9 +310,379 @@ FocusScope {
                 text: qsTr("No matching elements")
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.Wrap
-                color: UISettings.fgMedium
+                color: UISettings.fgMain
                 font.family: UISettings.robotoFontName
                 font.pixelSize: UISettings.textSizeDefault
+            }
+        }
+
+        Rectangle {
+            id: assignmentSummaryPane
+            objectName: "vcAssignmentSummaryPane"
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(outline.height * 0.45, UISettings.listItemHeight * 9)
+            Layout.minimumHeight: UISettings.listItemHeight * 3.5
+            color: UISettings.bgMedium
+            border.color: UISettings.bgLighter
+            radius: 2
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 6
+                spacing: 3
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: qsTr("Assignment summary")
+                        color: UISettings.fgMain
+                        font.family: UISettings.robotoFontName
+                        font.pixelSize: UISettings.textSizeDefault * 0.9
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        text: qsTr("%1 bindings").arg(scopeSummary.inputBindingCount || 0)
+                        color: UISettings.fgMedium
+                        font.family: UISettings.robotoFontName
+                        font.pixelSize: UISettings.textSizeDefault * 0.75
+                    }
+                }
+
+                Text {
+                    objectName: "vcAssignmentSummaryTotals"
+                    Layout.fillWidth: true
+                    text: qsTr("Widgets %1 (own %2, descendants %3) • Inputs %4 (own %5, descendants %6)")
+                        .arg(scopeSummary.assignedWidgetCount || 0)
+                        .arg(scopeSummary.ownAssignedWidgetCount || 0)
+                        .arg(scopeSummary.descendantAssignedWidgetCount || 0)
+                        .arg(scopeSummary.inputBindingCount || 0)
+                        .arg(scopeSummary.ownInputBindingCount || 0)
+                        .arg(scopeSummary.descendantInputBindingCount || 0)
+                    color: UISettings.fgMedium
+                    wrapMode: Text.Wrap
+                    font.family: UISettings.robotoFontName
+                    font.pixelSize: UISettings.textSizeDefault * 0.72
+                }
+
+                Text {
+                    objectName: "vcAssignmentSummaryNoRows"
+                    Layout.fillWidth: true
+                    visible: (scopeSummary.inputBindingCount || 0) === 0
+                    text: qsTr("No external assignments in this scope.")
+                    color: UISettings.fgMedium
+                    wrapMode: Text.Wrap
+                    font.family: UISettings.robotoFontName
+                    font.pixelSize: UISettings.textSizeDefault * 0.82
+                }
+
+                Text {
+                    objectName: "vcAssignmentSummaryNoMatches"
+                    Layout.fillWidth: true
+                    visible: (scopeSummary.inputBindingCount || 0) > 0 &&
+                             assignmentVisibleRows === 0 &&
+                             outlineModel && (outlineModel.filterText || "").length > 0
+                    text: qsTr("No matching assignments for the current search.")
+                    color: UISettings.fgMedium
+                    wrapMode: Text.Wrap
+                    font.family: UISettings.robotoFontName
+                    font.pixelSize: UISettings.textSizeDefault * 0.82
+                }
+
+                Flickable {
+                    id: assignmentScroll
+                    objectName: "vcAssignmentSummaryScroll"
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    visible: assignmentVisibleRows > 0
+                    contentWidth: assignmentRowsColumn.width
+                    contentHeight: assignmentRowsColumn.height
+                    rightMargin: assignmentSummaryScrollBar.width
+                    boundsMovement: Flickable.StopAtBounds
+                    boundsBehavior: Flickable.StopAtBounds
+                    ScrollBar.vertical: CustomScrollBar {
+                        id: assignmentSummaryScrollBar
+                        objectName: "vcAssignmentSummaryScrollBar"
+                        anchors.bottomMargin: assignmentSummaryScrollBarHorizontal.height
+                    }
+                    ScrollBar.horizontal: CustomScrollBar {
+                        id: assignmentSummaryScrollBarHorizontal
+                        objectName: "vcAssignmentSummaryScrollBarHorizontal"
+                        orientation: Qt.Horizontal
+                        anchors.rightMargin: assignmentSummaryScrollBar.width
+                    }
+
+                    Column {
+                        id: assignmentRowsColumn
+                        objectName: "vcAssignmentRowsColumn"
+                        readonly property real tablePadding: 4
+                        readonly property real tableSpacing: 6
+                        readonly property real actionWidth: assignmentActionMetric.implicitWidth
+                        readonly property real verticalBarExtent: Math.max(assignmentSummaryScrollBar.width, assignmentSummaryScrollBar.implicitWidth)
+                        readonly property real horizontalBarExtent: Math.max(assignmentSummaryScrollBarHorizontal.height, assignmentSummaryScrollBarHorizontal.implicitHeight)
+                        readonly property real verticalBarOccupancy: assignmentSummaryScrollBar.visible ? verticalBarExtent : 0
+                        readonly property real viewportWidth: Math.max(0, assignmentScroll.width - verticalBarOccupancy)
+                        readonly property real minWidgetWidth: assignmentHeaderWidgetMetric.implicitWidth
+                        readonly property real minInputWidth: assignmentHeaderInputMetric.implicitWidth
+                        readonly property real minFeedbackWidth: assignmentHeaderFeedbackMetric.implicitWidth
+                        readonly property real minColumnsWidth: minWidgetWidth + minInputWidth + minFeedbackWidth
+                        readonly property real availableColumnsWidth: Math.max(0, viewportWidth - (tablePadding * 2) - actionWidth - (tableSpacing * 3))
+                        readonly property bool canFitColumns: availableColumnsWidth >= minColumnsWidth
+                        readonly property real extraColumnsWidth: canFitColumns ? (availableColumnsWidth - minColumnsWidth) : 0
+                        readonly property real widgetColumnWidth: minWidgetWidth + extraColumnsWidth * 3 / 7
+                        readonly property real inputColumnWidth: minInputWidth + extraColumnsWidth * 2 / 7
+                        readonly property real feedbackColumnWidth: minFeedbackWidth + extraColumnsWidth * 2 / 7
+                        readonly property real tableContentWidth: (tablePadding * 2) + actionWidth + (tableSpacing * 3) +
+                                                                 widgetColumnWidth + inputColumnWidth + feedbackColumnWidth
+                        width: canFitColumns ? assignmentScroll.width :
+                                              Math.max(assignmentScroll.width, tableContentWidth + verticalBarOccupancy)
+                        spacing: 4
+
+                        Text {
+                            id: assignmentHeaderWidgetMetric
+                            visible: false
+                            text: qsTr("Widget")
+                            font.family: UISettings.robotoFontName
+                            font.pixelSize: UISettings.textSizeDefault * 0.75
+                            font.bold: true
+                        }
+
+                        Text {
+                            id: assignmentHeaderInputMetric
+                            visible: false
+                            text: qsTr("Input")
+                            font.family: UISettings.robotoFontName
+                            font.pixelSize: UISettings.textSizeDefault * 0.75
+                            font.bold: true
+                        }
+
+                        Text {
+                            id: assignmentHeaderFeedbackMetric
+                            visible: false
+                            text: qsTr("Feedback")
+                            font.family: UISettings.robotoFontName
+                            font.pixelSize: UISettings.textSizeDefault * 0.75
+                            font.bold: true
+                        }
+
+                        ToolButton {
+                            id: assignmentActionMetric
+                            visible: false
+                            text: qsTr("Show")
+                        }
+
+                        Rectangle {
+                            objectName: "vcAssignmentTableHeader"
+                            width: parent.width
+                            height: UISettings.listItemHeight
+                            color: UISettings.bgLighter
+                            border.color: UISettings.bgLight
+                            border.width: 1
+
+                            Item {
+                                anchors.fill: parent
+                                anchors.margins: assignmentRowsColumn.tablePadding
+
+                                Text {
+                                    objectName: "vcAssignmentHeaderWidget"
+                                    x: 0
+                                    width: assignmentRowsColumn.widgetColumnWidth
+                                    text: qsTr("Widget")
+                                    color: UISettings.fgMain
+                                    font.family: UISettings.robotoFontName
+                                    font.pixelSize: UISettings.textSizeDefault * 0.75
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    objectName: "vcAssignmentHeaderInput"
+                                    x: assignmentRowsColumn.widgetColumnWidth + assignmentRowsColumn.tableSpacing
+                                    width: assignmentRowsColumn.inputColumnWidth
+                                    text: qsTr("Input")
+                                    color: UISettings.fgMain
+                                    font.family: UISettings.robotoFontName
+                                    font.pixelSize: UISettings.textSizeDefault * 0.75
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    objectName: "vcAssignmentHeaderFeedback"
+                                    x: assignmentRowsColumn.widgetColumnWidth + assignmentRowsColumn.inputColumnWidth +
+                                       (assignmentRowsColumn.tableSpacing * 2)
+                                    width: assignmentRowsColumn.feedbackColumnWidth
+                                    text: qsTr("Feedback")
+                                    color: UISettings.fgMain
+                                    font.family: UISettings.robotoFontName
+                                    font.pixelSize: UISettings.textSizeDefault * 0.75
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+
+                                Item {
+                                    x: assignmentRowsColumn.widgetColumnWidth + assignmentRowsColumn.inputColumnWidth +
+                                       assignmentRowsColumn.feedbackColumnWidth + (assignmentRowsColumn.tableSpacing * 3)
+                                    width: assignmentRowsColumn.actionWidth
+                                    height: parent.height
+                                }
+                            }
+                        }
+
+                        Repeater {
+                            id: assignmentRowsRepeater
+                            model: outlineModel ? outlineModel.assignmentRows : null
+                            delegate: Column {
+                                objectName: "vcAssignmentSummaryRow"
+                                required property var values
+                                readonly property var row: values
+                                width: assignmentRowsColumn.width
+                                spacing: 2
+
+                                Text {
+                                    width: parent.width
+                                    visible: !!row.deviceGroupStart
+                                    text: row.deviceGroupLabel && row.deviceGroupLabel.length ?
+                                          row.deviceGroupLabel : qsTr("Unresolved routes")
+                                    color: UISettings.highlight
+                                    wrapMode: Text.Wrap
+                                    font.family: UISettings.robotoFontName
+                                    font.pixelSize: UISettings.textSizeDefault * 0.82
+                                    font.bold: true
+                                }
+
+                                Rectangle {
+                                    id: assignmentTableRow
+                                    objectName: "vcAssignmentTableRow"
+                                    readonly property string detailsText:
+                                        qsTr("Widget path: %1\nInput labels: %2 • %3\nOutput labels: %4\nFeedback labels: lower %5 (%6), upper %7 (%8), monitor %9 (%10)\nSource raw: universe %11, packed %12, channel %13, page %14, packed MIDI %15\nInput route: %16 • %17 • %18 • UID %19 • line %20 • source %21\nOutput route: %22 • %23 • UID %24 • line %25\nRoute parameters: input %26 • output %27\nRoute state: input %28, output %29%30\nStored feedback: low %31, high %32, monitor %33, params %34/%35/%36")
+                                            .arg(row.widgetPath || "-")
+                                            .arg(row.midiMessageLabel || "-")
+                                            .arg(row.midiSelectionLabel || "-")
+                                            .arg(row.midiOutputSelectionLabel || "-")
+                                            .arg(row.midiFeedbackLowerLabel || "-")
+                                            .arg(row.midiFeedbackLowerState || "unknown")
+                                            .arg(row.midiFeedbackUpperLabel || "-")
+                                            .arg(row.midiFeedbackUpperState || "unknown")
+                                            .arg(row.midiFeedbackMonitorLabel || "-")
+                                            .arg(row.midiFeedbackMonitorState || "unknown")
+                                            .arg(row.sourceUniverse !== undefined ? row.sourceUniverse : "-")
+                                            .arg(row.sourceChannelRaw !== undefined ? row.sourceChannelRaw : "-")
+                                            .arg(row.sourceChannel !== undefined ? row.sourceChannel : "-")
+                                            .arg(row.sourcePage !== undefined ? row.sourcePage : "-")
+                                            .arg(row.midiPackedChannelIndex !== undefined ? row.midiPackedChannelIndex : "-")
+                                            .arg(row.inputDeviceName || "-")
+                                            .arg(row.inputProfileName || row.inputPlugin || "-")
+                                            .arg(row.sourceLabel || row.sourceIdentity || "-")
+                                            .arg(row.inputUID || "-")
+                                            .arg(row.inputLine !== undefined ? row.inputLine : "-")
+                                            .arg(row.sourceID !== undefined ? row.sourceID : "-")
+                                            .arg(row.outputDeviceName || "-")
+                                            .arg(row.outputPlugin || "-")
+                                            .arg(row.outputUID || "-")
+                                            .arg(row.outputLine !== undefined ? row.outputLine : "-")
+                                            .arg(compactMapString(row.inputParameters))
+                                            .arg(compactMapString(row.outputParameters))
+                                            .arg(row.inputRouteAvailability || "unknown")
+                                            .arg(row.outputRouteAvailability || "unknown")
+                                            .arg(row.sharedAssignment ? (", " + (row.sharedAssignmentLabel || qsTr("Shared physical input address"))) : "")
+                                            .arg(row.feedbackLowerValue !== undefined ? row.feedbackLowerValue : "-")
+                                            .arg(row.feedbackUpperValue !== undefined ? row.feedbackUpperValue : "-")
+                                            .arg(row.feedbackMonitorValue !== undefined ? row.feedbackMonitorValue : "-")
+                                            .arg(row.feedbackLowerParams !== undefined ? row.feedbackLowerParams : "-")
+                                            .arg(row.feedbackUpperParams !== undefined ? row.feedbackUpperParams : "-")
+                                            .arg(row.feedbackMonitorParams !== undefined ? row.feedbackMonitorParams : "-")
+                                    width: parent.width
+                                    height: Math.max(UISettings.listItemHeight * 1.2,
+                                                     assignmentActionMetric.implicitHeight +
+                                                     (assignmentRowsColumn.tablePadding * 2))
+                                    color: assignmentRowHover.containsMouse || activeFocus ? UISettings.bgLighter : "transparent"
+                                    border.color: UISettings.bgLighter
+                                    border.width: 1
+                                    activeFocusOnTab: true
+                                    Accessible.role: Accessible.ListItem
+                                    Accessible.name: row.widgetPath || ""
+                                    Accessible.description: detailsText
+                                    Keys.onReturnPressed: outline.showAssignmentWidget(row)
+                                    Keys.onEnterPressed: outline.showAssignmentWidget(row)
+                                    ToolTip.visible: assignmentRowHover.containsMouse || activeFocus
+                                    ToolTip.text: detailsText
+                                    ToolTip.delay: 150
+                                    ToolTip.timeout: 30000
+
+                                    MouseArea {
+                                        id: assignmentRowHover
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        acceptedButtons: Qt.NoButton
+                                    }
+
+                                    Item {
+                                        anchors.fill: parent
+                                        anchors.margins: assignmentRowsColumn.tablePadding
+
+                                        Text {
+                                            objectName: "vcAssignmentCellWidget"
+                                            x: 0
+                                            width: assignmentRowsColumn.widgetColumnWidth
+                                            text: row.widgetPath || "-"
+                                            color: UISettings.fgMain
+                                            font.family: UISettings.robotoFontName
+                                            font.pixelSize: UISettings.textSizeDefault * 0.76
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            objectName: "vcAssignmentCellInput"
+                                            x: assignmentRowsColumn.widgetColumnWidth + assignmentRowsColumn.tableSpacing
+                                            width: assignmentRowsColumn.inputColumnWidth
+                                            text: qsTr("%1 • %2")
+                                                .arg(row.sourceLabel || row.sourceIdentity || "-")
+                                                .arg(compactMapString(row.inputParameters))
+                                            color: UISettings.fgMedium
+                                            font.family: UISettings.robotoFontName
+                                            font.pixelSize: UISettings.textSizeDefault * 0.74
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            objectName: "vcAssignmentCellFeedback"
+                                            x: assignmentRowsColumn.widgetColumnWidth + assignmentRowsColumn.inputColumnWidth +
+                                               (assignmentRowsColumn.tableSpacing * 2)
+                                            width: assignmentRowsColumn.feedbackColumnWidth
+                                            text: qsTr("%1 • %2")
+                                                .arg(row.midiFeedbackLabel || row.midiOutputSelectionLabel || "-")
+                                                .arg(compactMapString(row.outputParameters))
+                                            color: UISettings.fgMedium
+                                            font.family: UISettings.robotoFontName
+                                            font.pixelSize: UISettings.textSizeDefault * 0.74
+                                            elide: Text.ElideRight
+                                        }
+
+                                        ToolButton {
+                                            objectName: "vcAssignmentShowWidget"
+                                            x: assignmentRowsColumn.widgetColumnWidth + assignmentRowsColumn.inputColumnWidth +
+                                               assignmentRowsColumn.feedbackColumnWidth + (assignmentRowsColumn.tableSpacing * 3)
+                                            width: assignmentRowsColumn.actionWidth
+                                            text: qsTr("Show")
+                                            activeFocusOnTab: true
+                                            property string detailsText: assignmentTableRow.detailsText
+                                            Accessible.description: assignmentTableRow.detailsText
+                                            onClicked: outline.showAssignmentWidget(row)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item {
+                            width: assignmentRowsColumn.width
+                            height: assignmentRowsColumn.horizontalBarExtent + assignmentActionMetric.implicitHeight
+                        }
+
+                    }
+                }
             }
         }
 

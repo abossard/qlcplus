@@ -6,6 +6,7 @@
 #include <QPointer>
 #include <QSet>
 #include <QSortFilterProxyModel>
+#include <QTimer>
 #include <QVariantMap>
 #include <memory>
 #include <vector>
@@ -19,6 +20,10 @@ class VCOutlineModel final : public QAbstractItemModel
     Q_PROPERTY(QAbstractItemModel *filteredModel READ filteredModel CONSTANT)
     Q_PROPERTY(QString filterText READ filterText WRITE setFilterText NOTIFY filterTextChanged)
     Q_PROPERTY(int revision READ revision NOTIFY treeChanged)
+    Q_PROPERTY(bool diagnosticsActive READ diagnosticsActive WRITE setDiagnosticsActive NOTIFY diagnosticsActiveChanged)
+    Q_PROPERTY(QString inspectionScopeKey READ inspectionScopeKey WRITE setInspectionScopeKey NOTIFY inspectionScopeKeyChanged)
+    Q_PROPERTY(QVariantMap assignmentSummary READ assignmentSummary NOTIFY assignmentSummaryChanged)
+    Q_PROPERTY(QAbstractItemModel *assignmentRows READ assignmentRows NOTIFY assignmentSummaryChanged)
 
 public:
     enum Role
@@ -26,7 +31,7 @@ public:
         LabelRole = Qt::UserRole + 1,
         WidgetIDRole, WidgetTypeRole, TypeNameRole, RowKindRole, PageIndexRole,
         SubpageIndexRole, ParentIDRole, SelectedRole, IconSourceRole, RowKeyRole,
-        ParentKeyRole, ContainerRole, OrderIndexRole
+        ParentKeyRole, ContainerRole, OrderIndexRole, AssignmentSearchRole
     };
     enum RowKind { PageRow, WidgetRow, SubpageRow };
     Q_ENUM(RowKind)
@@ -46,6 +51,12 @@ public:
     QString filterText() const;
     void setFilterText(const QString &text);
     int revision() const;
+    bool diagnosticsActive() const;
+    void setDiagnosticsActive(bool active);
+    QString inspectionScopeKey() const;
+    void setInspectionScopeKey(const QString &key);
+    QVariantMap assignmentSummary() const;
+    QAbstractItemModel *assignmentRows() const;
     Q_INVOKABLE QModelIndex indexForKey(const QString &key) const;
     Q_INVOKABLE QVariantMap rowData(const QString &key) const;
     Q_INVOKABLE QStringList visibleKeys(const QStringList &expandedKeys) const;
@@ -54,6 +65,9 @@ public:
 signals:
     void filterTextChanged();
     void treeChanged();
+    void diagnosticsActiveChanged();
+    void inspectionScopeKeyChanged();
+    void assignmentSummaryChanged();
 
 private:
     struct Node;
@@ -69,6 +83,13 @@ private:
     void widgetDataChanged(VCWidget *widget, const QList<int> &roles);
     void selectionChanged();
     void collectVisible(const QModelIndex &parent, const QSet<QString> &expanded, QStringList &keys) const;
+    void refreshAssignments();
+    QString normalizedScopeKey(const QString &key) const;
+    QString fallbackScopeKey(const QString &missingKey) const;
+    void updateScopeChain(const QString &leafKey);
+    QVariantMap emptySummary() const;
+    QString nodeLabel(const Node *node) const;
+    QString nodePath(const Node *node) const;
 
     VirtualConsole *m_vc;
     std::unique_ptr<Node> m_root;
@@ -81,6 +102,14 @@ private:
     QSet<quint32> m_selectedIDs;
     QSet<quint32> m_selectionChanges;
     bool m_selectionPending = false;
+    bool m_diagnosticsActive = false;
+    QTimer m_diagnosticsTimer;
+    QString m_scopeKey;
+    QStringList m_scopeChain;
+    QVariantMap m_assignmentSummary;
+    QAbstractItemModel *m_assignmentRowsModel = nullptr;
+    QVariantList m_assignmentRowsCache;
+    QHash<QString, QString> m_assignmentSearchText;
 };
 
 #endif

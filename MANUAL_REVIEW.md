@@ -2135,6 +2135,8 @@ output changed.
 - ☐ Open the produced DMG and check the background, volume icon, application icon and Applications shortcut. Confirm the layout remains usable and the application can be dragged into Applications.
 - ☐ Launch the installed application after ejecting the DMG. Confirm normal startup and workspace opening without depending on the mounted image.
 
+## 35. Upstream 928fc14be audio and XY controls
+
 ### 35.1 Spectrum controls and mapping-table visibility
 
 - ☐ In a disposable workspace, open an Audio Triggers widget's properties and change the Low, Mid and High bank sizes through their supported range. Close and reopen the panel; confirm the values, meters and labels remain coherent without clipped controls.
@@ -2156,3 +2158,75 @@ output changed.
 ### 35.4 Sign-off
 
 - ☐ After the automated XY failures are resolved, record reviewer, date, workspace, audio source and hardware used, plus pass/fail notes for each case above. Leave unavailable hardware checks unsigned.
+
+---
+
+## 36. VC assignment table and MIDI diagnostics
+
+> Use a disposable workspace with no running functions or physical output patches. A virtual MIDI source and destination are sufficient for the tagged case. Preserve unsaved work before replacing a workspace; send any test feedback only to owned virtual endpoints.
+
+**2026-10-17 recorded evidence, not human sign-off**
+
+Native MCP and desktop checks exercised the compact table, scoped search,
+scrolling to the final assignment, explicit Show navigation, PIN refusal and
+workspace restoration. The later test-only route-fixture cleanup passed both
+execution orders and 34 related local Qt checks without changing the tested
+production QML or application binary.
+
+Native proof, screenshots, raw results and revision identities:
+`~/.copilot/session-state/4570f3aa-8a64-4a13-9e41-99f203cd41ea/files/native-table-e2e/keyboard-recheck/native-table-e2e-proof.md`.
+Independent evidence audit:
+`~/.copilot/session-state/ca29b0e6-76de-4c16-bbaf-67124d77fdf6/files/native-proof-audit-final.md`.
+
+The native run kept macOS's existing Tab policy. Full Keyboard Access was
+disabled; a keyboard detail popup with that setting enabled was not tested.
+Earlier native hover evidence is identified separately in the report, not
+relabeled as a new keyboard-popup test. Virtual MIDI configuration and
+collected feedback do not establish physical controller or LED delivery.
+All checkboxes and sign-off fields below remain pending for human review.
+
+### 36.1 Compact table readability
+
+- **Do:** Select a page or frame with several controller assignments. Inspect the summary at normal width, then narrow it and scroll horizontally and vertically.
+- **Verify:**
+- ☐ Widget, Input and Feedback headers align with their cells; device groups and own/subtree totals remain understandable without returning to the widget editor.
+- ☐ The first and final rows remain readable and their Show controls remain easy to hit at both scroll limits, without scrollbar overlap or unintended text clipping.
+
+### 36.2 Search and subtree context
+
+- **Do:** Keep a frame selected while searching by device, control, widget type and ID. Include a match inside a collapsed subpage, a no-match query, and clearing the search.
+- **Verify:**
+- ☐ Ancestor rows make the owning page/frame clear, and search does not produce disorienting jumps or lose the chosen inspection scope.
+- ☐ Whole-subtree totals are clearly distinguished from filtered rows; the no-match message and return to the unfiltered view are understandable.
+
+### 36.3 Full binding details [MIDI]
+
+- **Precondition:** Disposable assignments use distinct input and feedback routes. Include a nonzero OMNI MIDI channel, a logical subpage and differing stored feedback states where supported.
+- **Do:** Hover over elided table cells or their row to inspect the full details.
+- **Verify:**
+- ☐ Full widget paths, device names, UIDs, control-slot labels, raw addresses and parameters are recoverable and legible in the popup, without missing leading or trailing characters.
+- ☐ Input and feedback routes, human MIDI channels, logical pages and lower/upper/monitor feedback labels are visually distinguishable. Stored feedback is not presented as proof of hardware delivery.
+
+### 36.4 Explicit navigation and protected pages
+
+- **Do:** In the function-free workspace, scroll to the final assignment and click Show. Repeat with a nonempty search, a target on another frame subpage and a PIN-protected page.
+- **Verify:**
+- ☐ Show remains usable at the scroll edges and reveals the intended widget. Its explicit page/collapse changes are understandable; merely reading or searching does not navigate the console.
+- ☐ PIN refusal clearly explains that the page must be unlocked, leaves the protected target unchanged and allows normal review to continue after dismissal.
+
+### 36.5 Native keyboard policy
+
+- **Do:** Use the operating system's existing keyboard-navigation setting. Do not change global preferences solely to obtain a passing review.
+- **Verify:**
+- ☐ Focus behavior matches the current platform policy without activating console widgets unexpectedly. On macOS with full keyboard access disabled, Tab may remain limited to text/list controls.
+- ☐ If the existing policy lets Tab reach an assignment row or Show, assess the focused detail popup and Backtab return. Otherwise skip this popup check and record it as untested, not passed.
+
+### 36.6 Sign-off
+
+- ☐ Record tester, date, workspace, platform keyboard policy and virtual devices used. Keep unavailable hardware and unexercised keyboard-popup checks unsigned; native automation evidence does not replace this human sign-off.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Table readability, search and scope | | | | |
+| Full binding details and Show navigation | | | | |
+| Keyboard policy and conditional popup | | | | |

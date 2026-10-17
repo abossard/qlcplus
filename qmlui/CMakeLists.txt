@@ -17,6 +17,7 @@ qt_add_translation(QM_FILES ${TS_FILES})
 set(QML_IMPORT_PATH ".")
 
 set(SRC_FILES
+    ../plugins/midi/src/common/midiprotocol.cpp
     ../plugins/interfaces/utils.h
     app.cpp app.h
     audioeditor.cpp audioeditor.h
