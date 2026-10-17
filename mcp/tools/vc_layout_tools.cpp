@@ -370,19 +370,19 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             "Widget ID of the frame to reflow. All children will be repositioned."}}},
         {"pageIndex", {{"type", "integer"}, {"description",
             "Page index (0-based). Auto-detects column layout from x-positions and reflows within each column. "
-            "Defaults to dryRun=true. Used only if frameID is not provided."}}},
+            "Defaults to dryRun=true. Used only if frameID is not provided; not supported by gridCompact."}}},
         {"algorithm", {{"type", "string"}, {"enum", {"flow", "gridCompact", "align"}}, {"description",
             "Layout algorithm. flow (default) = existing flow layout. "
             "gridCompact = grid-based vertical compaction using the frame's grid settings. "
             "align = order-preserving variable row/column tracks, retaining control sizes and hierarchy."}}},
         {"columns", {{"type", "integer"}, {"description",
-            "Number of columns for flow grid. 0 or omit for auto-compute from width."}}},
-        {"pad", {{"type", "integer"}, {"description", "Padding between widgets in pixels (default 5)"}}},
-        {"framePad", {{"type", "integer"}, {"description", "Vertical gap between top-level frames (default 10)"}}},
-        {"buttonWidth", {{"type", "integer"}, {"description", "Button width in pixels (default 100)"}}},
-        {"buttonHeight", {{"type", "integer"}, {"description", "Button height in pixels (default 60)"}}},
-        {"sliderWidth", {{"type", "integer"}, {"description", "Slider width in pixels (default 60)"}}},
-        {"sliderHeight", {{"type", "integer"}, {"description", "Slider height in pixels (default 200)"}}},
+            "Number of columns for flow/align. 0 or omit for auto-compute from width. Ignored by gridCompact."}}},
+        {"pad", {{"type", "integer"}, {"description", "Padding between widgets in pixels for flow/align (default 5). Ignored by gridCompact."}}},
+        {"framePad", {{"type", "integer"}, {"description", "Vertical gap between top-level frames for flow (default 10)."}}},
+        {"buttonWidth", {{"type", "integer"}, {"description", "Button width in pixels for flow (default 100)."}}},
+        {"buttonHeight", {{"type", "integer"}, {"description", "Button height in pixels for flow (default 60)."}}},
+        {"sliderWidth", {{"type", "integer"}, {"description", "Slider width in pixels for flow (default 60)."}}},
+        {"sliderHeight", {{"type", "integer"}, {"description", "Slider height in pixels for flow (default 200)."}}},
         {"dryRun", {{"type", "boolean"}, {"description",
             "Preview mode: compute plan without applying. Defaults to true for pageIndex (safe preview), false for frameID."}}}
     }}};

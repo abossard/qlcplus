@@ -30,6 +30,7 @@
 #include "qlcchannel.h"
 
 #include <limits>
+#include <set>
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -189,6 +190,13 @@ std::string preflightUpdate(const Json &item, int widgetType, const VCBridge::Wi
             if (!err.empty()) return "bars[]." + err;
         }
     }
+    if (widgetType == VCType::RecordPanel)
+    {
+        for (const char *field : {"defaultFadeIn", "defaultHold", "defaultFadeOut"})
+            if (item.contains(field)
+                && !mcp::jsonInteger(item.at(field), 0, std::numeric_limits<int>::max()).has_value())
+                return mcp::integerError(field, 0, std::numeric_limits<int>::max());
+    }
 
     return VCRefs::check(item, widgetType, doc, bridge);
 }
@@ -342,6 +350,343 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
 
     if (!vcBridge) return;
 
+    tm.register_tool(Tool(
+        "vc_prepare_layout",
+        Json{{"type", "object"}, {"properties", {
+            {"operation", {{"type", "string"}, {"enum", {"pageCreate", "pageRename", "pageDelete", "framePages"}}}},
+            {"pageWidgetID", {{"type", "integer"}}},
+            {"frameWidgetID", {{"type", "integer"}}},
+            {"name", {{"type", "string"}}},
+            {"totalPages", {{"type", "integer"}}},
+            {"pageLabels", {{"type", "array"}, {"items", {{"type", "string"}}}}},
+            {"pagesLoop", {{"type", "boolean"}}},
+            {"expectedBasis", {{"type", "string"}}},
+            {"requireAtomic", {{"type", "boolean"}}},
+            {"diffDetail", {{"type", "string"}, {"enum", {"summary", "full"}}}}
+        }}, {"required", {"operation"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            std::string err;
+            auto fieldsErr = validateFields(args, {"operation", "pageWidgetID", "frameWidgetID", "name",
+                                                   "totalPages", "pageLabels", "pagesLoop",
+                                                   "expectedBasis", "requireAtomic", "diffDetail"});
+            if (!fieldsErr.empty())
+            {
+                std::string message = fieldsErr;
+                try { message = Json::parse(fieldsErr).value("error", fieldsErr); } catch (...) {}
+                return VCAuthoring::requestError(message);
+            }
+
+            if (!args.contains("operation") || !args.at("operation").is_string())
+                return VCAuthoring::requestError("operation must be one of: pageCreate, pageRename, pageDelete, framePages");
+
+            VCBridge::AuthoringLayoutRequest request;
+            const QString operation = QString::fromStdString(args.at("operation").get<std::string>()).trimmed();
+            if (operation == QStringLiteral("pageCreate"))
+                request.operation = VCBridge::AuthoringLayoutRequest::Operation::PageCreate;
+            else if (operation == QStringLiteral("pageRename"))
+                request.operation = VCBridge::AuthoringLayoutRequest::Operation::PageRename;
+            else if (operation == QStringLiteral("pageDelete"))
+                request.operation = VCBridge::AuthoringLayoutRequest::Operation::PageDelete;
+            else if (operation == QStringLiteral("framePages"))
+                request.operation = VCBridge::AuthoringLayoutRequest::Operation::FramePages;
+            else
+                return VCAuthoring::requestError("operation must be one of: pageCreate, pageRename, pageDelete, framePages");
+
+            constexpr int64_t kMaxInt = std::numeric_limits<int>::max();
+            auto parseWidgetId = [&](const char *field) -> std::optional<quint32> {
+                if (!args.contains(field))
+                    return std::nullopt;
+                const auto id = mcp::jsonInteger(args.at(field), 0, kMaxInt);
+                if (!id)
+                {
+                    err = mcp::integerError(field, 0, kMaxInt);
+                    return std::nullopt;
+                }
+                return quint32(*id);
+            };
+            auto parseName = [&]() -> std::optional<QString> {
+                if (!args.contains("name"))
+                    return std::nullopt;
+                if (!args.at("name").is_string())
+                {
+                    err = "name must be a string";
+                    return std::nullopt;
+                }
+                return QString::fromStdString(args.at("name").get<std::string>());
+            };
+
+            if (args.contains("expectedBasis"))
+            {
+                if (!args.at("expectedBasis").is_string())
+                    return VCAuthoring::requestError("expectedBasis must be a string");
+                request.expectedBasis = QString::fromStdString(args.at("expectedBasis").get<std::string>());
+            }
+            if (args.contains("requireAtomic"))
+            {
+                if (!args.at("requireAtomic").is_boolean())
+                    return VCAuthoring::requestError("requireAtomic must be a boolean");
+                request.requireAtomic = args.at("requireAtomic").get<bool>();
+            }
+            if (args.contains("diffDetail"))
+            {
+                if (!args.at("diffDetail").is_string())
+                    return VCAuthoring::requestError("diffDetail must be one of: summary, full");
+                const QString detail = QString::fromStdString(args.at("diffDetail").get<std::string>()).trimmed().toLower();
+                if (!(detail == QStringLiteral("summary") || detail == QStringLiteral("full")))
+                    return VCAuthoring::requestError("diffDetail must be one of: summary, full");
+                request.diffDetail = detail;
+            }
+
+            if (request.operation == VCBridge::AuthoringLayoutRequest::Operation::PageCreate)
+            {
+                auto name = parseName();
+                if (!name.has_value())
+                    return VCAuthoring::requestError(err.empty() ? "name is required for pageCreate" : err);
+                request.name = *name;
+            }
+            else if (request.operation == VCBridge::AuthoringLayoutRequest::Operation::PageRename)
+            {
+                auto pageWidgetID = parseWidgetId("pageWidgetID");
+                auto name = parseName();
+                if (!pageWidgetID.has_value())
+                    return VCAuthoring::requestError(err.empty() ? "pageWidgetID is required for pageRename" : err);
+                if (!name.has_value())
+                    return VCAuthoring::requestError(err.empty() ? "name is required for pageRename" : err);
+                request.pageWidgetID = *pageWidgetID;
+                request.name = *name;
+            }
+            else if (request.operation == VCBridge::AuthoringLayoutRequest::Operation::PageDelete)
+            {
+                auto pageWidgetID = parseWidgetId("pageWidgetID");
+                if (!pageWidgetID.has_value())
+                    return VCAuthoring::requestError(err.empty() ? "pageWidgetID is required for pageDelete" : err);
+                request.pageWidgetID = *pageWidgetID;
+            }
+            else
+            {
+                auto frameWidgetID = parseWidgetId("frameWidgetID");
+                if (!frameWidgetID.has_value())
+                    return VCAuthoring::requestError(err.empty() ? "frameWidgetID is required for framePages" : err);
+                request.frameWidgetID = *frameWidgetID;
+
+                bool hasConfig = false;
+                if (args.contains("totalPages"))
+                {
+                    const auto totalPages = mcp::jsonInteger(args.at("totalPages"), 1, kMaxInt);
+                    if (!totalPages)
+                        return VCAuthoring::requestError(mcp::integerError("totalPages", 1, kMaxInt));
+                    request.totalPages = int(*totalPages);
+                    hasConfig = true;
+                }
+                if (args.contains("pageLabels"))
+                {
+                    if (!args.at("pageLabels").is_array())
+                        return VCAuthoring::requestError("pageLabels must be an array of strings");
+                    QStringList labels;
+                    for (const Json &entry : args.at("pageLabels"))
+                    {
+                        if (!entry.is_string())
+                            return VCAuthoring::requestError("pageLabels must be an array of strings");
+                        labels << QString::fromStdString(entry.get<std::string>());
+                    }
+                    request.pageLabels = labels;
+                    hasConfig = true;
+                }
+                if (args.contains("pagesLoop"))
+                {
+                    if (!args.at("pagesLoop").is_boolean())
+                        return VCAuthoring::requestError("pagesLoop must be a boolean");
+                    request.pagesLoop = args.at("pagesLoop").get<bool>();
+                    hasConfig = true;
+                }
+                if (!hasConfig)
+                    return VCAuthoring::requestError("framePages requires at least one of: totalPages, pageLabels, pagesLoop");
+            }
+
+            return VCAuthoring::toJson(vcBridge->prepareAuthoring(VCBridge::AuthoringRequest(request)));
+            });
+        }
+    )
+    .set_description("Prepare non-geometry layout authoring operations (pageCreate, pageRename, pageDelete, framePages). "
+                     "Use vc_apply_preparation to execute a returned token.")
+    .set_annotations(Json{{"readOnlyHint", true}, {"destructiveHint", false}, {"idempotentHint", false}, {"openWorldHint", false}}));
+
+    tm.register_tool(Tool(
+        "vc_prepare_record_panel",
+        Json{{"type", "object"}, {"properties", {
+            {"items", {{"type", "array"}, {"items", {{"type", "object"}, {"properties", {
+                {"widgetID", {{"type", "integer"}}},
+                {"targetFolder", {{"type", "string"}}},
+                {"scenePrefix", {{"type", "string"}}},
+                {"chaserPrefix", {{"type", "string"}}},
+                {"defaultFadeIn", {{"type", "integer"}}},
+                {"defaultHold", {{"type", "integer"}}},
+                {"defaultFadeOut", {{"type", "integer"}}}
+            }}, {"required", {"widgetID"}}}}}},
+            {"expectedBasis", {{"type", "string"}}},
+            {"requireAtomic", {{"type", "boolean"}}},
+            {"diffDetail", {{"type", "string"}, {"enum", {"summary", "full"}}}}
+        }}, {"required", {"items"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"items", "expectedBasis", "requireAtomic", "diffDetail"});
+            if (!err.empty())
+            {
+                std::string message = err;
+                try { message = Json::parse(err).value("error", err); } catch (...) {}
+                return VCAuthoring::requestError(message);
+            }
+
+            if (!args.contains("items") || !args.at("items").is_array())
+                return VCAuthoring::requestError("items must be an array");
+
+            const Json &items = args.at("items");
+            if (items.empty() || items.size() > size_t(VCBridge::kAuthoringMaxItemsPerRequest))
+            {
+                return VCAuthoring::requestError(
+                    "items must contain 1.." + std::to_string(VCBridge::kAuthoringMaxItemsPerRequest) + " entries");
+            }
+
+            VCBridge::AuthoringRecordPanelRequest request;
+            if (args.contains("expectedBasis"))
+            {
+                if (!args.at("expectedBasis").is_string())
+                    return VCAuthoring::requestError("expectedBasis must be a string");
+                request.expectedBasis = QString::fromStdString(args.at("expectedBasis").get<std::string>());
+            }
+            if (args.contains("requireAtomic"))
+            {
+                if (!args.at("requireAtomic").is_boolean())
+                    return VCAuthoring::requestError("requireAtomic must be a boolean");
+                request.requireAtomic = args.at("requireAtomic").get<bool>();
+            }
+            if (args.contains("diffDetail"))
+            {
+                if (!args.at("diffDetail").is_string())
+                    return VCAuthoring::requestError("diffDetail must be one of: summary, full");
+                const QString detail = QString::fromStdString(args.at("diffDetail").get<std::string>()).trimmed().toLower();
+                if (!(detail == QStringLiteral("summary") || detail == QStringLiteral("full")))
+                {
+                    return VCAuthoring::requestError(
+                        "invalid value for 'diffDetail': " + args.at("diffDetail").dump() +
+                        ". Allowed: \"summary\", \"full\"");
+                }
+                request.diffDetail = detail;
+            }
+
+            std::set<quint32> seenWidgetIds;
+            for (size_t i = 0; i < items.size(); ++i)
+            {
+                const Json &item = items[i];
+                if (!item.is_object())
+                    return VCAuthoring::requestError("items[] must contain objects");
+                auto itemErr = validateFields(item, {"widgetID", "targetFolder", "scenePrefix", "chaserPrefix",
+                                                     "defaultFadeIn", "defaultHold", "defaultFadeOut"});
+                if (!itemErr.empty())
+                {
+                    std::string message = itemErr;
+                    try { message = Json::parse(itemErr).value("error", itemErr); } catch (...) {}
+                    return VCAuthoring::requestError(message);
+                }
+                auto widgetID = item.contains("widgetID")
+                    ? mcp::jsonInteger(item.at("widgetID"), 0, mcp::kMaxId)
+                    : std::nullopt;
+                if (!widgetID)
+                    return VCAuthoring::requestError(mcp::integerError("widgetID", 0, mcp::kMaxId));
+
+                const quint32 wid = quint32(*widgetID);
+                if (!seenWidgetIds.insert(wid).second)
+                    return VCAuthoring::requestError("duplicate widgetID targets are not allowed");
+
+                VCBridge::AuthoringRecordPanelItem parsed;
+                parsed.widgetID = wid;
+
+                auto parseString = [&](const char *field, std::optional<QString> &target) -> bool {
+                    if (!item.contains(field))
+                        return true;
+                    if (!item.at(field).is_string())
+                    {
+                        err = std::string(field) + " must be a string";
+                        return false;
+                    }
+                    target = QString::fromStdString(item.at(field).get<std::string>());
+                    return true;
+                };
+                auto parseMs = [&](const char *field, std::optional<uint> &target) -> bool {
+                    if (!item.contains(field))
+                        return true;
+                    auto value = mcp::jsonInteger(item.at(field), 0, std::numeric_limits<int>::max());
+                    if (!value)
+                    {
+                        err = mcp::integerError(field, 0, std::numeric_limits<int>::max());
+                        return false;
+                    }
+                    target = uint(*value);
+                    return true;
+                };
+
+                if (!parseString("targetFolder", parsed.targetFolder) ||
+                    !parseString("scenePrefix", parsed.scenePrefix) ||
+                    !parseString("chaserPrefix", parsed.chaserPrefix) ||
+                    !parseMs("defaultFadeIn", parsed.defaultFadeIn) ||
+                    !parseMs("defaultHold", parsed.defaultHold) ||
+                    !parseMs("defaultFadeOut", parsed.defaultFadeOut))
+                {
+                    return VCAuthoring::requestError(err);
+                }
+
+                if (!parsed.targetFolder.has_value() &&
+                    !parsed.scenePrefix.has_value() &&
+                    !parsed.chaserPrefix.has_value() &&
+                    !parsed.defaultFadeIn.has_value() &&
+                    !parsed.defaultHold.has_value() &&
+                    !parsed.defaultFadeOut.has_value())
+                {
+                    return VCAuthoring::requestError(
+                        "record panel item requires at least one configuration field");
+                }
+
+                request.items.append(parsed);
+            }
+
+            return VCAuthoring::toJson(vcBridge->prepareAuthoring(VCBridge::AuthoringRequest(request)));
+            });
+        }
+    )
+    .set_description("Prepare record panel configuration updates as independent authoring items. "
+                     "Use vc_apply_preparation to execute a returned token.")
+    .set_annotations(Json{{"readOnlyHint", true}, {"destructiveHint", false}, {"idempotentHint", false}, {"openWorldHint", false}}));
+
+    tm.register_tool(Tool(
+        "vc_apply_preparation",
+        Json{{"type", "object"}, {"properties", {
+            {"preparationToken", {{"type", "string"}, {"description", "Preparation token returned by vc_prepare_layout, vc_prepare_bindings, or vc_prepare_record_panel"}}}
+        }}, {"required", {"preparationToken"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+            auto err = validateFields(args, {"preparationToken"});
+            if (!err.empty())
+            {
+                std::string message = err;
+                try { message = Json::parse(err).value("error", err); } catch (...) {}
+                return VCAuthoring::requestError(message);
+            }
+            if (!args.contains("preparationToken") || !args.at("preparationToken").is_string())
+                return VCAuthoring::requestError("preparationToken must be a non-empty string");
+            const QString token = QString::fromStdString(args.at("preparationToken").get<std::string>()).trimmed();
+            if (token.isEmpty())
+                return VCAuthoring::requestError("preparationToken must be a non-empty string");
+            return VCAuthoring::toJson(vcBridge->applyAuthoring(token));
+            });
+        }
+    )
+    .set_description("Apply a previously prepared authoring token.")
+    .set_annotations(Json{{"readOnlyHint", false}, {"destructiveHint", true}, {"idempotentHint", false}, {"openWorldHint", false}}));
+
     // vc_update_widgets (batch — sparse update)
     // Absorbs former: update_widgets, set_widget_colors, configure_audio_triggers
     tm.register_tool(Tool(
@@ -460,7 +805,13 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                             {"channel", {{"type", "integer"}}}
                         }}}}}}
                 }}, {"required", {"barIndex", "type"}}}},
-                    {"description", "Audio Triggers: per-bar configurations"}}}
+                    {"description", "Audio Triggers: per-bar configurations"}}},
+                {"targetFolder", {{"type", "string"}, {"description", "RecordPanel: function folder path for newly recorded scenes/chasers"}}},
+                {"scenePrefix", {{"type", "string"}, {"description", "RecordPanel: scene name prefix used for new recordings"}}},
+                {"chaserPrefix", {{"type", "string"}, {"description", "RecordPanel: chaser name prefix used for new recordings"}}},
+                {"defaultFadeIn", {{"type", "integer"}, {"description", "RecordPanel: default fade-in time in ms for chaser steps"}}},
+                {"defaultHold", {{"type", "integer"}, {"description", "RecordPanel: default hold time in ms for chaser steps"}}},
+                {"defaultFadeOut", {{"type", "integer"}, {"description", "RecordPanel: default fade-out time in ms for chaser steps"}}}
             }}, {"required", {"widgetID"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
@@ -921,12 +1272,35 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 {
                     VCBridge::RecordPanelConfig rpCfg;
                     bool hasRpCfg = false;
-                    if (item.contains("targetFolder")) { rpCfg.targetFolder = QString::fromStdString(item["targetFolder"].get<std::string>()); hasRpCfg = true; }
-                    if (item.contains("scenePrefix")) { rpCfg.scenePrefix = QString::fromStdString(item["scenePrefix"].get<std::string>()); hasRpCfg = true; }
-                    if (item.contains("chaserPrefix")) { rpCfg.chaserPrefix = QString::fromStdString(item["chaserPrefix"].get<std::string>()); hasRpCfg = true; }
-                    if (item.contains("defaultFadeIn")) { rpCfg.defaultFadeIn = item["defaultFadeIn"].get<int>(); hasRpCfg = true; }
-                    if (item.contains("defaultHold")) { rpCfg.defaultHold = item["defaultHold"].get<int>(); hasRpCfg = true; }
-                    if (item.contains("defaultFadeOut")) { rpCfg.defaultFadeOut = item["defaultFadeOut"].get<int>(); hasRpCfg = true; }
+                    bool invalidRpCfg = false;
+                    auto recordPanelString = [&](const char *field) -> std::optional<QString> {
+                        if (!item.contains(field)) return std::nullopt;
+                        if (!item[field].is_string())
+                        {
+                            itemError(std::string(field) + " must be a string");
+                            invalidRpCfg = true;
+                            return std::nullopt;
+                        }
+                        return QString::fromStdString(item[field].get<std::string>());
+                    };
+                    auto recordPanelMs = [&](const char *field) -> std::optional<uint> {
+                        if (!item.contains(field)) return std::nullopt;
+                        auto value = mcp::jsonInteger(item[field], 0, std::numeric_limits<int>::max());
+                        if (!value)
+                        {
+                            itemError(mcp::integerError(field, 0, std::numeric_limits<int>::max()));
+                            invalidRpCfg = true;
+                            return std::nullopt;
+                        }
+                        return uint(*value);
+                    };
+                    if (auto value = recordPanelString("targetFolder")) { rpCfg.targetFolder = *value; hasRpCfg = true; }
+                    if (auto value = recordPanelString("scenePrefix")) { rpCfg.scenePrefix = *value; hasRpCfg = true; }
+                    if (auto value = recordPanelString("chaserPrefix")) { rpCfg.chaserPrefix = *value; hasRpCfg = true; }
+                    if (auto value = recordPanelMs("defaultFadeIn")) { rpCfg.defaultFadeIn = *value; hasRpCfg = true; }
+                    if (auto value = recordPanelMs("defaultHold")) { rpCfg.defaultHold = *value; hasRpCfg = true; }
+                    if (auto value = recordPanelMs("defaultFadeOut")) { rpCfg.defaultFadeOut = *value; hasRpCfg = true; }
+                    if (invalidRpCfg) continue;
                     if (hasRpCfg)
                     {
                         bool ok = vcBridge->configureRecordPanel(wid, rpCfg);

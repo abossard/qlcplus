@@ -41,6 +41,7 @@ public:
     MasterTimerPrivate(MasterTimer* masterTimer);
     ~MasterTimerPrivate();
 
+    void start();
     void stop();
 
 private:

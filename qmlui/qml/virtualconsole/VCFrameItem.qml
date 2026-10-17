@@ -26,13 +26,24 @@ import "."
 VCWidgetItem
 {
     id: frameRoot
+    containerHandles: true
     property VCFrame frameObj: null
+    property alias frameHeaderItem: frameHeader
+    readonly property var chromeWidgets: dropArea.chromeWidgets
     property bool dropActive: false
     property bool isSolo: false
     property bool isCollapsed: frameObj ? frameObj.isCollapsed : false
     property var dropPreview: null
+    property bool pageFrame:
+    {
+        for (var page = 0; frameObj && page < virtualConsole.pagesCount; ++page)
+            if (frameObj === virtualConsole.page(page))
+                return true
+        return false
+    }
 
-    color: dropActive ? UISettings.activeDropArea : (frameObj ? frameObj.backgroundColor : "darkgray")
+    frameBackgroundColor: dropActive ? UISettings.activeDropArea : (frameObj ? frameObj.backgroundColor : "darkgray")
+    color: pageFrame && virtualConsole.editMode ? "transparent" : frameBackgroundColor
     clip: true
     width: frameObj ? (isCollapsed ? UISettings.bigItemHeight * 2 : frameObj.geometry.width) : 100
     height: frameObj ? (isCollapsed ? frameHeader.height : frameObj.geometry.height) : 100
@@ -92,6 +103,7 @@ VCWidgetItem
     Rectangle
     {
         id: frameHeader
+        z: virtualConsole.editMode ? 2 : 0
         width: parent.width
         height: frameObj ? frameObj.contentRect.y * frameObj.scaleFactor : UISettings.listItemHeight
         color: "transparent"
@@ -222,6 +234,19 @@ VCWidgetItem
         anchors.fill: parent
         objectName: frameObj ? "frameDropArea" + frameObj.id : ""
         z: 5 // children must be above the VCWidget resizeLayer
+        property var chromeWidgets: []
+        // Projected editor fragments do not change the actual widget inventory.
+        onChildrenChanged:
+        {
+            var widgets = []
+            for (var i = 0; i < children.length; ++i)
+                if (children[i].containerHandles !== undefined)
+                    widgets.push(children[i])
+            if (widgets.length === chromeWidgets.length &&
+                widgets.every(function(item, index) { return item === chromeWidgets[index] }))
+                return
+            chromeWidgets = widgets
+        }
 
         // Visual grid overlay
         Canvas

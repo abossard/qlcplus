@@ -71,6 +71,7 @@ inline const Json kAnnotReadOnly    = {{"readOnlyHint", true},  {"destructiveHin
 inline const Json kAnnotIdempotent  = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", false}};
 inline const Json kAnnotDestructive = {{"readOnlyHint", false}, {"destructiveHint", true},  {"idempotentHint", true},  {"openWorldHint", false}};
 inline const Json kAnnotAdditive    = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", false}, {"openWorldHint", false}};
+inline const Json kAnnotPreparation = {{"readOnlyHint", true},  {"destructiveHint", false}, {"idempotentHint", false}, {"openWorldHint", false}};
 inline const Json kAnnotOpenWorld   = {{"readOnlyHint", false}, {"destructiveHint", false}, {"idempotentHint", true},  {"openWorldHint", true}};
 }
 
@@ -231,10 +232,15 @@ inline std::optional<int64_t> jsonInteger(const nlohmann::json &v, int64_t lo, i
     if (v.is_number_float())
     {
         const double d = v.get<double>();
+        constexpr double kMinInt64 = -9223372036854775808.0; // -2^63
+        constexpr double kMaxInt64Exclusive = 9223372036854775808.0; // 2^63
         if (!std::isfinite(d) || std::trunc(d) != d ||
-            d < static_cast<double>(lo) || d > static_cast<double>(hi))
+            d < kMinInt64 || d >= kMaxInt64Exclusive)
             return std::nullopt;
-        return static_cast<int64_t>(d);
+        const int64_t i = static_cast<int64_t>(d);
+        if (i < lo || i > hi)
+            return std::nullopt;
+        return i;
     }
     return std::nullopt;
 }

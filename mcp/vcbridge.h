@@ -26,10 +26,12 @@
 #include <QRectF>
 #include <QString>
 #include <QVariant>
+#include <QVariantMap>
 #include <QList>
 #include <QMap>
 #include <algorithm>
 #include <optional>
+#include <variant>
 
 /**
  * Abstract interface for Virtual Console operations.
@@ -377,6 +379,606 @@ public:
         QString externalInputMode;  // "Normal", "Override", or "Inherit"
         QList<WidgetInfo> widgets;
     };
+
+    // ─── MCP authoring contracts (S0b shared checkpoint) ───────────────────
+
+    struct AuthoringSetupQuery
+    {
+        enum class Kind
+        {
+            Widgets,
+            Pages,
+            Subpages,
+        };
+
+        Kind kind = Kind::Widgets;
+        int limit = 100;
+        QString cursor;
+        QStringList fields;
+        quint32 pageWidgetID = (quint32)-1;
+        quint32 frameWidgetID = (quint32)-1;
+        int childSubpage = -1;
+        QList<quint32> widgetIDs;
+        bool recursive = true;
+        QString nameFilter;
+        QString typeFilter;
+    };
+
+    struct AuthoringTargetControlQuery
+    {
+        enum class Kind
+        {
+            Targets,
+            Sources,
+            Profiles,
+        };
+
+        Kind kind = Kind::Targets;
+        int limit = 100;
+        QString cursor;
+        QStringList fields;
+        QList<quint32> widgetIDs;
+        QString pluginName;
+        QString profileName;
+        quint32 inputUniverseID = (quint32)-1;
+    };
+
+    struct AuthoringRecordingQuery
+    {
+        enum class Kind
+        {
+            References,
+            Commands,
+        };
+
+        Kind kind = Kind::References;
+        int limit = 100;
+        QString cursor;
+        QStringList fields;
+        quint32 showFunctionID = (quint32)-1;
+        QString controlRecordingUUID;
+        qint64 fromTimeMs = -1;
+        qint64 toTimeMs = -1;
+    };
+
+    using AuthoringQuery = std::variant<AuthoringSetupQuery, AuthoringTargetControlQuery, AuthoringRecordingQuery>;
+
+    struct AuthoringGeometryChange
+    {
+        quint32 widgetID = (quint32)-1;
+        QRectF logicalRect;
+    };
+
+    struct AuthoringLayoutRequest
+    {
+        enum class Operation
+        {
+            Geometry,
+            Reorder,
+            MoveGroup,
+            Align,
+            PageCreate,
+            PageRename,
+            PageDelete,
+            FramePages,
+        };
+
+        Operation operation = Operation::Geometry;
+        QList<AuthoringGeometryChange> geometryChanges;
+        QList<quint32> widgetIDs;
+        std::optional<quint32> destinationFrameWidgetID;
+        std::optional<int> destinationSubpage;
+        std::optional<quint32> beforeWidgetID;
+        std::optional<quint32> anchorWidgetID;
+        std::optional<QPointF> logicalAnchor;
+        std::optional<quint32> frameWidgetID;
+        std::optional<quint32> pageWidgetID;
+        std::optional<int> columns;
+        std::optional<int> padding;
+        std::optional<QString> name;
+        std::optional<int> totalPages;
+        std::optional<QStringList> pageLabels;
+        std::optional<bool> pagesLoop;
+        bool requireAtomic = false;
+        QString diffDetail = QStringLiteral("summary");
+        QString expectedBasis;
+        bool snapToGrid = false;
+    };
+
+    struct AuthoringSourceKey
+    {
+        std::optional<quint8> controlSlotID;
+        std::optional<quint32> inputUniverseID;
+        std::optional<quint32> inputChannel;
+        std::optional<int> childSubpage;
+    };
+
+    struct AuthoringDestination
+    {
+        std::optional<quint32> inputUniverseID;
+        std::optional<quint32> inputChannel;
+        std::optional<QString> profileName;
+    };
+
+    struct AuthoringBindingItem
+    {
+        enum class Kind
+        {
+            Function,
+            Controller,
+            Key,
+            Feedback,
+        };
+
+        enum class Action
+        {
+            Set,
+            Clear,
+            Append,
+            Move,
+            Remove,
+        };
+
+        quint32 widgetID = (quint32)-1;
+        Kind kind = Kind::Function;
+        Action action = Action::Set;
+        std::optional<quint8> controlSlotID;
+        std::optional<quint32> functionID;
+        std::optional<AuthoringSourceKey> sourceKey;
+        std::optional<AuthoringDestination> destination;
+        std::optional<QString> keySequence;
+        std::optional<int> idleValue;
+        std::optional<int> activeValue;
+        std::optional<int> monitorValue;
+        std::optional<int> idleChannel;
+        std::optional<int> activeChannel;
+        std::optional<int> monitorChannel;
+    };
+
+    struct AuthoringBindingsRequest
+    {
+        QList<AuthoringBindingItem> items;
+        QString expectedBasis;
+        bool allowFanout = false;
+        bool requireAtomic = false;
+        QString diffDetail = QStringLiteral("summary");
+    };
+
+    struct AuthoringRecordPanelItem
+    {
+        quint32 widgetID = (quint32)-1;
+        std::optional<QString> targetFolder;
+        std::optional<QString> scenePrefix;
+        std::optional<QString> chaserPrefix;
+        std::optional<uint> defaultFadeIn;
+        std::optional<uint> defaultHold;
+        std::optional<uint> defaultFadeOut;
+    };
+
+    struct AuthoringRecordPanelRequest
+    {
+        QList<AuthoringRecordPanelItem> items;
+        QString expectedBasis;
+        bool requireAtomic = false;
+        QString diffDetail = QStringLiteral("summary");
+    };
+
+    using AuthoringRequest = std::variant<AuthoringLayoutRequest, AuthoringBindingsRequest, AuthoringRecordPanelRequest>;
+
+    struct AuthoringLimitation
+    {
+        QString code;
+        QString scope;
+        QString message;
+    };
+
+    struct AuthoringWorkSummary
+    {
+        int scannedSummaryRows = 0;
+        int hydratedRows = 0;
+        int serializedRows = 0;
+        int payloadBytes = 0;
+    };
+
+    struct AuthoringReadRow
+    {
+        struct SetupPageRow
+        {
+            quint32 pageWidgetID = (quint32)-1;
+            int pageIndex = -1;
+            QString caption;
+            QString externalInputMode;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct SetupSubpageRow
+        {
+            quint32 frameWidgetID = (quint32)-1;
+            int childSubpage = -1;
+            QString label;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct SetupWidgetRow
+        {
+            quint32 widgetID = (quint32)-1;
+            quint32 pageWidgetID = (quint32)-1;
+            qint32 parentWidgetID = -1;
+            int childSubpage = -1;
+            int siblingIndex = -1;
+            QString machineType;
+            QString caption;
+            std::optional<QRectF> logicalGeometry;
+            struct FunctionBindingGroup
+            {
+                std::optional<quint32> functionID;
+                std::optional<QString> action;
+            };
+            struct InputBindingGroup
+            {
+                struct Entry
+                {
+                    AuthoringSourceKey sourceKey;
+                    std::optional<int> sourceOrdinal;
+                    std::optional<QString> sourceName;
+                    std::optional<QString> configurationDigest;
+                    bool duplicate = false;
+                    bool ambiguous = false;
+                };
+                QList<Entry> entries;
+            };
+            struct FeedbackGroup
+            {
+                struct Entry
+                {
+                    AuthoringSourceKey sourceKey;
+                    std::optional<int> sourceOrdinal;
+                    std::optional<int> idleValue;
+                    std::optional<int> activeValue;
+                    std::optional<int> monitorValue;
+                    std::optional<int> idleChannel;
+                    std::optional<int> activeChannel;
+                    std::optional<int> monitorChannel;
+                    std::optional<QString> configurationDigest;
+                };
+                QList<Entry> entries;
+            };
+            struct RecordPanelGroup
+            {
+                std::optional<QString> targetFolder;
+                std::optional<QString> scenePrefix;
+                std::optional<QString> chaserPrefix;
+                std::optional<uint> defaultFadeIn;
+                std::optional<uint> defaultHold;
+                std::optional<uint> defaultFadeOut;
+            };
+            struct AppearanceGroup
+            {
+                std::optional<QColor> bgColor;
+                std::optional<QColor> fgColor;
+                std::optional<bool> disabled;
+            };
+            struct FrameConfigurationGroup
+            {
+                std::optional<int> totalPages;
+                std::optional<int> currentPage;
+                std::optional<bool> pagesLoop;
+                std::optional<QStringList> pageLabels;
+            };
+            std::optional<FunctionBindingGroup> functionBinding;
+            std::optional<InputBindingGroup> inputBindings;
+            std::optional<FeedbackGroup> feedback;
+            std::optional<RecordPanelGroup> recordPanel;
+            std::optional<AppearanceGroup> appearance;
+            std::optional<FrameConfigurationGroup> frameConfiguration;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct TargetRow
+        {
+            quint32 widgetID = (quint32)-1;
+            quint8 controlSlotID = 0;
+            QString label;
+            QString sourceName;
+            std::optional<QString> validationLevel;
+            std::optional<bool> assignmentSupported;
+            std::optional<QString> valueDomain;
+            std::optional<bool> keyboardAllowed;
+            std::optional<SetupWidgetRow::InputBindingGroup> inputBindings;
+            std::optional<SetupWidgetRow::FeedbackGroup> feedback;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct SourceRow
+        {
+            QString pluginName;
+            QString direction;
+            std::optional<quint32> inputLine;
+            std::optional<quint32> outputLine;
+            std::optional<QString> inputUID;
+            std::optional<QString> outputUID;
+            std::optional<quint32> inputUniverseID;
+            std::optional<QString> status;
+            std::optional<QString> reason;
+            std::optional<int> sourceOrdinal;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct ProfileRow
+        {
+            QString profileName;
+            QString manufacturer;
+            QString model;
+            QString type;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct ProfileChannelRow
+        {
+            enum class Movement
+            {
+                Absolute,
+                Relative,
+            };
+
+            QString profileName;
+            int profileChannelNumber = -1;
+            quint32 inputChannel = (quint32)-1;
+            QString name;
+            QString type;
+            Movement movement = Movement::Absolute;
+            int sensitivity = 0;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct ProfileFeedbackTableRow
+        {
+            QString profileName;
+            QString table;
+            int key = -1;
+            std::optional<QString> label;
+            std::optional<QString> color;
+            std::optional<QString> configurationDigest;
+        };
+
+        struct RecordingReferenceRow
+        {
+            quint32 showFunctionID = (quint32)-1;
+            QString controlRecordingUUID;
+            QString role;
+            QString attribute;
+            std::optional<QString> status;
+            std::optional<QString> reason;
+            int count = 0;
+        };
+
+        struct RecordingCommandRow
+        {
+            quint32 showFunctionID = (quint32)-1;
+            quint32 eventID = (quint32)-1;
+            std::optional<qint64> timeMs;
+            std::optional<int> order;
+            std::optional<quint32> pairID;
+            std::optional<QString> action;
+            QString controlRecordingUUID;
+            std::optional<QString> role;
+            std::optional<QString> attribute;
+            std::optional<QVariant> payload;
+        };
+
+        using TypedRow = std::variant<SetupPageRow, SetupSubpageRow, SetupWidgetRow,
+                                      TargetRow, SourceRow, ProfileRow, ProfileChannelRow, ProfileFeedbackTableRow,
+                                      RecordingReferenceRow, RecordingCommandRow>;
+
+        TypedRow row;
+        QList<AuthoringLimitation> limitations;
+    };
+
+    struct AuthoringReadResult
+    {
+        int version = 1;
+        QString basis;
+        QString basisScope;
+        QList<AuthoringReadRow> rows;
+        bool complete = false;
+        QString nextCursor;
+        QString code;
+        QString error;
+        QList<AuthoringLimitation> limitations;
+        AuthoringWorkSummary work;
+    };
+
+    struct AuthoringFieldChange
+    {
+        QString field;
+        QVariant before;
+        QVariant after;
+        bool changed = false;
+        QString note;
+    };
+
+    struct AuthoringPreconditionObservation
+    {
+        QString name;
+        bool met = false;
+        QString scope;
+        QString reason;
+    };
+
+    struct AuthoringPreparationItem
+    {
+        enum class Status
+        {
+            Ok,
+            Error,
+        };
+
+        enum class Outcome
+        {
+            Prepared,
+            Unchanged,
+            Refused,
+            Unsupported,
+        };
+
+        int index = -1;
+        Status status = Status::Ok;
+        Outcome outcome = Outcome::Prepared;
+        QString code;
+        QString error;
+        quint32 targetWidgetID = (quint32)-1;
+        std::optional<quint32> selectedPageWidgetID;
+        std::optional<qint32> selectedParentWidgetID;
+        std::optional<int> selectedChildSubpage;
+        std::optional<quint8> selectedControlSlotID;
+        std::optional<quint32> selectedFunctionID;
+        std::optional<quint32> selectedFunctionBeforeID;
+        std::optional<quint32> selectedFunctionAfterID;
+        std::optional<AuthoringSourceKey> selectedSourceKey;
+        std::optional<int> sourceOrdinal;
+        std::optional<QString> configurationDigest;
+        QList<AuthoringFieldChange> changes;
+        int changedCount = 0;
+        QRectF beforeLogicalRect;
+        QRectF afterLogicalRect;
+        QList<AuthoringLimitation> limitations;
+    };
+
+    struct AuthoringPreparationResult
+    {
+        enum class AtomicScope
+        {
+            NativeGroup,
+            IndependentItems,
+        };
+
+        enum class DiffDetail
+        {
+            Summary,
+            Full,
+        };
+
+        int version = 1;
+        QString basis;
+        QString code;
+        QString error;
+        QString preparationToken;
+        int expiresInMs = 0;
+        AtomicScope atomicScope = AtomicScope::NativeGroup;
+        DiffDetail diffDetail = DiffDetail::Summary;
+        QString candidateDigest;
+        bool diffComplete = true;
+        QList<AuthoringPreparationItem> items;
+        QList<AuthoringLimitation> limitations;
+        QList<AuthoringPreconditionObservation> preconditions;
+        AuthoringWorkSummary work;
+    };
+
+    struct AuthoringApplyItem
+    {
+        enum class Status
+        {
+            Ok,
+            Error,
+        };
+
+        enum class Outcome
+        {
+            Applied,
+            Unchanged,
+            Refused,
+            Partial,
+            NotApplied,
+        };
+
+        int index = -1;
+        Status status = Status::Ok;
+        Outcome outcome = Outcome::Applied;
+        QString code;
+        QString error;
+        quint32 targetWidgetID = (quint32)-1;
+        std::optional<quint32> selectedPageWidgetID;
+        std::optional<qint32> selectedParentWidgetID;
+        std::optional<int> selectedChildSubpage;
+        std::optional<quint8> selectedControlSlotID;
+        std::optional<quint32> selectedFunctionID;
+        std::optional<quint32> selectedFunctionBeforeID;
+        std::optional<quint32> selectedFunctionAfterID;
+        std::optional<AuthoringSourceKey> selectedSourceKey;
+        std::optional<int> sourceOrdinal;
+        std::optional<QString> configurationDigest;
+        QList<AuthoringFieldChange> changes;
+        int changedCount = 0;
+        QRectF beforeLogicalRect;
+        QRectF afterLogicalRect;
+        QList<AuthoringLimitation> limitations;
+    };
+
+    struct AuthoringApplyResult
+    {
+        using AtomicScope = AuthoringPreparationResult::AtomicScope;
+
+        int version = 1;
+        bool applied = false;
+        bool tokenConsumed = false;
+        QString code;
+        QString error;
+        AtomicScope atomicScope = AtomicScope::NativeGroup;
+        QList<AuthoringApplyItem> items;
+        QList<AuthoringLimitation> limitations;
+        AuthoringWorkSummary work;
+    };
+
+    static constexpr int kAuthoringMaxLiveRecords = 32;
+    static constexpr qint64 kAuthoringRecordTtlMs = 60000;
+    static constexpr int kAuthoringMaxItemsPerRequest = 128;
+    static constexpr int kAuthoringMaxGuardsPerRecord = 4096;
+    static constexpr int kAuthoringMaxCanonicalRequestBytes = 65536;
+
+    virtual AuthoringReadResult queryAuthoring(const AuthoringQuery &query) const
+    {
+        Q_UNUSED(query);
+        return unsupportedAuthoringRead();
+    }
+
+    virtual AuthoringPreparationResult prepareAuthoring(const AuthoringRequest &request)
+    {
+        Q_UNUSED(request);
+        return unsupportedAuthoringPreparation();
+    }
+
+    virtual AuthoringApplyResult applyAuthoring(const QString &preparationToken)
+    {
+        Q_UNUSED(preparationToken);
+        return unsupportedAuthoringApply();
+    }
+
+protected:
+    static AuthoringReadResult unsupportedAuthoringRead()
+    {
+        AuthoringReadResult result;
+        result.code = QStringLiteral("unsupportedBridge");
+        result.error = QStringLiteral("Authoring operations are not supported by this bridge");
+        return result;
+    }
+
+    static AuthoringPreparationResult unsupportedAuthoringPreparation()
+    {
+        AuthoringPreparationResult result;
+        result.code = QStringLiteral("unsupportedBridge");
+        result.error = QStringLiteral("Authoring operations are not supported by this bridge");
+        return result;
+    }
+
+    static AuthoringApplyResult unsupportedAuthoringApply()
+    {
+        AuthoringApplyResult result;
+        result.code = QStringLiteral("unsupportedBridge");
+        result.error = QStringLiteral("Authoring operations are not supported by this bridge");
+        return result;
+    }
+
+public:
 
     // Pages
     virtual int addPage(const QString &name) = 0;

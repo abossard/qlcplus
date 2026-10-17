@@ -396,6 +396,88 @@ void MasterTimer_Test::restart()
     mt->stopAllFunctions();
 }
 
+void MasterTimer_Test::lifecycleStopRegression_data()
+{
+    QTest::addColumn<QString>("scenario");
+    QTest::addColumn<int>("iterations");
+
+    QTest::newRow("immediate-stop-around-startup")
+        << QStringLiteral("immediate-stop-around-startup") << 120;
+    QTest::newRow("confirmed-running-stop")
+        << QStringLiteral("confirmed-running-stop") << 40;
+    QTest::newRow("repeated-restart")
+        << QStringLiteral("repeated-restart") << 30;
+}
+
+void MasterTimer_Test::lifecycleStopRegression()
+{
+    QFETCH(QString, scenario);
+    QFETCH(int, iterations);
+
+    MasterTimer *mt = m_doc->masterTimer();
+    mt->stop();
+
+    const auto waitForRunning = [&]() {
+        QElapsedTimer elapsed;
+        elapsed.start();
+        while (mt->runningFunctions() == 0 && elapsed.elapsed() < 500)
+            QTest::qWait(5);
+        return mt->runningFunctions() > 0;
+    };
+
+    if (scenario == QStringLiteral("immediate-stop-around-startup"))
+    {
+        for (int i = 0; i < iterations; ++i)
+        {
+            mt->start();
+            mt->stop();
+            QCOMPARE(mt->runningFunctions(), 0);
+            QVERIFY(mt->m_functionList.isEmpty());
+        }
+        return;
+    }
+
+    if (scenario == QStringLiteral("confirmed-running-stop"))
+    {
+        for (int i = 0; i < iterations; ++i)
+        {
+            mt->start();
+            Function_Stub fs(m_doc);
+            fs.start(mt, FunctionParent::master());
+            QVERIFY2(waitForRunning(), "Function did not reach running state before stop");
+            mt->stop();
+            QCOMPARE(mt->runningFunctions(), 0);
+            QVERIFY(mt->m_functionList.isEmpty());
+        }
+        return;
+    }
+
+    if (scenario == QStringLiteral("repeated-restart"))
+    {
+        for (int i = 0; i < iterations; ++i)
+        {
+            mt->start();
+            Function_Stub fs1(m_doc);
+            fs1.start(mt, FunctionParent::master());
+            QVERIFY2(waitForRunning(), "First start did not reach running state");
+            mt->stop();
+            QCOMPARE(mt->runningFunctions(), 0);
+            QVERIFY(mt->m_functionList.isEmpty());
+
+            mt->start();
+            Function_Stub fs2(m_doc);
+            fs2.start(mt, FunctionParent::master());
+            QVERIFY2(waitForRunning(), "Restart did not reach running state");
+            mt->stop();
+            QCOMPARE(mt->runningFunctions(), 0);
+            QVERIFY(mt->m_functionList.isEmpty());
+        }
+        return;
+    }
+
+    QFAIL("Unknown lifecycle stop regression scenario");
+}
+
 /* C2-2: a slow tick's cost is attributed to the responsible function.
    Two functions with unequal write() cost run in the same tick; the diagnostic
    must name the costlier one as dominant, distinct from the cheap one, and

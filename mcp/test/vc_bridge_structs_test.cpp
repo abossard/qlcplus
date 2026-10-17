@@ -22,6 +22,31 @@
 #include "vc_bridge_structs_test.h"
 #include "vcbridge.h"
 
+namespace {
+
+class MinimalVCBridge final : public VCBridge
+{
+public:
+    int addPage(const QString &) override { return -1; }
+    QList<PageInfo> pages() const override { return {}; }
+    int pagesCount() const override { return 0; }
+    int addFrame(int, const QRect &, const QString &, bool) override { return -1; }
+    int addButton(int, const QRect &, quint32, const QString &, const QString &, int) override { return -1; }
+    int addSlider(int, const QRect &, const QString &, const QString &, quint32, const QList<QPair<quint32, quint32>> &) override { return -1; }
+    int addXYPad(int, const QRect &, const QList<quint32> &) override { return -1; }
+    int addCueList(int, const QRect &, quint32, const QString &) override { return -1; }
+    int addLabel(int, const QRect &, const QString &) override { return -1; }
+    bool mapWidgetInput(int, quint32, quint32) override { return false; }
+    bool setWidgetFeedback(int, int, int, int, int, int, int) override { return false; }
+    bool setWidgetColors(int, const QColor &, const QColor &) override { return false; }
+    int addSpeedDial(int, const QRect &, const QList<quint32> &) override { return -1; }
+    int addAudioTriggers(int, const QRect &) override { return -1; }
+    int addClock(int, const QRect &, const QString &) override { return -1; }
+    int addRecordPanel(int, const QRect &) override { return -1; }
+};
+
+} // namespace
+
 // ========== WidgetDetails defaults ==========
 
 void VCBridgeStructs_Test::widgetDetails_defaultValues()
@@ -296,6 +321,126 @@ void VCBridgeStructs_Test::xyPadPresetInfo_defaults()
     QVERIFY(info.type.isEmpty());
     QCOMPARE(info.position, QPointF());
     QCOMPARE(info.functionID, (quint32)-1);
+}
+
+void VCBridgeStructs_Test::authoringMethods_defaultUnsupportedBridge()
+{
+    MinimalVCBridge bridge;
+
+    VCBridge::AuthoringSetupQuery query;
+    const VCBridge::AuthoringReadResult readResult = bridge.queryAuthoring(VCBridge::AuthoringQuery(query));
+    QCOMPARE(readResult.code, QStringLiteral("unsupportedBridge"));
+    QVERIFY(!readResult.error.isEmpty());
+    QCOMPARE(readResult.complete, false);
+    QVERIFY(readResult.nextCursor.isEmpty());
+
+    VCBridge::AuthoringLayoutRequest request;
+    VCBridge::AuthoringGeometryChange geometry;
+    geometry.widgetID = 42;
+    geometry.logicalRect = QRectF(10.0, 20.0, 100.0, 80.0);
+    request.geometryChanges.append(geometry);
+    const VCBridge::AuthoringPreparationResult prepResult = bridge.prepareAuthoring(VCBridge::AuthoringRequest(request));
+    QCOMPARE(prepResult.code, QStringLiteral("unsupportedBridge"));
+    QVERIFY(!prepResult.error.isEmpty());
+    QVERIFY(prepResult.preparationToken.isEmpty());
+    QCOMPARE(prepResult.expiresInMs, 0);
+
+    const VCBridge::AuthoringApplyResult applyResult = bridge.applyAuthoring(QStringLiteral("token"));
+    QCOMPARE(applyResult.code, QStringLiteral("unsupportedBridge"));
+    QVERIFY(!applyResult.error.isEmpty());
+    QCOMPARE(applyResult.applied, false);
+    QCOMPARE(applyResult.tokenConsumed, false);
+}
+
+void VCBridgeStructs_Test::authoringContracts_closedDefaults()
+{
+    VCBridge::AuthoringSetupQuery setup;
+    QCOMPARE(setup.kind, VCBridge::AuthoringSetupQuery::Kind::Widgets);
+    QCOMPARE(setup.limit, 100);
+    QCOMPARE(setup.recursive, true);
+    QCOMPARE(setup.pageWidgetID, (quint32)-1);
+    QCOMPARE(setup.frameWidgetID, (quint32)-1);
+    QCOMPARE(setup.childSubpage, -1);
+
+    VCBridge::AuthoringTargetControlQuery controls;
+    QCOMPARE(controls.kind, VCBridge::AuthoringTargetControlQuery::Kind::Targets);
+    QCOMPARE(controls.limit, 100);
+    QCOMPARE(controls.inputUniverseID, (quint32)-1);
+
+    VCBridge::AuthoringRecordingQuery recordings;
+    QCOMPARE(recordings.kind, VCBridge::AuthoringRecordingQuery::Kind::References);
+    QCOMPARE(recordings.limit, 100);
+    QCOMPARE(recordings.showFunctionID, (quint32)-1);
+    QCOMPARE(recordings.fromTimeMs, (qint64)-1);
+    QCOMPARE(recordings.toTimeMs, (qint64)-1);
+
+    VCBridge::AuthoringLayoutRequest layout;
+    QCOMPARE(layout.operation, VCBridge::AuthoringLayoutRequest::Operation::Geometry);
+    QCOMPARE(layout.snapToGrid, false);
+    QCOMPARE(layout.requireAtomic, false);
+    QCOMPARE(layout.diffDetail, QStringLiteral("summary"));
+    QVERIFY(!layout.destinationFrameWidgetID.has_value());
+    QVERIFY(!layout.pageWidgetID.has_value());
+    QVERIFY(!layout.frameWidgetID.has_value());
+
+    VCBridge::AuthoringBindingItem binding;
+    QCOMPARE(binding.kind, VCBridge::AuthoringBindingItem::Kind::Function);
+    QCOMPARE(binding.action, VCBridge::AuthoringBindingItem::Action::Set);
+    QCOMPARE(binding.widgetID, (quint32)-1);
+    QVERIFY(!binding.controlSlotID.has_value());
+    QVERIFY(!binding.functionID.has_value());
+    QVERIFY(!binding.sourceKey.has_value());
+    QVERIFY(!binding.destination.has_value());
+    QVERIFY(!binding.idleValue.has_value());
+    QVERIFY(!binding.idleChannel.has_value());
+
+    VCBridge::AuthoringBindingsRequest bindings;
+    QCOMPARE(bindings.allowFanout, false);
+    QCOMPARE(bindings.requireAtomic, false);
+    QCOMPARE(bindings.diffDetail, QStringLiteral("summary"));
+    QVERIFY(bindings.items.isEmpty());
+
+    VCBridge::AuthoringRecordPanelItem panelItem;
+    QCOMPARE(panelItem.widgetID, (quint32)-1);
+    QVERIFY(!panelItem.targetFolder.has_value());
+    QVERIFY(!panelItem.defaultFadeIn.has_value());
+
+    VCBridge::AuthoringRecordPanelRequest panelReq;
+    QCOMPARE(panelReq.requireAtomic, false);
+    QCOMPARE(panelReq.diffDetail, QStringLiteral("summary"));
+    QVERIFY(panelReq.items.isEmpty());
+
+    VCBridge::AuthoringReadResult read;
+    QCOMPARE(read.version, 1);
+    QCOMPARE(read.complete, false);
+    QVERIFY(read.rows.isEmpty());
+    QCOMPARE(read.work.scannedSummaryRows, 0);
+    QVERIFY(read.limitations.isEmpty());
+
+    VCBridge::AuthoringPreparationItem prepItem;
+    QCOMPARE(prepItem.changedCount, 0);
+    QVERIFY(prepItem.changes.isEmpty());
+    QVERIFY(prepItem.limitations.isEmpty());
+
+    VCBridge::AuthoringPreparationResult prep;
+    QCOMPARE(prep.version, 1);
+    QCOMPARE(prep.diffDetail, VCBridge::AuthoringPreparationResult::DiffDetail::Summary);
+    QCOMPARE(prep.diffComplete, true);
+    QVERIFY(prep.preconditions.isEmpty());
+    QVERIFY(prep.limitations.isEmpty());
+    QCOMPARE(prep.work.payloadBytes, 0);
+
+    VCBridge::AuthoringApplyItem applyItem;
+    QCOMPARE(applyItem.changedCount, 0);
+    QVERIFY(applyItem.changes.isEmpty());
+    QVERIFY(applyItem.limitations.isEmpty());
+
+    VCBridge::AuthoringApplyResult apply;
+    QCOMPARE(apply.version, 1);
+    QCOMPARE(apply.applied, false);
+    QCOMPARE(apply.tokenConsumed, false);
+    QVERIFY(apply.limitations.isEmpty());
+    QCOMPARE(apply.work.hydratedRows, 0);
 }
 
 QTEST_MAIN(VCBridgeStructs_Test)

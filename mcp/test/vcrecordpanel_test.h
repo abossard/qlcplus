@@ -53,6 +53,7 @@ private slots:
     // XML round-trip for VCRecordPanel tags
     void xmlRoundTrip_data();
     void xmlRoundTrip();
+    void xmlParse_partialConfig();
 
 private:
     Doc *m_doc;

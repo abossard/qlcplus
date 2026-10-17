@@ -66,6 +66,9 @@ public:
     /** Reset the Virtual Console contents to an initial state */
     void resetContents();
 
+    /** Return the busy refusal reason, or an empty string when replacement is allowed. */
+    QString workspaceChangeError() const;
+
     /** Get/Set the VC edit mode flag */
     bool editMode() const;
     void setEditMode(bool editMode);

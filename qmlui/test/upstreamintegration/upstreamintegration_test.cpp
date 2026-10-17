@@ -8,6 +8,7 @@
 #include <QQmlProperty>
 #include <QJSValue>
 #include <QQuickItem>
+#include <QQuickItemGrabResult>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QXmlStreamReader>
@@ -20,6 +21,11 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDir>
+#include <QSaveFile>
+#include <QTimer>
+#include <QElapsedTimer>
+#include <QCryptographicHash>
+#include <QUuid>
 #include <algorithm>
 
 #include "app.h"
@@ -155,6 +161,7 @@ private slots:
     void vcAuthoringAccess();
     void vcOutlineNotifications_data();
     void vcOutlineNotifications();
+    void vcScreenshotConsole_data();
     void vcScreenshotConsole();
     void vcLayoutRoundTrip_data();
     void vcLayoutRoundTrip();
@@ -208,6 +215,22 @@ private slots:
     void vcLegacyLeafPointerResize();
     void vcClipboardPointerDrop_data();
     void vcClipboardPointerDrop();
+    void vcDerivedWorkspacePersistence_data();
+    void vcDerivedWorkspacePersistence();
+    void vcPublicationLifetime_data();
+    void vcPublicationLifetime();
+    void vcSelectedChrome_data();
+    void vcSelectedChrome();
+    void vcScrollbarChromeReplay_data();
+    void vcScrollbarChromeReplay();
+    void vcWidgetPointerDrop_data();
+    void vcWidgetPointerDrop();
+    void vcDeferredReveal_data();
+    void vcDeferredReveal();
+    void vcPageColorDeletion();
+    void vcFrameLegacyClip();
+    void vcFramePresentation_data();
+    void vcFramePresentation();
 private:
     QTemporaryDir m_settings;
     std::unique_ptr<App> m_app;
@@ -306,6 +329,7 @@ void UpstreamIntegration_Test::vcStructureEdit_data()
     QTest::newRow("ancestor-selection") << QString("ancestor") << true;
     QTest::newRow("reorder-only") << QString("reorder") << true;
     QTest::newRow("cycle") << QString("cycle") << false;
+    QTest::newRow("descendant-frame") << QString("descendant-frame") << false;
     QTest::newRow("self") << QString("self") << false;
     QTest::newRow("invalid-subpage") << QString("subpage") << false;
     QTest::newRow("unknown-widget") << QString("missing") << false;
@@ -344,11 +368,25 @@ void UpstreamIntegration_Test::vcStructureEdit()
         source->addWidgetToPageMap(button);
         button->setGeometry(QRectF(button == first ? 200 : 20, 60, 100, 80));
     }
+    quint32 descendantID = VCWidget::invalidId();
+    if (operation == "descendant-frame")
+    {
+        auto *descendant = new VCFrame(m_app->doc(), vc, source);
+        vc->addWidgetToMap(descendant);
+        source->addWidgetToPageMap(descendant);
+        descendant->setShowHeader(false);
+        descendant->setLogicalGeometry(QRectF(0, 200, 300, 150));
+        descendantID = descendant->id();
+    }
     const QVariantList beforeOrder = source->orderedChildIDs(0);
-    QCOMPARE(beforeOrder, (QVariantList{first->id(), second->id()}));
+    QCOMPARE(beforeOrder, (operation == "descendant-frame" ? QVariantList{first->id(), second->id(), descendantID}
+                                                           : QVariantList{first->id(), second->id()}));
     const QRectF beforeFirst = first->geometry();
     const QRectF beforeSecond = second->geometry();
     m_app->doc()->resetModified();
+    QByteArray beforeXML;
+    QXmlStreamWriter beforeWriter(&beforeXML);
+    vc->saveXML(&beforeWriter);
     QVariantList ids{first->id(), second->id()};
     quint32 destination = targetID;
     int subpage = 0;
@@ -371,6 +409,11 @@ void UpstreamIntegration_Test::vcStructureEdit()
         ids = {sourceID};
         destination = sourceID;
     }
+    else if (operation == "descendant-frame")
+    {
+        ids = {sourceID, first->id()};
+        destination = descendantID;
+    }
     else if (operation == "subpage")
         subpage = 99;
     else if (operation == "missing")
@@ -384,9 +427,15 @@ void UpstreamIntegration_Test::vcStructureEdit()
     if (!accepted)
     {
         QVERIFY(!result.value("error").toString().isEmpty());
+        if (operation == "descendant-frame")
+            QVERIFY(result.value("error").toString().contains("descendant"));
         QCOMPARE(first->parent(), source);
         QCOMPARE(second->parent(), source);
         QCOMPARE(source->orderedChildIDs(0), beforeOrder);
+        QByteArray afterXML;
+        QXmlStreamWriter afterWriter(&afterXML);
+        vc->saveXML(&afterWriter);
+        QCOMPARE(afterXML, beforeXML);
         QVERIFY(!m_app->doc()->isModified());
     }
     else
@@ -574,6 +623,8 @@ void UpstreamIntegration_Test::vcPanesCoexist_data()
     QTest::newRow("open") << QString("open");
     QTest::newRow("mode-toggle") << QString("mode-toggle");
     QTest::newRow("no-match") << QString("no-match");
+    QTest::newRow("properties-selection") << QString("properties-selection");
+    QTest::newRow("narrow-selection") << QString("narrow-selection");
 }
 
 void UpstreamIntegration_Test::vcPanesCoexist()
@@ -584,11 +635,17 @@ void UpstreamIntegration_Test::vcPanesCoexist()
     const bool oldEdit = vc->editMode();
     const bool oldVisible = m_app->isVisible();
     const QSize oldSize = m_app->size();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    const bool wasModified = m_app->doc()->isModified();
+    QVariantList createdIDs;
     const auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets(createdIDs);
+        vc->setSelectedWidgetIDs(oldSelection);
         vc->outlineModel()->setFilterText(oldFilter);
         vc->setEditMode(oldEdit);
         m_app->resize(oldSize);
         m_app->setVisible(oldVisible);
+        if (!wasModified) m_app->doc()->resetModified();
     });
     m_app->show();
     QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
@@ -628,6 +685,42 @@ void UpstreamIntegration_Test::vcPanesCoexist()
         QVERIFY(location.y() >= 0 && location.y() + empty->height() <= outline->height());
     }
     QVERIFY(vc->editMode());
+    if (operation.endsWith("selection"))
+    {
+        auto *button = new VCButton(m_app->doc(), vc->page(0));
+        vc->addWidgetToMap(button);
+        vc->page(0)->addWidgetToPageMap(button);
+        createdIDs.append(button->id());
+        const QString key = QString("widget:%1").arg(button->id());
+        QTRY_VERIFY(vc->outlineModel()->indexForKey(key).isValid());
+        QVERIFY(QMetaObject::invokeMethod(outline, "selectKey", Q_ARG(QVariant, key), Q_ARG(QVariant, 0)));
+        QCOMPARE(vc->selectedWidgetIDs(), createdIDs);
+        if (operation == "properties-selection")
+        {
+            auto *toggle = console->findChild<QQuickItem *>("vcPropertiesToggle");
+            QVERIFY(toggle);
+            QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+            m_app->update();
+            QTRY_VERIFY(!rendered.isEmpty());
+            QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier,
+                toggle->mapToScene(QPointF(toggle->width() / 2, toggle->height() / 2)).toPoint());
+            QTRY_COMPARE(functions->property("loaderSource").toString(), QString("qrc:/VCWidgetProperties.qml"));
+            auto *functionsToggle = console->findChild<QQuickItem *>("vcFunctionsToggle");
+            QVERIFY(functionsToggle);
+            QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier,
+                functionsToggle->mapToScene(QPointF(functionsToggle->width() / 2, functionsToggle->height() / 2)).toPoint());
+            QTRY_COMPARE(functions->property("loaderSource").toString(), QString("qrc:/FunctionManager.qml"));
+        }
+        else
+        {
+            m_app->resize(960, 700);
+            QTRY_VERIFY(console->width() <= 960);
+        }
+        QTRY_VERIFY(outline->isVisible() && outline->width() > 100);
+        QTRY_VERIFY(functions->isVisible() && functions->width() > 100);
+        QCOMPARE(vc->selectedWidgetIDs(), createdIDs);
+        QTRY_VERIFY(vc->outlineModel()->indexForKey(key).data(VCOutlineModel::SelectedRole).toBool());
+    }
     const QPointF outlineEnd = outline->mapToItem(console, QPointF(outline->width(), 0));
     const QPointF functionsStart = functions->mapToItem(console, QPointF(0, 0));
     QVERIFY(outlineEnd.x() < functionsStart.x());
@@ -645,6 +738,12 @@ void UpstreamIntegration_Test::vcLayoutPreview()
 {
     QFETCH(QString, finish);
     VirtualConsole *vc = m_app->virtualConsole();
+    const bool oldEdit = vc->editMode();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Preview binding");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    const quint32 functionID = scene->id();
     auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
     vc->addWidgetToMap(frame);
     vc->page(0)->addWidgetToPageMap(frame);
@@ -655,6 +754,9 @@ void UpstreamIntegration_Test::vcLayoutPreview()
     const auto cleanup = qScopeGuard([&]() {
         vc->cancelLayout();
         vc->deleteVCWidgets({frameID});
+        m_app->doc()->deleteFunction(functionID);
+        vc->setEditMode(oldEdit);
+        vc->setSelectedWidgetIDs(oldSelection);
         if (!wasModified) m_app->doc()->resetModified();
     });
     auto *first = new VCButton(m_app->doc(), frame);
@@ -666,9 +768,25 @@ void UpstreamIntegration_Test::vcLayoutPreview()
         button->setLogicalGeometry(QRectF(button == first ? 150 : 350, 100, 100, 80));
     }
     const QRectF originalFirst = first->logicalGeometry();
+    first->setFunctionID(functionID);
     const QRectF originalSecond = second->logicalGeometry();
     const QVariantList originalOrder = frame->orderedChildIDs(0);
+    vc->setEditMode(true);
+    vc->setSelectedWidgetIDs({first->id(), second->id()});
     m_app->doc()->resetModified();
+    auto snapshot = [&]() {
+        QByteArray xml;
+        QXmlStreamWriter writer(&xml);
+        vc->saveXML(&writer);
+        QVariantList visibility;
+        for (int page = 0; page < vc->pagesCount(); ++page)
+            for (VCWidget *widget : vc->page(page)->children(true))
+                visibility.append(QVariantMap{{"id", widget->id()}, {"visible", widget->isVisible()},
+                    {"editing", widget->isEditing()}, {"intensity", widget->intensity()}});
+        return QVariantMap{{"xml", xml}, {"selection", vc->selectedWidgetIDs()}, {"visibility", visibility},
+            {"selectedPage", vc->selectedPage()}, {"dirty", m_app->doc()->isModified()}};
+    };
+    const QVariantMap beforePreview = snapshot();
     QVariantMap preview = vc->previewLayout(frameID, {{"padding", 10}, {"gap", 10}});
     QVERIFY2(preview.value("accepted").toBool(), qPrintable(preview.value("error").toString()));
     QVERIFY(!preview.value("applied").toBool());
@@ -676,6 +794,7 @@ void UpstreamIntegration_Test::vcLayoutPreview()
     QCOMPARE(second->logicalGeometry(), originalSecond);
     QCOMPARE(frame->orderedChildIDs(0), originalOrder);
     QVERIFY(!m_app->doc()->isModified());
+    QCOMPARE(snapshot(), beforePreview);
     QVERIFY(!vc->layoutPreview().isEmpty());
     if (finish == "stale")
     {
@@ -685,6 +804,7 @@ void UpstreamIntegration_Test::vcLayoutPreview()
     else if (finish == "cancel")
         vc->cancelLayout();
     const QRectF beforeConfirm = first->logicalGeometry();
+    const QVariantMap beforeConfirmation = snapshot();
     const QVariantMap result = vc->confirmLayout();
     QCOMPARE(result.value("accepted").toBool(), finish == "confirm");
     if (finish == "confirm")
@@ -700,6 +820,7 @@ void UpstreamIntegration_Test::vcLayoutPreview()
         QCOMPARE(first->logicalGeometry(), beforeConfirm);
         QCOMPARE(second->logicalGeometry(), originalSecond);
         QVERIFY(!m_app->doc()->isModified());
+        QCOMPARE(snapshot(), beforeConfirmation);
     }
 }
 
@@ -823,7 +944,7 @@ void UpstreamIntegration_Test::vcAuthoringAccess_data()
 {
     QTest::addColumn<QString>("restriction");
     for (const QString &restriction : {QString("operate-selection"), QString("page-pin"),
-                                       QString("temporary-unlock"), QString("access-mask")})
+                                       QString("temporary-unlock"), QString("access-mask"), QString("detached-unavailable")})
         QTest::newRow(qPrintable(restriction)) << restriction;
 }
 
@@ -845,6 +966,7 @@ void UpstreamIntegration_Test::vcAuthoringAccess()
     }
     const quint32 sourceID = source->id(), targetID = target->id();
     const auto cleanup = qScopeGuard([&]() {
+        if (page->previewContext()->detached()) page->previewContext()->setDetached(false);
         source->setPIN(0);
         page->setPIN(oldPIN);
         m_app->setAccessMask(oldMask);
@@ -857,6 +979,36 @@ void UpstreamIntegration_Test::vcAuthoringAccess()
     source->addWidgetToPageMap(button);
     button->setLogicalGeometry(QRectF(20, 60, 100, 80));
     const quint32 buttonID = button->id();
+    if (restriction == "detached-unavailable")
+    {
+        page->previewContext()->setDetached(true);
+        QPointer<QQuickView> detached(page->previewContext()->view());
+        QVERIFY(detached && detached != m_app.get());
+        QVERIFY(detached->rootObject());
+        detached->setSource(QUrl());
+        QVERIFY(!detached->rootObject());
+        m_app->doc()->resetModified();
+        QByteArray before;
+        QXmlStreamWriter writer(&before);
+        vc->saveXML(&writer);
+        const QVariantList selection = vc->selectedWidgetIDs();
+        const int selectedPage = vc->selectedPage();
+        const QVariantMap result = vc->revealWidget(buttonID);
+        QVERIFY(!result.value("accepted").toBool());
+        QVERIFY(!result.value("applied").toBool());
+        QVERIFY(result.value("error").toString().contains("Detached page view is unavailable"));
+        QByteArray after;
+        QXmlStreamWriter afterWriter(&after);
+        vc->saveXML(&afterWriter);
+        QCOMPARE(after, before);
+        QCOMPARE(vc->selectedWidgetIDs(), selection);
+        QCOMPARE(vc->selectedPage(), selectedPage);
+        QVERIFY(!m_app->doc()->isModified());
+        page->previewContext()->setDetached(false);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(detached.isNull());
+        return;
+    }
     if (restriction == "operate-selection")
     {
         vc->setEditMode(false);
@@ -991,18 +1143,61 @@ void UpstreamIntegration_Test::vcOutlineNotifications()
     QCOMPARE(resets.count(), 0);
 }
 
+void UpstreamIntegration_Test::vcScreenshotConsole_data()
+{
+    QTest::addColumn<QString>("variant");
+    QTest::addColumn<QString>("heldGesture");
+    QTest::addColumn<QString>("outlineRelease");
+    for (const QString &variant : {QString("six-groups"), QString("nested-flush"), QString("nested-near-bottom")})
+        QTest::newRow(qPrintable(variant)) << variant << QString() << QString();
+    for (const QString &gesture : {QString("outline"), QString("canvas"), QString("resize")})
+        QTest::newRow(qPrintable("held-" + gesture)) << QString("six-groups") << gesture << QString();
+    for (const QString &probe : {QString("receipt"), QString("screenshot")})
+        QTest::newRow(qPrintable("outline-release-" + probe)) << QString("six-groups") << QString() << probe;
+}
+
 void UpstreamIntegration_Test::vcScreenshotConsole()
 {
-    const QString artifactDirectory = qEnvironmentVariable("QLC_VC_VISUAL_DIR");
-    if (artifactDirectory.isEmpty())
+    QFETCH(QString, variant);
+    QFETCH(QString, heldGesture);
+    QFETCH(QString, outlineRelease);
+    const QString artifactRoot = qEnvironmentVariable("QLC_VC_VISUAL_DIR");
+    if (artifactRoot.isEmpty())
         QSKIP("Run explicitly with QLC_VC_VISUAL_DIR for the isolated native fixture");
+    const QString artifactDirectory = QDir(artifactRoot).filePath(QString::fromLatin1(QTest::currentDataTag()));
     QVERIFY(QDir().mkpath(artifactDirectory));
-    QFile source(QStringLiteral(QT_TESTCASE_SOURCEDIR "/../../qml/virtualconsole/VirtualConsole.qml"));
-    QFile resource(":/VirtualConsole.qml");
-    QVERIFY(source.open(QIODevice::ReadOnly));
-    QVERIFY(resource.open(QIODevice::ReadOnly));
-    QCOMPARE(resource.readAll(), source.readAll());
+    bool durationValid = false;
+    const int hold = qEnvironmentVariableIntValue("QLC_VC_VISUAL_HOLD_MS", &durationValid);
+    QVERIFY(!durationValid || hold == 0 || (hold >= 180000 && hold <= 240000));
+    QVERIFY(QGuiApplication::platformName() == "offscreen" || (durationValid && hold > 0));
+    QVERIFY(heldGesture.isEmpty() || (QGuiApplication::platformName() == "offscreen" && hold == 0));
+    QVERIFY(outlineRelease.isEmpty() || (QGuiApplication::platformName() == "offscreen" && hold == 0));
+    const QString runID = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QFile executable(QCoreApplication::applicationFilePath());
+    QVERIFY(executable.open(QIODevice::ReadOnly));
+    QCryptographicHash executableHash(QCryptographicHash::Sha256);
+    QVERIFY(executableHash.addData(&executable));
+    const QString testSHA = QString::fromLatin1(executableHash.result().toHex());
+    if (hold > 0)
+        QCOMPARE(testSHA, qEnvironmentVariable("QLC_VC_EXPECT_TEST_SHA256"));
+    QJsonObject resourceHashes;
+    for (const QString &name : {QString("VirtualConsole.qml"), QString("VCOutline.qml"), QString("VCWidgetItem.qml"),
+                               QString("VCFrameItem.qml"), QString("VCPageArea.qml")})
+    {
+        QFile source(QStringLiteral(QT_TESTCASE_SOURCEDIR "/../../qml/virtualconsole/") + name);
+        QFile resource(":/" + name);
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        QVERIFY(resource.open(QIODevice::ReadOnly));
+        const QByteArray sourceBytes = source.readAll(), resourceBytes = resource.readAll();
+        QCOMPARE(resourceBytes, sourceBytes);
+        resourceHashes[name] = QString::fromLatin1(QCryptographicHash::hash(resourceBytes, QCryptographicHash::Sha256).toHex());
+    }
     VirtualConsole *vc = m_app->virtualConsole();
+    QCOMPARE(m_app->doc()->fixtures().size(), 0);
+    int outputPatches = 0;
+    for (Universe *universe : m_app->doc()->inputOutputMap()->universes())
+        outputPatches += universe->outputPatchesCount();
+    QCOMPARE(outputPatches, 0);
     auto *contexts = qobject_cast<ContextManager *>(
         m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
     QVERIFY(contexts);
@@ -1011,8 +1206,11 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
     const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode();
     const bool wasModified = m_app->doc()->isModified();
     const int oldPage = vc->selectedPage();
+    const QString oldWorkingPath = m_app->workingPath();
+    const QVariant oldDensity = m_app->rootContext()->contextProperty("screenPixelDensity");
     QVariantList roots;
     QList<quint32> functionIDs;
+    QJsonObject roles;
     const auto cleanup = qScopeGuard([&]() {
         vc->cancelLayout();
         vc->deleteVCWidgets(roots);
@@ -1022,8 +1220,12 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
         contexts->switchToContext(oldContext);
         m_app->resize(oldSize);
         m_app->setVisible(oldVisible);
+        m_app->setWorkingPath(oldWorkingPath);
+        if (!outlineRelease.isEmpty()) m_app->rootContext()->setContextProperty("screenPixelDensity", oldDensity);
         if (!wasModified) m_app->doc()->resetModified();
     });
+    if (!outlineRelease.isEmpty())
+        m_app->rootContext()->setContextProperty("screenPixelDensity", qreal(5.077272727272727));
     for (const QString &caption : {QString("Red"), QString("Blue"), QString("White")})
     {
         auto *scene = new Scene(m_app->doc());
@@ -1050,46 +1252,183 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
         if (parent == vc->page(0)) roots.append(widget->id());
         return widget;
     };
-    auto *head1 = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(20, 20, 360, 340), "Head 1"));
-    auto *head2 = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(400, 20, 360, 340), "Head 2"));
-    auto *scanner = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(20, 370, 360, 350), "Scanner"));
-    auto *laser = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(400, 370, 340, 200), "Laser"));
-    auto *led = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(400, 590, 340, 130), "LED"));
-    auto *scenes = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(780, 20, 240, 700), "Scenes / Master"));
-    QVERIFY(head1 && head2 && scanner && laser && led && scenes);
-    for (VCFrame *head : {head1, head2})
+    if (variant != "six-groups")
     {
+        auto *a = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(20, 20, 1100, 650),
+            variant == "nested-flush" ? QString("Ancestor caption ").repeated(12) : QString("Native A")));
+        QVERIFY(a);
+        const QRectF rect(variant == "nested-flush" ? a->contentRect().topLeft() : QPointF(80, 308), QSizeF(360, 340));
+        auto *b = qobject_cast<VCFrame *>(create(a, "Frame", rect, "Native B"));
+        QVERIFY(b);
+        VCWidget *intensity = create(b, "Slider", QRectF(10, 190, 90, 140), "Intensity");
+        auto *reset = qobject_cast<VCButton *>(create(b, "Button", QRectF(253, 190, 100, 55), "Reset"));
+        QVERIFY(intensity && reset);
+        reset->setFunctionID(functionIDs[2]);
+        roles = QJsonObject{{"A", int(a->id())}, {"B", int(b->id())},
+                           {"Intensity", int(intensity->id())}, {"Reset", int(reset->id())}};
+        if (variant == "nested-near-bottom")
+        {
+            auto *adjacent = qobject_cast<VCButton *>(create(vc->page(0), "Button", QRectF(460, 670, 100, 60), "Adjacent"));
+            QVERIFY(adjacent);
+            adjacent->setFunctionID(functionIDs[0]);
+            roles["Adjacent"] = int(adjacent->id());
+        }
+    }
+    else
+    {
+        auto *head1 = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(20, 20, 360, 340), "Head 1"));
+        auto *head2 = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(400, 20, 360, 340), "Head 2"));
+        auto *scanner = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(20, 370, 360, 350), "Scanner"));
+        auto *laser = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(400, 370, 340, 200), "Laser"));
+        auto *led = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(400, 590, 340, 130), "LED"));
+        auto *scenes = qobject_cast<VCFrame *>(create(vc->page(0), "Frame", QRectF(780, 20, 240, 700), "Scenes / Master"));
+        QVERIFY(head1 && head2 && scanner && laser && led && scenes);
+        head2->setMultiPageMode(true);
+        head2->setTotalPagesNumber(2);
+        for (VCFrame *head : {head1, head2})
+        {
+            for (int row = 0; row < 2; ++row)
+                for (int column = 0; column < 3; ++column)
+                {
+                    auto *button = qobject_cast<VCButton *>(create(head, "Button",
+                        QRectF(10 + column * 110, 50 + row * 65, 100, 55),
+                        QStringList{"Red", "Blue", "White"}[column]));
+                    QVERIFY(button);
+                    button->setFunctionID(functionIDs[column]);
+                }
+            QVERIFY(create(head, "Slider", QRectF(10, 190, 90, 140), "Intensity"));
+            QVERIFY(create(head, "XYPad", QRectF(110, 190, 140, 140), "Position"));
+            QVERIFY(create(head, "Button", QRectF(253, 190, 100, 55), "Reset"));
+        }
         for (int row = 0; row < 2; ++row)
             for (int column = 0; column < 3; ++column)
-            {
-                auto *button = qobject_cast<VCButton *>(create(head, "Button",
-                    QRectF(10 + column * 110, 50 + row * 65, 100, 55),
-                    QStringList{"Red", "Blue", "White"}[column]));
-                QVERIFY(button);
-                button->setFunctionID(functionIDs[column]);
-            }
-        QVERIFY(create(head, "Slider", QRectF(10, 190, 90, 140), "Intensity"));
-        QVERIFY(create(head, "XYPad", QRectF(110, 190, 140, 140), "Position"));
-        QVERIFY(create(head, "Button", QRectF(253, 190, 100, 55), "Reset"));
+                QVERIFY(create(scanner, "Button", QRectF(10 + column * 110, 50 + row * 65, 100, 55),
+                               QString("Gobo %1").arg(row * 3 + column + 1)));
+        QVERIFY(create(scanner, "XYPad", QRectF(10, 180, 140, 140), "Position"));
+        QVERIFY(create(scanner, "Slider", QRectF(170, 180, 70, 140), "Speed"));
+        QVERIFY(create(scanner, "Slider", QRectF(250, 180, 70, 140), "Dimmer"));
+        for (VCFrame *frame : {laser, led})
+            for (int column = 0; column < 3; ++column)
+                QVERIFY(create(frame, "Button", QRectF(10 + column * 110, 50, 100, 60),
+                               QStringList{"Red", "Green", "Blue"}[column]));
+        for (int row = 0; row < 5; ++row)
+            QVERIFY(create(scenes, "Button", QRectF(10, 50 + row * 65, 220, 55),
+                           QString("Scene %1").arg(row + 1)));
+        QVERIFY(create(scenes, "Slider", QRectF(10, 400, 90, 200), "Master"));
+        QVERIFY(create(scenes, "Slider", QRectF(130, 400, 90, 200), "Fade"));
+        roles = QJsonObject{{"Head1", int(head1->id())}, {"Head2", int(head2->id())},
+                           {"Scanner", int(scanner->id())}, {"Scenes", int(scenes->id())}};
     }
-    for (int row = 0; row < 2; ++row)
-        for (int column = 0; column < 3; ++column)
-            QVERIFY(create(scanner, "Button", QRectF(10 + column * 110, 50 + row * 65, 100, 55),
-                           QString("Gobo %1").arg(row * 3 + column + 1)));
-    QVERIFY(create(scanner, "XYPad", QRectF(10, 180, 140, 140), "Position"));
-    QVERIFY(create(scanner, "Slider", QRectF(170, 180, 70, 140), "Speed"));
-    QVERIFY(create(scanner, "Slider", QRectF(250, 180, 70, 140), "Dimmer"));
-    for (VCFrame *frame : {laser, led})
-        for (int column = 0; column < 3; ++column)
-            QVERIFY(create(frame, "Button", QRectF(10 + column * 110, 50, 100, 60),
-                           QStringList{"Red", "Green", "Blue"}[column]));
-    for (int row = 0; row < 5; ++row)
-        QVERIFY(create(scenes, "Button", QRectF(10, 50 + row * 65, 220, 55),
-                       QString("Scene %1").arg(row + 1)));
-    QVERIFY(create(scenes, "Slider", QRectF(10, 400, 90, 200), "Master"));
-    QVERIFY(create(scenes, "Slider", QRectF(130, 400, 90, 200), "Fade"));
 
     m_app->doc()->masterTimer()->stop();
+    QElapsedTimer clock;
+    clock.start();
+    QSignalSpy starts(m_app->doc()->masterTimer(), &MasterTimer::functionStarted);
+    QSignalSpy authoringTicks(m_app->doc()->masterTimer(), &MasterTimer::tickReady);
+    std::vector<std::unique_ptr<QSignalSpy>> dropObservers;
+    QSet<QQuickItem *> watchedDrops;
+    QSignalSpy published(vc, &VirtualConsole::structureChanged);
+    QJsonArray startRequests;
+    QJsonArray gestureEvents, queueTransitions, geometryEvents;
+    QJsonObject geometryCounts, lastQueue;
+    int queueSamples = 0;
+    bool queueViolation = false;
+    bool inputSealed = false;
+    int sealedTickCount = 0;
+    quint64 frameSerial = 0;
+    const auto paintConnection = connect(m_app.get(), &QQuickWindow::frameSwapped, this, [&]() { ++frameSerial; });
+    auto rectangle = [](const QRectF &rect) {
+        return QJsonObject{{"x", rect.x()}, {"y", rect.y()}, {"width", rect.width()}, {"height", rect.height()}};
+    };
+    auto functionState = [&]() {
+        QJsonObject state;
+        for (quint32 id : functionIDs)
+        {
+            Function *function = m_app->doc()->function(id);
+            const bool queued = function && m_app->doc()->masterTimer()->isStartQueued(function);
+            const bool running = function && function->isRunning();
+            state[QString::number(id)] = QJsonObject{{"queued", queued}, {"running", running}};
+        }
+        return state;
+    };
+    auto sampleQueue = [&]() {
+        const QJsonObject state = functionState();
+        for (const auto &value : state)
+            queueViolation |= value.toObject().value("queued").toBool() || value.toObject().value("running").toBool();
+        ++queueSamples;
+        if (state != lastQueue)
+        {
+            queueTransitions.append(QJsonObject{{"ms", clock.elapsed()}, {"state", state}});
+            lastQueue = state;
+        }
+    };
+    QSet<quint32> watched;
+    QSet<QQuickItem *> watchedItems;
+    QList<QPointer<QQmlExpression>> expressions;
+    QList<QMetaObject::Connection> requestConnections;
+    auto watchRequests = [&]() {
+        if (inputSealed) return;
+        std::function<void(QQuickItem *)> watchDrops = [&](QQuickItem *item) {
+            if (item->property("containsDrag").isValid() && !watchedDrops.contains(item))
+            {
+                watchedDrops.insert(item);
+                dropObservers.push_back(std::make_unique<QSignalSpy>(item, SIGNAL(dropped(QQuickDragEvent*))));
+                requestConnections.append(connect(item, &QObject::destroyed, this, [&, item]() { watchedDrops.remove(item); }));
+            }
+            for (QQuickItem *child : item->childItems()) watchDrops(child);
+        };
+        watchDrops(m_app->rootObject());
+        for (VCWidget *widget : vc->page(0)->children(true))
+        {
+            if (!watched.contains(widget->id()))
+            {
+                watched.insert(widget->id());
+                requestConnections.append(connect(widget, &VCWidget::functionStarting, this,
+                    [&](VCWidget *source, quint32 functionID, qreal intensity) {
+                        if (inputSealed) return;
+                        startRequests.append(QJsonObject{{"widgetID", int(source->id())},
+                            {"functionID", int(functionID)}, {"intensity", intensity}, {"ms", clock.elapsed()}});
+                    }));
+                QPointer<VCWidget> observed = widget;
+                requestConnections.append(connect(widget, &VCWidget::geometryChanged, this, [&, observed]() {
+                    if (!observed || inputSealed) return;
+                    const QString key = QString::number(observed->id());
+                    geometryCounts[key] = geometryCounts.value(key).toInt() + 1;
+                    geometryEvents.append(QJsonObject{{"widgetID", int(observed->id())}, {"ms", clock.elapsed()},
+                        {"logicalRect", rectangle(observed->logicalGeometry())}});
+                }));
+            }
+            QQuickItem *item = widget->renderItem();
+            if (!item || watchedItems.contains(item)) continue;
+            watchedItems.insert(item);
+            requestConnections.append(connect(item, &QObject::destroyed, this, [&, item]() { watchedItems.remove(item); }));
+            for (const QString &state : {QString("moving"), QString("resizing")})
+            {
+                auto *expression = new QQmlExpression(qmlContext(item), item, state, item);
+                expression->setNotifyOnValueChanged(true);
+                expression->evaluate();
+                expressions.append(expression);
+                QPointer<QQuickItem> observed = item;
+                const quint32 id = widget->id();
+                requestConnections.append(connect(expression, &QQmlExpression::valueChanged, this,
+                    [&, expression, observed, id, state]() {
+                        if (!observed || inputSealed) return;
+                        const bool active = expression->evaluate().toBool();
+                        gestureEvents.append(QJsonObject{{"widgetID", int(id)}, {"state", state},
+                            {"active", active}, {"ms", clock.elapsed()},
+                            {"resizeIntent", rectangle(observed->property("resizeIntent").toRectF())}});
+                    }));
+            }
+        }
+    };
+    watchRequests();
+    const QMetaObject::Connection watchNew = connect(vc, &VirtualConsole::structureChanged, this, watchRequests);
+    const auto disconnectRequests = qScopeGuard([&]() {
+        disconnect(watchNew);
+        disconnect(paintConnection);
+        for (const auto &connection : requestConnections) disconnect(connection);
+        for (auto expression : expressions) if (expression) delete expression;
+    });
     m_app->show();
     QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
     m_app->resize(1600, 950);
@@ -1105,47 +1444,241 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
     QVERIFY(functions->setProperty("loaderSource", "qrc:/FunctionManager.qml"));
     QVERIFY(QMetaObject::invokeMethod(functions, "animatePanel", Q_ARG(QVariant, true)));
     QTRY_VERIFY(functions->width() > 100 && outline->width() > 100);
-    QTRY_VERIFY(head1->renderItem());
+    QTRY_VERIFY(vc->widget(roots.first().toUInt())->renderItem());
     QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
     m_app->update();
     QTRY_VERIFY(!rendered.isEmpty());
-    auto rectangle = [](const QRectF &rect) {
-        return QJsonObject{{"x", rect.x()}, {"y", rect.y()}, {"width", rect.width()}, {"height", rect.height()}};
-    };
     auto globalRect = [&](QQuickItem *item) {
-        const QPointF local = item->mapToScene(QPointF());
-        const QPoint global = m_app->mapToGlobal(local.toPoint());
-        return rectangle(QRectF(global, QSizeF(item->width(), item->height())));
+        const QRectF scene = item->mapRectToScene(QRectF(QPointF(), QSizeF(item->width(), item->height())));
+        return rectangle(QRectF(QPointF(m_app->mapToGlobal(QPoint())) + scene.topLeft(), scene.size()));
+    };
+    auto liveBoolean = [](QQuickItem *item, const QString &source) {
+        QJsonObject state{{"source", source}, {"available", false}, {"value", QJsonValue::Null}};
+        if (!item)
+        {
+            state["error"] = "Live QML object is unavailable";
+            return state;
+        }
+        QQmlExpression expression(qmlContext(item), item, source);
+        const QVariant value = expression.evaluate();
+        if (expression.hasError() || value.typeId() != QMetaType::Bool)
+        {
+            state["error"] = expression.hasError() ? expression.error().toString() : "Live QML value is not a boolean";
+            return state;
+        }
+        state["available"] = true;
+        state["value"] = value.toBool();
+        state["error"] = "";
+        return state;
     };
     auto receipt = [&]() {
-        QJsonArray widgets, namedItems, functionRows;
+        QJsonArray widgets, namedItems, functionRows, dropAreas, attachedDrags;
+        QJsonArray viewportControls;
+        QList<QRectF> viewportControlRects;
+        if (QQuickItem *view = vc->currentPageItem())
+            for (QQuickItem *control : view->childItems())
+                if (control->property("orientation").isValid() && control->property("position").isValid() &&
+                    control->property("size").isValid() && control->property("pressed").isValid())
+                {
+                    const QRectF rect = control->mapRectToScene(QRectF(QPointF(), control->size()))
+                        .translated(QPointF(m_app->mapToGlobal(QPoint())));
+                    viewportControls.append(QJsonObject{{"kind", control->property("orientation").toInt() == Qt::Horizontal ?
+                        "horizontalScrollbar" : "verticalScrollbar"}, {"globalRect", rectangle(rect)},
+                        {"visible", control->isVisible()}, {"enabled", control->isEnabled()},
+                        {"pressed", control->property("pressed").toBool()}, {"position", control->property("position").toDouble()},
+                        {"size", control->property("size").toDouble()}});
+                    if (control->isVisible() && control->isEnabled()) viewportControlRects.append(rect);
+                }
+        QQuickItem *functionRow = nullptr, *outlineRow = nullptr;
         for (VCWidget *widget : vc->page(0)->children(true))
         {
             QJsonObject record{{"id", int(widget->id())}, {"type", VCWidget::typeToString(widget->type())},
                 {"caption", widget->caption()}, {"subpage", widget->page()},
-                {"logicalRect", rectangle(widget->logicalGeometry())}};
+                {"logicalRect", rectangle(widget->logicalGeometry())}, {"visible", widget->isVisible()},
+                {"minimumWidth", widget->minimumSize().width()}, {"minimumHeight", widget->minimumSize().height()}};
+            record["renderItemAvailable"] = widget->renderItem() != nullptr;
+            record["movingAvailable"] = false;
+            record["resizingAvailable"] = false;
+            record["moving"] = QJsonValue::Null;
+            record["resizing"] = QJsonValue::Null;
             if (VCWidget *parent = qobject_cast<VCWidget *>(widget->parent()))
                 record["parentID"] = int(parent->id());
-            if (widget->renderItem()) record["globalRect"] = globalRect(widget->renderItem());
+            if (auto *button = qobject_cast<VCButton *>(widget))
+            {
+                record["functionID"] = int(button->functionID());
+                record["actionType"] = int(button->actionType());
+            }
+            if (auto *slider = qobject_cast<VCSlider *>(widget))
+                record["controlledFunctionID"] = int(slider->controlledFunction());
+            if (auto *frame = qobject_cast<VCFrame *>(widget))
+            {
+                record["currentPage"] = frame->currentPage();
+                record["totalPages"] = frame->totalPagesNumber();
+                record["collapsed"] = frame->isCollapsed();
+                record["contentRect"] = rectangle(frame->contentRect());
+            }
+            if (widget->renderItem())
+            {
+                record["globalRect"] = globalRect(widget->renderItem());
+                record["renderVisible"] = widget->renderItem()->isVisible();
+                for (const QString &name : {QString("moving"), QString("resizing")})
+                {
+                    const QJsonObject state = liveBoolean(widget->renderItem(), name);
+                    record[name] = state.value("value");
+                    record[name + "Available"] = state.value("available");
+                }
+                record["resizeIntent"] = rectangle(widget->renderItem()->property("resizeIntent").toRectF());
+                record["previewAccepted"] = widget->renderItem()->property("previewAccepted").toBool();
+                record["previewError"] = widget->renderItem()->property("previewError").toString();
+                const QPointF hotSpot = widget->renderItem()->property("dragHotSpot").toPointF();
+                record["dragHotSpot"] = QJsonObject{{"x", hotSpot.x()}, {"y", hotSpot.y()}};
+                QJsonArray ancestors;
+                for (QQuickItem *parent = widget->renderItem()->parentItem(); parent; parent = parent->parentItem())
+                    if (!parent->objectName().isEmpty()) ancestors.append(parent->objectName());
+                record["renderAncestors"] = ancestors;
+                QJsonArray captions;
+                std::function<void(QQuickItem *)> captureCaption = [&](QQuickItem *item) {
+                    if (item->property("text").toString() == widget->caption() &&
+                        item->property("paintedWidth").isValid())
+                        captions.append(QJsonObject{{"text", item->property("text").toString()},
+                            {"globalRect", globalRect(item)}, {"visible", item->isVisible()},
+                            {"paintedWidth", item->property("paintedWidth").toReal()},
+                            {"paintedHeight", item->property("paintedHeight").toReal()}});
+                    for (QQuickItem *child : item->childItems()) captureCaption(child);
+                };
+                captureCaption(widget->renderItem());
+                record["captionItems"] = captions;
+            }
             widgets.append(record);
         }
         std::function<void(QQuickItem *)> visit = [&](QQuickItem *item)
         {
-            if (item->isVisible() && item->width() > 0 && item->height() > 0)
+            const bool declaredHandle = item->objectName().startsWith("vcResizeHandle-");
+            const bool controller = item->objectName().startsWith("vcResizeCorner-");
+            const bool fragment = item->objectName().startsWith("vcResizeFragment-");
+            if (!outlineRow && item->objectName().startsWith("vcOutlineRow-")) outlineRow = item;
+            if (item->objectName().startsWith("vcGestureViewport-"))
+            {
+                QJsonObject state = liveBoolean(item, "gestureGhost.Drag.active");
+                state["kind"] = "canvas";
+                state["owner"] = item->objectName();
+                state["widgetID"] = item->objectName().mid(QString("vcGestureViewport-").size()).toInt();
+                attachedDrags.append(state);
+            }
+            if (item->property("containsDrag").isValid())
+            {
+                QObject *drag = item->property("drag").value<QObject *>();
+                QObject *source = drag ? drag->property("source").value<QObject *>() : nullptr;
+                QJsonObject area{{"name", item->objectName()}, {"globalRect", globalRect(item)},
+                    {"containsDrag", item->property("containsDrag").toBool()}, {"visible", item->isVisible()}};
+                for (QQuickItem *parent = item->parentItem(); parent; parent = parent->parentItem())
+                    if (!parent->objectName().isEmpty()) { area["namedParent"] = parent->objectName(); break; }
+                if (drag)
+                    for (const QString &key : {QString("x"), QString("y"), QString("keys")})
+                        area[key] = QJsonValue::fromVariant(drag->property(qPrintable(key)));
+                if (source)
+                {
+                    area["sourceName"] = source->objectName();
+                    if (VCWidget *widget = source->property("wObj").value<VCWidget *>())
+                        area["sourceWidgetID"] = int(widget->id());
+                    for (const QString &key : {QString("draggedIDs"), QString("widgetIDs"), QString("itemsList")})
+                    {
+                        QVariant value = source->property(qPrintable(key));
+                        if (value.canConvert<QJSValue>()) value = value.value<QJSValue>().toVariant();
+                        area[key] = QJsonValue::fromVariant(value);
+                    }
+                    const QPointF hotSpot = source->property("dragHotSpot").toPointF();
+                    area["dragHotSpot"] = QJsonObject{{"x", hotSpot.x()}, {"y", hotSpot.y()}};
+                    area["modifiers"] = source->property("modifiers").toInt();
+                }
+                dropAreas.append(area);
+            }
+            if (controller)
+            {
+                QQmlExpression position(qmlContext(item), item, "placement ? placement.rect : null");
+                QQmlExpression held(qmlContext(item), item, "heldPlacement ? heldPlacement.rect : null");
+                QQmlExpression error(qmlContext(item), item, "placement ? placement.error : ''");
+                namedItems.append(QJsonObject{{"name", item->objectName()}, {"kind", "cornerController"},
+                    {"index", item->property("index").toInt()}, {"placement", rectangle(position.evaluate().toRectF())},
+                    {"heldPlacement", rectangle(held.evaluate().toRectF())}, {"error", error.evaluate().toString()}});
+            }
+            if ((item->isVisible() || declaredHandle || fragment) && item->width() > 0 && item->height() > 0)
             {
             if (item->objectName().startsWith("vc"))
-                namedItems.append(QJsonObject{{"name", item->objectName()}, {"globalRect", globalRect(item)}});
+            {
+                QJsonObject named{{"name", item->objectName()}, {"globalRect", globalRect(item)}, {"visible", item->isVisible()},
+                    {"kind", fragment ? "cornerFragment" : declaredHandle ? "cornerImage" : "item"}};
+                if (fragment)
+                {
+                    named["visualParent"] = item->parentItem() ? item->parentItem()->objectName() : QString();
+                    QRectF painted = item->mapRectToScene(QRectF(QPointF(), QSizeF(item->width(), item->height())));
+                    for (QQuickItem *parent = item->parentItem(); parent; parent = parent->parentItem())
+                        if (parent->clip())
+                            painted = painted.intersected(parent->mapRectToScene(
+                                QRectF(QPointF(), QSizeF(parent->width(), parent->height()))));
+                    painted.translate(QPointF(m_app->mapToGlobal(QPoint())));
+                    named["paintedGlobalRect"] = rectangle(painted);
+                    QList<QRectF> regions;
+                    if (item->isVisible() && !painted.isEmpty()) regions.append(painted);
+                    for (const QRectF &control : viewportControlRects)
+                    {
+                        QList<QRectF> next;
+                        for (const QRectF &region : regions)
+                        {
+                            const QRectF intersection = region.intersected(control);
+                            if (intersection.isEmpty()) { next.append(region); continue; }
+                            const QList<QRectF> pieces{
+                                QRectF(region.left(), region.top(), region.width(), intersection.top() - region.top()),
+                                QRectF(region.left(), intersection.bottom(), region.width(), region.bottom() - intersection.bottom()),
+                                QRectF(region.left(), intersection.top(), intersection.left() - region.left(), intersection.height()),
+                                QRectF(intersection.right(), intersection.top(), region.right() - intersection.right(), intersection.height())};
+                            for (const QRectF &piece : pieces) if (!piece.isEmpty()) next.append(piece);
+                        }
+                        regions = next;
+                    }
+                    QJsonArray inputRegions;
+                    for (const QRectF &region : regions) inputRegions.append(rectangle(region));
+                    named["viewportInputClear"] = regions.size() == 1 && regions.first() == painted;
+                    named["viewportInputGlobalRects"] = inputRegions;
+                }
+                if (item->objectName().startsWith("vcOutlineRow-") && item->parentItem())
+                    for (const QString &key : {QString("rowKind"), QString("widgetID"), QString("rowKey"), QString("parentID"),
+                                               QString("subpageIndex"), QString("label"), QString("dropIntent")})
+                    {
+                        QVariant value = item->parentItem()->property(qPrintable(key));
+                        if (value.canConvert<QJSValue>()) value = value.value<QJSValue>().toVariant();
+                        named[key] = QJsonValue::fromVariant(value);
+                    }
+                namedItems.append(named);
+            }
             if (item->property("itemType").toInt() == App::FunctionDragItem)
             {
                 Function *function = item->property("cRef").value<Function *>();
                 if (function && functionIDs.contains(function->id()))
+                {
+                    if (!functionRow) functionRow = item;
                     functionRows.append(QJsonObject{{"id", int(function->id())}, {"caption", function->name()},
                                                     {"globalRect", globalRect(item)}});
+                }
             }
             }
             for (QQuickItem *child : item->childItems()) visit(child);
         };
         visit(m_app->rootObject());
+        QQuickItem *outlineItem = console->findChild<QQuickItem *>("vcOutlinePane");
+        const QJsonObject internal = liveBoolean(console, "UISettings.internalDragActive");
+        const QJsonObject outlineState = liveBoolean(outlineItem, "dragging");
+        QJsonObject outlineAttached = liveBoolean(outlineRow, "outlineDrag.Drag.active");
+        outlineAttached["kind"] = "outline";
+        outlineAttached["owner"] = "vcOutlinePane";
+        attachedDrags.append(outlineAttached);
+        if (functionRow)
+        {
+            QJsonObject state = liveBoolean(functionRow, "fDragItem.Drag.active");
+            state["kind"] = "function";
+            state["owner"] = "FunctionManager";
+            attachedDrags.append(state);
+        }
         QJsonArray selection, order;
         for (const QVariant &id : vc->selectedWidgetIDs()) selection.append(int(id.toUInt()));
         QList<VCFrame *> containers{vc->page(0)};
@@ -1158,29 +1691,570 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
                 for (const QVariant &id : frame->orderedChildIDs(page)) ids.append(int(id.toUInt()));
                 order.append(QJsonObject{{"parentID", int(frame->id())}, {"subpage", page}, {"ids", ids}});
             }
-        return QJsonObject{{"pid", int(QCoreApplication::applicationPid())},
+        QJsonArray startEvents;
+        for (const auto &event : starts) startEvents.append(int(event.first().toUInt()));
+        int dropCount = 0;
+        for (const auto &observer : dropObservers) dropCount += observer->count();
+        QJsonObject viewport;
+        if (QQuickItem *view = vc->currentPageItem())
+        {
+            viewport["globalRect"] = globalRect(view);
+            for (const QString &key : {QString("contentX"), QString("contentY"), QString("contentWidth"), QString("contentHeight"),
+                                       QString("leftMargin"), QString("rightMargin"), QString("topMargin"), QString("bottomMargin"),
+                                       QString("interactive")})
+                viewport[key] = QJsonValue::fromVariant(view->property(qPrintable(key)));
+        }
+        QJsonArray pages;
+        for (int page = 0; page < vc->pagesCount(); ++page)
+            pages.append(QJsonObject{{"id", int(vc->page(page)->id())}, {"index", page},
+                {"logicalRect", rectangle(vc->page(page)->logicalGeometry())}, {"pageScale", vc->page(page)->pageScale()}});
+        QByteArray xml;
+        QXmlStreamWriter writer(&xml);
+        vc->saveXML(&writer);
+        return QJsonObject{{"schemaVersion", 2}, {"runID", runID}, {"variant", variant}, {"ms", clock.elapsed()},
+            {"phase", inputSealed ? "sealed" : "authoring"}, {"testSHA256", testSHA}, {"resourceSHA256", resourceHashes},
+            {"pid", int(QCoreApplication::applicationPid())}, {"frameSerial", qint64(frameSerial)},
             {"window", rectangle(QRectF(m_app->position(), m_app->size()))},
+            {"clientOrigin", QJsonObject{{"x", m_app->mapToGlobal(QPoint()).x()}, {"y", m_app->mapToGlobal(QPoint()).y()}}},
             {"devicePixelRatio", m_app->devicePixelRatio()}, {"widgets", widgets},
+            {"internalDragActive", internal.value("value")}, {"internalDragActiveAvailable", internal.value("available")},
+            {"internalDragActiveError", internal.value("error")}, {"outlineDragging", outlineState},
+            {"attachedDrags", attachedDrags},
             {"namedItems", namedItems}, {"functionRows", functionRows}, {"loadedResourceMatchesSource", true},
             {"selectedWidgetIDs", selection}, {"outlineFilterText", vc->outlineModel()->filterText()},
             {"editMode", vc->editMode()}, {"order", order}, {"pageScale", vc->page(0)->pageScale()},
-            {"snappingEnabled", vc->snapping()}, {"logicalSnapStep", vc->snappingSize()}};
+            {"snappingEnabled", vc->snapping()}, {"logicalSnapStep", vc->snappingSize()},
+            {"functionStartEvents", startEvents}, {"functionStartRequests", startRequests},
+            {"functionStates", functionState()}, {"queueViolation", queueViolation}, {"queueSamples", queueSamples},
+            {"queueTransitions", queueTransitions}, {"authoringTickCount", inputSealed ? sealedTickCount : authoringTicks.count()},
+            {"gestureEvents", gestureEvents}, {"geometryEvents", geometryEvents}, {"geometryCounts", geometryCounts},
+            {"dropEventCount", dropCount}, {"structureEventCount", published.count()},
+            {"dropAreas", dropAreas},
+            {"roles", roles}, {"viewport", viewport}, {"pages", pages}, {"selectedPage", vc->selectedPage()},
+            {"viewportControls", viewportControls},
+            {"context", contexts->currentContext()}, {"workingPath", m_app->workingPath()},
+            {"vcXMLSHA256", QString::fromLatin1(QCryptographicHash::hash(xml, QCryptographicHash::Sha256).toHex())},
+            {"fixtureCount", m_app->doc()->fixtures().size()}, {"outputPatchCount", outputPatches},
+            {"dirty", m_app->doc()->isModified()}};
     };
+    auto inactiveError = [](const QJsonObject &state) {
+        if (!state.value("internalDragActiveAvailable").toBool() || !state.value("internalDragActive").isBool())
+            return QString("Cannot seal input: UISettings.internalDragActive is unavailable");
+        if (state.value("internalDragActive").toBool())
+            return QString("Cannot seal input: internal QML drag is active");
+        const QJsonObject outline = state.value("outlineDragging").toObject();
+        if (!outline.value("available").toBool() || !outline.value("value").isBool())
+            return QString("Cannot seal input: live outline dragging state is unavailable");
+        if (outline.value("value").toBool())
+            return QString("Cannot seal input: outline drag is active");
+        for (const auto &value : state.value("widgets").toArray())
+        {
+            const QJsonObject widget = value.toObject();
+            if (!widget.value("renderItemAvailable").toBool()) continue;
+            for (const QString &name : {QString("moving"), QString("resizing")})
+            {
+                if (!widget.value(name + "Available").toBool() || !widget.value(name).isBool())
+                    return QString("Cannot seal input: widget %1 %2 state is unavailable").arg(widget.value("id").toInt()).arg(name);
+                if (widget.value(name).toBool())
+                    return QString("Cannot seal input: widget %1 %2 is active").arg(widget.value("id").toInt()).arg(name);
+            }
+        }
+        for (const auto &value : state.value("attachedDrags").toArray())
+        {
+            const QJsonObject drag = value.toObject();
+            if (!drag.value("available").toBool() || !drag.value("value").isBool())
+                return QString("Cannot seal input: %1 attached Drag activity is unavailable").arg(drag.value("owner").toString());
+            if (drag.value("value").toBool())
+                return QString("Cannot seal input: %1 attached Drag is active").arg(drag.value("owner").toString());
+        }
+        return QString();
+    };
+    watchRequests();
+    sampleQueue();
+    m_app->doc()->resetModified();
     QJsonObject initial;
     QTRY_VERIFY(!(initial = receipt()).value("functionRows").toArray().isEmpty());
-    QFile ready(QDir(artifactDirectory).filePath("ready.json"));
+    QSaveFile ready(QDir(artifactDirectory).filePath("ready.json"));
     QVERIFY(ready.open(QIODevice::WriteOnly));
     ready.write(QJsonDocument(initial).toJson());
-    ready.close();
+    QVERIFY(ready.commit());
     QVERIFY(m_app->grabWindow().save(QDir(artifactDirectory).filePath("before.png")));
     qInfo() << "Native VC fixture ready" << artifactDirectory;
-    bool durationValid = false;
-    const int hold = qEnvironmentVariableIntValue("QLC_VC_VISUAL_HOLD_MS", &durationValid);
-    if (durationValid && hold > 0) QTest::qWait(hold);
+    auto writeJSON = [&](const QString &name, const QJsonObject &value) {
+        QSaveFile file(QDir(artifactDirectory).filePath(name));
+        return file.open(QIODevice::WriteOnly) && file.write(QJsonDocument(value).toJson()) >= 0 && file.commit();
+    };
+    int sequence = 0;
+    QString protocolError;
+    auto serviceCheckpoint = [&]() {
+        sampleQueue();
+        watchRequests();
+        QFile request(QDir(artifactDirectory).filePath("checkpoint-request.json"));
+        if (!request.exists()) return;
+        if (!request.open(QIODevice::ReadOnly) || request.size() > 512)
+        {
+            protocolError = "Checkpoint request is unreadable or exceeds 512 bytes";
+            return;
+        }
+        QJsonParseError error;
+        const QJsonDocument document = QJsonDocument::fromJson(request.readAll(), &error);
+        if (error.error != QJsonParseError::NoError || !document.isObject())
+        {
+            protocolError = "Checkpoint request must be a JSON object";
+            return;
+        }
+        const QJsonObject value = document.object();
+        const int next = value.value("sequence").toInt(-1);
+        for (const QString &key : value.keys())
+            if (key != "runID" && key != "sequence" && key != "label" && key != "minFrameSerial" && key != "screenshot")
+                protocolError = "Checkpoint requests accept only read-only receipt fields";
+        if (value.value("runID").toString() != runID || next <= 0 || next > 64)
+            protocolError = "Checkpoint identity or sequence is invalid";
+        if (!protocolError.isEmpty() || next == sequence) return;
+        if (next != sequence + 1)
+        {
+            protocolError = "Checkpoint sequences must be contiguous";
+            return;
+        }
+        if (value.value("label").toString().size() > 64)
+        {
+            protocolError = "Checkpoint label exceeds 64 characters";
+            return;
+        }
+        if (qint64(frameSerial) < value.value("minFrameSerial").toInteger()) return;
+        if (!outlineRelease.isEmpty()) qInfo() << "OUTLINE_RELEASE_CHECKPOINT receipt-enter" << clock.elapsed();
+        QJsonObject snapshot = receipt();
+        if (!outlineRelease.isEmpty()) qInfo() << "OUTLINE_RELEASE_CHECKPOINT receipt-return" << clock.elapsed();
+        snapshot["sequence"] = next;
+        snapshot["label"] = value.value("label").toString();
+        const QString stem = QString("checkpoint-%1").arg(next, 3, 10, QLatin1Char('0'));
+        if (!writeJSON(stem + ".json", snapshot) ||
+            (value.value("screenshot").toBool() && !m_app->grabWindow().save(QDir(artifactDirectory).filePath(stem + ".png"))))
+        {
+            protocolError = "Cannot publish checkpoint";
+            return;
+        }
+        sequence = next;
+        if (!outlineRelease.isEmpty()) qInfo() << "OUTLINE_RELEASE_CHECKPOINT published" << clock.elapsed();
+    };
+    if (!outlineRelease.isEmpty())
+    {
+        QCOMPARE(vc->page(0)->children(true).size(), 46);
+        auto *head1 = qobject_cast<VCFrame *>(vc->widget(roles.value("Head1").toInt()));
+        auto *head2 = qobject_cast<VCFrame *>(vc->widget(roles.value("Head2").toInt()));
+        QVERIFY(head1 && head2);
+        QCOMPARE(head2->currentPage(), 0);
+        const QVariantList ids = head1->orderedChildIDs(0).mid(0, 2);
+        QCOMPARE(ids.size(), 2);
+        auto *first = qobject_cast<VCButton *>(vc->widget(ids[0].toUInt()));
+        auto *second = qobject_cast<VCButton *>(vc->widget(ids[1].toUInt()));
+        QVERIFY(first && second);
+        const QRectF firstRect = first->logicalGeometry(), secondRect = second->logicalGeometry();
+        const quint32 firstFunction = first->functionID(), secondFunction = second->functionID();
+        auto locate = [&](const QString &name) {
+            QQuickItem *found = nullptr;
+            std::function<void(QQuickItem *)> visit = [&](QQuickItem *item) {
+                if (item->objectName() == name) found = item;
+                for (QQuickItem *child : item->childItems()) visit(child);
+            };
+            visit(m_app->rootObject());
+            return found;
+        };
+        auto center = [](QQuickItem *item) {
+            return item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
+        };
+        for (VCFrame *head : {head2, head1})
+        {
+            QQuickItem *row = locate(QString("vcOutlineRow-%1").arg(head->id()));
+            QVERIFY(row && row->isVisible());
+            QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, center(row));
+            QTest::keyClick(m_app.get(), Qt::Key_Right);
+            const quint64 previousFrame = frameSerial;
+            m_app->update();
+            QTRY_VERIFY(frameSerial > previousFrame);
+        }
+        QQuickItem *firstRow = nullptr, *secondRow = nullptr, *targetRow = nullptr;
+        QTRY_VERIFY((firstRow = locate(QString("vcOutlineRow-%1").arg(first->id()))));
+        QTRY_VERIFY((secondRow = locate(QString("vcOutlineRow-%1").arg(second->id()))));
+        QTRY_VERIFY((targetRow = locate(QString("vcOutlineRow-subpage:%1:1").arg(head2->id()))));
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, center(firstRow));
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{first->id()});
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::ShiftModifier, center(secondRow));
+        QCOMPARE(vc->selectedWidgetIDs(), ids);
+        const QPoint press = center(firstRow), drop = center(targetRow);
+        QVERIFY(QRect(QPoint(), m_app->size()).contains(drop));
+        const auto release = qScopeGuard([&]() {
+            if (outline->property("dragging").toBool())
+            {
+                QTest::keyClick(m_app.get(), Qt::Key_Escape);
+                QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, drop);
+            }
+        });
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QTest::mouseMove(m_app.get(), press + QPoint(15, 0), 20);
+        QTest::mouseMove(m_app.get(), press + QPoint(35, 0), 20);
+        QTRY_VERIFY(outline->property("dragging").toBool());
+        QTest::mouseMove(m_app.get(), drop, 20);
+        QQmlExpression intent(qmlContext(targetRow), targetRow, "dropIntent");
+        const QVariantMap heldIntent = intent.evaluate().value<QJSValue>().toVariant().toMap();
+        QCOMPARE(heldIntent.value("targetID").toUInt(), head2->id());
+        QCOMPARE(heldIntent.value("subpage").toInt(), 1);
+        QVERIFY(heldIntent.value("into").toBool());
+        watchRequests();
+        sampleQueue();
+        QVERIFY(writeJSON("outline-release-held.json", receipt()));
+        QSignalSpy proxyLayouts(vc->outlineModel()->filteredModel(), &QAbstractItemModel::layoutChanged);
+        QSignalSpy sourceMoves(vc->outlineModel(), &QAbstractItemModel::rowsMoved);
+        QSignalSpy sourceResets(vc->outlineModel(), &QAbstractItemModel::modelReset);
+        qint64 commitMS = -1;
+        const qint64 releaseStart = clock.elapsed();
+        const auto commitConnection = connect(vc, &VirtualConsole::structureChanged, this, [&]() {
+            commitMS = clock.elapsed() - releaseStart;
+            QVERIFY(writeJSON("outline-release-model-commit.json", QJsonObject{
+                {"ms", clock.elapsed()}, {"commitMS", commitMS},
+                {"firstParent", int(qobject_cast<VCFrame *>(first->parent())->id())},
+                {"secondParent", int(qobject_cast<VCFrame *>(second->parent())->id())},
+                {"firstPage", first->page()}, {"secondPage", second->page()},
+                {"targetOrder", QJsonArray::fromVariantList(head2->orderedChildIDs(1))}}));
+            qInfo() << "OUTLINE_RELEASE model-commit" << clock.elapsed();
+        });
+        const auto disconnectCommit = qScopeGuard([&]() { disconnect(commitConnection); });
+        qInfo() << "OUTLINE_RELEASE begin" << clock.elapsed() << "ids" << ids << "target" << head2->id()
+                << "press" << press << "drop" << drop << "screenshot" << outlineRelease;
+        QElapsedTimer latency;
+        latency.start();
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, drop);
+        const qint64 releaseMS = latency.elapsed();
+        qInfo() << "OUTLINE_RELEASE returned" << releaseMS << "structure" << published.count();
+        QVERIFY(writeJSON("checkpoint-request.json", QJsonObject{{"runID", runID}, {"sequence", 1},
+            {"label", "into-head2-page1-committed"}, {"screenshot", outlineRelease == "screenshot"}}));
+        QTimer observer;
+        observer.setInterval(50);
+        connect(&observer, &QTimer::timeout, this, serviceCheckpoint);
+        observer.start();
+        while (sequence < 1 && latency.elapsed() < 2000 && protocolError.isEmpty()) QTest::qWait(5);
+        observer.stop();
+        const qint64 checkpointMS = latency.elapsed();
+        qInfo() << "OUTLINE_RELEASE checkpoint" << checkpointMS << "sequence" << sequence << "error" << protocolError;
+        QVERIFY2(protocolError.isEmpty(), qPrintable(protocolError));
+        QCOMPARE(sequence, 1);
+        QVERIFY2(checkpointMS < 2000, "Actual outline release/checkpoint exceeded the native two-second deadline");
+        QVERIFY(QFile::exists(QDir(artifactDirectory).filePath("checkpoint-001.json")));
+        if (outlineRelease == "screenshot")
+            QVERIFY(QFile::exists(QDir(artifactDirectory).filePath("checkpoint-001.png")));
+        QCOMPARE(published.count(), 1);
+        int crossParentMoves = 0;
+        for (const auto &move : sourceMoves)
+        {
+            const QModelIndex source = move[0].value<QModelIndex>(), target = move[3].value<QModelIndex>();
+            if (source == target) continue;
+            QCOMPARE(source.data(VCOutlineModel::RowKeyRole).toString(), QString("widget:%1").arg(head1->id()));
+            QCOMPARE(target.data(VCOutlineModel::RowKeyRole).toString(), QString("subpage:%1:1").arg(head2->id()));
+            QCOMPARE(move[2].toInt() - move[1].toInt() + 1, 1);
+            ++crossParentMoves;
+        }
+        QCOMPARE(crossParentMoves, 2);
+        QCOMPARE(sourceResets.count(), 0);
+        QVERIFY(!proxyLayouts.isEmpty());
+        QCOMPARE(receipt().value("dropEventCount").toInt(), 1);
+        QCOMPARE(first->parent(), head2);
+        QCOMPARE(second->parent(), head2);
+        QCOMPARE(first->page(), 1);
+        QCOMPARE(second->page(), 1);
+        QCOMPARE(first->logicalGeometry(), firstRect);
+        QCOMPARE(second->logicalGeometry(), secondRect);
+        QCOMPARE(first->functionID(), firstFunction);
+        QCOMPARE(second->functionID(), secondFunction);
+        QCOMPARE(head2->orderedChildIDs(1), ids);
+        QCOMPARE(head2->currentPage(), 0);
+        QVERIFY(first->renderItem() && !first->renderItem()->isVisible());
+        QVERIFY(second->renderItem() && !second->renderItem()->isVisible());
+        QCOMPARE(vc->selectedWidgetIDs(), ids);
+        QVERIFY(!outline->property("dragging").toBool());
+        QVERIFY2(inactiveError(receipt()).isEmpty(), qPrintable(inactiveError(receipt())));
+        auto inventoryMatches = [&]() {
+            QVariant expanded = outline->property("expandedKeys");
+            if (expanded.canConvert<QJSValue>()) expanded = expanded.value<QJSValue>().toVariant();
+            QStringList actual;
+            std::function<void(QQuickItem *)> visit = [&](QQuickItem *item) {
+                if (item->isVisible() && item->objectName().startsWith("vcOutlineRow-"))
+                {
+                    QQmlExpression key(qmlContext(item), item, "node.rowKey");
+                    actual.append(key.evaluate().toString());
+                }
+                for (QQuickItem *child : item->childItems()) visit(child);
+            };
+            visit(outline);
+            QStringList expected = vc->outlineModel()->visibleKeys(expanded.toStringList());
+            actual.sort();
+            expected.sort();
+            return actual == expected;
+        };
+        QTRY_VERIFY(inventoryMatches());
+        QCOMPARE(starts.count(), 0);
+        QVERIFY(!queueViolation);
+        QVERIFY(writeJSON("outline-release-proof.json", QJsonObject{{"releaseMS", releaseMS}, {"checkpointMS", checkpointMS},
+            {"commitMS", commitMS}, {"sourceMoves", sourceMoves.count()}, {"sourceResets", sourceResets.count()},
+            {"crossParentMoves", crossParentMoves}, {"proxyLayouts", proxyLayouts.count()}, {"state", receipt()}}));
+        return;
+    }
+    QPoint heldRelease;
+    QJsonObject heldBefore;
+    const auto releaseProbe = qScopeGuard([&]() {
+        if (heldGesture.isEmpty()) return;
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, heldRelease);
+    });
+    if (!heldGesture.isEmpty())
+    {
+        const quint32 id = roles.value("Scenes").toInt();
+        VCWidget *widget = vc->widget(id);
+        QVERIFY(widget && widget->renderItem());
+        auto locate = [&](const QString &name) {
+            QQuickItem *found = nullptr;
+            std::function<void(QQuickItem *)> visit = [&](QQuickItem *item) {
+                if (item->objectName() == name) found = item;
+                for (QQuickItem *child : item->childItems()) visit(child);
+            };
+            visit(m_app->rootObject());
+            return found;
+        };
+        QQuickItem *source = heldGesture == "outline" ? locate(QString("vcOutlineRow-%1").arg(id)) : widget->renderItem();
+        QVERIFY(source);
+        const QPoint selected = heldGesture == "outline" ?
+            source->mapToScene(QPointF(source->width() * 0.7, source->height() / 2)).toPoint() :
+            source->mapToScene(QPointF(source->width() * 0.95, source->height() * 0.95)).toPoint();
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, selected);
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{id});
+        QSignalSpy selectedPaint(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!selectedPaint.isEmpty());
+        if (heldGesture == "resize")
+            source = locate(QString("vcResizeHandle-%1-2").arg(id));
+        else if (heldGesture == "outline")
+            source = locate(QString("vcOutlineRow-%1").arg(id));
+        else source = widget->renderItem();
+        QVERIFY(source);
+        const QPoint press = heldGesture == "resize" ?
+            source->mapToScene(QPointF(source->width() / 2, source->height() / 2)).toPoint() :
+            heldGesture == "outline" ? source->mapToScene(QPointF(source->width() * 0.7, source->height() / 2)).toPoint() :
+            source->mapToScene(QPointF(source->width() * 0.95, source->height() * 0.95)).toPoint();
+        heldBefore = receipt();
+        heldRelease = press;
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        if (heldGesture != "resize")
+        {
+            QTest::mouseMove(m_app.get(), press + QPoint(12, 8), 20);
+            heldRelease = press + QPoint(36, 24);
+            QTest::mouseMove(m_app.get(), heldRelease, 20);
+        }
+        if (heldGesture == "outline")
+        {
+            QQuickItem *outlineItem = locate("vcOutlinePane");
+            QQmlExpression pressed(qmlContext(source), source, "mouseArea.pressed");
+            QQmlExpression active(qmlContext(source), source, "mouseArea.drag.active");
+            qInfo() << "HELD_OUTLINE_PROBE" << press << heldRelease << "pressed" << pressed.evaluate()
+                    << "active" << active.evaluate() << "outlineDragging" << (outlineItem ? outlineItem->property("dragging") : QVariant());
+            QVERIFY(outlineItem && outlineItem->property("dragging").toBool());
+        }
+        else QVERIFY(widget->renderItem()->property(heldGesture == "resize" ? "resizing" : "moving").toBool());
+        QVERIFY(writeJSON("held-fixture.json", receipt()));
+        QVERIFY(writeJSON("checkpoint-request.json", QJsonObject{{"runID", runID}, {"sequence", 1}, {"label", "held-early-done"}}));
+        serviceCheckpoint();
+        QCOMPARE(sequence, 1);
+        QVERIFY(writeJSON("input-finished.json", QJsonObject{{"runID", runID}, {"lastSequence", 1}}));
+    }
+    if (hold > 0 || !heldGesture.isEmpty())
+    {
+        QTimer observer;
+        observer.setInterval(50);
+        connect(&observer, &QTimer::timeout, this, serviceCheckpoint);
+        observer.start();
+        QElapsedTimer lease;
+        lease.start();
+        bool finished = false;
+        while (lease.elapsed() < (hold > 0 ? hold : 5000) && protocolError.isEmpty() && !finished)
+        {
+            QTest::qWait(50);
+            QFile done(QDir(artifactDirectory).filePath("input-finished.json"));
+            if (!done.exists()) continue;
+            if (!done.open(QIODevice::ReadOnly) || done.size() > 512)
+            {
+                protocolError = "Input-finished fence is unreadable or oversized";
+                break;
+            }
+            const QJsonObject value = QJsonDocument::fromJson(done.readAll()).object();
+            finished = value.value("runID").toString() == runID &&
+                       value.value("lastSequence").toInt(-1) == sequence && sequence > 0;
+            if (!finished) protocolError = "Input-finished identity or sequence is invalid";
+            if (finished) protocolError = inactiveError(receipt());
+        }
+        observer.stop();
+        if (!heldGesture.isEmpty())
+        {
+            QVERIFY2(!protocolError.isEmpty(), "Early input-finished was admitted while the public QQuickView still held an authoring gesture");
+            QVERIFY2(protocolError.contains("active"), qPrintable(protocolError));
+            QVERIFY(writeJSON("pre-seal-refused.json", QJsonObject{{"reason", protocolError}, {"state", receipt()}}));
+            QCOMPARE(receipt().value("vcXMLSHA256"), heldBefore.value("vcXMLSHA256"));
+            QCOMPARE(receipt().value("dirty"), heldBefore.value("dirty"));
+            QVERIFY(!QFile::exists(QDir(artifactDirectory).filePath("input-seal.json")));
+            QVERIFY(!QFile::exists(QDir(artifactDirectory).filePath("console.qxw")));
+            return;
+        }
+        QVERIFY2(protocolError.isEmpty(), qPrintable(protocolError));
+        QVERIFY2(finished, "Input lease expired. No save or replacement load is admitted without input-finished.");
+    }
+    else
+    {
+        const QJsonObject unavailable = liveBoolean(console, "UISettings.__unavailableNativePreflightProperty");
+        QVERIFY(!unavailable.value("available").toBool());
+        QVERIFY(unavailable.value("value").isNull());
+        QJsonObject missingState = receipt();
+        missingState["internalDragActiveAvailable"] = false;
+        missingState["internalDragActive"] = QJsonValue::Null;
+        QVERIFY(inactiveError(missingState).contains("unavailable"));
+        QVERIFY(writeJSON("checkpoint-request.json", QJsonObject{{"runID", runID}, {"sequence", 1}, {"label", "smoke"}}));
+        serviceCheckpoint();
+        QVERIFY2(protocolError.isEmpty(), qPrintable(protocolError));
+        QCOMPARE(sequence, 1);
+        QFile checkpoint(QDir(artifactDirectory).filePath("checkpoint-001.json"));
+        QVERIFY(checkpoint.open(QIODevice::ReadOnly));
+        const QJsonObject value = QJsonDocument::fromJson(checkpoint.readAll()).object();
+        QCOMPARE(value.value("vcXMLSHA256"), initial.value("vcXMLSHA256"));
+        QCOMPARE(value.value("dirty"), initial.value("dirty"));
+        const quint32 observedID = roles.value(variant == "six-groups" ? "Scenes" : "B").toInt();
+        VCWidget *observed = vc->widget(observedID);
+        QVERIFY(observed && observed->renderItem());
+        const QPoint blank = observed->renderItem()->mapToScene(
+            QPointF(observed->renderItem()->width() * 0.95, observed->renderItem()->height() * 0.95)).toPoint();
+        QVERIFY(QRect(QPoint(), m_app->size()).contains(blank));
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, blank);
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{observedID});
+        QSignalSpy selectedPaint(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!selectedPaint.isEmpty());
+        watchRequests();
+        QQuickItem *corner = nullptr;
+        std::function<void(QQuickItem *)> locate = [&](QQuickItem *item) {
+            if (item->objectName() == QString("vcResizeHandle-%1-2").arg(observedID)) corner = item;
+            for (QQuickItem *child : item->childItems()) locate(child);
+        };
+        locate(m_app->rootObject());
+        QVERIFY(corner && corner->isVisible());
+        const QJsonObject before = receipt();
+        const QPoint press = corner->mapToScene(QPointF(corner->width() / 2, corner->height() / 2)).toPoint();
+        QVERIFY(QRect(QPoint(), m_app->size()).contains(press));
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QVERIFY(observed->renderItem()->property("resizing").toBool());
+        QVERIFY(writeJSON("observer-held.json", receipt()));
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QVERIFY(!observed->renderItem()->property("resizing").toBool());
+        bool pressed = false, canceled = false;
+        for (const auto &event : gestureEvents)
+            if (event.toObject().value("widgetID").toInt() == int(observedID) &&
+                event.toObject().value("state").toString() == "resizing")
+            {
+                pressed |= event.toObject().value("active").toBool();
+                canceled |= !event.toObject().value("active").toBool();
+            }
+        QVERIFY(pressed && canceled);
+        QCOMPARE(receipt().value("vcXMLSHA256"), before.value("vcXMLSHA256"));
+        QCOMPARE(receipt().value("dirty"), before.value("dirty"));
+        QVERIFY(writeJSON("observer-canceled.json", receipt()));
+    }
+    const QString sealError = inactiveError(receipt());
+    QVERIFY2(sealError.isEmpty(), qPrintable(sealError));
+    sampleQueue();
+    sealedTickCount = authoringTicks.count();
+    inputSealed = true;
     QVERIFY(m_app->grabWindow().save(QDir(artifactDirectory).filePath("after.png")));
     QFile final(QDir(artifactDirectory).filePath("after.json"));
     QVERIFY(final.open(QIODevice::WriteOnly));
-    final.write(QJsonDocument(receipt()).toJson());
+    const QJsonObject beforeReload = receipt();
+    final.write(QJsonDocument(beforeReload).toJson());
+    final.close();
+    QVERIFY(writeJSON("pre-reload.json", beforeReload));
+    QSet<int> originalIDs;
+    for (const auto &value : initial.value("widgets").toArray())
+        originalIDs.insert(value.toObject().value("id").toInt());
+    QJsonArray droppedButtons;
+    for (const auto &value : beforeReload.value("widgets").toArray())
+        if (!originalIDs.contains(value.toObject().value("id").toInt()) &&
+            value.toObject().value("type").toString() == "Button")
+            droppedButtons.append(value);
+    QVERIFY(writeJSON("input-seal.json", QJsonObject{{"runID", runID}, {"lastSequence", sequence},
+        {"inputFinished", hold > 0}, {"offscreenSmoke", hold == 0}, {"state", beforeReload},
+        {"droppedButtons", droppedButtons}}));
+    for (quint32 id : functionIDs)
+    {
+        QVERIFY(!m_app->doc()->function(id)->isRunning());
+        QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(m_app->doc()->function(id)));
+    }
+    QCOMPARE(starts.count(), 0);
+    QVERIFY(startRequests.isEmpty());
+    QVERIFY(!queueViolation);
+    QCOMPARE(authoringTicks.count(), 0);
+    auto canonical = [](const QJsonObject &value) {
+        std::vector<QJsonObject> widgets, orders;
+        for (const auto &record : value.value("widgets").toArray())
+        {
+            const QJsonObject source = record.toObject();
+            QJsonObject widget;
+            for (const QString &key : {QString("id"), QString("type"), QString("caption"), QString("subpage"),
+                QString("logicalRect"), QString("parentID"), QString("functionID"), QString("actionType"),
+                QString("controlledFunctionID"), QString("currentPage"), QString("totalPages"), QString("collapsed")})
+                if (source.contains(key)) widget[key] = source.value(key);
+            widgets.push_back(widget);
+        }
+        std::sort(widgets.begin(), widgets.end(), [](const auto &a, const auto &b) {
+            return a.value("id").toInt() < b.value("id").toInt();
+        });
+        for (const auto &record : value.value("order").toArray()) orders.push_back(record.toObject());
+        std::sort(orders.begin(), orders.end(), [](const auto &a, const auto &b) {
+            if (a.value("parentID").toInt() != b.value("parentID").toInt())
+                return a.value("parentID").toInt() < b.value("parentID").toInt();
+            return a.value("subpage").toInt() < b.value("subpage").toInt();
+        });
+        QJsonArray widgetValues, orderValues;
+        for (const auto &widget : widgets) widgetValues.append(widget);
+        for (const auto &order : orders) orderValues.append(order);
+        return QJsonObject{{"widgets", widgetValues}, {"order", orderValues}};
+    };
+    const QJsonObject persisted = canonical(beforeReload);
+    m_app->doc()->setModified();
+    const QJsonObject beforeFailedSave = receipt();
+    QVERIFY(!m_app->saveWorkspace(QDir(artifactDirectory).filePath("missing-parent/failed.qxw")));
+    QVERIFY(m_app->doc()->isModified());
+    QCOMPARE(canonical(receipt()), persisted);
+    const QJsonObject afterFailedSave = receipt();
+    QCOMPARE(afterFailedSave.value("vcXMLSHA256"), beforeFailedSave.value("vcXMLSHA256"));
+    QCOMPARE(afterFailedSave.value("selectedWidgetIDs"), beforeFailedSave.value("selectedWidgetIDs"));
+    QCOMPARE(afterFailedSave.value("viewport"), beforeFailedSave.value("viewport"));
+    QCOMPARE(afterFailedSave.value("workingPath"), beforeFailedSave.value("workingPath"));
+    QVERIFY(writeJSON("failed-save.json", QJsonObject{{"before", beforeFailedSave}, {"after", afterFailedSave}}));
+    const QString workspace = QDir(artifactDirectory).filePath("console.qxw");
+    QVERIFY(m_app->saveWorkspace(workspace));
+    QVERIFY(!m_app->doc()->isModified());
+    QVERIFY(writeJSON("saved.json", receipt()));
+    QPointer<VCWidget> replaced(vc->widget(roots.first().toUInt()));
+    QSignalSpy ticks(m_app->doc()->masterTimer(), &MasterTimer::tickReady);
+    QVERIFY(m_app->loadWorkspace(workspace));
+    QTRY_VERIFY(!ticks.isEmpty());
+    m_app->doc()->masterTimer()->stop();
+    QVERIFY(replaced.isNull());
+    QVERIFY(!m_app->doc()->isModified());
+    const QJsonObject reloaded = canonical(receipt());
+    QCOMPARE(reloaded, persisted);
+    QVERIFY(writeJSON("reloaded.json", receipt()));
+    QFile roundtrip(QDir(artifactDirectory).filePath("roundtrip.json"));
+    QVERIFY(roundtrip.open(QIODevice::WriteOnly));
+    roundtrip.write(QJsonDocument(QJsonObject{{"before", persisted}, {"after", reloaded},
+        {"failedSavePreservedStateAndDirty", true}, {"saveClean", true}, {"replacementLoadClean", true},
+        {"runID", runID}, {"variant", variant}, {"testSHA256", testSHA}, {"resourceSHA256", resourceHashes},
+        {"functionStartEventCount", starts.count()}, {"functionStartRequests", startRequests},
+        {"queueViolation", queueViolation}, {"queueSamples", queueSamples}, {"queueTransitions", queueTransitions},
+        {"droppedButtons", droppedButtons}}).toJson());
     for (quint32 id : functionIDs) QVERIFY(!m_app->doc()->function(id)->isRunning());
     QCOMPARE(m_app->runningFunctionsCount(), 0);
 }
@@ -1529,16 +2603,19 @@ void UpstreamIntegration_Test::vcOutlinePointerSelection_data()
 {
     QTest::addColumn<int>("modifier");
     QTest::addColumn<bool>("smallMove");
-    for (int modifier : {int(Qt::NoModifier), int(Qt::ControlModifier), int(Qt::MetaModifier)})
+    QTest::addColumn<bool>("filteredRange");
+    for (int modifier : {int(Qt::NoModifier), int(Qt::ControlModifier), int(Qt::MetaModifier), int(Qt::ShiftModifier)})
         for (bool move : {false, true})
             QTest::newRow(qPrintable(QString("%1-%2").arg(modifier).arg(move)))
-                << modifier << move;
+                << modifier << move << false;
+    QTest::newRow("filtered-shift-focus-hidden-page") << int(Qt::ShiftModifier) << false << true;
 }
 
 void UpstreamIntegration_Test::vcOutlinePointerSelection()
 {
     QFETCH(int, modifier);
     QFETCH(bool, smallMove);
+    QFETCH(bool, filteredRange);
     VirtualConsole *vc = m_app->virtualConsole();
     auto *contexts = qobject_cast<ContextManager *>(
         m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
@@ -1547,16 +2624,23 @@ void UpstreamIntegration_Test::vcOutlinePointerSelection()
     const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode();
     const QSize oldSize = m_app->size();
     const bool wasModified = m_app->doc()->isModified();
+    const QString oldFilter = vc->outlineModel()->filterText();
+    const int oldPage = vc->selectedPage();
     QVariantList roots;
-    for (int index = 0; index < 2; ++index)
+    for (int index = 0; index < (filteredRange ? 3 : 2); ++index)
     {
-        const QVariantMap result = vc->createWidgetGeometry(vc->page(0)->id(), "Frame",
-            QRectF(20 + index * 350, 20, 300, 200));
+        const int page = filteredRange && index == 2 ? 1 : 0;
+        const QVariantMap result = vc->createWidgetGeometry(vc->page(page)->id(), "Frame",
+            QRectF(20 + (page ? 0 : index) * 350, 20, 300, 200));
         QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
         roots.append(result.value("widgetIDs").toList().first());
+        if (filteredRange)
+            vc->widget(roots.last().toUInt())->setCaption(index == 1 ? "Unmatched" : "Range");
     }
     const auto cleanup = qScopeGuard([&]() {
         vc->deleteVCWidgets(roots);
+        vc->outlineModel()->setFilterText(oldFilter);
+        vc->setSelectedPage(oldPage);
         vc->setEditMode(oldEdit);
         contexts->switchToContext(oldContext);
         m_app->resize(oldSize);
@@ -1571,6 +2655,19 @@ void UpstreamIntegration_Test::vcOutlinePointerSelection()
     QTRY_VERIFY((console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole")));
     QVERIFY(console->setProperty("outlineOpen", true));
     vc->setEditMode(true);
+    if (filteredRange)
+    {
+        vc->setSelectedPage(0);
+        QTRY_VERIFY(vc->outlineModel()->indexForKey(QString("widget:%1").arg(roots[0].toUInt())).isValid());
+        QTRY_VERIFY(vc->outlineModel()->indexForKey(QString("widget:%1").arg(roots[2].toUInt())).isValid());
+        auto *search = console->findChild<QQuickItem *>("vcOutlineSearch");
+        QVERIFY(search);
+        QVERIFY(search->setProperty("text", "Range"));
+        search->forceActiveFocus();
+        QTest::keyClick(m_app.get(), Qt::Key_Left);
+        QTRY_COMPARE(vc->outlineModel()->filterText(), QString("Range"));
+        QVERIFY(!vc->outlineModel()->indexForKey(QString("widget:%1").arg(roots[1].toUInt())).isValid());
+    }
     auto findRow = [&](quint32 id) {
         QQuickItem *found = nullptr;
         std::function<void(QQuickItem *)> visit = [&](QQuickItem *item) {
@@ -1582,7 +2679,8 @@ void UpstreamIntegration_Test::vcOutlinePointerSelection()
     };
     QQuickItem *first = nullptr, *second = nullptr;
     QTRY_VERIFY((first = findRow(roots[0].toUInt())));
-    QTRY_VERIFY((second = findRow(roots[1].toUInt())));
+    const QVariant secondID = roots[filteredRange ? 2 : 1];
+    QTRY_VERIFY((second = findRow(secondID.toUInt())));
     QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
     m_app->update();
     QTRY_VERIFY(!rendered.isEmpty());
@@ -1590,6 +2688,11 @@ void UpstreamIntegration_Test::vcOutlinePointerSelection()
     const QPoint secondPoint = second->mapToScene(QPointF(second->width() * 0.45, second->height() / 2)).toPoint();
     QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, firstPoint);
     QTRY_COMPARE(vc->selectedWidgetIDs(), QVariantList{roots[0]});
+    if (filteredRange)
+    {
+        console->forceActiveFocus();
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{roots[0]});
+    }
     const QVariantList order = vc->page(0)->orderedChildIDs(0);
     m_app->doc()->resetModified();
     QSignalSpy changed(vc, &VirtualConsole::structureChanged);
@@ -1597,8 +2700,16 @@ void UpstreamIntegration_Test::vcOutlinePointerSelection()
     if (smallMove) QTest::mouseMove(m_app.get(), secondPoint + QPoint(2, 0));
     QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifier),
                         secondPoint + (smallMove ? QPoint(2, 0) : QPoint()));
-    const QVariantList expected = modifier == Qt::NoModifier ? QVariantList{roots[1]} : roots;
+    const QVariantList expected = modifier == Qt::NoModifier ? QVariantList{secondID}
+        : filteredRange ? QVariantList{roots[0], secondID} : roots;
     QTRY_COMPARE(vc->selectedWidgetIDs(), expected);
+    if (filteredRange)
+    {
+        QCOMPARE(vc->selectedPage(), 0);
+        QVERIFY(!vc->widget(secondID.toUInt())->renderItem());
+        QTRY_VERIFY(first->parentItem()->property("selected").toBool());
+        QTRY_VERIFY(second->parentItem()->property("selected").toBool());
+    }
     QCOMPARE(vc->page(0)->orderedChildIDs(0), order);
     QCOMPARE(changed.count(), 0);
     QVERIFY(!m_app->doc()->isModified());
@@ -5838,6 +6949,2259 @@ void UpstreamIntegration_Test::vcClipboardPointerDrop()
     QCOMPARE(childCopy->actionType(), VCButton::Toggle);
     QCOMPARE(groupCopy->logicalGeometry(), QRectF(100, 100, 250.25, 220.5));
     QCOMPARE(buttonCopy->logicalGeometry(), QRectF(350.25, 100, 110.25, 90.5));
+}
+
+void UpstreamIntegration_Test::vcWidgetPointerDrop_data()
+{
+    QTest::addColumn<qreal>("scale");
+    QTest::addColumn<bool>("cancel");
+    QTest::addColumn<bool>("tree");
+    for (qreal scale : {qreal(0.8), qreal(1.1), qreal(2)})
+        for (bool cancel : {false, true})
+        {
+            QTest::newRow(qPrintable(QString("%1-%2").arg(scale).arg(cancel ? "cancel" : "cross-subpage")))
+                << scale << cancel << false;
+            QTest::newRow(qPrintable(QString("%1-tree-%2").arg(scale).arg(cancel ? "cancel" : "cross-subpage")))
+                << scale << cancel << true;
+        }
+}
+
+void UpstreamIntegration_Test::vcWidgetPointerDrop()
+{
+    QFETCH(qreal, scale);
+    QFETCH(bool, cancel);
+    QFETCH(bool, tree);
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QString oldContext = contexts->currentContext();
+    const QSize oldSize = m_app->size();
+    const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode(), oldSnap = vc->snapping();
+    const bool wasModified = m_app->doc()->isModified();
+    const int oldPage = vc->selectedPage();
+    const qreal oldScale = vc->page(0)->pageScale();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    QVariantList roots;
+    quint32 functionID = Function::invalidId();
+    const auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets(roots);
+        if (functionID != Function::invalidId()) m_app->doc()->deleteFunction(functionID);
+        vc->page(0)->setPageScale(oldScale - vc->page(0)->pageScale());
+        vc->setSelectedPage(oldPage);
+        vc->setEditMode(oldEdit);
+        vc->setSnapping(oldSnap);
+        vc->setSelectedWidgetIDs(oldSelection);
+        contexts->switchToContext(oldContext);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (!wasModified) m_app->doc()->resetModified();
+    });
+    for (int index = 0; index < 2; ++index)
+    {
+        const QVariantMap result = vc->createWidgetGeometry(vc->page(0)->id(), "Frame",
+            QRectF(20 + index * 340, 20, 300, 260));
+        QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
+        roots.append(result.value("widgetIDs").toList().first());
+    }
+    auto *source = qobject_cast<VCFrame *>(vc->widget(roots[0].toUInt()));
+    auto *target = qobject_cast<VCFrame *>(vc->widget(roots[1].toUInt()));
+    QVERIFY(source && target);
+    target->setMultiPageMode(true);
+    target->setTotalPagesNumber(2);
+    target->setCurrentPage(1);
+    QVariantList ids;
+    for (int index = 0; index < 2; ++index)
+    {
+        const QVariantMap result = vc->createWidgetGeometry(source->id(), "Button",
+            QRectF(10 + index * 120, 60, 100, 70));
+        QVERIFY(result.value("accepted").toBool());
+        ids.append(result.value("widgetIDs").toList().first());
+    }
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Pointer drop binding");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    functionID = scene->id();
+    auto *first = qobject_cast<VCButton *>(vc->widget(ids[0].toUInt()));
+    VCWidget *second = vc->widget(ids[1].toUInt());
+    QVERIFY(first && second);
+    first->setFunctionID(functionID);
+    m_app->doc()->masterTimer()->stop();
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(1600, 950);
+    contexts->switchToContext("VC");
+    vc->setSelectedPage(0);
+    vc->setEditMode(true);
+    vc->setSnapping(false);
+    vc->page(0)->setPageScale(scale - vc->page(0)->pageScale());
+    QCOMPARE(vc->page(0)->pageScale(), scale);
+    vc->setSelectedWidgetIDs(ids);
+    QQuickItem *item = nullptr, *area = nullptr;
+    QTRY_VERIFY((item = first->renderItem()));
+    QTRY_VERIFY(target->renderItem());
+    QTRY_VERIFY((area = target->renderItem()->findChild<QQuickItem *>(QString("frameDropArea%1").arg(target->id()))));
+    QQuickItem *sourceRow = nullptr, *treePane = nullptr, *treeDrag = nullptr;
+    QObject *treeMouse = nullptr;
+    if (tree)
+    {
+        auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+        QVERIFY(console);
+        QVERIFY(console->setProperty("outlineOpen", true));
+        treePane = console->findChild<QQuickItem *>("vcOutlinePane");
+        QVERIFY(treePane);
+        QTRY_VERIFY(vc->outlineModel()->indexForKey(QString("widget:%1").arg(first->id())).isValid());
+        QVERIFY(QMetaObject::invokeMethod(treePane, "toggleExpanded",
+            Q_ARG(QVariant, QString("widget:%1").arg(source->id()))));
+        QVERIFY(QMetaObject::invokeMethod(treePane, "toggleExpanded",
+            Q_ARG(QVariant, QString("widget:%1").arg(target->id()))));
+        QQuickItem *targetRow = nullptr;
+        std::function<void(QQuickItem *)> find = [&](QQuickItem *candidate) {
+            if (candidate->objectName() == QString("vcOutlineRow-%1").arg(first->id())) sourceRow = candidate;
+            if (candidate->objectName() == QString("vcOutlineRow-subpage:%1:1").arg(target->id())) targetRow = candidate;
+            for (QQuickItem *child : candidate->childItems()) find(child);
+        };
+        QTRY_VERIFY((find(treePane), sourceRow && targetRow));
+        QQmlExpression expression(qmlContext(sourceRow), sourceRow, "outlineDrag");
+        treeDrag = qobject_cast<QQuickItem *>(expression.evaluate().value<QObject *>());
+        QVERIFY2(treeDrag, qPrintable(expression.error().toString()));
+        QQmlExpression mouseExpression(qmlContext(sourceRow), sourceRow, "mouseArea");
+        treeMouse = mouseExpression.evaluate().value<QObject *>();
+        QVERIFY2(treeMouse, qPrintable(mouseExpression.error().toString()));
+        area = nullptr;
+        for (QQuickItem *child : targetRow->childItems())
+            if (child->property("drag").isValid()) area = child;
+        QVERIFY(area);
+    }
+    QQuickItem *viewport = vc->currentPageItem();
+    QVERIFY(viewport);
+    QVERIFY(viewport->setProperty("contentX", 20 * scale));
+    QVERIFY(viewport->setProperty("contentY", 10 * scale));
+    QCOMPARE(viewport->property("contentX").toReal(), 20 * scale);
+    QCOMPARE(viewport->property("contentY").toReal(), 10 * scale);
+    QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!rendered.isEmpty());
+    const QRectF firstRect = first->logicalGeometry(), secondRect = second->logicalGeometry();
+    QQuickItem *firstParent = item->parentItem(), *secondParent = second->renderItem()->parentItem();
+    QByteArray before;
+    QXmlStreamWriter writer(&before);
+    vc->saveXML(&writer);
+    m_app->doc()->resetModified();
+    QSignalSpy dropped(area, SIGNAL(dropped(QQuickDragEvent*)));
+    QSignalSpy structure(vc, &VirtualConsole::structureChanged);
+    QSignalSpy starts(m_app->doc()->masterTimer(), &MasterTimer::functionStarted);
+    QVERIFY(dropped.isValid());
+    const QPoint press = tree ? sourceRow->mapToScene(QPointF(sourceRow->width() * 0.7, sourceRow->height() / 2)).toPoint()
+        : item->mapToScene(QPointF(item->width() * 0.4, item->height() * 0.4)).toPoint();
+    QVERIFY(QRect(QPoint(), m_app->size()).contains(press));
+    QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+    if (tree)
+    {
+        qInfo() << "TREE_PRESS" << press << "rowVisible" << sourceRow->isVisible()
+                << "rowSize" << sourceRow->size() << "pressed" << treeMouse->property("pressed");
+        QVERIFY(treeMouse->property("pressed").toBool());
+    }
+    const auto releaseMouse = qScopeGuard([&]() {
+        if (tree ? treePane->property("dragging").toBool() : item->property("moving").toBool())
+            QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+    });
+    QTest::mouseMove(m_app.get(), press + QPoint(25, 0), 20);
+    if (tree) QTest::mouseMove(m_app.get(), press + QPoint(40, 0), 20);
+    if (tree)
+    {
+        QTRY_VERIFY(treePane->property("dragging").toBool());
+        QCOMPARE(treeDrag->property("widgetIDs").toList(), ids);
+    }
+    else
+    {
+        QTRY_VERIFY(item->property("moving").toBool());
+        QCOMPARE(item->property("draggedIDs").toList(), ids);
+    }
+    const QPointF hotspot = tree ? QPointF() : item->property("dragHotSpot").toPointF();
+    const QPoint drop = tree ? area->mapToScene(QPointF(area->width() * 0.7, area->height() / 2)).toPoint()
+        : area->mapToScene(QPointF(20 * scale, 70 * scale) + hotspot).toPoint();
+    QVERIFY(QRect(QPoint(), m_app->size()).contains(drop));
+    const QPointF pointerExpected = (area->mapFromScene(drop) - hotspot) / scale;
+    QTest::mouseMove(m_app.get(), drop, 20);
+    QObject *drag = area->property("drag").value<QObject *>();
+    QVERIFY(drag);
+    QTRY_COMPARE(drag->property("source").value<QObject *>(), tree ? treeDrag : item);
+    if (!tree) QVERIFY(target->renderItem()->property("dropActive").toBool());
+    QVERIFY(drag->property("x").isValid() && drag->property("y").isValid());
+    const QPointF expected = (QPointF(drag->property("x").toReal(), drag->property("y").toReal()) - hotspot) / scale;
+    if (tree)
+    {
+        QVERIFY(treePane->property("dropHint").toString().contains(target->caption()));
+        QQmlExpression destination(qmlContext(area->parentItem()), area->parentItem(), "dropIntent.targetID");
+        QQmlExpression subpage(qmlContext(area->parentItem()), area->parentItem(), "dropIntent.subpage");
+        QCOMPARE(destination.evaluate().toUInt(), target->id());
+        QCOMPARE(subpage.evaluate().toInt(), 1);
+    }
+    else
+    {
+        QVERIFY(std::abs(expected.x() - pointerExpected.x()) <= 1 / scale);
+        QVERIFY(std::abs(expected.y() - pointerExpected.y()) <= 1 / scale);
+    }
+    QCOMPARE(first->logicalGeometry(), firstRect);
+    QCOMPARE(second->logicalGeometry(), secondRect);
+    if (cancel) QTest::keyClick(m_app.get(), Qt::Key_Escape);
+    QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, drop);
+    QVERIFY(!item->property("moving").toBool());
+    if (tree) QVERIFY(!treePane->property("dragging").toBool());
+    QCOMPARE(vc->selectedWidgetIDs(), ids);
+    QCOMPARE(first->functionID(), functionID);
+    QCOMPARE(target->currentPage(), 1);
+    QCOMPARE(starts.count(), 0);
+    QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(scene));
+    QVERIFY(!scene->isRunning());
+    if (cancel)
+    {
+        QCOMPARE(dropped.count(), 0);
+        QCOMPARE(structure.count(), 0);
+        QByteArray after;
+        QXmlStreamWriter afterWriter(&after);
+        vc->saveXML(&afterWriter);
+        QCOMPARE(after, before);
+        QCOMPARE(item->parentItem(), firstParent);
+        QCOMPARE(second->renderItem()->parentItem(), secondParent);
+        QVERIFY(!m_app->doc()->isModified());
+    }
+    else
+    {
+        QCOMPARE(dropped.count(), 1);
+        QCOMPARE(structure.count(), 1);
+        QCOMPARE(first->parent(), target);
+        QCOMPARE(second->parent(), target);
+        QCOMPARE(first->page(), 1);
+        QCOMPARE(second->page(), 1);
+        QCOMPARE(first->logicalGeometry(), tree ? firstRect : QRectF(expected, firstRect.size()));
+        QCOMPARE(second->logicalGeometry(), tree ? secondRect :
+            QRectF(expected + secondRect.topLeft() - firstRect.topLeft(), secondRect.size()));
+        QQuickItem *targetArea = target->renderItem()->findChild<QQuickItem *>(QString("frameDropArea%1").arg(target->id()));
+        QCOMPARE(item->parentItem(), targetArea);
+        QCOMPARE(second->renderItem()->parentItem(), targetArea);
+        QVERIFY(source->orderedChildIDs(0).isEmpty());
+        QCOMPARE(target->orderedChildIDs(1), ids);
+        QVERIFY(m_app->doc()->isModified());
+    }
+}
+
+void UpstreamIntegration_Test::vcScrollbarChromeReplay_data()
+{
+    QTest::addColumn<qreal>("density");
+    QTest::newRow("native-metrics-1.1") << qreal(5.077272727272727);
+}
+
+void UpstreamIntegration_Test::vcScrollbarChromeReplay()
+{
+    QFETCH(qreal, density);
+    auto *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QVariant oldDensity = m_app->rootContext()->contextProperty("screenPixelDensity");
+    const QRect oldWindow = m_app->geometry();
+    const QString oldContext = contexts->currentContext();
+    const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode(), oldSnap = vc->snapping();
+    const bool modified = m_app->doc()->isModified();
+    const int oldPage = vc->selectedPage();
+    const qreal oldScale = vc->page(0)->pageScale();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    QVariantList roots;
+    QPointer<QQuickItem> viewport;
+    QPointer<QQuickItem> console, functions;
+    QVariant oldOutlineOpen, oldOutlineWidth, oldLoader, oldFunctionsOpen;
+    qreal oldFunctionsWidth = 0;
+    QSizeF oldViewSize;
+    QPointF oldViewPosition;
+    qreal oldX = 0, oldY = 0;
+    const auto cleanup = qScopeGuard([&]() {
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+        vc->deleteVCWidgets(roots);
+        m_app->rootContext()->setContextProperty("screenPixelDensity", oldDensity);
+        if (console)
+        {
+            console->setProperty("outlineOpen", oldOutlineOpen);
+            console->setProperty("outlineWidth", oldOutlineWidth);
+        }
+        if (functions)
+        {
+            functions->setProperty("loaderSource", oldLoader);
+            functions->setProperty("isOpen", oldFunctionsOpen);
+            functions->setWidth(oldFunctionsWidth);
+        }
+        if (viewport)
+        {
+            viewport->setSize(oldViewSize);
+            viewport->setPosition(oldViewPosition);
+            viewport->setProperty("contentX", oldX);
+            viewport->setProperty("contentY", oldY);
+        }
+        vc->page(0)->setPageScale(oldScale - vc->page(0)->pageScale());
+        vc->setSelectedPage(oldPage);
+        vc->setEditMode(oldEdit);
+        vc->setSnapping(oldSnap);
+        vc->setSelectedWidgetIDs(oldSelection);
+        contexts->switchToContext(oldContext);
+        m_app->setGeometry(oldWindow);
+        m_app->setVisible(oldVisible);
+        if (!modified) m_app->doc()->resetModified();
+    });
+    m_app->rootContext()->setContextProperty("screenPixelDensity", density);
+    const QVariantMap created = vc->createWidgetGeometry(vc->page(0)->id(), "Frame",
+        QRectF(780, 20, 270.99545454545455, 700));
+    QVERIFY2(created.value("accepted").toBool(), qPrintable(created.value("error").toString()));
+    roots = created.value("widgetIDs").toList();
+    auto *scenes = qobject_cast<VCFrame *>(vc->widget(roots.first().toUInt()));
+    QVERIFY(scenes);
+    scenes->setCaption("Scenes / Master");
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->setGeometry(0, 65, 1600, 950);
+    m_app->setPosition(m_app->position() + QPoint(0, 65) - m_app->mapToGlobal(QPoint()));
+    contexts->switchToContext("VC");
+    console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QVERIFY(console);
+    oldOutlineOpen = console->property("outlineOpen");
+    oldOutlineWidth = console->property("outlineWidth");
+    console->setProperty("outlineWidth", 288);
+    console->setProperty("outlineOpen", true);
+    functions = console->findChild<QQuickItem *>("vcFunctionsPane");
+    QVERIFY(functions);
+    oldLoader = functions->property("loaderSource");
+    oldFunctionsOpen = functions->property("isOpen");
+    oldFunctionsWidth = functions->width();
+    functions->setProperty("loaderSource", "qrc:/FunctionManager.qml");
+    QVERIFY(QMetaObject::invokeMethod(functions, "animatePanel", Q_ARG(QVariant, true)));
+    QTRY_VERIFY(functions->width() >= 319);
+    vc->setSelectedPage(0);
+    vc->setEditMode(true);
+    vc->setSnapping(false);
+    vc->page(0)->setPageScale(1.1 - vc->page(0)->pageScale());
+    QCOMPARE(vc->page(0)->pageScale(), qreal(1.1));
+    QTRY_VERIFY(scenes->renderItem());
+    viewport = vc->currentPageItem();
+    QVERIFY(viewport);
+    oldViewSize = viewport->size();
+    oldViewPosition = viewport->position();
+    oldX = viewport->property("contentX").toReal();
+    oldY = viewport->property("contentY").toReal();
+    const QRectF nativeView(292.56954545454545, 156.39090909090908, 987.4304545454545, 858.6090909090909);
+    const QPointF origin = m_app->mapToGlobal(QPoint());
+    QVERIFY(viewport->setProperty("contentX", 818.0));
+    QVERIFY(viewport->setProperty("contentY", -40.61818181818182));
+    vc->setSelectedWidgetIDs({scenes->id()});
+    QSignalSpy painted(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!painted.isEmpty());
+    auto globalRect = [&](QQuickItem *item) {
+        QRectF rect = item->mapRectToScene(QRectF(QPointF(), item->size()));
+        rect.translate(origin);
+        return rect;
+    };
+    qInfo() << "SCROLLBAR_REPLAY_SETUP" << globalRect(viewport) << "wanted" << nativeView
+            << "position" << viewport->position() << "parent" << globalRect(viewport->parentItem());
+    const QPointF decorationDelta = globalRect(viewport).topLeft() - nativeView.topLeft();
+    QVERIFY(std::abs(decorationDelta.x()) <= 2 && std::abs(decorationDelta.y()) <= 2);
+    QVERIFY(std::abs(viewport->width() - nativeView.width()) < 0.001);
+    QVERIFY(std::abs(viewport->height() - nativeView.height()) < 0.001);
+    QVERIFY(std::abs(viewport->property("bottomMargin").toReal() - 40.61818181818182) < 0.001);
+    QQuickItem *fragment = nullptr, *bar = nullptr;
+    std::function<void(QQuickItem *)> locate = [&](QQuickItem *item) {
+        if (item->objectName() == QString("vcResizeFragment-%1-2-0").arg(scenes->id())) fragment = item;
+        if (item->property("orientation").isValid() && item->property("position").isValid() &&
+            item->property("size").isValid() && item->property("pressed").isValid() &&
+            item->property("orientation").toInt() == Qt::Horizontal && viewport->isAncestorOf(item))
+            bar = item;
+        for (QQuickItem *child : item->childItems()) locate(child);
+    };
+    locate(m_app->rootObject());
+    QVERIFY(fragment && bar && fragment->isVisible() && bar->isVisible());
+    QRectF clipped = globalRect(fragment).intersected(globalRect(viewport));
+    const QRectF barRect = globalRect(bar);
+    const QPointF recordedPress = QPointF(650.6645454545455, 1002.0045454545455) + decorationDelta;
+    QVERIFY(barRect.contains(recordedPress));
+    const QPointF press = clipped.center();
+    const QPointF local = press - origin;
+    QVERIFY(QRectF(QPointF(), m_app->size()).contains(local));
+    QByteArray xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(vc->saveXML(&writer));
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        QSignalSpy stable(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!stable.isEmpty());
+        QCOMPARE(viewport->property("contentX").toReal(), qreal(818));
+    }
+    const QImage window = m_app->grabWindow();
+    QQmlComponent reference(m_app->engine());
+    reference.setData("import QtQuick\nItem { width: 42; height: 42; Image { objectName: \"referenceArrow\"; "
+        "width: 40; height: 40; sourceSize: Qt.size(width, height); source: \"qrc:/arrow-corner.svg\" } }", QUrl());
+    QVERIFY2(reference.isReady(), qPrintable(reference.errorString()));
+    std::unique_ptr<QQuickItem> referenceItem(qobject_cast<QQuickItem *>(reference.create()));
+    QVERIFY(referenceItem);
+    referenceItem->setParentItem(m_app->contentItem());
+    referenceItem->setPosition(QPointF(-100, -100));
+    auto *arrow = referenceItem->findChild<QQuickItem *>("referenceArrow");
+    QVERIFY(arrow);
+    const QRectF imageRect = globalRect(fragment).translated(-origin);
+    arrow->setPosition(QPointF(imageRect.x() - qFloor(imageRect.x()), imageRect.y() - qFloor(imageRect.y())));
+    auto capture = referenceItem->grabToImage();
+    QVERIFY(capture);
+    QTRY_VERIFY(!capture->image().isNull());
+    const QImage expected = capture->image();
+    int opaque = 0, different = 0;
+    qInfo() << "SCROLLBAR_PAINT_MAPPING" << "window" << window.size() << window.devicePixelRatio()
+            << "app" << m_app->size() << "reference" << expected.size() << expected.devicePixelRatio()
+            << "logical" << imageRect;
+    for (int y = 1; y < expected.height() - 1; ++y)
+        for (int x = 1; x < expected.width() - 1; ++x)
+        {
+            if (expected.pixelColor(x, y).alpha() < 250 ||
+                expected.pixelColor(x - 1, y).alpha() < 250 || expected.pixelColor(x + 1, y).alpha() < 250 ||
+                expected.pixelColor(x, y - 1).alpha() < 250 || expected.pixelColor(x, y + 1).alpha() < 250) continue;
+            const QPointF mapped((qFloor(imageRect.x()) + (x + 0.5) * referenceItem->width() / expected.width()) *
+                                     window.width() / m_app->width(),
+                                 (qFloor(imageRect.y()) + (y + 0.5) * referenceItem->height() / expected.height()) *
+                                     window.height() / m_app->height());
+            const QPoint point(qFloor(mapped.x()), qFloor(mapped.y()));
+            QVERIFY(window.rect().contains(point));
+            const QColor actual = window.pixelColor(point), wanted = expected.pixelColor(x, y);
+            ++opaque;
+            if (std::max({std::abs(actual.red() - wanted.red()), std::abs(actual.green() - wanted.green()),
+                          std::abs(actual.blue() - wanted.blue())}) > 40)
+                ++different;
+        }
+    qInfo() << "SCROLLBAR_CLEAR_GRAPHIC_PAINT" << "opaque" << opaque << "different" << different;
+    QVERIFY(opaque > 100);
+    QCOMPARE(different, 0);
+    const QString directory = qEnvironmentVariable("QLC_VC_VISUAL_DIR");
+    if (!directory.isEmpty())
+    {
+        QVERIFY(QDir().mkpath(directory));
+        QVERIFY(window.save(QDir(directory).filePath(QString("scrollbar-replay-dpr%1.png").arg(m_app->devicePixelRatio()))));
+    }
+    QMouseEvent down(QEvent::MouseButtonPress, local, press, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QVERIFY(QCoreApplication::sendEvent(m_app.get(), &down));
+    qInfo() << "NATIVE_SCROLLBAR_REPLAY" << "roleID" << scenes->id() << "density" << density << "modelDensity" << vc->pixelDensity()
+            << "dpr" << m_app->devicePixelRatio() << "decorationDelta" << decorationDelta << "viewport" << globalRect(viewport)
+            << "fragment" << globalRect(fragment) << "painted" << clipped << "bar" << barRect
+            << "press" << press << "recordedPress" << recordedPress << "barPressed" << bar->property("pressed")
+            << "sceneResizing" << scenes->renderItem()->property("resizing")
+            << "contentXAfter" << viewport->property("contentX");
+    const bool resizing = scenes->renderItem()->property("resizing").toBool();
+    QTest::keyClick(m_app.get(), Qt::Key_Escape);
+    QMouseEvent up(QEvent::MouseButtonRelease, local, press, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QVERIFY(QCoreApplication::sendEvent(m_app.get(), &up));
+    QVERIFY2(resizing, "Reported painted root-corner center must hit Scenes resize, not the viewport scrollbar");
+    QVERIFY(clipped.intersected(barRect).isEmpty());
+    QCOMPARE(clipped.size(), fragment->size());
+    QCOMPARE(viewport->property("contentX").toReal(), qreal(818));
+    QByteArray after;
+    QXmlStreamWriter afterWriter(&after);
+    QVERIFY(vc->saveXML(&afterWriter));
+    QCOMPARE(after, xml);
+    const QRectF before = scenes->logicalGeometry();
+    QSignalSpy changed(scenes, &VCWidget::geometryChanged);
+    QMouseEvent resizeDown(QEvent::MouseButtonPress, local, press, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QVERIFY(QCoreApplication::sendEvent(m_app.get(), &resizeDown));
+    QVERIFY(scenes->renderItem()->property("resizing").toBool());
+    const QPointF end = local + QPointF(0, 4), globalEnd = press + QPointF(0, 4);
+    QMouseEvent move(QEvent::MouseMove, end, globalEnd, Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    QVERIFY(QCoreApplication::sendEvent(m_app.get(), &move));
+    QMouseEvent resizeUp(QEvent::MouseButtonRelease, end, globalEnd, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QVERIFY(QCoreApplication::sendEvent(m_app.get(), &resizeUp));
+    QCOMPARE(scenes->logicalGeometry(), QRectF(before.topLeft(), QSizeF(before.width(), before.height() + 4 / 1.1)));
+    QCOMPARE(changed.count(), 1);
+    QVERIFY(!scenes->renderItem()->property("resizing").toBool());
+    const QPointF oldLocal = recordedPress - origin;
+    QMouseEvent barDown(QEvent::MouseButtonPress, oldLocal, recordedPress, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QVERIFY(QCoreApplication::sendEvent(m_app.get(), &barDown));
+    QVERIFY(bar->property("pressed").toBool());
+    QVERIFY(!scenes->renderItem()->property("resizing").toBool());
+    QVERIFY(std::abs(viewport->property("contentX").toReal() - 259.82596535392094) < 1);
+    QMouseEvent barUp(QEvent::MouseButtonRelease, oldLocal, recordedPress, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QVERIFY(QCoreApplication::sendEvent(m_app.get(), &barUp));
+}
+
+void UpstreamIntegration_Test::vcSelectedChrome_data()
+{
+    QTest::addColumn<qreal>("scale");
+    QTest::addColumn<bool>("nested");
+    QTest::addColumn<int>("boundary");
+    for (qreal scale : {qreal(0.8), qreal(1), qreal(1.1), qreal(2)})
+        QTest::newRow(qPrintable(QString::number(scale))) << scale << false << 0;
+    for (qreal scale : {qreal(0.8), qreal(1.1), qreal(2)})
+    {
+        QTest::newRow(qPrintable(QString("%1-nested").arg(scale))) << scale << true << 0;
+        QTest::newRow(qPrintable(QString("%1-nested-flush-left").arg(scale))) << scale << true << 1;
+        QTest::newRow(qPrintable(QString("%1-nested-near-bottom").arg(scale))) << scale << true << 2;
+        QTest::newRow(qPrintable(QString("%1-deeper-flush").arg(scale))) << scale << true << 3;
+        QTest::newRow(qPrintable(QString("%1-deeper-near-bottom").arg(scale))) << scale << true << 4;
+        QTest::newRow(qPrintable(QString("%1-ancestor-caption").arg(scale))) << scale << true << 5;
+        QTest::newRow(qPrintable(QString("%1-ancestor-control").arg(scale))) << scale << true << 6;
+        QTest::newRow(qPrintable(QString("%1-clearance-tie").arg(scale))) << scale << true << 7;
+        QTest::newRow(qPrintable(QString("%1-scroll-preference").arg(scale))) << scale << true << 8;
+    }
+}
+
+void UpstreamIntegration_Test::vcSelectedChrome()
+{
+    QFETCH(qreal, scale);
+    QFETCH(bool, nested);
+    QFETCH(int, boundary);
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QString oldContext = contexts->currentContext();
+    const QSize oldSize = m_app->size();
+    const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode();
+    const bool oldSnap = vc->snapping();
+    const bool wasModified = m_app->doc()->isModified();
+    const int oldPage = vc->selectedPage();
+    const qreal oldScale = vc->page(0)->pageScale();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    QVariantList roots;
+    const auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets(roots);
+        vc->page(0)->setPageScale(oldScale - vc->page(0)->pageScale());
+        vc->setSelectedPage(oldPage);
+        vc->setEditMode(oldEdit);
+        vc->setSnapping(oldSnap);
+        vc->setSelectedWidgetIDs(oldSelection);
+        contexts->switchToContext(oldContext);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (!wasModified) m_app->doc()->resetModified();
+    });
+    quint32 parentID = vc->page(0)->id();
+    VCWidget *outer = nullptr;
+    if (nested)
+    {
+        if (boundary == 3 || boundary == 4)
+        {
+            const QVariantMap grand = vc->createWidgetGeometry(parentID, "Frame", QRectF(20, 20, 1700, 780));
+            QVERIFY2(grand.value("accepted").toBool(), qPrintable(grand.value("error").toString()));
+            roots = grand.value("widgetIDs").toList();
+            parentID = roots.first().toUInt();
+            qInfo() << "DEEP_CHROME_PARENT" << vc->widget(parentID)->logicalGeometry()
+                    << qobject_cast<VCFrame *>(vc->widget(parentID))->contentRect();
+        }
+        const QVariantMap ancestor = vc->createWidgetGeometry(parentID, "Frame",
+            QRectF(20, boundary == 3 || boundary == 4 ? 40 : 20, boundary == 6 ? 560 : 1100, 650));
+        QVERIFY2(ancestor.value("accepted").toBool(), qPrintable(ancestor.value("error").toString()));
+        if (roots.isEmpty()) roots = ancestor.value("widgetIDs").toList();
+        parentID = ancestor.value("widgetIDs").toList().first().toUInt();
+        outer = vc->widget(parentID);
+        if (boundary == 5) outer->setCaption(QString("Ancestor caption ").repeated(12));
+    }
+    QRectF requested = nested ? QRectF(80, 80, 360, 340) : QRectF(20, 20, 360, 340);
+    if (boundary && boundary != 7 && boundary != 8)
+    {
+        const QRectF content = qobject_cast<VCFrame *>(outer)->contentRect();
+        requested.moveTopLeft(boundary == 1 || boundary == 3 || boundary == 5 || boundary == 6 ? content.topLeft()
+            : QPointF(80, content.bottom() - requested.height() - 2));
+        if (boundary == 6)
+            requested.moveLeft(content.right() - content.y() + 2 / scale - requested.width());
+        QVERIFY(content.contains(requested));
+    }
+    const QVariantMap created = vc->createWidgetGeometry(parentID, "Frame", requested);
+    QVERIFY2(created.value("accepted").toBool(), qPrintable(created.value("error").toString()));
+    const quint32 frameID = created.value("widgetIDs").toList().first().toUInt();
+    if (!nested) roots.append(frameID);
+    const QVariantMap control = vc->createWidgetGeometry(frameID, "Slider", QRectF(10, 190, 90, 140));
+    QVERIFY2(control.value("accepted").toBool(), qPrintable(control.value("error").toString()));
+    VCWidget *slider = vc->widget(control.value("widgetIDs").toList().first().toUInt());
+    slider->setCaption("Intensity");
+    VCWidget *frame = vc->widget(frameID);
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(boundary ? QSize(1800, 1700) : nested ? QSize(1800, 1250) : QSize(1440, 900));
+    contexts->switchToContext("VC");
+    vc->setSelectedPage(0);
+    vc->page(0)->setPageScale(scale - vc->page(0)->pageScale());
+    QCOMPARE(vc->page(0)->pageScale(), scale);
+    QCOMPARE(slider->scaleFactor(), scale);
+    vc->setEditMode(true);
+    QQuickItem *viewport = nullptr;
+    QTRY_VERIFY((viewport = vc->currentPageItem()));
+    const qreal margin = viewport->property("leftMargin").toReal();
+    QVERIFY(viewport->setProperty("contentX", -margin));
+    QVERIFY(viewport->setProperty("contentY", -margin));
+    QTRY_VERIFY(frame->renderItem() && slider->renderItem());
+    QSignalSpy starts(m_app->doc()->masterTimer(), &MasterTimer::functionStarted);
+    auto rectValue = [](const QRectF &rect) {
+        return QJsonObject{{"x", rect.x()}, {"y", rect.y()}, {"width", rect.width()}, {"height", rect.height()}};
+    };
+    QQuickItem *caption = nullptr, *corner = nullptr, *ancestorCaption = nullptr;
+    QList<QQuickItem *> handles;
+    std::function<void(QQuickItem *)> find = [&](QQuickItem *item) {
+        if (item->property("text").toString() == "Intensity" && slider->renderItem()->isAncestorOf(item))
+            caption = item;
+        if (boundary == 5 && outer->renderItem()->isAncestorOf(item) && !frame->renderItem()->isAncestorOf(item) &&
+            item->property("text").toString() == outer->caption())
+            ancestorCaption = item;
+        const bool named = item->objectName().startsWith(QString("vcResizeHandle-%1-").arg(frameID));
+        if (named)
+        {
+            handles.append(item);
+            if (item->property("index").toInt() == 3) corner = item;
+        }
+        for (QQuickItem *child : item->childItems()) find(child);
+    };
+    find(m_app->rootObject());
+    QVERIFY(caption && corner);
+    QCOMPARE(handles.size(), 4);
+    QImage ancestorGlyphs, ancestorUnselected;
+    for (bool selected : {false, true})
+    {
+        vc->setSelectedWidgetIDs(selected ? QVariantList{frameID} : QVariantList{});
+        QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!rendered.isEmpty());
+        handles.clear();
+        corner = nullptr;
+        find(m_app->rootObject());
+        QCOMPARE(handles.size(), 4);
+        QVERIFY(corner);
+        const QRectF textRect = caption->mapRectToScene(QRectF(QPointF(), QSizeF(caption->width(), caption->height())));
+        const QRectF cornerRect = corner->mapRectToScene(QRectF(QPointF(), QSizeF(corner->width(), corner->height())));
+        const qreal paintedWidth = caption->property("paintedWidth").toReal();
+        const qreal paintedHeight = caption->property("paintedHeight").toReal();
+        const QRectF glyphRect = caption->mapRectToScene(QRectF((caption->width() - paintedWidth) / 2, 0,
+                                                               paintedWidth, paintedHeight));
+        const QRectF intersection = textRect.intersected(cornerRect);
+        const QPoint hit = (intersection.isEmpty() ? textRect.center() : intersection.center()).toPoint();
+        QVERIFY(QRect(QPoint(), m_app->size()).contains(hit));
+        const QRectF frameRect = frame->logicalGeometry(), sliderRect = slider->logicalGeometry();
+        const bool cornerVisible = corner->isVisible();
+        const QImage beforePress = m_app->grabWindow();
+        if (boundary == 5)
+        {
+            QVERIFY(ancestorCaption);
+            if (!selected)
+            {
+                auto grab = ancestorCaption->grabToImage();
+                QVERIFY(grab);
+                QTRY_VERIFY(!grab->image().isNull());
+                ancestorGlyphs = grab->image();
+                ancestorUnselected = beforePress;
+            }
+            else
+            {
+                int glyphPixels = 0, changedGlyphPixels = 0;
+                for (int y = 0; y < ancestorGlyphs.height(); ++y)
+                    for (int x = 0; x < ancestorGlyphs.width(); ++x)
+                    {
+                        if (ancestorGlyphs.pixelColor(x, y).alpha() < 200) continue;
+                        const QPointF mapped = ancestorCaption->mapToScene(
+                            QPointF((x + 0.5) * ancestorCaption->width() / ancestorGlyphs.width(),
+                                    (y + 0.5) * ancestorCaption->height() / ancestorGlyphs.height()))
+                            * beforePress.devicePixelRatio();
+                        const QPoint point(qFloor(mapped.x()), qFloor(mapped.y()));
+                        if (!beforePress.rect().contains(point)) continue;
+                        ++glyphPixels;
+                        if (beforePress.pixelColor(point) != ancestorUnselected.pixelColor(point)) ++changedGlyphPixels;
+                    }
+                qInfo() << "ANCESTOR_CAPTION_PIXELS" << scale << "glyphPixels" << glyphPixels
+                        << "changedGlyphPixels" << changedGlyphPixels;
+                const QString directory = qEnvironmentVariable("QLC_VC_VISUAL_DIR");
+                if (!directory.isEmpty())
+                {
+                    const QString name = QString("ancestor-caption-%1").arg(scale);
+                    QVERIFY(QDir().mkpath(directory));
+                    QVERIFY(ancestorUnselected.save(QDir(directory).filePath(name + "-unselected.png")));
+                    QVERIFY(beforePress.save(QDir(directory).filePath(name + "-selected.png")));
+                    QVERIFY(ancestorGlyphs.save(QDir(directory).filePath(name + "-glyph-mask.png")));
+                    QFile receipt(QDir(directory).filePath(name + ".json"));
+                    QVERIFY(receipt.open(QIODevice::WriteOnly));
+                    receipt.write(QJsonDocument(QJsonObject{{"scale", scale}, {"glyphPixels", glyphPixels},
+                        {"changedGlyphPixels", changedGlyphPixels}, {"ancestorCaption", outer->caption()},
+                        {"ancestorLogicalRect", rectValue(outer->logicalGeometry())},
+                        {"childLogicalRect", rectValue(frame->logicalGeometry())},
+                        {"ancestorCaptionSceneRect", rectValue(ancestorCaption->mapRectToScene(
+                            QRectF(QPointF(), QSizeF(ancestorCaption->width(), ancestorCaption->height()))))}}).toJson());
+                }
+                QCOMPARE(changedGlyphPixels, 0);
+                QVERIFY(glyphPixels > 100);
+            }
+        }
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, hit);
+        QJsonArray selection;
+        for (const QVariant &id : vc->selectedWidgetIDs()) selection.append(int(id.toUInt()));
+        QJsonObject evidence{{"scale", scale}, {"frameSelectedBeforePress", selected},
+            {"nested", nested},
+            {"boundary", boundary},
+            {"logicalFrameRect", rectValue(frame->logicalGeometry())},
+            {"parentContentRect", rectValue(qobject_cast<VCFrame *>(frame->parent())->contentRect())},
+            {"caption", caption->property("text").toString()}, {"captionRect", rectValue(textRect)},
+            {"paintedWidth", paintedWidth}, {"paintedHeight", paintedHeight}, {"glyphRect", rectValue(glyphRect)},
+            {"frameCornerRect", rectValue(cornerRect)}, {"cornerCaptionIntersection", rectValue(intersection)},
+            {"cornerGlyphIntersection", rectValue(glyphRect.intersected(cornerRect))},
+            {"cornerVisibleBeforePress", cornerVisible}, {"pressSelection", selection},
+            {"frameResizingOnPress", frame->renderItem()->property("resizing").toBool()},
+            {"sliderResizingOnPress", slider->renderItem()->property("resizing").toBool()},
+            {"pixelDensity", vc->pixelDensity()}, {"devicePixelRatio", m_app->devicePixelRatio()}};
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, hit);
+        QCOMPARE(frame->logicalGeometry(), frameRect);
+        QCOMPARE(slider->logicalGeometry(), sliderRect);
+        QCOMPARE(starts.count(), 0);
+        const QString directory = qEnvironmentVariable("QLC_VC_VISUAL_DIR");
+        if (!directory.isEmpty())
+        {
+            QVERIFY(QDir().mkpath(directory));
+            const QString name = QString("chrome-%1-%2%3").arg(scale).arg(selected ? "selected" : "unselected")
+                .arg(boundary == 1 ? "-nested-flush-left" : boundary == 2 ? "-nested-near-bottom" : nested ? "-nested" : "");
+            QFile output(QDir(directory).filePath(name + ".json"));
+            QVERIFY(output.open(QIODevice::WriteOnly));
+            output.write(QJsonDocument(evidence).toJson());
+            QVERIFY(beforePress.save(QDir(directory).filePath(name + ".png")));
+        }
+        qInfo().noquote() << "SELECTED_CHROME" << QJsonDocument(evidence).toJson(QJsonDocument::Compact);
+        if (selected)
+        {
+            QVERIFY2(glyphRect.intersected(cornerRect).isEmpty(), "Selected frame handle covers descendant caption glyphs");
+            QCOMPARE(selection, QJsonArray{int(slider->id())});
+            QVERIFY(!evidence.value("frameResizingOnPress").toBool());
+        }
+    }
+    if (boundary == 6)
+    {
+        vc->setSelectedWidgetIDs({frameID});
+        QQuickItem *headerControl = nullptr;
+        std::function<void(QQuickItem *)> locate = [&](QQuickItem *item) {
+            if (outer->renderItem()->isAncestorOf(item) && !frame->renderItem()->isAncestorOf(item) &&
+                item->property("tooltip").toString() == "Enable/Disable this frame")
+                headerControl = item;
+            for (QQuickItem *child : item->childItems()) locate(child);
+        };
+        locate(m_app->rootObject());
+        QVERIFY(headerControl);
+        const QRectF controlRect = headerControl->mapRectToScene(
+            QRectF(QPointF(), QSizeF(headerControl->width(), headerControl->height())));
+        const QRectF original = frame->renderItem()->mapRectToScene(
+            QRectF(frame->renderItem()->width(), -frame->renderItem()->property("handleSize").toReal(),
+                   frame->renderItem()->property("handleSize").toReal(), frame->renderItem()->property("handleSize").toReal()));
+        QVERIFY(!original.intersected(controlRect).isEmpty());
+        const QPoint point = original.intersected(controlRect).center().toPoint();
+        const bool disabled = outer->property("isDisabled").toBool();
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, point);
+        qInfo() << "ANCESTOR_CONTROL_PRESS" << scale << "point" << point << "controlRect" << controlRect
+                << "selection" << vc->selectedWidgetIDs()
+                << "controlPressed" << headerControl->property("pressed")
+                << "parentMoving" << outer->renderItem()->property("moving")
+                << "childResizing" << frame->renderItem()->property("resizing");
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, point);
+        QCOMPARE(outer->property("isDisabled").toBool(), !disabled);
+        QVERIFY(!frame->renderItem()->property("resizing").toBool());
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, point);
+        QCOMPARE(outer->property("isDisabled").toBool(), disabled);
+        QCOMPARE(starts.count(), 0);
+    }
+    const QRectF sliderHit = slider->renderItem()->mapRectToScene(
+        QRectF(QPointF(), QSizeF(slider->renderItem()->width(), slider->renderItem()->height())));
+    vc->setSnapping(false);
+    for (int cornerIndex = 0; cornerIndex < 4; ++cornerIndex)
+    {
+        vc->setSelectedWidgetIDs({frameID});
+        QSignalSpy selectedPaint(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!selectedPaint.isEmpty());
+        handles.clear();
+        find(m_app->rootObject());
+        QCOMPARE(handles.size(), 4);
+        QQuickItem *handle = nullptr;
+        for (QQuickItem *candidate : handles)
+            if (candidate->property("index").toInt() == cornerIndex) handle = candidate;
+        QVERIFY(handle);
+        QTRY_VERIFY(handle->isVisible());
+        const QRectF hitRect = handle->mapRectToScene(QRectF(QPointF(), QSizeF(handle->width(), handle->height())));
+        const QRectF nominal = frame->renderItem()->mapRectToScene(QRectF(
+            cornerIndex == 0 || cornerIndex == 3 ? -handle->width() : frame->renderItem()->width(),
+            cornerIndex < 2 ? -handle->height() : frame->renderItem()->height(), handle->width(), handle->height()));
+        bool ancestorControlConflict = false;
+        if (boundary == 3)
+        {
+            auto *grand = qobject_cast<VCWidget *>(outer->parent());
+            QVERIFY(grand && grand->renderItem());
+            auto *header = qobject_cast<QQuickItem *>(grand->renderItem()->property("frameHeaderItem").value<QObject *>());
+            QVERIFY(header);
+            std::function<void(QQuickItem *)> inspect = [&](QQuickItem *item) {
+                if (item->property("tooltip").toString() == "Expand/Collapse this frame")
+                {
+                    const QRectF control = item->mapRectToScene(QRectF(QPointF(), QSizeF(item->width(), item->height())));
+                    if (!nominal.intersected(control).isEmpty())
+                    {
+                        ancestorControlConflict = true;
+                        QVERIFY(hitRect.intersected(control).isEmpty());
+                    }
+                }
+                for (QQuickItem *child : item->childItems()) inspect(child);
+            };
+            inspect(header);
+        }
+        if (boundary != 5 && boundary != 6 && !ancestorControlConflict)
+            QCOMPARE(hitRect, nominal);
+        QVERIFY(!hitRect.intersects(sliderHit));
+        QList<QQuickItem *> fragments;
+        const QString prefix = QString("vcResizeFragment-%1-%2-").arg(frameID).arg(handle->property("index").toInt());
+        std::function<void(QQuickItem *)> collect = [&](QQuickItem *item) {
+            if (item->objectName().startsWith(prefix) && item->isVisible() && item->width() > 0 && item->height() > 0)
+                fragments.append(item);
+            for (QQuickItem *child : item->childItems()) collect(child);
+        };
+        collect(m_app->rootObject());
+        QVERIFY(!fragments.isEmpty());
+        QList<QRectF> paintedRegions;
+        qreal area = 0;
+        QObject *sharedController = nullptr;
+        for (QQuickItem *fragment : fragments)
+        {
+            const QRectF region = fragment->mapRectToScene(QRectF(QPointF(), QSizeF(fragment->width(), fragment->height())));
+            QVERIFY(hitRect.adjusted(-0.001, -0.001, 0.001, 0.001).contains(region));
+            for (const QRectF &previous : paintedRegions)
+                QVERIFY(region.intersected(previous).width() * region.intersected(previous).height() < 0.001);
+            for (QQuickItem *ancestor = fragment->parentItem(); ancestor; ancestor = ancestor->parentItem())
+                if (ancestor->clip())
+                    QVERIFY(ancestor->mapRectToScene(QRectF(QPointF(), QSizeF(ancestor->width(), ancestor->height())))
+                        .adjusted(-0.001, -0.001, 0.001, 0.001).contains(region));
+            QVERIFY(fragment->parent());
+            QVERIFY(fragment->parent() != fragment->parentItem());
+            QQmlExpression controller(qmlContext(fragment), fragment, "cornerOwner");
+            QObject *owner = controller.evaluate().value<QObject *>();
+            QVERIFY2(!controller.hasError() && owner, qPrintable(controller.error().toString()));
+            QCOMPARE(owner->objectName(), QString("vcResizeCorner-%1-%2").arg(frameID).arg(handle->property("index").toInt()));
+            if (!sharedController) sharedController = owner;
+            QCOMPARE(owner, sharedController);
+            QQmlExpression declaringFrame(qmlContext(fragment), fragment, "wRoot");
+            QCOMPARE(declaringFrame.evaluate().value<QObject *>(), frame->renderItem());
+            area += region.width() * region.height();
+            paintedRegions.append(region);
+        }
+        QVERIFY(std::abs(area - hitRect.width() * hitRect.height()) < 0.001);
+        QSignalSpy paint(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!paint.isEmpty());
+        const QImage cornerWindow = m_app->grabWindow();
+        QQmlComponent reference(m_app->rootContext()->engine());
+        reference.setData("import QtQuick\nItem { width: 33; height: 33; Image { objectName: \"referenceArrow\"; "
+            "width: 31; height: 31; sourceSize: Qt.size(width, height); source: \"qrc:/arrow-corner.svg\" } }", QUrl());
+        QVERIFY2(reference.isReady(), qPrintable(reference.errorString()));
+        std::unique_ptr<QQuickItem> referenceItem(qobject_cast<QQuickItem *>(reference.create()));
+        QVERIFY(referenceItem);
+        referenceItem->setParentItem(m_app->contentItem());
+        referenceItem->setPosition(QPointF(-100, -100));
+        QQuickItem *referenceArrow = referenceItem->findChild<QQuickItem *>("referenceArrow");
+        QVERIFY(referenceArrow);
+        referenceItem->setSize(QSizeF(handle->width() + 2, handle->height() + 2));
+        referenceArrow->setSize(QSizeF(handle->width(), handle->height()));
+        referenceArrow->setRotation(handle->rotation());
+        referenceArrow->setPosition(QPointF(hitRect.x() - qFloor(hitRect.x()), hitRect.y() - qFloor(hitRect.y())));
+        auto referenceGrab = referenceItem->grabToImage();
+        QVERIFY(referenceGrab);
+        QTRY_VERIFY(!referenceGrab->image().isNull());
+        const QImage expectedArrow = referenceGrab->image();
+        int opaquePixels = 0, mismatchedPixels = 0;
+        for (int y = 1; y < expectedArrow.height() - 1; ++y)
+            for (int x = 1; x < expectedArrow.width() - 1; ++x)
+            {
+                const QColor expected = expectedArrow.pixelColor(x, y);
+                if (expected.alpha() < 250 || expectedArrow.pixelColor(x - 1, y).alpha() < 250 ||
+                    expectedArrow.pixelColor(x + 1, y).alpha() < 250 ||
+                    expectedArrow.pixelColor(x, y - 1).alpha() < 250 ||
+                    expectedArrow.pixelColor(x, y + 1).alpha() < 250)
+                    continue;
+                const QPoint point(qFloor(hitRect.x()) + x, qFloor(hitRect.y()) + y);
+                QVERIFY(cornerWindow.rect().contains(point));
+                const QColor actual = cornerWindow.pixelColor(point);
+                ++opaquePixels;
+                if (std::max({std::abs(expected.red() - actual.red()), std::abs(expected.green() - actual.green()),
+                              std::abs(expected.blue() - actual.blue())}) > 40)
+                    ++mismatchedPixels;
+            }
+        qInfo() << "CHROME_FRAGMENT_PAINT" << "scale" << scale << "boundary" << boundary
+                << "index" << handle->property("index") << "regions" << paintedRegions
+                << "opaquePixels" << opaquePixels << "mismatchedPixels" << mismatchedPixels;
+        QVERIFY(opaquePixels > 100);
+        QCOMPARE(mismatchedPixels, 0);
+        const QPoint press = hitRect.center().toPoint();
+        QVERIFY(QRect(QPoint(), m_app->size()).contains(press));
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        qInfo() << "CHROME_HANDLE_PRESS" << "scale" << scale << "boundary" << boundary
+                << "index" << handle->property("index") << "point" << press
+                << "sceneRect" << hitRect << "visualParent"
+                << (handle->parentItem() ? handle->parentItem()->objectName() : QString())
+                << "childResizing" << frame->renderItem()->property("resizing")
+                << "parentResizing" << (outer ? outer->renderItem()->property("resizing") : QVariant());
+        if (!qEnvironmentVariable("QLC_VC_VISUAL_DIR").isEmpty())
+        {
+            const QString name = QString("handle-%1%2-boundary-%3-%4").arg(scale).arg(nested ? "-nested" : "").arg(boundary)
+                .arg(handle->property("index").toInt());
+            const QString directory = qEnvironmentVariable("QLC_VC_VISUAL_DIR");
+            QVERIFY(cornerWindow.save(QDir(directory).filePath(name + ".png")));
+            QFile output(QDir(directory).filePath(name + ".json"));
+            QVERIFY(output.open(QIODevice::WriteOnly));
+            output.write(QJsonDocument(QJsonObject{{"scale", scale}, {"nested", nested}, {"boundary", boundary},
+                {"index", handle->property("index").toInt()}, {"sceneRect", rectValue(hitRect)},
+                {"visualParent", handle->parentItem() ? handle->parentItem()->objectName() : QString()},
+                {"ancestorSceneRect", outer ? rectValue(outer->renderItem()->mapRectToScene(
+                    QRectF(QPointF(), QSizeF(outer->renderItem()->width(), outer->renderItem()->height())))) : QJsonObject()},
+                {"childResizing", frame->renderItem()->property("resizing").toBool()},
+                {"parentResizing", outer && outer->renderItem()->property("resizing").toBool()},
+                {"selection", QJsonArray::fromVariantList(vc->selectedWidgetIDs())}}).toJson());
+        }
+        QVERIFY(frame->renderItem()->property("resizing").toBool());
+        if (outer) QVERIFY(!outer->renderItem()->property("resizing").toBool());
+        QVERIFY(!slider->renderItem()->property("resizing").toBool());
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QVERIFY(!frame->renderItem()->property("resizing").toBool());
+        for (QQuickItem *fragment : fragments)
+        {
+            const QRectF region = fragment->mapRectToScene(QRectF(QPointF(), QSizeF(fragment->width(), fragment->height())));
+            const QPointF point = region.center();
+            const QPointF global = QPointF(m_app->mapToGlobal(point.toPoint())) + point - QPointF(point.toPoint());
+            const QRectF before = frame->logicalGeometry();
+            QSignalSpy geometry(frame, &VCWidget::geometryChanged);
+            QMouseEvent down(QEvent::MouseButtonPress, point, global, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QVERIFY(QCoreApplication::sendEvent(m_app.get(), &down));
+            QVERIFY(frame->renderItem()->property("resizing").toBool());
+            if (outer) QVERIFY(!outer->renderItem()->property("resizing").toBool());
+            QTest::keyClick(m_app.get(), Qt::Key_Escape);
+            QMouseEvent up(QEvent::MouseButtonRelease, point, global, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QVERIFY(QCoreApplication::sendEvent(m_app.get(), &up));
+            QVERIFY(!frame->renderItem()->property("resizing").toBool());
+            QCOMPARE(frame->logicalGeometry(), before);
+            QCOMPARE(geometry.count(), 0);
+        }
+        const QRectF before = frame->logicalGeometry(), sliderBefore = slider->logicalGeometry();
+        QSignalSpy changed(frame, &VCWidget::geometryChanged);
+        const bool left = cornerIndex == 0 || cornerIndex == 3, top = cornerIndex < 2;
+        const QPoint delta(left ? 4 : -4, top ? 4 : -4);
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QVERIFY(frame->renderItem()->property("resizing").toBool());
+        QTest::mouseMove(m_app.get(), press + delta, 20);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, press + delta);
+        QCOMPARE(frame->logicalGeometry(), QRectF(before.x() + (left ? 4 / scale : 0),
+            before.y() + (top ? 4 / scale : 0), before.width() - 4 / scale, before.height() - 4 / scale));
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(slider->logicalGeometry(), sliderBefore);
+        QVERIFY(!frame->renderItem()->property("resizing").toBool());
+        QVERIFY2(vc->editGeometry(frameID, before).value("accepted").toBool(), "Restore admitted fixture geometry after real corner resize");
+    }
+    handles.clear();
+    find(m_app->rootObject());
+    QCOMPARE(handles.size(), 4);
+    QPointer<QQuickItem> growHandle;
+    for (QQuickItem *handle : handles)
+        if (handle->property("index").toInt() == 2) growHandle = handle;
+    QVERIFY(growHandle);
+    vc->setSnapping(false);
+    vc->setSelectedWidgetIDs({frameID});
+    const QRectF frameBefore = frame->logicalGeometry(), sliderBefore = slider->logicalGeometry();
+    const QVariantList order = qobject_cast<VCFrame *>(frame)->orderedChildIDs(0);
+    const QPoint press = growHandle->mapToScene(QPointF(growHandle->width() / 2, growHandle->height() / 2)).toPoint();
+    QSignalSpy commits(frame, &VCWidget::geometryChanged);
+    QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+    QVERIFY(frame->renderItem()->property("resizing").toBool());
+    if (outer) QVERIFY(!outer->renderItem()->property("resizing").toBool());
+    QTest::mouseMove(m_app.get(), press + QPoint(24, 24), 20);
+    QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, press + QPoint(24, 24));
+    const QRectF contentBounds = qobject_cast<VCFrame *>(frame->parent())->contentRect();
+    const QSizeF expectedSize(qMin(frameBefore.width() + 24 / scale, contentBounds.right() - frameBefore.left()),
+                              qMin(frameBefore.height() + 24 / scale, contentBounds.bottom() - frameBefore.top()));
+    QCOMPARE(frame->logicalGeometry(), QRectF(frameBefore.topLeft(), expectedSize));
+    QCOMPARE(commits.count(), 1);
+    QCOMPARE(slider->logicalGeometry(), sliderBefore);
+    QCOMPARE(slider->parent(), frame);
+    QCOMPARE(qobject_cast<VCFrame *>(frame)->orderedChildIDs(0), order);
+    QCOMPARE(starts.count(), 0);
+    const QRectF grown = frame->logicalGeometry();
+    QPointF neighbourPosition(grown.right(), grown.bottom());
+    quint32 neighbourParent = parentID;
+    if (boundary == 4)
+    {
+        neighbourPosition += outer->logicalGeometry().topLeft();
+        neighbourParent = qobject_cast<VCWidget *>(outer->parent())->id();
+    }
+    else if (boundary == 6)
+    {
+        neighbourPosition += outer->logicalGeometry().topLeft();
+        neighbourPosition.setX(qMax(neighbourPosition.x(), outer->logicalGeometry().right()));
+        neighbourParent = vc->page(0)->id();
+    }
+    else if (boundary == 2)
+    {
+        for (QObject *owner = frame->parent(); owner && owner != vc->page(0); owner = owner->parent())
+            if (auto *ancestor = qobject_cast<VCWidget *>(owner))
+                neighbourPosition += ancestor->logicalGeometry().topLeft();
+        neighbourParent = vc->page(0)->id();
+    }
+    const QRectF neighbourGeometry(neighbourPosition, QSizeF(100, boundary == 7 || boundary == 8 ? 100 : 60));
+    const QVariantMap neighbourControl = vc->createWidgetGeometry(neighbourParent, "Button", neighbourGeometry);
+    QVERIFY2(neighbourControl.value("accepted").toBool(), qPrintable(neighbourControl.value("error").toString()));
+    if (neighbourParent == vc->page(0)->id())
+        roots.append(neighbourControl.value("widgetIDs").toList().first());
+    VCWidget *neighbour = vc->widget(neighbourControl.value("widgetIDs").toList().first().toUInt());
+    neighbour->setCaption("Neighbour");
+    QTRY_VERIFY(neighbour->renderItem());
+    vc->setSelectedWidgetIDs({frameID});
+    handles.clear();
+    find(m_app->rootObject());
+    QCOMPARE(handles.size(), 4);
+    for (QQuickItem *handle : handles)
+        if (handle->property("index").toInt() == 2) growHandle = handle;
+    QVERIFY(growHandle);
+    QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!rendered.isEmpty());
+    const QRectF handleRect = growHandle->mapRectToScene(
+        QRectF(QPointF(), QSizeF(growHandle->width(), growHandle->height())));
+    const QRectF originalHandleRect = frame->renderItem()->mapRectToScene(
+        QRectF(frame->renderItem()->width(), frame->renderItem()->height(), growHandle->width(), growHandle->height()));
+    const QRectF neighbourRect = neighbour->renderItem()->mapRectToScene(
+        QRectF(QPointF(), QSizeF(neighbour->renderItem()->width(), neighbour->renderItem()->height())));
+    QVERIFY(handleRect.intersected(neighbourRect).isEmpty());
+    const QRectF overlap = originalHandleRect.intersected(neighbourRect);
+    QVERIFY(!overlap.isEmpty());
+    if (boundary == 8)
+    {
+        qreal barHeight = 0;
+        for (QQuickItem *control : viewport->childItems())
+            if (control->property("orientation").toInt() == Qt::Horizontal && control->property("pressed").isValid() &&
+                control->property("position").isValid())
+                barHeight = control->height();
+        QVERIFY(barHeight > 0);
+        m_app->resize(m_app->width(), qCeil(originalHandleRect.bottom() + barHeight + 3));
+        QSignalSpy resized(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!resized.isEmpty());
+        auto currentCorner = [&]() -> QQuickItem * {
+            handles.clear();
+            find(m_app->rootObject());
+            for (QQuickItem *item : handles)
+                if (item->property("index").toInt() == 2) return item;
+            return nullptr;
+        };
+        QQuickItem *current = currentCorner();
+        QVERIFY(current);
+        auto sceneRect = [](QQuickItem *item) {
+            return item->mapRectToScene(QRectF(QPointF(), QSizeF(item->width(), item->height())));
+        };
+        const QRectF original = frame->renderItem()->mapRectToScene(
+            QRectF(frame->renderItem()->width(), frame->renderItem()->height(), current->width(), current->height()));
+        const QRectF before = sceneRect(current);
+        QVERIFY(std::abs(before.x() - original.x() - neighbourGeometry.width() * scale - 2) < 0.001);
+        QVERIFY(std::abs(before.y() - original.y()) < 0.001);
+        QByteArray beforeXML;
+        QXmlStreamWriter beforeWriter(&beforeXML);
+        QVERIFY(vc->saveXML(&beforeWriter));
+        const QVariantList selection = vc->selectedWidgetIDs();
+        const bool dirty = m_app->doc()->isModified();
+        const qreal oldScroll = viewport->property("contentY").toReal();
+        const qreal scroll = oldScroll + neighbourGeometry.height() * scale + current->height() + 4;
+        QVERIFY(scroll <= viewport->property("contentHeight").toReal() - viewport->height() +
+                          viewport->property("bottomMargin").toReal());
+        QVERIFY(viewport->setProperty("contentY", scroll));
+        QSignalSpy scrolled(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!scrolled.isEmpty());
+        QCOMPARE(viewport->property("contentY").toReal(), scroll);
+        current = currentCorner();
+        QVERIFY(current);
+        const QRectF after = sceneRect(current);
+        const QRectF movedOriginal = frame->renderItem()->mapRectToScene(
+            QRectF(frame->renderItem()->width(), frame->renderItem()->height(), current->width(), current->height()));
+        const QRectF expected(movedOriginal.topLeft() + QPointF(0, neighbourGeometry.height() * scale + 2),
+                              movedOriginal.size());
+        const QRectF view = sceneRect(viewport);
+        QVERIFY(view.contains(expected));
+        qInfo() << "SCROLLED_CORNER_PREFERENCE" << scale << "contentY" << oldScroll << scroll
+                << "before" << before << "after" << after << "expected" << expected << "viewport" << view;
+        QCOMPARE(after, expected);
+        const QRectF localBefore = current->mapRectToItem(frame->renderItem(),
+            QRectF(QPointF(), QSizeF(current->width(), current->height())));
+        const QPoint held = after.center().toPoint();
+        QSignalSpy changes(frame, &VCWidget::geometryChanged);
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, held);
+        QVERIFY(frame->renderItem()->property("resizing").toBool());
+        QVERIFY(viewport->setProperty("contentY", oldScroll));
+        QSignalSpy heldFrame(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!heldFrame.isEmpty());
+        current = currentCorner();
+        QVERIFY(current);
+        QCOMPARE(current->mapRectToItem(frame->renderItem(),
+            QRectF(QPointF(), QSizeF(current->width(), current->height()))), localBefore);
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, held);
+        QVERIFY(!frame->renderItem()->property("resizing").toBool());
+        QCOMPARE(changes.count(), 0);
+        QByteArray afterXML;
+        QXmlStreamWriter afterWriter(&afterXML);
+        QVERIFY(vc->saveXML(&afterWriter));
+        QCOMPARE(afterXML, beforeXML);
+        QCOMPARE(vc->selectedWidgetIDs(), selection);
+        QCOMPARE(m_app->doc()->isModified(), dirty);
+        QCOMPARE(starts.count(), 0);
+        return;
+    }
+    if (boundary == 7)
+    {
+        QVERIFY(std::abs(handleRect.x() - originalHandleRect.x()) < 0.001);
+        QVERIFY(std::abs(handleRect.y() - originalHandleRect.y() - neighbourGeometry.height() * scale - 2) < 0.001);
+        for (int repeat = 0; repeat < 3; ++repeat)
+        {
+            vc->setSelectedWidgetIDs({});
+            vc->setSelectedWidgetIDs({frameID});
+            QSignalSpy repeated(m_app.get(), &QQuickWindow::frameSwapped);
+            m_app->update();
+            QTRY_VERIFY(!repeated.isEmpty());
+            handles.clear();
+            find(m_app->rootObject());
+            for (QQuickItem *handle : handles)
+                if (handle->property("index").toInt() == 2) growHandle = handle;
+            QVERIFY(growHandle);
+            QCOMPARE(growHandle->mapRectToScene(QRectF(QPointF(), QSizeF(growHandle->width(), growHandle->height()))), handleRect);
+        }
+    }
+    const QPoint heldPress = handleRect.center().toPoint();
+    QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, heldPress);
+    QVERIFY(frame->renderItem()->property("resizing").toBool());
+    const QRectF space = qobject_cast<VCFrame *>(neighbour->parent())->contentRect();
+    const QRectF far(QPointF(space.right() - neighbourGeometry.width(), space.bottom() - neighbourGeometry.height() - 20),
+                     neighbourGeometry.size());
+    QVERIFY2(vc->editGeometry(neighbour->id(), far).value("accepted").toBool(), "Move fixture obstacle through public authoring while the real corner is grabbed");
+    QSignalSpy heldPaint(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!heldPaint.isEmpty());
+    QVERIFY(growHandle);
+    QCOMPARE(growHandle->mapRectToScene(QRectF(QPointF(), QSizeF(growHandle->width(), growHandle->height()))), handleRect);
+    QCOMPARE(frame->logicalGeometry(), grown);
+    QTest::keyClick(m_app.get(), Qt::Key_Escape);
+    QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, heldPress);
+    QVERIFY(!frame->renderItem()->property("resizing").toBool());
+    handles.clear();
+    find(m_app->rootObject());
+    for (QQuickItem *handle : handles)
+        if (handle->property("index").toInt() == 2) growHandle = handle;
+    QVERIFY(growHandle);
+    QRectF clearedOriginal = originalHandleRect;
+    for (QQuickItem *control : viewport->childItems())
+        if (control->isVisible() && control->property("orientation").toInt() == Qt::Horizontal &&
+            control->property("pressed").isValid() && control->property("position").isValid())
+        {
+            const QRectF bar = control->mapRectToScene(QRectF(QPointF(), control->size()));
+            if (!clearedOriginal.intersected(bar).isEmpty())
+                clearedOriginal.moveBottom(bar.top() - 2);
+        }
+    QCOMPARE(growHandle->mapRectToScene(QRectF(QPointF(), QSizeF(growHandle->width(), growHandle->height()))), clearedOriginal);
+    QVERIFY(vc->editGeometry(neighbour->id(), neighbourGeometry).value("accepted").toBool());
+    const QPoint neighbourPress = overlap.center().toPoint();
+    QVERIFY(QRect(QPoint(), m_app->size()).contains(neighbourPress));
+    QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, neighbourPress);
+    QCOMPARE(vc->selectedWidgetIDs(), QVariantList{neighbour->id()});
+    QVERIFY(!frame->renderItem()->property("resizing").toBool());
+    QCOMPARE(frame->logicalGeometry(), grown);
+    QCOMPARE(neighbour->logicalGeometry(), neighbourGeometry);
+    QCOMPARE(starts.count(), 0);
+    qInfo().noquote() << "CHROME_NEIGHBOUR" << QJsonDocument(QJsonObject{{"scale", scale},
+        {"overlapRect", rectValue(overlap)}, {"childReceivesClick", true}, {"frameGeometryUnchanged", true}})
+        .toJson(QJsonDocument::Compact);
+}
+
+void UpstreamIntegration_Test::vcDerivedWorkspacePersistence_data()
+{
+    QTest::addColumn<qreal>("scale");
+    QTest::addColumn<bool>("integerGeometry");
+    QTest::addColumn<QString>("inventoryCase");
+    for (qreal scale : {qreal(0.8), qreal(1.1), qreal(2)})
+        for (bool integers : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(scale).arg(integers ? "integers" : "fractional")))
+                << scale << integers << QString("current");
+    for (const QString &inventoryCase : {QString("reused-projection"), QString("missing"),
+                                         QString("duplicate"), QString("wrong-location"), QString("unexpected"),
+                                         QString("stale-caption"), QString("wrong-type"),
+                                         QString("unavailable-current"), QString("mismatched-current")})
+        QTest::newRow(qPrintable(inventoryCase)) << qreal(0.8) << false << inventoryCase;
+}
+
+void UpstreamIntegration_Test::vcDerivedWorkspacePersistence()
+{
+    QFETCH(qreal, scale);
+    QFETCH(bool, integerGeometry);
+    QFETCH(QString, inventoryCase);
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString original = files.filePath("original.qxw");
+    const QString workspace = files.filePath("all-types.qxw");
+    const QString oldWorkingPath = m_app->workingPath();
+    const bool wasModified = m_app->doc()->isModified();
+    QCOMPARE(m_app->saveXML(original), QFile::NoError);
+    const auto cleanup = qScopeGuard([&]() {
+        QVERIFY(m_app->loadWorkspace(original));
+        m_app->doc()->masterTimer()->stop();
+        m_app->setWorkingPath(oldWorkingPath);
+        if (wasModified) m_app->doc()->setModified();
+        else m_app->doc()->resetModified();
+    });
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *model = vc->outlineModel();
+    QSignalSpy treeChanges(model, &VCOutlineModel::treeChanged);
+    auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+    vc->addWidgetToMap(frame);
+    vc->page(0)->addWidgetToPageMap(frame);
+    frame->setShowHeader(false);
+    frame->setMultiPageMode(true);
+    frame->setTotalPagesNumber(4);
+    frame->setLogicalGeometry(integerGeometry ? QRectF(10, 20, 1400, 800)
+                                              : QRectF(10.25, 20.5, 1400.75, 800.25));
+    const quint32 frameID = frame->id();
+    const QStringList types{"Button", "Slider", "XYPad", "Frame", "Solo frame", "Speed",
+                            "Cue list", "Label", "Audio Triggers", "Animation", "Clock", "Record Panel"};
+    QVariantList ids;
+    for (int index = 0; index < types.size(); ++index)
+    {
+        const QRectF rect = integerGeometry ? QRectF(20 + (index % 4) * 330, 60, 300, 300)
+                                            : QRectF(20.25 + (index % 4) * 330, 60.5, 300.75, 300.25);
+        const QVariantMap result = vc->createWidgetGeometry(frameID, types[index], rect, index / 4);
+        QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
+        const QVariant id = result.value("widgetIDs").toList().first();
+        ids.append(id);
+        vc->widget(id.toUInt())->setCaption(index == 7 ? QString() : QString("Duplicate"));
+    }
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Persistence binding");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    const quint32 functionID = scene->id();
+    auto *button = qobject_cast<VCButton *>(vc->widget(ids.first().toUInt()));
+    QVERIFY(button);
+    button->setFunctionID(functionID);
+    vc->page(0)->setPageScale(scale - vc->page(0)->pageScale());
+    QCOMPARE(vc->page(0)->pageScale(), scale);
+    QCOMPARE(button->scaleFactor(), scale);
+    QVERIFY(vc->editStructure({ids[3]}, frameID, 0, 0).value("accepted").toBool());
+    frame->setCurrentPage(1);
+    frame->setCollapsed(true);
+    auto snapshot = [&]() {
+        QVariantList values;
+        QVariantList allIDs{frameID};
+        allIDs.append(ids);
+        for (const QVariant &id : allIDs)
+        {
+            VCWidget *widget = vc->widget(id.toUInt());
+            if (!widget) return QVariantList{};
+            QVariantMap value{{"id", widget->id()}, {"type", widget->type()}, {"caption", widget->caption()},
+                {"parentID", qobject_cast<VCWidget *>(widget->parent())->id()},
+                {"subpage", widget->page()}, {"rect", widget->logicalGeometry()}};
+            if (auto *container = qobject_cast<VCFrame *>(widget))
+            {
+                QVariantList orders;
+                for (int subpage = 0; subpage < container->totalPagesNumber(); ++subpage)
+                    orders.append(QVariant(container->orderedChildIDs(subpage)));
+                value["orders"] = orders;
+                value["pages"] = container->totalPagesNumber();
+                value["currentPage"] = container->currentPage();
+                value["collapsed"] = container->isCollapsed();
+            }
+            if (auto *control = qobject_cast<VCButton *>(widget))
+                value["functionID"] = control->functionID();
+            values.append(value);
+        }
+        return values;
+    };
+    const QVariantList before = snapshot();
+    QCOMPARE(before.size(), types.size() + 1);
+    const QString oldFilter = model->filterText();
+    model->setFilterText({});
+    const auto restoreFilter = qScopeGuard([&]() { model->setFilterText(oldFilter); });
+    const QString lastKey = QString("widget:%1").arg(ids.last().toUInt());
+    if (inventoryCase == "reused-projection")
+    {
+        QTRY_COMPARE(model->rowData(lastKey).value("label").toString(), QString("Duplicate"));
+        QVERIFY(m_app->saveWorkspace(workspace));
+        QPointer<VCWidget> oldFrame(frame);
+        treeChanges.clear();
+        QVERIFY(m_app->loadWorkspace(workspace));
+        m_app->doc()->masterTimer()->stop();
+        QVERIFY(oldFrame.isNull());
+        frame = qobject_cast<VCFrame *>(vc->widget(frameID));
+        QVERIFY(frame);
+        QCOMPARE(snapshot(), before);
+        QVERIFY(model->indexForKey(lastKey).isValid());
+    }
+    QMap<quint32, QVariantMap> expectedRows;
+    QMap<quint32, QPointer<VCWidget>> expectedObjects;
+    for (int page = 0; page < vc->pagesCount(); ++page)
+        for (VCWidget *widget : vc->page(page)->children(true))
+        {
+            auto *owner = qobject_cast<VCFrame *>(widget->parent());
+            QVERIFY(owner);
+            expectedObjects.insert(widget->id(), widget);
+            expectedRows.insert(widget->id(), {
+                {"type", int(widget->type())},
+                {"caption", widget->caption().isEmpty() ? QString("<Unnamed>") : widget->caption()},
+                {"parentID", owner->id()}, {"page", page}, {"subpage", widget->page()},
+                {"parentKey", owner->multiPageMode() ?
+                    QString("subpage:%1:%2").arg(owner->id()).arg(widget->page()) :
+                    QString("widget:%1").arg(owner->id())},
+                {"parentKind", owner->multiPageMode() ? VCOutlineModel::SubpageRow :
+                    qobject_cast<VCPage *>(owner) ? VCOutlineModel::PageRow : VCOutlineModel::WidgetRow}});
+        }
+    auto observeInventory = [&]() {
+        QVariantList rows;
+        std::function<void(const QModelIndex &)> visit = [&](const QModelIndex &parent) {
+            for (int row = 0; row < model->rowCount(parent); ++row)
+            {
+                const QModelIndex index = model->index(row, 0, parent);
+                if (index.data(VCOutlineModel::RowKindRole).toInt() == VCOutlineModel::WidgetRow)
+                    rows.append(QVariantMap{
+                        {"id", index.data(VCOutlineModel::WidgetIDRole)},
+                        {"type", index.data(VCOutlineModel::WidgetTypeRole)},
+                        {"caption", index.data(VCOutlineModel::LabelRole)},
+                        {"parentID", index.data(VCOutlineModel::ParentIDRole)},
+                        {"page", index.data(VCOutlineModel::PageIndexRole)},
+                        {"subpage", index.data(VCOutlineModel::SubpageIndexRole)},
+                        {"parentKey", index.data(VCOutlineModel::ParentKeyRole)},
+                        {"parentKind", index.parent().data(VCOutlineModel::RowKindRole)}});
+                visit(index);
+            }
+        };
+        visit({});
+        return rows;
+    };
+    auto inventoryError = [&](const QVariantList &rows) -> QString {
+        QMap<quint32, QList<QVariantMap>> actual;
+        for (const QVariant &row : rows)
+            actual[row.toMap().value("id").toUInt()].append(row.toMap());
+        for (auto it = expectedRows.cbegin(); it != expectedRows.cend(); ++it)
+        {
+            const quint32 id = it.key();
+            const QVariantMap &expected = it.value();
+            const QString identity = QString("widget:%1 (%2 '%3')").arg(id)
+                .arg(VCWidget::typeToString(expected.value("type").toInt()), expected.value("caption").toString());
+            const int count = actual.value(id).size();
+            if (count != 1)
+                return QString("%1 %2 at %3 page %4 subpage %5: expected count 1, actual %6")
+                    .arg(count == 0 ? "missing" : "duplicate", identity, expected.value("parentKey").toString())
+                    .arg(expected.value("page").toInt()).arg(expected.value("subpage").toInt()).arg(count);
+            if (!expectedObjects.value(id) || vc->widget(id) != expectedObjects.value(id))
+                return QString("unavailable current %1").arg(identity);
+            const QVariantMap observed = actual.value(id).first();
+            for (const QString &field : {QString("parentID"), QString("page"), QString("subpage"),
+                                         QString("parentKey"), QString("parentKind"), QString("type"), QString("caption")})
+                if (observed.value(field) != expected.value(field))
+                    return QString("%1 %2 field %3: expected %4, actual %5")
+                        .arg(field == "type" ? "wrong-type" : field == "caption" ? "stale-caption" : "wrong-location",
+                             identity, field, expected.value(field).toString(), observed.value(field).toString());
+        }
+        for (auto it = actual.cbegin(); it != actual.cend(); ++it)
+            if (!expectedRows.contains(it.key()))
+                return QString("unexpected widget:%1: actual count %2").arg(it.key()).arg(it.value().size());
+        return {};
+    };
+    if (inventoryCase == "reused-projection")
+    {
+        QVERIFY(treeChanges.isEmpty());
+        const QString error = inventoryError(observeInventory());
+        QVERIFY2(!error.isEmpty(), "The replaced projection must be refused before queued publication");
+        qInfo().noquote() << "INVENTORY_STALE_PROJECTION_PROOF" << error;
+    }
+    QTRY_VERIFY2(!treeChanges.isEmpty() && inventoryError(observeInventory()).isEmpty(),
+        qPrintable(treeChanges.isEmpty() ? QString("Current VC outline projection was not published") :
+                                         inventoryError(observeInventory())));
+    if (inventoryCase != "current" && inventoryCase != "reused-projection")
+    {
+        QVariantList broken = observeInventory();
+        quint32 id = ids.first().toUInt();
+        const auto liveObjects = expectedObjects;
+        QString errorPrefix = inventoryCase;
+        int row = 0;
+        while (row < broken.size() && broken[row].toMap().value("id").toUInt() != id) ++row;
+        QVERIFY(row < broken.size());
+        if (inventoryCase == "missing")
+            broken.removeAt(row);
+        else if (inventoryCase == "duplicate")
+            broken.append(broken[row]);
+        else if (inventoryCase == "unexpected")
+        {
+            QVariantMap unexpected = broken[row].toMap();
+            id = expectedRows.lastKey() + 1;
+            QVERIFY(!expectedRows.contains(id));
+            unexpected["id"] = id;
+            broken.append(unexpected);
+        }
+        else if (inventoryCase == "unavailable-current" || inventoryCase == "mismatched-current")
+        {
+            expectedObjects[id] = inventoryCase == "unavailable-current" ? QPointer<VCWidget>() :
+                expectedObjects.value(ids[1].toUInt());
+            errorPrefix = "unavailable current";
+        }
+        else
+        {
+            QVariantMap misplaced = broken[row].toMap();
+            if (inventoryCase == "stale-caption")
+                misplaced["caption"] = "Stale Duplicate";
+            else if (inventoryCase == "wrong-type")
+                misplaced["type"] = misplaced.value("type").toInt() + 1;
+            else
+                misplaced["parentID"] = vc->page(0)->id();
+            broken[row] = misplaced;
+        }
+        const QString error = inventoryError(broken);
+        expectedObjects = liveObjects;
+        QVERIFY2(error.startsWith(errorPrefix + " "), qPrintable(error));
+        QVERIFY2(error.contains(QString("widget:%1%2").arg(id).arg(inventoryCase == "unexpected" ? ":" : " ")),
+                 qPrintable(error));
+        qInfo().noquote() << "INVENTORY_ERROR_PROOF" << error;
+    }
+    QHash<quint32, int> inventory;
+    std::function<void(const QModelIndex &)> visit = [&](const QModelIndex &parent) {
+        for (int row = 0; row < model->rowCount(parent); ++row)
+        {
+            const QModelIndex index = model->index(row, 0, parent);
+            if (index.data(VCOutlineModel::RowKindRole).toInt() == VCOutlineModel::WidgetRow)
+                ++inventory[index.data(VCOutlineModel::WidgetIDRole).toUInt()];
+            visit(index);
+        }
+    };
+    visit({});
+    QSet<quint32> expectedInventory;
+    for (int page = 0; page < vc->pagesCount(); ++page)
+        for (VCWidget *widget : vc->page(page)->children(true))
+        {
+            expectedInventory.insert(widget->id());
+            QCOMPARE(inventory.value(widget->id()), 1);
+        }
+    QCOMPARE(QSet<quint32>(inventory.keyBegin(), inventory.keyEnd()), expectedInventory);
+    for (int index = 0; index < ids.size(); ++index)
+    {
+        const quint32 id = ids[index].toUInt();
+        const QModelIndex row = model->indexForKey(QString("widget:%1").arg(id));
+        QVERIFY(row.isValid());
+        QCOMPARE(row.data(VCOutlineModel::ParentIDRole).toUInt(), frameID);
+        QCOMPARE(row.data(VCOutlineModel::SubpageIndexRole).toInt(), index / 4);
+        const QModelIndex subpage = row.parent();
+        QCOMPARE(subpage.data(VCOutlineModel::RowKindRole).toInt(), int(VCOutlineModel::SubpageRow));
+        QCOMPARE(subpage.parent().data(VCOutlineModel::WidgetIDRole).toUInt(), frameID);
+        QCOMPARE(model->rowData(QString("widget:%1").arg(id)).value("widgetType").toInt(),
+                 int(VCWidget::stringToType(types[index])));
+    }
+    QCOMPARE(model->filteredModel()->rowCount(model->indexForKey(QString("widget:%1").arg(frameID))), 4);
+    QVERIFY(m_app->saveWorkspace(workspace));
+    QVERIFY(!m_app->doc()->isModified());
+    QPointer<VCWidget> replaced(frame);
+    QVERIFY(m_app->loadWorkspace(workspace));
+    m_app->doc()->masterTimer()->stop();
+    QVERIFY(replaced.isNull());
+    QCOMPARE(snapshot(), before);
+    QVERIFY(!m_app->doc()->isModified());
+    m_app->doc()->setModified();
+    const QVariantList beforeFailure = snapshot();
+    QVERIFY(!m_app->saveWorkspace(files.filePath("missing-parent/failure.qxw")));
+    QCOMPARE(snapshot(), beforeFailure);
+    QVERIFY(m_app->doc()->isModified());
+    QCOMPARE(m_app->runningFunctionsCount(), 0);
+}
+
+void UpstreamIntegration_Test::vcPublicationLifetime_data()
+{
+    QTest::addColumn<QString>("publication");
+    QTest::addColumn<QString>("operation");
+    QTest::newRow("geometry-reentry") << QString("geometry") << QString("reentry");
+    QTest::newRow("structure-reentry") << QString("structure") << QString("reentry");
+    QTest::newRow("delete-load") << QString("delete") << QString("load");
+    for (const QString &publication : {QString("geometry"), QString("structure"), QString("structure-before")})
+        for (const QString &operation : {QString("load"), QString("missing-load"), QString("new"), QString("clear"),
+             QString("memory-load"), QString("network-clear"), QString("vc-reset"), QString("file-xml"),
+             QString("stream-xml"), QString("vc-xml")})
+            QTest::newRow(qPrintable(publication + "-" + operation)) << publication << operation;
+}
+
+void UpstreamIntegration_Test::vcPublicationLifetime()
+{
+    QFETCH(QString, publication);
+    QFETCH(QString, operation);
+    auto *view2D = m_app->rootObject()->findChild<QQuickItem *>("twoDView");
+    QVERIFY(view2D);
+    QQmlExpression popupExpression(qmlContext(view2D), view2D, "monitorPOVPopup");
+    QPointer<QObject> monitorPopup = popupExpression.evaluate().value<QObject *>();
+    QVERIFY2(monitorPopup, qPrintable(popupExpression.error().toString()));
+    const bool wasPopupVisible = monitorPopup->property("visible").toBool();
+    const auto oldPointOfView = m_app->doc()->monitorProperties()->pointOfView();
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString original = files.filePath("original.qxw");
+    const QString oldWorkingPath = m_app->workingPath();
+    const bool wasModified = m_app->doc()->isModified();
+    QCOMPARE(m_app->saveXML(original), QFile::NoError);
+    const auto cleanup = qScopeGuard([&]() {
+        QSignalSpy ticks(m_app->doc()->masterTimer(), &MasterTimer::tickReady);
+        QVERIFY(m_app->loadWorkspace(original));
+        m_app->doc()->monitorProperties()->setPointOfView(oldPointOfView);
+        QTRY_VERIFY(!ticks.isEmpty());
+        m_app->doc()->masterTimer()->stop();
+        QVERIFY(monitorPopup);
+        QVERIFY(QMetaObject::invokeMethod(monitorPopup.data(), wasPopupVisible ? "open" : "close"));
+        QTRY_COMPARE(monitorPopup->property("visible").toBool(), wasPopupVisible);
+        m_app->setWorkingPath(oldWorkingPath);
+        if (wasModified) m_app->doc()->setModified();
+        else m_app->doc()->resetModified();
+    });
+    VirtualConsole *vc = m_app->virtualConsole();
+    QFile saved(original);
+    QVERIFY(saved.open(QIODevice::ReadOnly));
+    QByteArray originalXML = saved.readAll();
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Lifetime binding");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    const quint32 functionID = scene->id();
+    QPointer<Function> retainedFunction(scene);
+    auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+    vc->addWidgetToMap(frame);
+    vc->page(0)->addWidgetToPageMap(frame);
+    frame->setShowHeader(false);
+    frame->setLogicalGeometry(QRectF(0, 0, 700, 400));
+    QVariantList ids;
+    for (int index = 0; index < 2; ++index)
+    {
+        const QVariantMap result = vc->createWidgetGeometry(frame->id(), "Button",
+                                                           QRectF(20 + index * 200, 60, 100, 80));
+        QVERIFY(result.value("accepted").toBool());
+        ids.append(result.value("widgetIDs").toList().first());
+    }
+    const quint32 frameID = frame->id(), firstID = ids[0].toUInt(), secondID = ids[1].toUInt();
+    QPointer<VCWidget> first(vc->widget(firstID)), second(vc->widget(secondID));
+    qobject_cast<VCButton *>(first.data())->setFunctionID(functionID);
+    vc->setEditMode(true);
+    vc->setSelectedWidgetIDs(ids);
+    m_app->doc()->resetModified();
+    QSignalSpy errors(vc, &VirtualConsole::editRejected);
+    QSignalSpy loadedChanges(m_app.get(), &App::docLoadedChanged);
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    QSignalSpy contextChanges(contexts, &ContextManager::currentContextChanged);
+    QVariantMap reentry;
+    bool observed = false, coherent = false, unchanged = false, loaded = true;
+    const bool structure = publication.startsWith("structure");
+    const bool deleting = publication == "delete";
+    const bool replacement = operation != "reentry";
+    auto observer = [&]() {
+        if (observed) return;
+        observed = true;
+        coherent = first && second && (deleting ? !vc->widget(firstID) && vc->widget(secondID) == second
+            : structure ? frame->orderedChildIDs(0) ==
+            (publication.startsWith("structure-before") ? QVariantList{firstID, secondID} : QVariantList{secondID, firstID})
+            : first->logicalGeometry() == QRectF(40, 100, 100, 80) &&
+              second->logicalGeometry() == QRectF(240, 100, 100, 80));
+        if (replacement)
+        {
+            QByteArray before;
+            QXmlStreamWriter writer(&before);
+            vc->saveXML(&writer);
+            const QVariantList selection = vc->selectedWidgetIDs();
+            const bool dirty = m_app->doc()->isModified();
+            const QString fileName = m_app->fileName();
+            const QString workspacePath = m_app->doc()->workspacePath();
+            const QString context = contexts->currentContext();
+            qInfo() << "PUBLICATION_REPLACEMENT" << publication << operation << "coherent" << coherent;
+            if (operation == "load") loaded = m_app->loadWorkspace(original);
+            else if (operation == "missing-load") loaded = m_app->loadWorkspace(files.filePath("missing.qxw"));
+            else if (operation == "new") loaded = m_app->newWorkspace();
+            else if (operation == "clear") m_app->clearDocument();
+            else if (operation == "memory-load") m_app->slotLoadDocFromMemory(originalXML);
+            else if (operation == "network-clear") m_app->slotClearDocFromNetwork();
+            else if (operation == "vc-reset") vc->resetContents();
+            else if (operation == "file-xml") loaded = m_app->loadXML(original) == QFile::NoError;
+            else
+            {
+                QXmlStreamReader reader(originalXML);
+                if (operation == "stream-xml")
+                    loaded = m_app->loadXML(reader);
+                else
+                {
+                    while (!reader.atEnd() &&
+                           !(reader.isStartElement() && reader.name() == KXMLQLCVirtualConsole))
+                        reader.readNext();
+                    loaded = vc->loadXML(reader);
+                }
+            }
+            QByteArray after;
+            QXmlStreamWriter afterWriter(&after);
+            vc->saveXML(&afterWriter);
+            unchanged = before == after && selection == vc->selectedWidgetIDs() &&
+                dirty == m_app->doc()->isModified() && fileName == m_app->fileName() &&
+                workspacePath == m_app->doc()->workspacePath() && context == contexts->currentContext();
+            qInfo() << "PUBLICATION_REPLACEMENT_RETURNED" << loaded << "unchanged" << unchanged;
+        }
+        else
+            reentry = vc->editStructure(ids, frameID, 0, 0);
+    };
+    QMetaObject::Connection connection = deleting
+        ? connect(vc, &VirtualConsole::widgetsChanged, this, observer, Qt::DirectConnection)
+        : publication.startsWith("structure-before")
+        ? connect(vc, &VirtualConsole::structureAboutToChange, this, observer, Qt::DirectConnection)
+        : structure
+        ? connect(vc, &VirtualConsole::structureChanged, this, observer, Qt::DirectConnection)
+        : connect(first, &VCWidget::geometryChanged, this, observer, Qt::DirectConnection);
+    const auto disconnectObserver = qScopeGuard([&]() { disconnect(connection); });
+    const QVariantMap result = deleting ? vc->deleteAuthoringWidgets({firstID})
+        : structure ? vc->editStructure({secondID}, frameID, 0, 0)
+        : vc->applyGeometryPlan({{firstID, QRectF(40, 100, 100, 80)},
+                                 {secondID, QRectF(240, 100, 100, 80)}});
+    QVERIFY(observed);
+    QVERIFY(coherent);
+    QVERIFY(result.value("accepted").toBool());
+    QVERIFY(result.value("applied").toBool());
+    QVERIFY(second && retainedFunction);
+    QCOMPARE(first.isNull(), deleting);
+    QCOMPARE(vc->selectedWidgetIDs(), deleting ? QVariantList{secondID} : ids);
+    if (!deleting) QCOMPARE(qobject_cast<VCButton *>(first.data())->functionID(), functionID);
+    QCOMPARE(frame->orderedChildIDs(0), deleting ? QVariantList{secondID}
+        : structure ? QVariantList({secondID, firstID}) : ids);
+    if (!structure && !deleting)
+    {
+        QCOMPARE(first->logicalGeometry(), QRectF(40, 100, 100, 80));
+        QCOMPARE(second->logicalGeometry(), QRectF(240, 100, 100, 80));
+    }
+    QVERIFY(m_app->doc()->isModified());
+    if (replacement)
+    {
+        if (operation == "load" || operation == "missing-load" || operation == "new" || operation.endsWith("xml"))
+            QVERIFY(!loaded);
+        QVERIFY(unchanged);
+        QCOMPARE(errors.count(), 1);
+        QVERIFY(errors.first().first().toString().contains("busy", Qt::CaseInsensitive));
+        QCOMPARE(loadedChanges.count(), 0);
+        QCOMPARE(contextChanges.count(), 0);
+        disconnect(connection);
+        QSignalSpy ticks(m_app->doc()->masterTimer(), &MasterTimer::tickReady);
+        if (operation == "load") QVERIFY(m_app->loadWorkspace(original));
+        else if (operation == "missing-load")
+        {
+            QVERIFY(!m_app->loadWorkspace(files.filePath("missing.qxw")));
+            QTRY_VERIFY(!ticks.isEmpty());
+            m_app->doc()->masterTimer()->stop();
+            ticks.clear();
+            QVERIFY(m_app->loadWorkspace(original));
+        }
+        else if (operation == "new") QVERIFY(m_app->newWorkspace());
+        else if (operation == "clear") m_app->clearDocument();
+        else if (operation == "memory-load") m_app->slotLoadDocFromMemory(originalXML);
+        else if (operation == "network-clear") m_app->slotClearDocFromNetwork();
+        else if (operation == "vc-reset") vc->resetContents();
+        else QVERIFY(m_app->loadWorkspace(original));
+        if (operation != "vc-reset") QTRY_VERIFY(!ticks.isEmpty());
+        m_app->doc()->masterTimer()->stop();
+        QVERIFY(first.isNull() && second.isNull());
+        if (operation != "vc-reset") QVERIFY(retainedFunction.isNull());
+        QCOMPARE(errors.count(), 1);
+    }
+    else
+    {
+        QVERIFY(result.value("accepted").toBool());
+        QVERIFY(!reentry.value("accepted").toBool());
+        QVERIFY(!reentry.value("applied").toBool());
+        QVERIFY(!reentry.value("error").toString().isEmpty());
+        QVERIFY(m_app->doc()->isModified());
+    }
+}
+
+void UpstreamIntegration_Test::vcDeferredReveal_data()
+{
+    QTest::addColumn<QString>("interleave");
+    for (const QString &interleave : {QString("settled"), QString("page-switch"), QString("context-switch"),
+                                     QString("view-unload"), QString("target-delete"), QString("subpage-switch"),
+                                     QString("nested-subpage-switch")})
+        QTest::newRow(qPrintable(interleave)) << interleave;
+}
+
+void UpstreamIntegration_Test::vcDeferredReveal()
+{
+    QFETCH(QString, interleave);
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QString oldContext = contexts->currentContext();
+    const QSize oldSize = m_app->size();
+    const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode();
+    const bool wasModified = m_app->doc()->isModified();
+    const int oldPage = vc->selectedPage();
+    const qreal oldScale = vc->page(0)->pageScale();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    QVariantList roots;
+    quint32 functionID = Function::invalidId();
+    QPointer<QQuickItem> loader;
+    QPointer<QObject> errorPopup;
+    bool wasErrorVisible = false;
+    const auto cleanup = qScopeGuard([&]() {
+        if (errorPopup)
+        {
+            QVERIFY(QMetaObject::invokeMethod(errorPopup.data(), wasErrorVisible ? "open" : "close"));
+            QTRY_COMPARE(errorPopup->property("visible").toBool(), wasErrorVisible);
+        }
+        if (loader) loader->setProperty("active", true);
+        vc->deleteVCWidgets(roots);
+        if (functionID != Function::invalidId()) m_app->doc()->deleteFunction(functionID);
+        vc->page(0)->setPageScale(oldScale - vc->page(0)->pageScale());
+        vc->setSelectedPage(oldPage);
+        vc->setEditMode(oldEdit);
+        vc->setSelectedWidgetIDs(oldSelection);
+        contexts->switchToContext(oldContext);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (!wasModified) m_app->doc()->resetModified();
+    });
+    quint32 parentID = vc->page(0)->id();
+    if (interleave == "nested-subpage-switch")
+    {
+        const QVariantMap outer = vc->createWidgetGeometry(parentID, "Frame", QRectF(1100, 350, 600, 400));
+        QVERIFY(outer.value("accepted").toBool());
+        roots = outer.value("widgetIDs").toList();
+        parentID = roots.first().toUInt();
+    }
+    const QVariantMap creation = vc->createWidgetGeometry(parentID, "Frame",
+        interleave == "nested-subpage-switch" ? QRectF(20, 30, 500, 350) : QRectF(1100, 350, 600, 400));
+    QVERIFY2(creation.value("accepted").toBool(), qPrintable(creation.value("error").toString()));
+    const quint32 frameID = creation.value("widgetIDs").toList().first().toUInt();
+    if (roots.isEmpty()) roots.append(frameID);
+    auto *frame = qobject_cast<VCFrame *>(vc->widget(frameID));
+    QVERIFY(frame);
+    frame->setMultiPageMode(true);
+    frame->setTotalPagesNumber(2);
+    const QVariantMap control = vc->createWidgetGeometry(frame->id(), "Button", QRectF(50, 70, 120, 100), 1);
+    QVERIFY(control.value("accepted").toBool());
+    const quint32 id = control.value("widgetIDs").toList().first().toUInt();
+    auto *button = qobject_cast<VCButton *>(vc->widget(id));
+    QVERIFY(button);
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Reveal binding");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    functionID = scene->id();
+    button->setFunctionID(functionID);
+    frame->setCollapsed(true);
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(1200, 800);
+    contexts->switchToContext("VC");
+    vc->setSelectedPage(0);
+    vc->page(0)->setPageScale(1 - vc->page(0)->pageScale());
+    vc->setEditMode(true);
+    vc->setSelectedWidgetIDs({id});
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QVERIFY(console);
+    errorPopup = console->findChild<QObject *>("vcLayoutError");
+    QVERIFY(errorPopup);
+    wasErrorVisible = errorPopup->property("visible").toBool();
+    auto *pane = console->findChild<QQuickItem *>("vcFunctionsPane");
+    QVERIFY(pane);
+    QTRY_COMPARE(pane->width(), pane->property(pane->property("isOpen").toBool()
+        ? "expandedWidth" : "collapseWidth").toReal());
+    for (QQuickItem *candidate : console->findChildren<QQuickItem *>())
+        if (candidate->property("source").toUrl() == QUrl("qrc:/VCPageArea.qml"))
+            loader = candidate;
+    QVERIFY(loader);
+    QQuickItem *viewport = vc->currentPageItem();
+    QVERIFY(viewport);
+    QVERIFY(viewport->setProperty("contentX", 0));
+    QVERIFY(viewport->setProperty("contentY", 0));
+    QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!rendered.isEmpty());
+    QSignalSpy starts(m_app->doc()->masterTimer(), &MasterTimer::functionStarted);
+    QSignalSpy errors(vc, &VirtualConsole::editRejected);
+    const QVariantMap result = vc->revealWidget(id);
+    QVERIFY(result.value("accepted").toBool());
+    QVERIFY(!frame->isCollapsed());
+    QCOMPARE(frame->currentPage(), 1);
+    QPointer<QQuickItem> observed(viewport);
+    if (interleave == "page-switch")
+    {
+        vc->setSelectedPage(1);
+        observed = vc->currentPageItem();
+        QVERIFY(observed);
+        QVERIFY(observed->setProperty("contentX", 13));
+        QVERIFY(observed->setProperty("contentY", 17));
+    }
+    else if (interleave == "context-switch")
+        contexts->switchToContext("FIXANDFUNC");
+    else if (interleave == "view-unload")
+    {
+        QVERIFY(loader->setProperty("active", false));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(observed.isNull());
+    }
+    else if (interleave == "target-delete")
+        QVERIFY(vc->deleteAuthoringWidgets({id}).value("accepted").toBool());
+    else if (interleave.endsWith("subpage-switch"))
+        frame->setCurrentPage(0);
+    const qreal beforeX = observed ? observed->property("contentX").toReal() : 0;
+    const qreal beforeY = observed ? observed->property("contentY").toReal() : 0;
+    QByteArray before;
+    QXmlStreamWriter writer(&before);
+    vc->saveXML(&writer);
+    const QVariantList selection = vc->selectedWidgetIDs();
+    const int selectedPage = vc->selectedPage();
+    const QString context = contexts->currentContext();
+    const bool dirty = m_app->doc()->isModified();
+    const int subpage = frame->currentPage();
+    QTest::qWait(50);
+    const qreal afterX = observed ? observed->property("contentX").toReal() : 0;
+    const qreal afterY = observed ? observed->property("contentY").toReal() : 0;
+    qInfo() << "DEFERRED_REVEAL" << interleave << "before" << QPointF(beforeX, beforeY)
+            << "after" << QPointF(afterX, afterY) << "page" << vc->selectedPage()
+            << "context" << contexts->currentContext() << "errors" << errors.count();
+    QByteArray after;
+    QXmlStreamWriter afterWriter(&after);
+    vc->saveXML(&afterWriter);
+    QCOMPARE(after, before);
+    QCOMPARE(vc->selectedWidgetIDs(), selection);
+    QCOMPARE(vc->selectedPage(), selectedPage);
+    QCOMPARE(contexts->currentContext(), context);
+    QCOMPARE(m_app->doc()->isModified(), dirty);
+    QCOMPARE(frame->currentPage(), subpage);
+    QCOMPARE(starts.count(), 0);
+    QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(scene));
+    QVERIFY(!scene->isRunning());
+    if (interleave == "settled")
+    {
+        QVERIFY(observed);
+        const QRectF displayed(1150, 420, 120, 100);
+        QVERIFY(QRectF(afterX, afterY, observed->width(), observed->height()).contains(displayed));
+        QCOMPARE(errors.count(), 0);
+    }
+    else
+    {
+        QCOMPARE(afterX, beforeX);
+        QCOMPARE(afterY, beforeY);
+        QCOMPARE(errors.count(), interleave == "view-unload" ? 1 : 0);
+        if (interleave == "view-unload")
+            QVERIFY(errors.first().first().toString().contains("Console page view is unavailable"));
+    }
+}
+
+void UpstreamIntegration_Test::vcPageColorDeletion()
+{
+    auto *view2D = m_app->rootObject()->findChild<QQuickItem *>("twoDView");
+    QVERIFY(view2D);
+    QQmlExpression popupExpression(qmlContext(view2D), view2D, "monitorPOVPopup");
+    QPointer<QObject> monitorPopup = popupExpression.evaluate().value<QObject *>();
+    QVERIFY2(monitorPopup, qPrintable(popupExpression.error().toString()));
+    const bool wasPopupVisible = monitorPopup->property("visible").toBool();
+    const auto oldPointOfView = m_app->doc()->monitorProperties()->pointOfView();
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString original = files.filePath("original.qxw");
+    const QString oldWorkingPath = m_app->workingPath();
+    const bool wasModified = m_app->doc()->isModified();
+    QCOMPARE(m_app->saveXML(original), QFile::NoError);
+    const QSize oldSize = m_app->size();
+    const bool oldVisible = m_app->isVisible();
+    const auto cleanup = qScopeGuard([&]() {
+        QSignalSpy ticks(m_app->doc()->masterTimer(), &MasterTimer::tickReady);
+        QVERIFY(m_app->loadWorkspace(original));
+        m_app->doc()->monitorProperties()->setPointOfView(oldPointOfView);
+        QTRY_VERIFY(!ticks.isEmpty());
+        m_app->doc()->masterTimer()->stop();
+        QVERIFY(monitorPopup);
+        QVERIFY(QMetaObject::invokeMethod(monitorPopup.data(), wasPopupVisible ? "open" : "close"));
+        QTRY_COMPARE(monitorPopup->property("visible").toBool(), wasPopupVisible);
+        m_app->setWorkingPath(oldWorkingPath);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (wasModified) m_app->doc()->setModified();
+        else m_app->doc()->resetModified();
+    });
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    contexts->switchToContext("VC");
+    const int count = vc->pagesCount();
+    QVERIFY(count > 1);
+    vc->setSelectedPage(count - 1);
+    vc->setEditMode(true);
+    QQuickItem *viewport = nullptr;
+    QTRY_VERIFY((viewport = vc->currentPageItem()));
+    QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!rendered.isEmpty());
+    QTest::failOnWarning(QRegularExpression(".*VCPageArea.qml.*(TypeError|Cannot read).*"));
+    vc->deletePage(count - 1);
+    QTest::qWait(30);
+    QCOMPARE(vc->pagesCount(), count - 1);
+    QCOMPARE(vc->selectedPage(), count - 2);
+    QTRY_VERIFY(vc->currentPageItem());
+    qInfo() << "PAGE_COLOR_DELETE" << "count" << vc->pagesCount() << "selected" << vc->selectedPage();
+}
+
+void UpstreamIntegration_Test::vcFrameLegacyClip()
+{
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QString oldContext = contexts->currentContext();
+    const QSize oldSize = m_app->size();
+    const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode(), wasModified = m_app->doc()->isModified();
+    const qreal oldScale = vc->page(0)->pageScale();
+    const int oldPage = vc->selectedPage();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    const QVariantMap created = vc->createWidgetGeometry(vc->page(0)->id(), "Frame", QRectF(20, 20, 300, 300));
+    QVERIFY(created.value("accepted").toBool());
+    const quint32 frameID = created.value("widgetIDs").toList().first().toUInt();
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Clipped legacy binding");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    const quint32 functionID = scene->id();
+    const auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets({frameID});
+        m_app->doc()->deleteFunction(functionID);
+        vc->page(0)->setPageScale(oldScale - vc->page(0)->pageScale());
+        vc->setSelectedPage(oldPage);
+        vc->setEditMode(oldEdit);
+        vc->setSelectedWidgetIDs(oldSelection);
+        contexts->switchToContext(oldContext);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (!wasModified) m_app->doc()->resetModified();
+    });
+    const QVariantMap control = vc->createWidgetGeometry(frameID, "Button", QRectF(20, 60, 100, 70));
+    QVERIFY(control.value("accepted").toBool());
+    VCWidget *button = vc->widget(control.value("widgetIDs").toList().first().toUInt());
+    qobject_cast<VCButton *>(button)->setFunctionID(functionID);
+    button->setCaption("Legacy clipped");
+    button->setLogicalGeometry(QRectF(20, 310, 100, 70));
+    VCWidget *frame = vc->widget(frameID);
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(1400, 900);
+    contexts->switchToContext("VC");
+    vc->setSelectedPage(0);
+    vc->page(0)->setPageScale(1 - vc->page(0)->pageScale());
+    vc->setEditMode(true);
+    QTRY_VERIFY(frame->renderItem() && button->renderItem());
+    QVERIFY(frame->renderItem()->clip());
+    QSignalSpy starts(m_app->doc()->masterTimer(), &MasterTimer::functionStarted);
+    QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!rendered.isEmpty());
+    const QPoint press = button->renderItem()->mapToScene(
+        QPointF(button->renderItem()->width() / 2, button->renderItem()->height() / 2)).toPoint();
+    QVERIFY(QRect(QPoint(), m_app->size()).contains(press));
+    vc->resetWidgetSelection();
+    QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+    QVERIFY(vc->selectedWidgetIDs().isEmpty());
+    const QString directory = qEnvironmentVariable("QLC_VC_VISUAL_DIR");
+    if (!directory.isEmpty())
+    {
+        QVERIFY(QDir().mkpath(directory));
+        QVERIFY(m_app->grabWindow().save(QDir(directory).filePath("clip-candidate-before.png")));
+    }
+    QByteArray before;
+    QXmlStreamWriter writer(&before);
+    vc->saveXML(&writer);
+    for (bool editing : {false, true})
+    {
+        vc->setEditMode(editing);
+        QVERIFY(frame->renderItem()->clip());
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QVERIFY(vc->selectedWidgetIDs().isEmpty());
+        QVERIFY(!scene->isRunning());
+        QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(scene));
+    }
+    if (!directory.isEmpty())
+        QVERIFY(m_app->grabWindow().save(QDir(directory).filePath("legacy-clip-after.png")));
+    QByteArray after;
+    QXmlStreamWriter afterWriter(&after);
+    vc->saveXML(&afterWriter);
+    QCOMPARE(after, before);
+    QCOMPARE(starts.count(), 0);
+    QVERIFY(!scene->isRunning());
+    QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(scene));
+    QCOMPARE(qobject_cast<VCButton *>(button)->functionID(), functionID);
+    qInfo() << "FRAME_LEGACY_CLIP" << "legacyOutsideDescendantRemainsClippedInEditorAndRuntime" << true
+            << "modelUnchanged" << true << "FunctionStarts" << starts.count();
+}
+
+void UpstreamIntegration_Test::vcFramePresentation_data()
+{
+    QTest::addColumn<QString>("mode");
+    QTest::addColumn<qreal>("scale");
+    for (const QString &mode : {QString("images-runtime"), QString("hierarchy-order"), QString("sibling-order"),
+                               QString("collapse-inactive"), QString("lifetime"), QString("bounded-clearance")})
+        QTest::newRow(qPrintable(mode)) << mode << qreal(1);
+    for (qreal scale : {qreal(0.8), qreal(1.1), qreal(2)})
+    {
+        QTest::newRow(qPrintable(QString("sibling-cover-%1").arg(scale))) << QString("sibling-cover") << scale;
+        QTest::newRow(qPrintable(QString("leaf-cover-%1").arg(scale))) << QString("leaf-cover") << scale;
+    }
+}
+
+void UpstreamIntegration_Test::vcFramePresentation()
+{
+    QFETCH(QString, mode);
+    QFETCH(qreal, scale);
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QString oldContext = contexts->currentContext();
+    const QSize oldSize = m_app->size();
+    const bool oldVisible = m_app->isVisible(), oldEdit = vc->editMode(), oldSnap = vc->snapping();
+    const bool wasModified = m_app->doc()->isModified();
+    const qreal oldScale = vc->page(0)->pageScale();
+    const int oldPage = vc->selectedPage();
+    const QVariantList oldSelection = vc->selectedWidgetIDs();
+    QVariantList roots;
+    quint32 functionID = Function::invalidId();
+    const auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets(roots);
+        if (functionID != Function::invalidId()) m_app->doc()->deleteFunction(functionID);
+        vc->page(0)->setPageScale(oldScale - vc->page(0)->pageScale());
+        vc->setSelectedPage(oldPage);
+        vc->setEditMode(oldEdit);
+        vc->setSnapping(oldSnap);
+        vc->setSelectedWidgetIDs(oldSelection);
+        contexts->switchToContext(oldContext);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+        if (!wasModified) m_app->doc()->resetModified();
+    });
+    auto create = [&](quint32 parent, const QRectF &rect) -> VCFrame * {
+        const QVariantMap result = vc->createWidgetGeometry(parent, "Frame", rect);
+        if (!result.value("accepted").toBool()) return nullptr;
+        const quint32 id = result.value("widgetIDs").toList().first().toUInt();
+        if (parent == vc->page(0)->id()) roots.append(id);
+        return qobject_cast<VCFrame *>(vc->widget(id));
+    };
+    VCFrame *first = nullptr, *second = nullptr;
+    if (mode == "hierarchy-order")
+    {
+        second = create(vc->page(0)->id(), QRectF(80, 80, 280, 260));
+        first = create(vc->page(0)->id(), QRectF(500, 20, 600, 550));
+        QVERIFY(first && second);
+        QVERIFY(vc->editStructure({second->id()}, first->id(), 0).value("accepted").toBool());
+    }
+    else
+    {
+        first = create(vc->page(0)->id(), QRectF(20, 20, 600, 550));
+        QVERIFY(first);
+        second = create(mode.startsWith("sibling") ? vc->page(0)->id() : first->id(),
+            mode.startsWith("sibling") ? QRectF(700, 20, 600, 550) : QRectF(80, 80, 280, 260));
+        QVERIFY(second);
+        if (mode.startsWith("sibling"))
+            second->setLogicalGeometry(first->logicalGeometry());
+    }
+    const QColor firstColor(40, 70, 120), secondColor(110, 70, 40), imageColor(30, 180, 90);
+    first->setBackgroundColor(firstColor);
+    second->setBackgroundColor(secondColor);
+    first->setZIndex(mode.startsWith("sibling") || mode == "leaf-cover" ? 10 : 0);
+    second->setZIndex(mode.startsWith("sibling") ? 1 : 0);
+    const QVariantMap createdControl = vc->createWidgetGeometry(mode == "leaf-cover" ? vc->page(0)->id() : second->id(), "Button",
+        mode == "leaf-cover" ? QRectF(1000, 20, 100, 70) : QRectF(10, 45, 100, 70));
+    QVERIFY(createdControl.value("accepted").toBool());
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("Presentation binding");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    functionID = scene->id();
+    QPointer<VCButton> control = qobject_cast<VCButton *>(vc->widget(createdControl.value("widgetIDs").toList().first().toUInt()));
+    QVERIFY(control);
+    if (mode == "leaf-cover")
+    {
+        roots.append(control->id());
+        control->setLogicalGeometry(QRectF(first->logicalGeometry().topLeft() + QPointF(10, 45), QSizeF(100, 70)));
+        control->setZIndex(5);
+    }
+    control->setFunctionID(functionID);
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(1800, 1250);
+    contexts->switchToContext("VC");
+    vc->setSelectedPage(0);
+    vc->page(0)->setPageScale(scale - vc->page(0)->pageScale());
+    QCOMPARE(vc->page(0)->pageScale(), scale);
+    vc->setEditMode(true);
+    vc->setSnapping(false);
+    QTRY_VERIFY(first->renderItem() && second->renderItem());
+    QTest::failOnWarning(QRegularExpression(".*(VCWidgetItem|VCFrameItem|VCPageArea)\\.qml.*(TypeError|ReferenceError|Binding loop).*"));
+    auto findItem = [&](const QString &name) {
+        QQuickItem *found = nullptr;
+        std::function<void(QQuickItem *)> visit = [&](QQuickItem *item) {
+            if (item->objectName() == name) found = item;
+            for (QQuickItem *child : item->childItems()) visit(child);
+        };
+        visit(m_app->rootObject());
+        return found;
+    };
+    QPointer<QQuickItem> backdrop = second->renderItem();
+    QPointer<QQuickItem> chrome = findItem(QString("vcFrameChrome-%1").arg(second->id()));
+    QVERIFY(backdrop && chrome);
+    auto pixel = [&](QQuickItem *item, const QPointF &local) {
+        const QImage image = m_app->grabWindow();
+        const QPoint point = (item->mapToScene(local) * image.devicePixelRatio()).toPoint();
+        return image.pixelColor(point);
+    };
+    QSignalSpy rendered(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!rendered.isEmpty());
+    const QRectF firstRect = first->logicalGeometry(), secondRect = second->logicalGeometry();
+    QSignalSpy starts(m_app->doc()->masterTimer(), &MasterTimer::functionStarted);
+    if (mode == "sibling-cover" || mode == "leaf-cover")
+    {
+        const QColor actual = pixel(first->renderItem(), QPointF(50 * scale, 80 * scale));
+        const QPoint press = first->renderItem()->mapToScene(QPointF(50 * scale, 80 * scale)).toPoint();
+        QVERIFY(QRect(QPoint(), m_app->size()).contains(press));
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        qInfo() << "MIXED_FRAME_STACK" << mode << scale << "pixel" << actual << "expected" << firstColor
+                << "selection" << vc->selectedWidgetIDs() << "expectedFrame" << first->id()
+                << "lowerControl" << control->id();
+        QCOMPARE(actual, firstColor);
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{first->id()});
+    }
+    else if (mode == "images-runtime")
+    {
+        QImage image(16, 16, QImage::Format_ARGB32);
+        image.fill(imageColor);
+        const QString path = files.filePath("frame.png");
+        QVERIFY(image.save(path));
+        first->setBackgroundImage(path);
+        QTest::qWait(30);
+        QCOMPARE(pixel(first->renderItem(), QPointF(40, 420)), imageColor);
+        QCOMPARE(pixel(second->renderItem(), QPointF(150, 180)), secondColor);
+        vc->setSelectedWidgetIDs({second->id()});
+        QVERIFY(chrome->isVisible());
+        vc->setEditMode(false);
+        QTest::qWait(30);
+        QVERIFY(backdrop->isVisible() && !chrome->isVisible());
+        QCOMPARE(pixel(first->renderItem(), QPointF(40, 420)), imageColor);
+        QCOMPARE(pixel(second->renderItem(), QPointF(150, 180)), secondColor);
+        first->setBackgroundImage({});
+        vc->setEditMode(true);
+        QVERIFY(first->renderItem()->setProperty("dropActive", true));
+        QTest::qWait(30);
+        QCOMPARE(pixel(first->renderItem(), QPointF(40, 420)),
+                 first->renderItem()->property("frameBackgroundColor").value<QColor>());
+    }
+    else if (mode == "hierarchy-order")
+    {
+        QCOMPARE(pixel(first->renderItem(), QPointF(40, 420)), firstColor);
+        QCOMPARE(pixel(second->renderItem(), QPointF(150, 180)), secondColor);
+        const QPoint press = second->renderItem()->mapToScene(QPointF(150, 180)).toPoint();
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{second->id()});
+    }
+    else if (mode == "sibling-order")
+    {
+        QCOMPARE(pixel(first->renderItem(), QPointF(150, 180)), firstColor);
+        const QPoint press = first->renderItem()->mapToScene(QPointF(150, 180)).toPoint();
+        QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{first->id()});
+        second->setZIndex(20);
+        QTest::qWait(30);
+        QCOMPARE(pixel(first->renderItem(), QPointF(150, 180)), secondColor);
+        QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, press);
+        QTest::mouseMove(m_app.get(), press + QPoint(25, 0), 20);
+        QVERIFY(second->renderItem()->property("moving").toBool());
+        QVERIFY(!first->renderItem()->property("moving").toBool());
+        QTest::keyClick(m_app.get(), Qt::Key_Escape);
+        QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, press + QPoint(25, 0));
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{second->id()});
+    }
+    else if (mode == "collapse-inactive")
+    {
+        first->setMultiPageMode(true);
+        first->setTotalPagesNumber(2);
+        vc->setSelectedWidgetIDs({second->id()});
+        QVERIFY(backdrop->isVisible() && chrome->isVisible());
+        first->setCollapsed(true);
+        QTRY_VERIFY(!chrome->isVisible());
+        first->setCollapsed(false);
+        QTRY_VERIFY(backdrop->isVisible() && chrome->isVisible());
+        first->setCurrentPage(1);
+        QTRY_VERIFY(!backdrop->isVisible() && !chrome->isVisible());
+        first->setCurrentPage(0);
+        QTRY_VERIFY(backdrop->isVisible() && chrome->isVisible());
+    }
+    else if (mode == "bounded-clearance")
+    {
+        const QVariantMap createdPeer = vc->createWidgetGeometry(vc->page(0)->id(), "Frame", QRectF(1200, 20, 600, 800));
+        QVERIFY2(createdPeer.value("accepted").toBool(), qPrintable(createdPeer.value("error").toString()));
+        roots.append(createdPeer.value("widgetIDs").toList().first());
+        VCWidget *peer = vc->widget(roots.last().toUInt());
+        peer->setLogicalGeometry(QRectF(0, 0, 1400, 900));
+        peer->setZIndex(20);
+        QTRY_VERIFY(peer->renderItem());
+        QByteArray before;
+        QXmlStreamWriter beforeWriter(&before);
+        QVERIFY(vc->saveXML(&beforeWriter));
+        vc->setSelectedWidgetIDs({second->id()});
+        QObject *popup = second->renderItem()->findChild<QObject *>("vcEditError");
+        QVERIFY(popup);
+        QTRY_VERIFY(popup->property("visible").toBool());
+        for (int corner = 0; corner < 4; ++corner)
+        {
+            QQuickItem *owner = findItem(QString("vcResizeCorner-%1-%2").arg(second->id()).arg(corner));
+            QVERIFY(owner);
+            QQmlExpression error(qmlContext(owner), owner, "placement.error");
+            QVERIFY(error.evaluate().toString().contains("No clear resize handle position"));
+            QCOMPARE(popup->property("message").toString(), error.evaluate().toString());
+            QVERIFY(!findItem(QString("vcResizeHandle-%1-%2").arg(second->id()).arg(corner)));
+        }
+        QVERIFY(!second->renderItem()->property("resizing").toBool());
+        QCOMPARE(vc->selectedWidgetIDs(), QVariantList{second->id()});
+        QByteArray after;
+        QXmlStreamWriter afterWriter(&after);
+        QVERIFY(vc->saveXML(&afterWriter));
+        QCOMPARE(after, before);
+        QVERIFY(QMetaObject::invokeMethod(popup, "close"));
+        QTRY_VERIFY(!popup->property("visible").toBool());
+        qInfo() << "BOUNDED_CLEARANCE" << "explicitDiagnostic" << popup->property("message")
+                << "geometryIDsOrderBindingsUnchanged" << true << "FunctionStarts" << starts.count();
+    }
+    else
+    {
+        QVERIFY(vc->editGeometry(second->id(), QRectF(first->contentRect().topLeft(),
+            second->logicalGeometry().size())).value("accepted").toBool());
+        vc->setSelectedWidgetIDs({second->id()});
+        QSignalSpy paint(m_app.get(), &QQuickWindow::frameSwapped);
+        m_app->update();
+        QTRY_VERIFY(!paint.isEmpty());
+        QList<QPointer<QQuickItem>> projections;
+        std::function<void(QQuickItem *)> collect = [&](QQuickItem *item) {
+            if (item->objectName().startsWith(QString("vcResizeFragment-%1-").arg(second->id())) ||
+                item->objectName().startsWith(QString("vcResizeCorner-%1-").arg(second->id())))
+                projections.append(item);
+            for (QQuickItem *child : item->childItems()) collect(child);
+        };
+        collect(m_app->rootObject());
+        QVERIFY(projections.size() > 8);
+        QVERIFY(vc->deleteAuthoringWidgets({first->id()}).value("accepted").toBool());
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY(backdrop.isNull() && chrome.isNull());
+        for (const auto &projection : projections) QVERIFY(projection.isNull());
+        QVERIFY(control.isNull());
+        QCOMPARE(starts.count(), 0);
+        QVERIFY(!scene->isRunning());
+        QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(scene));
+        return;
+    }
+    QCOMPARE(first->logicalGeometry(), firstRect);
+    QCOMPARE(second->logicalGeometry(), secondRect);
+    QCOMPARE(starts.count(), 0);
+    QVERIFY(control && control->functionID() == functionID);
+    QVERIFY(!scene->isRunning());
+    QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(scene));
+    qInfo() << "FRAME_PRESENTATION" << mode << "geometryUnchanged" << true << "FunctionStarts" << starts.count();
 }
 
 QTEST_MAIN(UpstreamIntegration_Test)

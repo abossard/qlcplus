@@ -334,6 +334,7 @@ public:
 
 private:
     void initDoc();
+    bool canChangeWorkspace() const;
 
 signals:
     void docLoadedChanged();

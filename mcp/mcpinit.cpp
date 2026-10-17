@@ -27,7 +27,7 @@ void mcpInit(Doc *doc, VirtualConsole *vc, FunctionManager *funcMgr,
 
     VCBridgeV5 *vcBridge = nullptr;
     if (vc)
-        vcBridge = new VCBridgeV5(doc, vc);
+        vcBridge = new VCBridgeV5(doc, vc, app);
 
     WorkspaceBridgeV5 *wsBridge = nullptr;
     if (app)

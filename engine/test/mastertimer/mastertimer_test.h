@@ -43,6 +43,8 @@ private slots:
     void stopAllFunctions();
     void stop();
     void restart();
+    void lifecycleStopRegression_data();
+    void lifecycleStopRegression();
 
     void diagAttributesSlowFunction();
     void diagNoWriteSlowCallbackIsNone();

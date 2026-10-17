@@ -325,9 +325,13 @@ FocusScope {
                     required property bool selected
                     required property string iconSource
                     required property string rowKey
+                    required property string parentKey
                     required property bool isContainer
+                    // Proxy layout changes temporarily reset DelegateModel.rootIndex to the tree root.
+                    property bool belongsToBranch: parentKey === branch.parentKey
                     property bool expanded: search.text.length > 0 || expandedKeys.indexOf(rowKey) >= 0
                     property var dropIntent: null
+                    visible: belongsToBranch
                     width: parent ? parent.width : 0
 
                     function insertion(drop) {
@@ -508,7 +512,7 @@ FocusScope {
 
                     Loader {
                         width: node.width
-                        active: node.expanded && node.isContainer
+                        active: node.belongsToBranch && node.expanded && node.isContainer
                         sourceComponent: branchComponent
                         onLoaded: {
                             item.parentKey = Qt.binding(function () {

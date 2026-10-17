@@ -22,16 +22,22 @@
 
 #include <QMap>
 #include <QString>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QRegularExpression>
 #include <nlohmann/json.hpp>
 
 #include "tool_registry.h"
+#include "vcbridge.h"
 
 #include <limits>
 #include <string>
 #include <vector>
 #include <set>
 #include <initializer_list>
+#include <type_traits>
 
 /*
  * Widget type enum values from VCWidget::WidgetType.
@@ -674,6 +680,552 @@ namespace VCValidate
 
 class Doc;
 class VCBridge;
+
+namespace VCAuthoring
+{
+    using Json = nlohmann::json;
+    constexpr int64_t kMaxToolPayloadBytes = 262144;
+
+    inline Json requestError(const std::string &message,
+                             const std::string &code = "invalidArgument")
+    {
+        return Json{
+            {"version", 1},
+            {"code", code},
+            {"error", message},
+            {"limitations", Json::array()}
+        };
+    }
+
+    inline Json toJson(const VCBridge::AuthoringSourceKey &key)
+    {
+        Json out = Json::object();
+        if (key.controlSlotID.has_value()) out["controlSlotID"] = int(*key.controlSlotID);
+        if (key.inputUniverseID.has_value()) out["inputUniverseID"] = *key.inputUniverseID;
+        if (key.inputChannel.has_value()) out["inputChannel"] = *key.inputChannel;
+        if (key.childSubpage.has_value()) out["childSubpage"] = *key.childSubpage;
+        return out;
+    }
+
+    inline Json toJson(const VCBridge::AuthoringLimitation &lim)
+    {
+        Json out = Json::object();
+        if (!lim.code.isEmpty()) out["code"] = lim.code.toStdString();
+        if (!lim.scope.isEmpty()) out["scope"] = lim.scope.toStdString();
+        if (!lim.message.isEmpty()) out["message"] = lim.message.toStdString();
+        return out;
+    }
+
+    inline Json toJson(const QList<VCBridge::AuthoringLimitation> &limits)
+    {
+        Json out = Json::array();
+        for (const VCBridge::AuthoringLimitation &lim : limits)
+            out.push_back(toJson(lim));
+        return out;
+    }
+
+    inline Json qjsonToJson(const QJsonValue &value)
+    {
+        switch (value.type())
+        {
+        case QJsonValue::Null:
+        case QJsonValue::Undefined:
+            return nullptr;
+        case QJsonValue::Bool:
+            return value.toBool();
+        case QJsonValue::Double:
+            return value.toDouble();
+        case QJsonValue::String:
+            return value.toString().toStdString();
+        case QJsonValue::Array:
+        {
+            Json arr = Json::array();
+            const QJsonArray in = value.toArray();
+            for (const QJsonValue &entry : in)
+                arr.push_back(qjsonToJson(entry));
+            return arr;
+        }
+        case QJsonValue::Object:
+        {
+            Json obj = Json::object();
+            const QJsonObject in = value.toObject();
+            for (auto it = in.constBegin(); it != in.constEnd(); ++it)
+                obj[it.key().toStdString()] = qjsonToJson(it.value());
+            return obj;
+        }
+        }
+        return nullptr;
+    }
+
+    inline Json variantToJson(const QVariant &value)
+    {
+        if (!value.isValid())
+            return nullptr;
+
+        if (value.canConvert<QRectF>())
+        {
+            const QRectF rect = value.toRectF();
+            return Json{{"x", rect.x()}, {"y", rect.y()},
+                        {"width", rect.width()}, {"height", rect.height()}};
+        }
+
+        const QJsonValue jv = QJsonValue::fromVariant(value);
+        return qjsonToJson(jv);
+    }
+
+    inline Json toJson(const VCBridge::AuthoringFieldChange &change)
+    {
+        Json out = {
+            {"field", change.field.toStdString()},
+            {"changed", change.changed},
+            {"before", variantToJson(change.before)},
+            {"after", variantToJson(change.after)}
+        };
+        if (!change.note.isEmpty())
+            out["note"] = change.note.toStdString();
+        return out;
+    }
+
+    inline Json toJson(const QList<VCBridge::AuthoringFieldChange> &changes)
+    {
+        Json out = Json::array();
+        for (const VCBridge::AuthoringFieldChange &change : changes)
+            out.push_back(toJson(change));
+        return out;
+    }
+
+    inline Json toJson(const VCBridge::AuthoringWorkSummary &work)
+    {
+        return Json{
+            {"scannedSummaryRows", work.scannedSummaryRows},
+            {"hydratedRows", work.hydratedRows},
+            {"serializedRows", work.serializedRows},
+            {"payloadBytes", work.payloadBytes}
+        };
+    }
+
+    inline const char *statusToString(VCBridge::AuthoringPreparationItem::Status status)
+    {
+        return status == VCBridge::AuthoringPreparationItem::Status::Ok ? "ok" : "error";
+    }
+
+    inline const char *outcomeToString(VCBridge::AuthoringPreparationItem::Outcome outcome)
+    {
+        switch (outcome)
+        {
+        case VCBridge::AuthoringPreparationItem::Outcome::Prepared: return "prepared";
+        case VCBridge::AuthoringPreparationItem::Outcome::Unchanged: return "unchanged";
+        case VCBridge::AuthoringPreparationItem::Outcome::Refused: return "refused";
+        case VCBridge::AuthoringPreparationItem::Outcome::Unsupported: return "unsupported";
+        }
+        return "unsupported";
+    }
+
+    inline const char *outcomeToString(VCBridge::AuthoringApplyItem::Outcome outcome)
+    {
+        switch (outcome)
+        {
+        case VCBridge::AuthoringApplyItem::Outcome::Applied: return "applied";
+        case VCBridge::AuthoringApplyItem::Outcome::Unchanged: return "unchanged";
+        case VCBridge::AuthoringApplyItem::Outcome::Refused: return "refused";
+        case VCBridge::AuthoringApplyItem::Outcome::Partial: return "partial";
+        case VCBridge::AuthoringApplyItem::Outcome::NotApplied: return "notApplied";
+        }
+        return "notApplied";
+    }
+
+    inline Json toJson(const VCBridge::AuthoringReadRow &typedRow)
+    {
+        Json row = Json::object();
+        std::visit([&](const auto &value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::SetupPageRow>)
+            {
+                row["kind"] = "setupPage";
+                row["pageWidgetID"] = value.pageWidgetID;
+                row["pageIndex"] = value.pageIndex;
+                row["caption"] = value.caption.toStdString();
+                row["externalInputMode"] = value.externalInputMode.toStdString();
+                if (value.configurationDigest.has_value())
+                    row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::SetupSubpageRow>)
+            {
+                row["kind"] = "setupSubpage";
+                row["frameWidgetID"] = value.frameWidgetID;
+                row["childSubpage"] = value.childSubpage;
+                row["label"] = value.label.toStdString();
+                if (value.configurationDigest.has_value())
+                    row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::SetupWidgetRow>)
+            {
+                row["kind"] = "setupWidget";
+                row["widgetID"] = value.widgetID;
+                row["pageWidgetID"] = value.pageWidgetID;
+                row["parentWidgetID"] = value.parentWidgetID;
+                row["childSubpage"] = value.childSubpage;
+                row["siblingIndex"] = value.siblingIndex;
+                row["machineType"] = value.machineType.toStdString();
+                row["caption"] = value.caption.toStdString();
+                if (value.logicalGeometry.has_value())
+                {
+                    row["logicalGeometry"] = {
+                        {"x", value.logicalGeometry->x()},
+                        {"y", value.logicalGeometry->y()},
+                        {"width", value.logicalGeometry->width()},
+                        {"height", value.logicalGeometry->height()}
+                    };
+                }
+
+                if (value.functionBinding.has_value())
+                {
+                    Json group = Json::object();
+                    if (value.functionBinding->functionID.has_value())
+                        group["functionID"] = *value.functionBinding->functionID;
+                    if (value.functionBinding->action.has_value())
+                        group["action"] = value.functionBinding->action->toStdString();
+                    row["functionBinding"] = group;
+                }
+                if (value.inputBindings.has_value())
+                {
+                    Json entries = Json::array();
+                    for (const auto &entry : value.inputBindings->entries)
+                    {
+                        Json out = {
+                            {"sourceKey", toJson(entry.sourceKey)},
+                            {"duplicate", entry.duplicate},
+                            {"ambiguous", entry.ambiguous}
+                        };
+                        if (entry.sourceOrdinal.has_value()) out["sourceOrdinal"] = *entry.sourceOrdinal;
+                        if (entry.sourceName.has_value()) out["sourceName"] = entry.sourceName->toStdString();
+                        if (entry.configurationDigest.has_value()) out["configurationDigest"] = entry.configurationDigest->toStdString();
+                        entries.push_back(out);
+                    }
+                    row["inputBindings"] = entries;
+                }
+                if (value.feedback.has_value())
+                {
+                    Json entries = Json::array();
+                    for (const auto &entry : value.feedback->entries)
+                    {
+                        Json out = {{"sourceKey", toJson(entry.sourceKey)}};
+                        if (entry.sourceOrdinal.has_value()) out["sourceOrdinal"] = *entry.sourceOrdinal;
+                        if (entry.idleValue.has_value()) out["idleValue"] = *entry.idleValue;
+                        if (entry.activeValue.has_value()) out["activeValue"] = *entry.activeValue;
+                        if (entry.monitorValue.has_value()) out["monitorValue"] = *entry.monitorValue;
+                        if (entry.idleChannel.has_value()) out["idleChannel"] = *entry.idleChannel;
+                        if (entry.activeChannel.has_value()) out["activeChannel"] = *entry.activeChannel;
+                        if (entry.monitorChannel.has_value()) out["monitorChannel"] = *entry.monitorChannel;
+                        if (entry.configurationDigest.has_value()) out["configurationDigest"] = entry.configurationDigest->toStdString();
+                        entries.push_back(out);
+                    }
+                    row["feedback"] = entries;
+                }
+                if (value.recordPanel.has_value())
+                {
+                    Json group = Json::object();
+                    if (value.recordPanel->targetFolder.has_value()) group["targetFolder"] = value.recordPanel->targetFolder->toStdString();
+                    if (value.recordPanel->scenePrefix.has_value()) group["scenePrefix"] = value.recordPanel->scenePrefix->toStdString();
+                    if (value.recordPanel->chaserPrefix.has_value()) group["chaserPrefix"] = value.recordPanel->chaserPrefix->toStdString();
+                    if (value.recordPanel->defaultFadeIn.has_value()) group["defaultFadeIn"] = *value.recordPanel->defaultFadeIn;
+                    if (value.recordPanel->defaultHold.has_value()) group["defaultHold"] = *value.recordPanel->defaultHold;
+                    if (value.recordPanel->defaultFadeOut.has_value()) group["defaultFadeOut"] = *value.recordPanel->defaultFadeOut;
+                    row["recordPanel"] = group;
+                }
+                if (value.appearance.has_value())
+                {
+                    Json group = Json::object();
+                    if (value.appearance->bgColor.has_value()) group["bgColor"] = value.appearance->bgColor->name().toStdString();
+                    if (value.appearance->fgColor.has_value()) group["fgColor"] = value.appearance->fgColor->name().toStdString();
+                    if (value.appearance->disabled.has_value()) group["disabled"] = *value.appearance->disabled;
+                    row["appearance"] = group;
+                }
+                if (value.frameConfiguration.has_value())
+                {
+                    Json group = Json::object();
+                    if (value.frameConfiguration->totalPages.has_value()) group["totalPages"] = *value.frameConfiguration->totalPages;
+                    if (value.frameConfiguration->currentPage.has_value()) group["currentPage"] = *value.frameConfiguration->currentPage;
+                    if (value.frameConfiguration->pagesLoop.has_value()) group["pagesLoop"] = *value.frameConfiguration->pagesLoop;
+                    if (value.frameConfiguration->pageLabels.has_value())
+                    {
+                        Json labels = Json::array();
+                        for (const QString &label : value.frameConfiguration->pageLabels.value())
+                            labels.push_back(label.toStdString());
+                        group["pageLabels"] = labels;
+                    }
+                    row["frameConfiguration"] = group;
+                }
+                if (value.configurationDigest.has_value())
+                    row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::TargetRow>)
+            {
+                row["kind"] = "target";
+                row["widgetID"] = value.widgetID;
+                row["controlSlotID"] = value.controlSlotID;
+                row["label"] = value.label.toStdString();
+                row["sourceName"] = value.sourceName.toStdString();
+                if (value.validationLevel.has_value()) row["validationLevel"] = value.validationLevel->toStdString();
+                if (value.assignmentSupported.has_value()) row["assignmentSupported"] = *value.assignmentSupported;
+                if (value.valueDomain.has_value()) row["valueDomain"] = value.valueDomain->toStdString();
+                if (value.keyboardAllowed.has_value()) row["keyboardAllowed"] = *value.keyboardAllowed;
+                if (value.inputBindings.has_value())
+                {
+                    Json entries = Json::array();
+                    for (const auto &entry : value.inputBindings->entries)
+                    {
+                        Json out = {
+                            {"sourceKey", toJson(entry.sourceKey)},
+                            {"duplicate", entry.duplicate},
+                            {"ambiguous", entry.ambiguous}
+                        };
+                        if (entry.sourceOrdinal.has_value()) out["sourceOrdinal"] = *entry.sourceOrdinal;
+                        if (entry.sourceName.has_value()) out["sourceName"] = entry.sourceName->toStdString();
+                        if (entry.configurationDigest.has_value()) out["configurationDigest"] = entry.configurationDigest->toStdString();
+                        entries.push_back(out);
+                    }
+                    row["inputBindings"] = entries;
+                }
+                if (value.feedback.has_value())
+                {
+                    Json entries = Json::array();
+                    for (const auto &entry : value.feedback->entries)
+                    {
+                        Json out = {{"sourceKey", toJson(entry.sourceKey)}};
+                        if (entry.sourceOrdinal.has_value()) out["sourceOrdinal"] = *entry.sourceOrdinal;
+                        if (entry.idleValue.has_value()) out["idleValue"] = *entry.idleValue;
+                        if (entry.activeValue.has_value()) out["activeValue"] = *entry.activeValue;
+                        if (entry.monitorValue.has_value()) out["monitorValue"] = *entry.monitorValue;
+                        if (entry.idleChannel.has_value()) out["idleChannel"] = *entry.idleChannel;
+                        if (entry.activeChannel.has_value()) out["activeChannel"] = *entry.activeChannel;
+                        if (entry.monitorChannel.has_value()) out["monitorChannel"] = *entry.monitorChannel;
+                        if (entry.configurationDigest.has_value())
+                            out["configurationDigest"] = entry.configurationDigest->toStdString();
+                        entries.push_back(out);
+                    }
+                    row["feedback"] = entries;
+                }
+                if (value.configurationDigest.has_value()) row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::SourceRow>)
+            {
+                row["kind"] = "source";
+                row["pluginName"] = value.pluginName.toStdString();
+                row["direction"] = value.direction.toStdString();
+                if (value.inputLine.has_value()) row["inputLine"] = *value.inputLine;
+                if (value.outputLine.has_value()) row["outputLine"] = *value.outputLine;
+                if (value.inputUID.has_value()) row["inputUID"] = value.inputUID->toStdString();
+                if (value.outputUID.has_value()) row["outputUID"] = value.outputUID->toStdString();
+                if (value.inputUniverseID.has_value()) row["inputUniverseID"] = *value.inputUniverseID;
+                if (value.status.has_value()) row["status"] = value.status->toStdString();
+                if (value.reason.has_value()) row["reason"] = value.reason->toStdString();
+                if (value.sourceOrdinal.has_value()) row["sourceOrdinal"] = *value.sourceOrdinal;
+                if (value.configurationDigest.has_value()) row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::ProfileRow>)
+            {
+                row["kind"] = "profile";
+                row["profileName"] = value.profileName.toStdString();
+                row["manufacturer"] = value.manufacturer.toStdString();
+                row["model"] = value.model.toStdString();
+                row["type"] = value.type.toStdString();
+                if (value.configurationDigest.has_value()) row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::ProfileChannelRow>)
+            {
+                row["kind"] = "profileChannel";
+                row["profileName"] = value.profileName.toStdString();
+                row["profileChannelNumber"] = value.profileChannelNumber;
+                row["inputChannel"] = value.inputChannel;
+                row["name"] = value.name.toStdString();
+                row["type"] = value.type.toStdString();
+                row["movement"] = value.movement == VCBridge::AuthoringReadRow::ProfileChannelRow::Movement::Relative
+                    ? "relative" : "absolute";
+                row["sensitivity"] = value.sensitivity;
+                if (value.configurationDigest.has_value()) row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::ProfileFeedbackTableRow>)
+            {
+                row["kind"] = "profileFeedbackTable";
+                row["profileName"] = value.profileName.toStdString();
+                row["table"] = value.table.toStdString();
+                row["key"] = value.key;
+                if (value.label.has_value()) row["label"] = value.label->toStdString();
+                if (value.color.has_value()) row["color"] = value.color->toStdString();
+                if (value.configurationDigest.has_value()) row["configurationDigest"] = value.configurationDigest->toStdString();
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::RecordingReferenceRow>)
+            {
+                row["kind"] = "recordingReference";
+                row["showFunctionID"] = value.showFunctionID;
+                row["controlRecordingUUID"] = value.controlRecordingUUID.toStdString();
+                row["role"] = value.role.toStdString();
+                row["attribute"] = value.attribute.toStdString();
+                if (value.status.has_value()) row["status"] = value.status->toStdString();
+                if (value.reason.has_value()) row["reason"] = value.reason->toStdString();
+                row["count"] = value.count;
+            }
+            else if constexpr (std::is_same_v<T, VCBridge::AuthoringReadRow::RecordingCommandRow>)
+            {
+                row["kind"] = "recordingCommand";
+                row["showFunctionID"] = value.showFunctionID;
+                row["eventID"] = value.eventID;
+                if (value.timeMs.has_value()) row["timeMs"] = *value.timeMs;
+                if (value.order.has_value()) row["order"] = *value.order;
+                if (value.pairID.has_value()) row["pairID"] = *value.pairID;
+                if (value.action.has_value()) row["action"] = value.action->toStdString();
+                row["controlRecordingUUID"] = value.controlRecordingUUID.toStdString();
+                if (value.role.has_value()) row["role"] = value.role->toStdString();
+                if (value.attribute.has_value()) row["attribute"] = value.attribute->toStdString();
+                if (value.payload.has_value()) row["payload"] = variantToJson(*value.payload);
+            }
+        }, typedRow.row);
+
+        if (!typedRow.limitations.isEmpty())
+            row["limitations"] = toJson(typedRow.limitations);
+        return row;
+    }
+
+    inline Json toJson(const VCBridge::AuthoringReadResult &result)
+    {
+        Json out = {
+            {"version", result.version},
+            {"basis", result.basis.toStdString()},
+            {"basisScope", result.basisScope.toStdString()},
+            {"complete", result.complete},
+            {"nextCursor", result.nextCursor.toStdString()},
+            {"limitations", toJson(result.limitations)},
+            {"work", toJson(result.work)}
+        };
+        if (!result.code.isEmpty()) out["code"] = result.code.toStdString();
+        if (!result.error.isEmpty()) out["error"] = result.error.toStdString();
+
+        Json rows = Json::array();
+        for (const VCBridge::AuthoringReadRow &row : result.rows)
+            rows.push_back(toJson(row));
+        out["rows"] = rows;
+        return out;
+    }
+
+    inline const char *atomicScopeToString(VCBridge::AuthoringPreparationResult::AtomicScope scope)
+    {
+        return scope == VCBridge::AuthoringPreparationResult::AtomicScope::IndependentItems
+            ? "independentItems" : "nativeGroup";
+    }
+
+    inline const char *diffDetailToString(VCBridge::AuthoringPreparationResult::DiffDetail detail)
+    {
+        return detail == VCBridge::AuthoringPreparationResult::DiffDetail::Full ? "full" : "summary";
+    }
+
+    inline Json toJson(const VCBridge::AuthoringPreparationResult &result)
+    {
+        Json out = {
+            {"version", result.version},
+            {"basis", result.basis.toStdString()},
+            {"preparationToken", result.preparationToken.toStdString()},
+            {"expiresInMs", result.expiresInMs},
+            {"atomicScope", atomicScopeToString(result.atomicScope)},
+            {"diffDetail", diffDetailToString(result.diffDetail)},
+            {"candidateDigest", result.candidateDigest.toStdString()},
+            {"diffComplete", result.diffComplete},
+            {"limitations", toJson(result.limitations)},
+            {"work", toJson(result.work)}
+        };
+        if (!result.code.isEmpty()) out["code"] = result.code.toStdString();
+        if (!result.error.isEmpty()) out["error"] = result.error.toStdString();
+
+        Json preconditions = Json::array();
+        for (const VCBridge::AuthoringPreconditionObservation &obs : result.preconditions)
+        {
+            Json entry = {{"name", obs.name.toStdString()}, {"met", obs.met},
+                          {"scope", obs.scope.toStdString()}, {"reason", obs.reason.toStdString()}};
+            preconditions.push_back(entry);
+        }
+        out["preconditions"] = preconditions;
+
+        Json items = Json::array();
+        for (const VCBridge::AuthoringPreparationItem &item : result.items)
+        {
+            Json entry = {
+                {"index", item.index},
+                {"status", statusToString(item.status)},
+                {"outcome", outcomeToString(item.outcome)},
+                {"targetWidgetID", item.targetWidgetID},
+                {"changedCount", item.changedCount},
+                {"beforeLogicalRect", {{"x", item.beforeLogicalRect.x()}, {"y", item.beforeLogicalRect.y()},
+                                       {"width", item.beforeLogicalRect.width()}, {"height", item.beforeLogicalRect.height()}}},
+                {"afterLogicalRect", {{"x", item.afterLogicalRect.x()}, {"y", item.afterLogicalRect.y()},
+                                      {"width", item.afterLogicalRect.width()}, {"height", item.afterLogicalRect.height()}}},
+                {"changes", toJson(item.changes)}
+            };
+            if (!item.code.isEmpty()) entry["code"] = item.code.toStdString();
+            if (!item.error.isEmpty()) entry["error"] = item.error.toStdString();
+            if (item.selectedPageWidgetID.has_value()) entry["selectedPageWidgetID"] = *item.selectedPageWidgetID;
+            if (item.selectedParentWidgetID.has_value()) entry["selectedParentWidgetID"] = *item.selectedParentWidgetID;
+            if (item.selectedChildSubpage.has_value()) entry["selectedChildSubpage"] = *item.selectedChildSubpage;
+            if (item.selectedControlSlotID.has_value()) entry["selectedControlSlotID"] = *item.selectedControlSlotID;
+            if (item.selectedFunctionID.has_value()) entry["selectedFunctionID"] = *item.selectedFunctionID;
+            if (item.selectedFunctionBeforeID.has_value()) entry["selectedFunctionBeforeID"] = *item.selectedFunctionBeforeID;
+            if (item.selectedFunctionAfterID.has_value()) entry["selectedFunctionAfterID"] = *item.selectedFunctionAfterID;
+            if (item.selectedSourceKey.has_value()) entry["selectedSourceKey"] = toJson(*item.selectedSourceKey);
+            if (item.sourceOrdinal.has_value()) entry["sourceOrdinal"] = *item.sourceOrdinal;
+            if (item.configurationDigest.has_value()) entry["configurationDigest"] = item.configurationDigest->toStdString();
+            if (!item.limitations.isEmpty()) entry["limitations"] = toJson(item.limitations);
+            items.push_back(entry);
+        }
+        out["items"] = items;
+        return out;
+    }
+
+    inline Json toJson(const VCBridge::AuthoringApplyResult &result)
+    {
+        Json out = {
+            {"version", result.version},
+            {"applied", result.applied},
+            {"tokenConsumed", result.tokenConsumed},
+            {"atomicScope", atomicScopeToString(result.atomicScope)},
+            {"limitations", toJson(result.limitations)},
+            {"work", toJson(result.work)}
+        };
+        if (!result.code.isEmpty()) out["code"] = result.code.toStdString();
+        if (!result.error.isEmpty()) out["error"] = result.error.toStdString();
+
+        Json items = Json::array();
+        for (const VCBridge::AuthoringApplyItem &item : result.items)
+        {
+            Json entry = {
+                {"index", item.index},
+                {"status", item.status == VCBridge::AuthoringApplyItem::Status::Ok ? "ok" : "error"},
+                {"outcome", outcomeToString(item.outcome)},
+                {"targetWidgetID", item.targetWidgetID},
+                {"changedCount", item.changedCount},
+                {"beforeLogicalRect", {{"x", item.beforeLogicalRect.x()}, {"y", item.beforeLogicalRect.y()},
+                                       {"width", item.beforeLogicalRect.width()}, {"height", item.beforeLogicalRect.height()}}},
+                {"afterLogicalRect", {{"x", item.afterLogicalRect.x()}, {"y", item.afterLogicalRect.y()},
+                                      {"width", item.afterLogicalRect.width()}, {"height", item.afterLogicalRect.height()}}},
+                {"changes", toJson(item.changes)}
+            };
+            if (!item.code.isEmpty()) entry["code"] = item.code.toStdString();
+            if (!item.error.isEmpty()) entry["error"] = item.error.toStdString();
+            if (item.selectedPageWidgetID.has_value()) entry["selectedPageWidgetID"] = *item.selectedPageWidgetID;
+            if (item.selectedParentWidgetID.has_value()) entry["selectedParentWidgetID"] = *item.selectedParentWidgetID;
+            if (item.selectedChildSubpage.has_value()) entry["selectedChildSubpage"] = *item.selectedChildSubpage;
+            if (item.selectedControlSlotID.has_value()) entry["selectedControlSlotID"] = *item.selectedControlSlotID;
+            if (item.selectedFunctionID.has_value()) entry["selectedFunctionID"] = *item.selectedFunctionID;
+            if (item.selectedFunctionBeforeID.has_value()) entry["selectedFunctionBeforeID"] = *item.selectedFunctionBeforeID;
+            if (item.selectedFunctionAfterID.has_value()) entry["selectedFunctionAfterID"] = *item.selectedFunctionAfterID;
+            if (item.selectedSourceKey.has_value()) entry["selectedSourceKey"] = toJson(*item.selectedSourceKey);
+            if (item.sourceOrdinal.has_value()) entry["sourceOrdinal"] = *item.sourceOrdinal;
+            if (item.configurationDigest.has_value()) entry["configurationDigest"] = item.configurationDigest->toStdString();
+            if (!item.limitations.isEmpty()) entry["limitations"] = toJson(item.limitations);
+            items.push_back(entry);
+        }
+        out["items"] = items;
+        return out;
+    }
+}
 
 namespace VCRefs
 {

@@ -21,16 +21,27 @@
 #define VCBRIDGEV5_H
 
 #include "vcbridge.h"
+#include <QElapsedTimer>
+#include <QHash>
+#include <QMetaObject>
+#include <QPointer>
+#include <QVector>
 
+class App;
 class Doc;
 class VirtualConsole;
 class VCFrame;
+class VCPage;
 class VCWidget;
+class Function;
+class QLCInputSource;
+class VCAuthoringOwner_Test;
 
 class VCBridgeV5 : public VCBridge
 {
 public:
-    VCBridgeV5(Doc *doc, VirtualConsole *vc);
+    VCBridgeV5(Doc *doc, VirtualConsole *vc, App *authoringApp = nullptr);
+    ~VCBridgeV5() override;
 
     int addPage(const QString &name) override;
     QList<PageInfo> pages() const override;
@@ -188,14 +199,136 @@ public:
 
     int snappingSize() const override;
 
+    AuthoringReadResult queryAuthoring(const AuthoringQuery &query) const override;
+    AuthoringPreparationResult prepareAuthoring(const AuthoringRequest &request) override;
+    AuthoringApplyResult applyAuthoring(const QString &preparationToken) override;
+
 private:
+    friend class VCAuthoringOwner_Test;
+    struct PreparedGeometryPayload;
+    struct GuardKey;
+
+    struct PredicateSelection
+    {
+        bool requireFeedbackPatchIdle = false;  // F
+        bool requireNoRelativeSources = false;  // R
+        bool requireFeedbackNeedsUpdateIdle = false; // U
+        bool requireWriterSafe = false;         // W
+    };
+
     /** Round a rectangle's position and size to the nearest grid multiple */
     QRect snapRect(const QRect &rect) const;
     VCWidget *createGeometryWidget(VCFrame *frame, const QString &type, const QRect &geometry,
                                     int subpage = -1);
+    bool hasMatchingAuthoringContext() const;
+    QString authoringBasis() const;
+    QByteArray canonicalizeLayoutRequest(const AuthoringLayoutRequest &request) const;
+    QByteArray canonicalizeRequest(const AuthoringRequest &request) const;
+    QString candidateDigest(const QMap<quint32, QRectF> &rectangles) const;
+    QMap<quint32, QRectF> planFromNativePreview(const QVariantMap &preview) const;
+    QVector<VCWidget *> affectedClosure(const QMap<quint32, QRectF> &rectangles) const;
+    QVector<VCWidget *> affectedClosureForWidgetIds(const QList<quint32> &widgetIds) const;
+    PredicateSelection predicateSelectionForRequest(const AuthoringRequest &request) const;
+    QString scopedConfigurationDigest(VCWidget *widget) const;
+    QString scopedConfigurationDigest(const AuthoringSourceKey &key, const QLCInputSource *source) const;
+    QString scopedConfigurationDigest(const Function *function) const;
+    QString scopedConfigurationDigest(const GuardKey &key) const;
+    QString preconditionErrorForClosure(const QVector<VCWidget *> &closure, QString *code,
+                                        QList<AuthoringPreconditionObservation> *observations,
+                                        const PredicateSelection &selection) const;
+    int estimateGuardCount(const QMap<quint32, QRectF> &rectangles) const;
+    QList<quint32> widgetIdsFromRequest(const AuthoringRequest &request) const;
+    int requestItemCount(const AuthoringRequest &request) const;
+    int rootIdentityCount(const AuthoringRequest &request) const;
+    void clearAuthoringRecords();
+    void cleanupExpiredRecords(qint64 nowMs);
+    QString authoringPreconditionError(const QMap<quint32, QRectF> &rectangles, QString *code,
+                                       QList<AuthoringPreconditionObservation> *observations,
+                                       const PredicateSelection &selection) const;
+    std::optional<quint32> owningPageWidgetId(VCWidget *widget) const;
+    std::optional<quint32> selectedFunctionId(VCWidget *widget) const;
+    std::optional<AuthoringSourceKey> selectedSourceKey(VCWidget *widget, std::optional<int> *ordinal) const;
+    void populateSelectionDetails(AuthoringPreparationItem &item, VCWidget *widget) const;
+    void populateSelectionDetails(AuthoringApplyItem &item, VCWidget *widget) const;
+    void recomputeGeometryDiff(AuthoringPreparationItem &item,
+                               AuthoringPreparationResult::DiffDetail diffDetail) const;
+    void recomputeGeometryDiff(AuthoringApplyItem &item,
+                               AuthoringPreparationResult::DiffDetail diffDetail) const;
+    QObject *resolveGuardObject(const GuardKey &key) const;
+    qint64 authoringNowMs() const;
+    void setAuthoringNowForTest(qint64 nowMs);
+    void clearAuthoringNowForTest();
 
-    Doc *m_doc;
-    VirtualConsole *m_vc;
+    QPointer<Doc> m_doc;
+    QPointer<VirtualConsole> m_vc;
+    QPointer<App> m_authoringApp;
+
+    struct GuardKey
+    {
+        enum class Kind
+        {
+            Widget,
+            Function,
+            InputSource
+        };
+
+        Kind kind = Kind::Widget;
+        std::optional<quint32> widgetID;
+        std::optional<quint32> functionID;
+        std::optional<AuthoringSourceKey> sourceKey;
+    };
+
+    struct GeometryGuard
+    {
+        GuardKey key;
+        QPointer<QObject> identity;
+        QString scopedConfigurationDigest;
+    };
+
+    struct PreparedGeometryPayload
+    {
+        QMap<quint32, QRectF> candidateRectangles;
+        QMap<quint32, QRectF> baselineRectangles;
+        QList<quint32> requestOrder;
+    };
+
+    struct PreparedLayoutPayload
+    {
+        AuthoringLayoutRequest request;
+    };
+
+    struct PreparedBindingPayload
+    {
+        QList<AuthoringBindingItem> items;
+        QList<quint32> requestOrder;
+        QMap<int, QString> destinationDigests;
+        bool allowFanout = false;
+    };
+
+    struct PreparedRecordPanelPayload
+    {
+        QList<AuthoringRecordPanelItem> items;
+        QList<quint32> requestOrder;
+    };
+
+    struct PreparationRecord
+    {
+        QString token;
+        qint64 expiresAtMs = 0;
+        QString basis;
+        AuthoringRequest normalizedRequest;
+        QString candidateDigest;
+        std::variant<PreparedGeometryPayload, PreparedLayoutPayload, PreparedBindingPayload, PreparedRecordPanelPayload> operationPayload;
+        QVector<GeometryGuard> geometryGuards;
+        PredicateSelection predicates;
+    };
+
+    QHash<QString, PreparationRecord> m_authoringRecords;
+    QMetaObject::Connection m_docDestroyedConn;
+    QMetaObject::Connection m_vcDestroyedConn;
+    QMetaObject::Connection m_appDestroyedConn;
+    QElapsedTimer m_authoringMonotonicClock;
+    std::optional<qint64> m_authoringNowOverrideMs;
 };
 
 #endif // VCBRIDGEV5_H

@@ -51,6 +51,15 @@ MasterTimerPrivate::~MasterTimerPrivate()
     stop();
 }
 
+void MasterTimerPrivate::start()
+{
+    bool expected = false;
+    if (!m_run.compare_exchange_strong(expected, true))
+        return;
+
+    QThread::start();
+}
+
 void MasterTimerPrivate::stop()
 {
     m_run = false;
@@ -86,8 +95,7 @@ static qint64 timestampNs(const struct timespec &value)
 
 void MasterTimerPrivate::run()
 {
-    /* Don't start another thread */
-    if (m_run == true)
+    if (m_run.load() == false)
         return;
 
     MasterTimer* mt = qobject_cast <MasterTimer*> (parent());
@@ -187,10 +195,6 @@ void MasterTimerPrivate::run()
                    << strerror(errno) << "- Stopping MasterTimerPrivate";
         m_run = false;
     }
-    else
-    {
-        m_run = true;
-    }
 
     bool clockFailed = ret == -1;
     qint64 windowStartNs = clockFailed ? 0 : timestampNs(*finish);
@@ -218,7 +222,7 @@ void MasterTimerPrivate::run()
         worstOverdueNs = 0;
     };
 
-    while (m_run == true)
+    while (m_run.load() == true)
     {
         /* Add nsTickTime to the finish time, to calculate the end timestamp of this loop */
         finish->tv_sec += (finish->tv_nsec + nsTickTime) / 1000000000L;

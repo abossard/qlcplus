@@ -175,8 +175,22 @@ qreal VirtualConsole::pixelDensity() const
     return 0;
 }
 
+QString VirtualConsole::workspaceChangeError() const
+{
+    return m_authoringBusy
+        ? tr("Cannot replace the workspace while a console edit is busy. Retry after the edit finishes.")
+        : QString();
+}
+
 void VirtualConsole::resetContents()
 {
+    const QString error = workspaceChangeError();
+    if (!error.isEmpty())
+    {
+        qWarning() << Q_FUNC_INFO << error;
+        emit editRejected(error);
+        return;
+    }
     cancelLayout();
     m_unlockedPagePINs.clear();
     int pageIndex = 0;
@@ -2022,10 +2036,12 @@ QVariantMap VirtualConsole::revealWidget(quint32 id)
         return editResult(false, false, tr("Detached page view is unavailable"));
     setSelectedPage(m_pages.indexOf(owningPage));
     VCWidget *child = entry;
+    QList<QPair<QPointer<VCFrame>, int>> scope;
     for (auto it = ancestors.crbegin(); it != ancestors.crend(); ++it)
     {
         (*it)->setCollapsed(false);
         (*it)->setCurrentPage(child->page());
+        scope.append({QPointer<VCFrame>(*it), child->page()});
         child = *it;
     }
     QRectF pageRect = entry->logicalGeometry();
@@ -2033,16 +2049,33 @@ QVariantMap VirtualConsole::revealWidget(quint32 id)
         if (VCWidget *ancestor = qobject_cast<VCWidget *>(owner))
             pageRect.translate(ancestor->logicalGeometry().topLeft());
     QPointer<VCWidget> guarded(entry);
+    QPointer<VCPage> requestedPage(owningPage);
+    QPointer<QQuickItem> requestedView(currentPageItem());
+    const QString context = m_contextManager ? m_contextManager->currentContext() : QString();
     const qreal scale = owningPage->pageScale();
-    QTimer::singleShot(0, this, [this, guarded, pageRect, scale]() {
-        QTimer::singleShot(0, this, [this, guarded, pageRect, scale]() {
-            if (!guarded) return;
+    QTimer::singleShot(0, this, [this, guarded, requestedPage, requestedView, context, scope, pageRect, scale]() {
+        QTimer::singleShot(0, this, [this, guarded, requestedPage, requestedView, context, scope, pageRect, scale]() {
+            if (!guarded || !requestedPage || page(m_selectedPage) != requestedPage ||
+                (m_contextManager && m_contextManager->currentContext() != context))
+                return;
+            QObject *child = guarded;
+            for (const auto &location : scope)
+            {
+                if (!location.first || child->parent() != location.first ||
+                    location.first->currentPage() != location.second || location.first->isCollapsed())
+                    return;
+                child = location.first;
+            }
+            if (child != requestedPage)
+                return;
             QQuickItem *view = currentPageItem();
             if (!view)
             {
                 emit editRejected(tr("Console page view is unavailable"));
                 return;
             }
+            if (view != requestedView)
+                return;
             const QRectF displayed(pageRect.topLeft() * scale, pageRect.size() * scale);
             qreal x = view->property("contentX").toReal(), y = view->property("contentY").toReal();
             if (displayed.left() < x) x = displayed.left();
@@ -2310,6 +2343,7 @@ void VirtualConsole::deleteVCWidgets(QVariantList IDList)
 
 void VirtualConsole::commitWidgetDeletion(const QVariantList &IDList)
 {
+    QScopedValueRollback<bool> busy(m_authoringBusy, true);
     cancelLayout();
     foreach (QVariant id, IDList)
     {
@@ -3332,6 +3366,13 @@ void VirtualConsole::handleKeyEvent(QKeyEvent *e, bool pressed)
 
 bool VirtualConsole::loadXML(QXmlStreamReader &root)
 {
+    const QString error = workspaceChangeError();
+    if (!error.isEmpty())
+    {
+        qWarning() << Q_FUNC_INFO << error;
+        emit editRejected(error);
+        return false;
+    }
     cancelLayout();
     m_unlockedPagePINs.clear();
     int currPageIdx = 0;

@@ -1046,8 +1046,20 @@ void App::initDoc()
     m_doc->masterTimer()->start();
 }
 
+bool App::canChangeWorkspace() const
+{
+    const QString error = m_virtualConsole ? m_virtualConsole->workspaceChangeError() : QString();
+    if (error.isEmpty())
+        return true;
+    qWarning() << Q_FUNC_INFO << error;
+    emit m_virtualConsole->editRejected(error);
+    return false;
+}
+
 void App::clearDocument()
 {
+    if (!canChangeWorkspace())
+        return;
     /* The user decided about the recording already: nothing of it may reach
        the next workspace */
     if (m_showCommandRecorder != nullptr)
@@ -1291,6 +1303,8 @@ void App::setWorkingPath(QString workingPath)
 
 bool App::newWorkspace()
 {
+    if (!canChangeWorkspace())
+        return false;
     /* Warn the connected clients before dropping everything */
     m_networkManager->notifyProjectChanging();
 
@@ -1307,6 +1321,8 @@ bool App::newWorkspace()
 
 bool App::loadWorkspace(const QString &fileName)
 {
+    if (!canChangeWorkspace())
+        return false;
     /* Warn the connected clients before dropping everything */
     m_networkManager->notifyProjectChanging();
 
@@ -1360,6 +1376,8 @@ void App::slotLoadDocFromMemory(QByteArray &xmlData)
 {
     if (xmlData.isEmpty())
         return;
+    if (!canChangeWorkspace())
+        return;
 
     m_contextManager->resetContexts();
 
@@ -1408,6 +1426,8 @@ void App::slotLoadDocFromMemory(QByteArray &xmlData)
 
 void App::slotClearDocFromNetwork()
 {
+    if (!canChangeWorkspace())
+        return;
     qDebug() << Q_FUNC_INFO << "Clearing workspace on server request";
 
     /* Same teardown performed before loading a project: drop the view items
@@ -1461,6 +1481,8 @@ bool App::saveWorkspace(const QString &fileName)
 
 QFileDevice::FileError App::loadXML(const QString &fileName)
 {
+    if (!canChangeWorkspace())
+        return QFile::ReadError;
     QFile::FileError retval = QFile::NoError;
 
     if (fileName.isEmpty() == true)
@@ -1514,6 +1536,8 @@ QFileDevice::FileError App::loadXML(const QString &fileName)
 
 bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
 {
+    if (!canChangeWorkspace())
+        return false;
     if (doc.readNextStartElement() == false)
         return false;
 
@@ -1533,7 +1557,8 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         }
         else if (doc.name() == KXMLQLCVirtualConsole)
         {
-            m_virtualConsole->loadXML(doc);
+            if (!m_virtualConsole->loadXML(doc))
+                return false;
         }
         else if (doc.name() == QStringLiteral("FlowConsole"))
         {

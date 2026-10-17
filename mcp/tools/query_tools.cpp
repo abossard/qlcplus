@@ -22,6 +22,7 @@
 #include "idempotency.h"
 #include "vcbridge.h"
 #include "vc_query_helpers.h"
+#include "vc_tools_common.h"
 #include "doc.h"
 #include "qlcfixturedefcache.h"
 #include "qlcfixturemode.h"
@@ -727,6 +728,82 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                         "Field selection: properties array (id always included, omit for all). "
                         "No parameters returns everything (backward compatible).")
         .set_annotations(mcp::kAnnotReadOnly));
+
+        tm.register_tool(Tool(
+            "vc_query_setup",
+            Json{{"type", "object"}, {"properties", {
+                {"kind", {{"type", "string"}, {"enum", {"widgets", "pages", "subpages"}},
+                    {"description", "Setup query kind. Defaults to widgets."}}},
+                {"pageWidgetID", {{"type", "integer"}, {"minimum", 0}, {"maximum", mcp::kMaxId},
+                    {"description", "Filter to a specific page widget ID (mutually exclusive with frameWidgetID)."}}},
+                {"frameWidgetID", {{"type", "integer"}, {"minimum", 0}, {"maximum", mcp::kMaxId},
+                    {"description", "Filter to a specific frame widget ID (required for subpages)."}}},
+                {"childSubpage", {{"type", "integer"}, {"minimum", 0}, {"maximum", std::numeric_limits<int>::max()},
+                    {"description", "Filter subpage within frameWidgetID scope."}}},
+                {"widgetIDs", {{"type", "array"}, {"minItems", 1}, {"items", {{"type", "integer"}, {"minimum", 0}, {"maximum", mcp::kMaxId}}},
+                    {"description", "Restrict to specific widget IDs."}}},
+                {"recursive", {{"type", "boolean"},
+                    {"description", "When widgetIDs/pageWidgetID scope is used, include descendants (default true)."}}},
+                {"nameFilter", {{"type", "string"}, {"description", "Caption/name glob filter."}}},
+                {"typeFilter", {{"type", "string"}, {"description", "Machine widget type filter."}}},
+                {"fields", {{"type", "array"}, {"items", {{"type", "string"}, {"enum",
+                    {"identity", "placement", "logicalGeometry", "functionBinding",
+                     "inputBindings", "feedback", "recordPanel", "appearance",
+                     "frameConfiguration"}}}},
+                    {"description", "Optional projection groups in requested order. Omit for bridge defaults."}}},
+                {"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 250},
+                    {"description", "Page size limit. Defaults to 100."}}},
+                {"cursor", {{"type", "string"},
+                    {"description", "Opaque continuation cursor, UTF-8 bytes length <= 1024."}}}
+            }}},
+            Json{},
+            [doc, vcBridge](const Json &args) -> Json {
+                return execOnMainThread(doc, [&]() -> Json {
+                VCBridge::AuthoringSetupQuery query;
+                const std::string err = VCAuthoringQuery::parseSetupQuery(args, query);
+                if (!err.empty())
+                    return err;
+                const VCBridge::AuthoringReadResult read = vcBridge->queryAuthoring(VCBridge::AuthoringQuery(query));
+                return VCAuthoring::toJson(read).dump();
+                });
+            })
+            .set_description("Query authoring setup inventory with bounded paging and closed projection groups.")
+            .set_annotations(mcp::kAnnotReadOnly));
+
+        tm.register_tool(Tool(
+            "vc_query_recordings",
+            Json{{"type", "object"}, {"properties", {
+                {"showFunctionID", {{"type", "integer"}, {"minimum", 0}, {"maximum", mcp::kMaxId},
+                    {"description", "Show function ID owning recording definitions."}}},
+                {"kind", {{"type", "string"}, {"enum", {"references", "commands"}},
+                    {"description", "Recordings query kind. Defaults to references."}}},
+                {"controlRecordingUUID", {{"type", "string"},
+                    {"description", "Optional recording UUID filter."}}},
+                {"fromTimeMs", {{"type", "integer"}, {"minimum", 0}, {"maximum", std::numeric_limits<qint64>::max()},
+                    {"description", "Optional lower time bound in milliseconds (inclusive)."}}},
+                {"toTimeMs", {{"type", "integer"}, {"minimum", 0}, {"maximum", std::numeric_limits<qint64>::max()},
+                    {"description", "Optional upper time bound in milliseconds (inclusive, must be >= fromTimeMs)."}}},
+                {"fields", {{"type", "array"}, {"items", {{"type", "string"}, {"enum",
+                    {"identity", "timing", "semanticPayload", "readiness"}}}},
+                    {"description", "Optional projection groups in requested order. Omit for bridge defaults."}}},
+                {"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 250},
+                    {"description", "Page size limit. Defaults to 100."}}},
+                {"cursor", {{"type", "string"},
+                    {"description", "Opaque continuation cursor, UTF-8 bytes length <= 1024."}}}
+            }}, {"required", {"showFunctionID"}}},
+            Json{},
+            [doc, vcBridge](const Json &args) -> Json {
+                return execOnMainThread(doc, [&]() -> Json {
+                VCBridge::AuthoringRecordingQuery query;
+                const std::string err = VCAuthoringQuery::parseRecordingQuery(args, query);
+                if (!err.empty())
+                    return err;
+                const VCBridge::AuthoringReadResult read = vcBridge->queryAuthoring(VCBridge::AuthoringQuery(query));
+                return VCAuthoring::toJson(read).dump();
+                });
+            })
+            .set_description("Query recording semantic definitions and commands with bounded paging.")
+            .set_annotations(mcp::kAnnotReadOnly));
 
         // vc_query_widgets (batch) — query full details of Virtual Console widgets
         tm.register_tool(Tool(

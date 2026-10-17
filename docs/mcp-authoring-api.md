@@ -159,6 +159,126 @@ arrays retain their existing text representation.
 These contracts do not establish physical output or device confirmation. Use
 the bounded verification tools separately when checking a patch or effect.
 
+## Bounded Virtual Console reads
+
+The v5 bridge supports two read-only authoring queries. They do not allocate
+recording UUIDs, select a Show, change recording state or send controller data.
+Other bridges can return `unsupportedBridge`.
+
+| Tool | Selection |
+|------|-----------|
+| `vc_query_setup` | `widgets` (default), `pages` or `subpages` |
+| `vc_query_recordings` | `references` (default) or `commands`; `showFunctionID` is required |
+
+Both return an object with `version`, `basis`, `basisScope`, `rows`, `complete`,
+`nextCursor`, `limitations` and `work`. The default limit is 100, with a maximum
+of 250 rows and 262,144 serialized tool-payload bytes. A byte-limited page
+continues with a cursor; a single row that cannot fit returns `itemTooLarge`.
+An empty cursor means a successful result is complete.
+
+Continue with the same selector, projection and limit. Cursors are bound to the
+bridge instance and authored basis, expire after 60 seconds, and are limited to
+1,024 UTF-8 bytes. Malformed or mismatched cursors return `invalidCursor`;
+expired cursors return `cursorExpired`; relevant authored changes return
+`staleBasis`. Switching a frame's visible subpage does not invalidate them.
+
+Setup widget queries accept `pageWidgetID` or `frameWidgetID`, not both.
+Recursion defaults to true. `childSubpage` selects a subpage of the specified
+frame, including its nested descendants; each returned widget still reports
+its own parent-local subpage. Explicit `widgetIDs` must exist within the
+requested scope. Page queries accept `pageWidgetID`; subpage queries require
+`frameWidgetID` and optionally accept `childSubpage`.
+
+`fields` contains group names, not row-column names. Setup defaults to
+`identity` and `placement`; widget detail groups are `logicalGeometry`,
+`functionBinding`, `inputBindings`, `feedback`, `recordPanel`, `appearance` and
+`frameConfiguration`. Pages and subpages accept only identity and placement.
+Optional groups apply only to compatible widget types. Logical rectangles use
+fractional parent-local coordinates. A detail row's `configurationDigest`
+describes its selected groups, not authorization to apply an edit.
+
+Recording groups are `identity`, `timing`, `semanticPayload` and `readiness`.
+Commands preserve event IDs, order, times and hold-pair IDs. Selected semantic
+payloads retain native values such as button on/off, position, intensity and
+encoded typed parameters. References remain visible when unresolved;
+request `readiness` for their status and reason. No captured event is edited.
+
+These additive queries do not change legacy query arrays or integer geometry.
+
+`vc_query_controls` now resolves native read-only data for:
+- `targets`: sparse external control slots for requested widget IDs, with
+  selector-scoped continuation cursors and authored-structure basis.
+- `sources`: patched input/output/feedback inventories from the current native
+  patch state, with explicit limits when UID or status is unavailable.
+- `profiles`: loaded profile identity, channel maps and feedback tables.
+
+With empty `fields`, defaults are limited and explicit:
+- targets: `identity` + `domains`
+- sources: `identity`
+- profiles: `identity`
+
+`vc_prepare_bindings` now supports native prepare/apply for:
+- Function binding on VCButton: `set` and `clear`.
+- Controller binding on registered slots: `append`, `move` and `remove`.
+- Keyboard binding on registered keyboard-eligible slots: `set` and `remove`.
+
+Controller writes require a patched destination input universe with the exact
+already-loaded selected profile and supported channel semantics. By default,
+cross-widget reuse of the same physical input address is refused; callers must
+set `allowFanout: true` to permit cross-widget fanout. Same-widget source-key
+resolution and duplicate native-pair ambiguity checks remain strict.
+
+Controller action requirements:
+- `append`: requires `controlSlotID` and `destination` (`inputUniverseID`,
+  unpacked physical `inputChannel`, `profileName`), and refuses Relative
+  destination channels.
+- `move`: requires `controlSlotID`, the exact four-field `sourceKey`
+  (`controlSlotID`, `inputUniverseID`, `inputChannel`, `childSubpage`), plus
+  `destination` (`inputUniverseID`, unpacked physical `inputChannel`,
+  `profileName`).
+- `remove`: requires `controlSlotID` and the exact four-field `sourceKey`;
+  destination/profile fields are not required.
+
+Existing Relative sources are refused for controller move/remove source-key resolution.
+Append has no source-key match and validates destination semantics only.
+Absolute/Encoder destination channels and Button `ExtraPress` channels remain
+supported when routed through the patched selected profile. Page targets remain
+supported through native page-input refresh after append, move and remove.
+
+Feedback binding mutation now supports native prepare/apply for:
+- values group (`idleValue`, `activeValue`, `monitorValue`)
+- channels group (`idleChannel`, `activeChannel`, `monitorChannel`)
+
+Feedback requests still require an exact `sourceKey` and respect the existing
+feedback closure preconditions (`feedbackPatchIdle`, `feedbackNeedsUpdateIdle`).
+`vc_apply_preparation` consumes tokens and is non-idempotent by design.
+
+`vc_prepare_record_panel` now supports native prepare/apply for VCRecordPanel
+configuration fields:
+- `targetFolder`
+- `scenePrefix`
+- `chaserPrefix`
+- `defaultFadeIn`
+- `defaultHold`
+- `defaultFadeOut`
+
+Each item requires `widgetID` and at least one configuration field. Items are
+prepared as `independentItems`, and execution still goes through
+`vc_apply_preparation`.
+
+`vc_prepare_layout` now supports native prepare/apply for these non-geometry
+layout operations:
+- `pageCreate` (`name`)
+- `pageRename` (`pageWidgetID`, `name`)
+- `pageDelete` (`pageWidgetID`)
+- `framePages` (`frameWidgetID`, `totalPages`, `pageLabels`, `pagesLoop`)
+
+`operation` is required. For `framePages`, callers must provide
+`frameWidgetID` plus at least one of `totalPages`, `pageLabels`, or `pagesLoop`.
+Prepared tokens are executed via `vc_apply_preparation`.
+
+Other layout operations remain geometry-only at this checkpoint.
+
 ## Virtual Console layout
 
 `vc_reflow_frame` keeps its existing `flow` and `gridCompact` modes.

@@ -23,7 +23,7 @@ import QtQuick.Controls
 Rectangle
 {
     anchors.fill: parent
-    color: "transparent"
+    color: virtualConsole.editMode && page >= 0 ? virtualConsole.page(page).backgroundColor : "transparent"
 
     property int page: -1
     property alias contentItem: vcPage.contentItem
@@ -44,9 +44,14 @@ Rectangle
         objectName: "vcPage" + page
         anchors.fill: parent
         boundsBehavior: Flickable.StopAtBounds
+        leftMargin: virtualConsole.editMode ? UISettings.iconSizeMedium : 0
+        rightMargin: leftMargin
+        topMargin: leftMargin
+        bottomMargin: leftMargin
 
         MouseArea
         {
+            z: -3
             anchors.fill: parent
             onClicked: virtualConsole.resetWidgetSelection()
         }

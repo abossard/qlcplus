@@ -23,10 +23,15 @@
 #include <nlohmann/json.hpp>
 #include <QRegularExpression>
 #include <QString>
+#include <QStringList>
+#include <algorithm>
 #include <set>
 #include <string>
 #include <initializer_list>
+#include <vector>
 #include "vcbridge.h"
+#include "tool_registry.h"
+#include "vc_tools_common.h"
 
 namespace VCQueryPages {
 
@@ -773,5 +778,323 @@ inline std::set<std::string> parseProperties(const Json &args)
 }
 
 } // namespace VCQueryPages
+
+namespace VCAuthoringQuery {
+
+using Json = nlohmann::json;
+
+inline const std::vector<std::string> kSetupFieldGroups = {
+    "identity",
+    "placement",
+    "logicalGeometry",
+    "functionBinding",
+    "inputBindings",
+    "feedback",
+    "recordPanel",
+    "appearance",
+    "frameConfiguration",
+};
+
+inline const std::vector<std::string> kRecordingFieldGroups = {
+    "identity",
+    "timing",
+    "semanticPayload",
+    "readiness",
+};
+
+inline std::string requestError(const std::string &message,
+                                const std::string &code = "invalidArgument")
+{
+    return VCAuthoring::requestError(message, code).dump();
+}
+
+inline bool inAllowedGroups(const std::string &value, const std::vector<std::string> &allowed)
+{
+    return std::find(allowed.begin(), allowed.end(), value) != allowed.end();
+}
+
+inline std::string parseSetupQuery(const Json &args, VCBridge::AuthoringSetupQuery &query)
+{
+    if (!args.is_object())
+        return requestError("arguments must be a JSON object");
+
+    static const std::initializer_list<std::string> kAllowed = {
+        "kind", "pageWidgetID", "frameWidgetID", "childSubpage", "widgetIDs",
+        "recursive", "nameFilter", "typeFilter", "fields", "limit", "cursor"
+    };
+    for (auto it = args.begin(); it != args.end(); ++it)
+    {
+        bool found = false;
+        for (const auto &field : kAllowed)
+            if (it.key() == field) { found = true; break; }
+        if (!found)
+        {
+            std::string msg = "unknown field '" + it.key() + "'. Allowed: ";
+            bool first = true;
+            for (const auto &field : kAllowed)
+            {
+                if (!first) msg += ", ";
+                msg += field;
+                first = false;
+            }
+            return requestError(msg);
+        }
+    }
+
+    std::string kind = "widgets";
+    if (args.contains("kind"))
+    {
+        if (!args["kind"].is_string())
+            return requestError("kind must be a string");
+        kind = args["kind"].get<std::string>();
+        if (kind != "widgets" && kind != "pages" && kind != "subpages")
+            return requestError("kind must be one of: widgets, pages, subpages");
+    }
+    if (kind == "pages")
+        query.kind = VCBridge::AuthoringSetupQuery::Kind::Pages;
+    else if (kind == "subpages")
+        query.kind = VCBridge::AuthoringSetupQuery::Kind::Subpages;
+    else
+        query.kind = VCBridge::AuthoringSetupQuery::Kind::Widgets;
+
+    if (args.contains("limit"))
+    {
+        const auto limit = mcp::jsonInteger(args["limit"], 1, 250);
+        if (!limit)
+            return requestError(mcp::integerError("limit", 1, 250));
+        query.limit = int(*limit);
+    }
+
+    if (args.contains("cursor"))
+    {
+        if (!args["cursor"].is_string())
+            return requestError("cursor must be a string");
+        const std::string cursor = args["cursor"].get<std::string>();
+        if (cursor.size() > 1024)
+            return requestError("cursor must be at most 1024 UTF-8 bytes");
+        query.cursor = QString::fromStdString(cursor);
+    }
+
+    if (args.contains("fields"))
+    {
+        if (!args["fields"].is_array())
+            return requestError("fields must be an array of strings");
+        const std::vector<std::string> &allowedGroups =
+            (kind == "widgets") ? kSetupFieldGroups : std::vector<std::string>{"identity", "placement"};
+        for (size_t i = 0; i < args["fields"].size(); ++i)
+        {
+            const Json &entry = args["fields"][i];
+            if (!entry.is_string())
+                return requestError("fields must contain only strings");
+            const std::string token = entry.get<std::string>();
+            if (!inAllowedGroups(token, allowedGroups))
+                return requestError("fields contains unknown group '" + token + "'");
+            query.fields.append(QString::fromStdString(token));
+        }
+    }
+
+    auto parseId = [](const Json &v) -> std::optional<int64_t>
+    {
+        return mcp::jsonInteger(v, 0, mcp::kMaxId);
+    };
+
+    if (args.contains("pageWidgetID"))
+    {
+        const auto v = parseId(args["pageWidgetID"]);
+        if (!v) return requestError(mcp::integerError("pageWidgetID", 0, mcp::kMaxId));
+        query.pageWidgetID = quint32(*v);
+    }
+    if (args.contains("frameWidgetID"))
+    {
+        const auto v = parseId(args["frameWidgetID"]);
+        if (!v) return requestError(mcp::integerError("frameWidgetID", 0, mcp::kMaxId));
+        query.frameWidgetID = quint32(*v);
+    }
+    if (args.contains("childSubpage"))
+    {
+        const auto subpage = mcp::jsonInteger(args["childSubpage"], 0, std::numeric_limits<int>::max());
+        if (!subpage)
+            return requestError(mcp::integerError("childSubpage", 0, std::numeric_limits<int>::max()));
+        if (!args.contains("frameWidgetID"))
+            return requestError("childSubpage requires frameWidgetID");
+        query.childSubpage = int(*subpage);
+    }
+
+    if (args.contains("widgetIDs"))
+    {
+        if (!args["widgetIDs"].is_array())
+            return requestError("widgetIDs must be an array of non-negative integers");
+        if (args["widgetIDs"].empty())
+            return requestError("widgetIDs must contain at least one item");
+        for (size_t i = 0; i < args["widgetIDs"].size(); ++i)
+        {
+            const Json &id = args["widgetIDs"][i];
+            const auto parsedId = mcp::jsonInteger(id, 0, mcp::kMaxId);
+            if (!parsedId)
+                return requestError(mcp::integerError("widgetIDs[]", 0, mcp::kMaxId));
+            query.widgetIDs.append(quint32(*parsedId));
+        }
+    }
+
+    if (args.contains("recursive"))
+    {
+        if (!args["recursive"].is_boolean())
+            return requestError("recursive must be a boolean");
+        query.recursive = args["recursive"].get<bool>();
+    }
+
+    if (args.contains("nameFilter"))
+    {
+        if (!args["nameFilter"].is_string())
+            return requestError("nameFilter must be a string");
+        query.nameFilter = QString::fromStdString(args["nameFilter"].get<std::string>());
+    }
+    if (args.contains("typeFilter"))
+    {
+        if (!args["typeFilter"].is_string())
+            return requestError("typeFilter must be a string");
+        query.typeFilter = QString::fromStdString(args["typeFilter"].get<std::string>());
+    }
+
+    if (args.contains("pageWidgetID") && args.contains("frameWidgetID"))
+        return requestError("pageWidgetID and frameWidgetID are mutually exclusive");
+
+    if (kind == "pages")
+    {
+        if (args.contains("frameWidgetID") || args.contains("childSubpage") ||
+            args.contains("widgetIDs") || args.contains("recursive") ||
+            args.contains("nameFilter") || args.contains("typeFilter"))
+            return requestError("pages kind allows only pageWidgetID with common fields/limit/cursor");
+    }
+    else if (kind == "subpages")
+    {
+        if (!args.contains("frameWidgetID"))
+            return requestError("subpages queries require frameWidgetID");
+        if (args.contains("pageWidgetID") || args.contains("widgetIDs") ||
+            args.contains("recursive") || args.contains("nameFilter") ||
+            args.contains("typeFilter"))
+            return requestError("subpages kind allows frameWidgetID/childSubpage with common fields/limit/cursor");
+    }
+    else
+    {
+        if (args.contains("childSubpage") && !args.contains("frameWidgetID"))
+            return requestError("childSubpage requires frameWidgetID");
+    }
+
+    return {};
+}
+
+inline std::string parseRecordingQuery(const Json &args, VCBridge::AuthoringRecordingQuery &query)
+{
+    if (!args.is_object())
+        return requestError("arguments must be a JSON object");
+
+    static const std::initializer_list<std::string> kAllowed = {
+        "showFunctionID", "kind", "controlRecordingUUID",
+        "fromTimeMs", "toTimeMs", "fields", "limit", "cursor"
+    };
+    for (auto it = args.begin(); it != args.end(); ++it)
+    {
+        bool found = false;
+        for (const auto &field : kAllowed)
+            if (it.key() == field) { found = true; break; }
+        if (!found)
+        {
+            std::string msg = "unknown field '" + it.key() + "'. Allowed: ";
+            bool first = true;
+            for (const auto &field : kAllowed)
+            {
+                if (!first) msg += ", ";
+                msg += field;
+                first = false;
+            }
+            return requestError(msg);
+        }
+    }
+
+    if (!args.contains("showFunctionID"))
+        return requestError("showFunctionID is required");
+    const auto showFunctionId = mcp::jsonInteger(args["showFunctionID"], 0, mcp::kMaxId);
+    if (!showFunctionId)
+        return requestError(mcp::integerError("showFunctionID", 0, mcp::kMaxId));
+    query.showFunctionID = quint32(*showFunctionId);
+
+    std::string kind = "references";
+    if (args.contains("kind"))
+    {
+        if (!args["kind"].is_string())
+            return requestError("kind must be a string");
+        kind = args["kind"].get<std::string>();
+        if (kind != "references" && kind != "commands")
+            return requestError("kind must be one of: references, commands");
+    }
+    query.kind = (kind == "commands")
+        ? VCBridge::AuthoringRecordingQuery::Kind::Commands
+        : VCBridge::AuthoringRecordingQuery::Kind::References;
+
+    if (args.contains("controlRecordingUUID"))
+    {
+        if (!args["controlRecordingUUID"].is_string())
+            return requestError("controlRecordingUUID must be a string");
+        query.controlRecordingUUID = QString::fromStdString(args["controlRecordingUUID"].get<std::string>());
+    }
+
+    if (args.contains("fromTimeMs"))
+    {
+        const auto from = mcp::jsonInteger(args["fromTimeMs"], 0, std::numeric_limits<qint64>::max());
+        if (!from)
+            return requestError(mcp::integerError("fromTimeMs", 0, std::numeric_limits<qint64>::max()));
+        query.fromTimeMs = *from;
+    }
+    if (args.contains("toTimeMs"))
+    {
+        const auto to = mcp::jsonInteger(args["toTimeMs"], 0, std::numeric_limits<qint64>::max());
+        if (!to)
+            return requestError(mcp::integerError("toTimeMs", 0, std::numeric_limits<qint64>::max()));
+        query.toTimeMs = *to;
+    }
+    if (query.toTimeMs >= 0 && query.fromTimeMs >= 0 && query.toTimeMs < query.fromTimeMs)
+    {
+        return requestError("toTimeMs must be greater than or equal to fromTimeMs");
+    }
+
+    if (args.contains("fields"))
+    {
+        if (!args["fields"].is_array())
+            return requestError("fields must be an array of strings");
+        for (size_t i = 0; i < args["fields"].size(); ++i)
+        {
+            const Json &entry = args["fields"][i];
+            if (!entry.is_string())
+                return requestError("fields must contain only strings");
+            const std::string token = entry.get<std::string>();
+            if (!inAllowedGroups(token, kRecordingFieldGroups))
+                return requestError("fields contains unknown group '" + token + "'");
+            query.fields.append(QString::fromStdString(token));
+        }
+    }
+
+    if (args.contains("limit"))
+    {
+        const auto limit = mcp::jsonInteger(args["limit"], 1, 250);
+        if (!limit)
+            return requestError(mcp::integerError("limit", 1, 250));
+        query.limit = int(*limit);
+    }
+
+    if (args.contains("cursor"))
+    {
+        if (!args["cursor"].is_string())
+            return requestError("cursor must be a string");
+        const std::string cursor = args["cursor"].get<std::string>();
+        if (cursor.size() > 1024)
+            return requestError("cursor must be at most 1024 UTF-8 bytes");
+        query.cursor = QString::fromStdString(cursor);
+    }
+
+    return {};
+}
+
+} // namespace VCAuthoringQuery
 
 #endif // VC_QUERY_HELPERS_H

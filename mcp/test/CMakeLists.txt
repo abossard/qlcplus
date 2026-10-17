@@ -187,6 +187,75 @@ target_link_libraries(mcp_query_tools_test PRIVATE
     nlohmann_json::nlohmann_json
 )
 
+# VC authoring query tools tests — queryAuthoring setup and recording tool surface
+add_executable(mcp_vc_authoring_query_tools_test WIN32
+    vc_authoring_query_tools_test.cpp vc_authoring_query_tools_test.h
+)
+
+target_include_directories(mcp_vc_authoring_query_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_vc_authoring_query_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
+# VC authoring input tools tests — typed controls and binding authoring tool surface
+add_executable(mcp_vc_authoring_input_tools_test WIN32
+    vc_authoring_input_tools_test.cpp vc_authoring_input_tools_test.h
+)
+
+target_include_directories(mcp_vc_authoring_input_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_vc_authoring_input_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
+# VC authoring apply tools tests — apply token update-tool surface
+add_executable(mcp_vc_authoring_apply_tools_test WIN32
+    vc_authoring_apply_tools_test.cpp vc_authoring_apply_tools_test.h
+)
+
+target_include_directories(mcp_vc_authoring_apply_tools_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/plugins/interfaces
+    ${CMAKE_SOURCE_DIR}/engine/src
+    ${CMAKE_SOURCE_DIR}/mcp
+    ${CMAKE_SOURCE_DIR}/mcp/tools
+)
+
+target_link_libraries(mcp_vc_authoring_apply_tools_test PRIVATE
+    Qt${QT_MAJOR_VERSION}::Core
+    Qt${QT_MAJOR_VERSION}::Gui
+    Qt${QT_MAJOR_VERSION}::Quick
+    Qt${QT_MAJOR_VERSION}::Qml
+    Qt${QT_MAJOR_VERSION}::Widgets
+    Qt${QT_MAJOR_VERSION}::Test
+    qlcplusmcp
+    nlohmann_json::nlohmann_json
+)
+
 # Reflow Column Detection tests — exercises overlap-with-tolerance column clustering
 add_executable(mcp_reflow_column_test WIN32
     mcp_reflow_column_test.cpp mcp_reflow_column_test.h
@@ -549,3 +618,142 @@ target_link_libraries(mcp_function_authoring_test PRIVATE
     qlcplusengine
     nlohmann_json::nlohmann_json
 )
+
+option(MCP_AUTHORING_OWNER_TESTS
+    "Enable MCP-owned real App/VCBridge owner harness test target"
+    OFF)
+
+if(MCP_AUTHORING_OWNER_TESTS)
+    if(CMAKE_VERSION VERSION_LESS 3.19)
+        message(FATAL_ERROR
+            "MCP_AUTHORING_OWNER_TESTS requires CMake >= 3.19 (cmake_language(DEFER)). "
+            "Re-run with newer CMake or set -DMCP_AUTHORING_OWNER_TESTS=OFF.")
+    endif()
+
+    if(NOT qmlui OR NOT mcp_server)
+        message(FATAL_ERROR
+            "MCP_AUTHORING_OWNER_TESTS requires -Dqmlui=ON and -Dmcp_server=ON.")
+    endif()
+
+    function(mcp_register_authoring_owner_test)
+        if(NOT TARGET qlcplus5)
+            message(FATAL_ERROR
+                "MCP_AUTHORING_OWNER_TESTS requires target qlcplus5. "
+                "Configure with -Dqmlui=ON and keep qmlui enabled.")
+        endif()
+        set(_owner_harness_root "${CMAKE_BINARY_DIR}/mcp/test/owner_harness")
+        set(_owner_harness_bin_dir "${_owner_harness_root}/bin")
+        set(_owner_harness_plugins_dir "${_owner_harness_root}/PlugIns")
+        set(_owner_probe_plugins_dir "${_owner_harness_root}/probeplugin")
+
+        get_target_property(_ui_sources qlcplus5 SOURCES)
+        get_target_property(_ui_source_dir qlcplus5 SOURCE_DIR)
+        set(_test_ui_sources)
+        foreach(source IN LISTS _ui_sources)
+            if(source MATCHES "(^|/)main\\.cpp$" OR source MATCHES "\\.qm$")
+                continue()
+            endif()
+            if(NOT IS_ABSOLUTE "${source}")
+                set(source "${_ui_source_dir}/${source}")
+            endif()
+            get_source_file_property(_is_generated "${source}" TARGET_DIRECTORY qlcplus5 GENERATED)
+            if(_is_generated)
+                set_source_files_properties("${source}" PROPERTIES GENERATED TRUE)
+            endif()
+            list(APPEND _test_ui_sources "${source}")
+        endforeach()
+
+        add_library(mcp_authoring_probe_plugin SHARED
+            ${CMAKE_SOURCE_DIR}/plugins/interfaces/qlcioplugin.cpp
+            ${CMAKE_SOURCE_DIR}/plugins/interfaces/qlcioplugin.h
+            ${CMAKE_SOURCE_DIR}/mcp/test/mcp_authoring_probe_plugin.cpp
+            ${CMAKE_SOURCE_DIR}/mcp/test/mcp_authoring_probe_plugin.h
+        )
+        target_include_directories(mcp_authoring_probe_plugin PRIVATE
+            ${CMAKE_SOURCE_DIR}/plugins/interfaces
+        )
+        target_link_libraries(mcp_authoring_probe_plugin PRIVATE
+            Qt${QT_MAJOR_VERSION}::Core
+            Qt${QT_MAJOR_VERSION}::Gui
+        )
+        set_target_properties(mcp_authoring_probe_plugin PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${_owner_probe_plugins_dir}"
+            RUNTIME_OUTPUT_DIRECTORY "${_owner_probe_plugins_dir}"
+        )
+
+        add_executable(mcp_authoring_settings_probe WIN32
+            ${CMAKE_SOURCE_DIR}/mcp/test/mcp_authoring_settings_probe.cpp
+        )
+        target_include_directories(mcp_authoring_settings_probe PRIVATE
+            ${CMAKE_SOURCE_DIR}/engine/src
+        )
+        target_link_libraries(mcp_authoring_settings_probe PRIVATE
+            Qt${QT_MAJOR_VERSION}::Core
+        )
+        set_target_properties(mcp_authoring_settings_probe PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/mcp/test"
+        )
+
+        add_executable(mcp_authoring_controlled_launcher WIN32
+            ${CMAKE_SOURCE_DIR}/mcp/test/mcp_authoring_controlled_launcher.cpp
+            ${_test_ui_sources}
+        )
+        add_dependencies(mcp_authoring_controlled_launcher qlcplus5 mcp_authoring_probe_plugin)
+        target_include_directories(mcp_authoring_controlled_launcher PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,INCLUDE_DIRECTORIES>"
+            ${_ui_source_dir}
+            ${CMAKE_SOURCE_DIR}/plugins/interfaces
+            ${CMAKE_SOURCE_DIR}/engine/src
+            ${CMAKE_SOURCE_DIR}/mcp
+            ${CMAKE_SOURCE_DIR}/mcp/tools
+            ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+        )
+        target_compile_definitions(mcp_authoring_controlled_launcher PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,COMPILE_DEFINITIONS>"
+            MCP_AUTHORING_PROBE_PLUGIN_DIR="$<TARGET_FILE_DIR:mcp_authoring_probe_plugin>"
+        )
+        target_link_libraries(mcp_authoring_controlled_launcher PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,LINK_LIBRARIES>"
+            qlcplusmcp
+            nlohmann_json::nlohmann_json
+        )
+        set_target_properties(mcp_authoring_controlled_launcher PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${_owner_harness_bin_dir}"
+        )
+
+        add_executable(mcp_authoring_owner_test WIN32
+            ${CMAKE_SOURCE_DIR}/mcp/test/vc_authoring_owner_test.cpp
+            ${CMAKE_SOURCE_DIR}/mcp/test/vc_authoring_owner_test.h
+            ${_test_ui_sources}
+        )
+        add_dependencies(mcp_authoring_owner_test qlcplus5 mcp_authoring_probe_plugin)
+        target_include_directories(mcp_authoring_owner_test PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,INCLUDE_DIRECTORIES>"
+            ${_ui_source_dir}
+            ${CMAKE_SOURCE_DIR}/plugins/interfaces
+            ${CMAKE_SOURCE_DIR}/engine/src
+            ${CMAKE_SOURCE_DIR}/mcp
+            ${CMAKE_SOURCE_DIR}/mcp/tools
+            ${CMAKE_SOURCE_DIR}/qmlui/virtualconsole
+        )
+        target_compile_definitions(mcp_authoring_owner_test PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,COMPILE_DEFINITIONS>"
+            MCP_AUTHORING_PROBE_PLUGIN_DIR="$<TARGET_FILE_DIR:mcp_authoring_probe_plugin>"
+            MCP_AUTHORING_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        )
+        target_link_libraries(mcp_authoring_owner_test PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,LINK_LIBRARIES>"
+            Qt${QT_MAJOR_VERSION}::Test
+            qlcplusmcp
+            nlohmann_json::nlohmann_json
+        )
+        set_target_properties(mcp_authoring_owner_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${_owner_harness_bin_dir}"
+        )
+        add_test(NAME mcp_authoring_owner_test COMMAND mcp_authoring_owner_test)
+        set_tests_properties(mcp_authoring_owner_test PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+    endfunction()
+
+    cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL mcp_register_authoring_owner_test)
+endif()

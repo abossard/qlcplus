@@ -46,6 +46,8 @@ private slots:
     void speedDialFunctionInfo_defaults();
     void fontConfig_setAndRead();
     void xyPadPresetInfo_defaults();
+    void authoringMethods_defaultUnsupportedBridge();
+    void authoringContracts_closedDefaults();
 };
 
 #endif // VC_BRIDGE_STRUCTS_TEST_H

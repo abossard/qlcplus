@@ -388,4 +388,53 @@ void VCRecordPanel_Test::xmlRoundTrip()
     QCOMPARE(readFadeOut, fadeOut);
 }
 
+void VCRecordPanel_Test::xmlParse_partialConfig()
+{
+    QBuffer buffer;
+    buffer.open(QIODevice::WriteOnly | QIODevice::Text);
+    QXmlStreamWriter writer(&buffer);
+    writer.writeStartDocument();
+    writer.writeStartElement("RecordPanel");
+    writer.writeTextElement("TargetFolder", "Only/Folder");
+    writer.writeTextElement("DefaultHold", "1500");
+    writer.writeTextElement("UnknownTag", "ignore me");
+    writer.writeEndElement();
+    writer.writeEndDocument();
+    buffer.close();
+
+    buffer.open(QIODevice::ReadOnly | QIODevice::Text);
+    QXmlStreamReader reader(&buffer);
+    reader.readNextStartElement();
+    QCOMPARE(reader.name().toString(), QString("RecordPanel"));
+
+    QString readFolder, readScenePrefix, readChaserPrefix;
+    uint readFadeIn = 0, readHold = 0, readFadeOut = 0;
+
+    while (reader.readNextStartElement())
+    {
+        if (reader.name() == QStringLiteral("TargetFolder"))
+            readFolder = reader.readElementText();
+        else if (reader.name() == QStringLiteral("ScenePrefix"))
+            readScenePrefix = reader.readElementText();
+        else if (reader.name() == QStringLiteral("ChaserPrefix"))
+            readChaserPrefix = reader.readElementText();
+        else if (reader.name() == QStringLiteral("DefaultFadeIn"))
+            readFadeIn = reader.readElementText().toUInt();
+        else if (reader.name() == QStringLiteral("DefaultHold"))
+            readHold = reader.readElementText().toUInt();
+        else if (reader.name() == QStringLiteral("DefaultFadeOut"))
+            readFadeOut = reader.readElementText().toUInt();
+        else
+            reader.skipCurrentElement();
+    }
+    buffer.close();
+
+    QCOMPARE(readFolder, QString("Only/Folder"));
+    QCOMPARE(readScenePrefix, QString());
+    QCOMPARE(readChaserPrefix, QString());
+    QCOMPARE(readFadeIn, uint(0));
+    QCOMPARE(readHold, uint(1500));
+    QCOMPARE(readFadeOut, uint(0));
+}
+
 QTEST_MAIN(VCRecordPanel_Test)
