@@ -76,6 +76,7 @@
 #include "audioplugincache.h"
 #include "ioplugincache.h"
 #include "qlcioplugin.h"
+#include "serviceloader.h"
 #include "rgbscriptscache.h"
 #include "huescriptscache.h"
 #include "qlcconfig.h"
@@ -1032,6 +1033,13 @@ void App::initDoc()
      * otherwise the qlcconfig.h creation should have been moved into the
      * audio folder, which doesn't make much sense */
     m_doc->audioPluginCache()->load(QLCFile::systemDirectory(AUDIOPLUGINDIR, KExtPlugin));
+
+#if !defined(Q_OS_ANDROID) && !defined(Q_OS_IOS)
+    /* Load service plugins. They are optional and use the I/O plugins,
+     * so they must be loaded after them */
+    m_doc->serviceLoader()->load(ServiceLoader::systemServiceDirectory());
+#endif
+
     m_videoProvider = new VideoProvider(this, m_doc);
 
     Q_ASSERT(m_doc->inputOutputMap() != nullptr);

@@ -410,6 +410,7 @@ VCWidgetItem
             border.width: 0
             checkable: true
             tooltip: checked ? qsTr("Mappings enabled. Click to pause.") : qsTr("Mappings paused. Click to enable.")
+            enabled: audioTriggerObj ? !audioTriggerObj.isDisabled : true
             faSource: FontAwesome.fa_check
             faColor: "lime"
             imgMargins: 1
@@ -419,7 +420,7 @@ VCWidgetItem
 
         QLCPlusFader
         {
-            enabled: audioTriggerObj ? !audioTriggerObj.isDisabled : false
+            enabled: audioTriggerObj ? !audioTriggerObj.isDisabled : true
             Layout.alignment: Qt.AlignHCenter
             Layout.fillHeight: true
             width: parent.width

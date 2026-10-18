@@ -44,6 +44,7 @@
 class AudioCapture;
 class AudioAnalyzer;
 class OscAudioSource;
+class ServiceLoader;
 class RGBScriptsCache;
 class HUEScriptsCache;
 class AudioPluginCache;
@@ -148,6 +149,9 @@ public:
     /** Get the audio decoder plugin cache object */
     AudioPluginCache *audioPluginCache() const;
 
+    /** Get the service plugins loader */
+    ServiceLoader *serviceLoader() const;
+
     /** Get the DMX output map object */
     InputOutputMap *inputOutputMap() const;
 
@@ -171,6 +175,10 @@ public:
     /** Connect/disconnect the OSC audio source for a profile based on its audioSource setting */
     void updateOscAudioSourceForProfile(AudioProfile *profile);
 
+private slots:
+    /** Wire a newly loaded service plugin to the engine data it needs */
+    void slotServiceAvailable(const QString &id);
+
 private:
     QLCFixtureDefCache *m_fixtureDefCache;
     QLCModifiersCache *m_modifiersCache;
@@ -179,6 +187,7 @@ private:
     IOPluginCache *m_ioPluginCache;
     AudioPluginCache *m_audioPluginCache;
     AudioAnalyzer *m_audioAnalyzer;
+    ServiceLoader *m_serviceLoader;
     MasterTimer *m_masterTimer;
     InputOutputMap *m_ioMap;
     mutable QSharedPointer<AudioCapture> m_inputCapture;

@@ -2230,3 +2230,96 @@ All checkboxes and sign-off fields below remain pending for human review.
 | Table readability, search and scope | | | | |
 | Full binding details and Show navigation | | | | |
 | Keyboard policy and conditional popup | | | | |
+
+---
+
+## 37. Upstream a977c98b3 services and playback fixes
+
+> Review with disposable workspaces and owned output devices. Preserve unsaved work before switching applications or workspaces. The fork keeps its profile-based audio analysis; upstream's legacy FFT spectrum implementation is not restored. All checks below await human sign-off.
+
+**2026-10-18 automated verification**
+
+The v5 application, ArtNet, DMX USB and all configured plugin targets built
+against the new I/O interface. Nineteen affected Qt suites reported 1,883
+passes, no failures and 12 internal skips, including setup/cleanup. Coverage
+includes upstream EFX, paused-fader/Scene and zero-step RGB matrix regressions,
+Doc/I/O, Function/Show/Universe, five audio suites, app-linked Audio Triggers
+and upstream integration, ArtNet packetization and MCP I/O/discovery.
+
+Tests used offscreen/software rendering and disposable home/config/temp
+paths. The I/O suite initially failed because its relative stub-plugin path
+was resolved from the source directory; it passed all 82 checks from its
+build directory. Twelve skips cover the existing duplicate-EFX policy,
+optional audio corpus/replay exports and opt-in native screenshot fixtures.
+The separate `vcxypad_test` target still fails to link missing
+VirtualConsole/VCFrame symbols. Its harness and referenced production UI
+sources are unchanged by this merge; this target was not counted as passed.
+No `dmxusb_test` target is configured.
+
+From `tools/manual-review`,
+`npm test -- src/parser-real.test.ts src/parser.test.ts` passed all 45 tests.
+The native canvas parser also found eight new cases and 13 pending checks;
+the complete pre-existing document prefix is unchanged. The native parser
+does not expose hardware-tag metadata.
+
+Commands, return codes and raw logs are under
+`~/.copilot/session-state/9742fb19-e77a-4058-a0c5-ecf60fa7941a/files/`
+(`upstream-build-final.log`, `upstream-plugins-build.log`,
+`run-upstream-tests.py`, `test-results*.json` and per-suite logs).
+Android deployment, v4 appearance, installed RDM services and physical
+DMX/RDM delivery remain untested. The running application was not restarted.
+
+### 37.1 Disabled Virtual Console controls
+
+- **Do:** Add an animation, Audio Triggers, clock, cue list, slider, speed dial and XY pad. Disable each widget directly, then through its parent frame.
+- ☐ Disabled controls look inactive and ignore pointer and keyboard playback actions, including cue selection/Enter, slider Flash/reset and the audio mappings toggle.
+- ☐ Open the animation and slider color tools before disabling their widgets. Confirm the tools close, stay hidden while disabled and reopen normally after re-enabling.
+- ☐ Re-enable the widgets and frame. Confirm captions, meter layout, cue-list columns and normal interactions remain readable and usable.
+
+### 37.2 EFX and paused-show fade continuity [DMX]
+
+- **Do:** Run a moving-head EFX with a two-second duration. Compare fade-in values shorter than, equal to and longer than that duration. Then pause a Show containing a fading Scene and stop the Show.
+- ☐ The EFX keeps moving in every case, without freezing or jumping unexpectedly when the fade-in reaches or exceeds the duration.
+- ☐ Stopping the paused Show fades the Scene out smoothly and releases the output so another control can take over without a stuck level.
+
+### 37.3 RGB matrix without loaded image
+
+- **Do:** Select an RGB image algorithm before loading an image, edit its total duration, then load a valid image and play it.
+- ☐ The editor remains usable before an image is available. After loading, playback timing and visual transitions match the selected duration without stale or frozen frames.
+
+### 37.4 Audio profiles and waveform loading
+
+- **Do:** Use two Audio Triggers widgets sharing a profile. Play quiet and loud music, then silence, and compare their meters and mapped lighting. Open several audio tracks in the Show editor to generate waveforms.
+- ☐ Profile bank settings, source labels and mapping controls remain intact. Meters and lighting respond coherently to the source and recover from silence without stale hits.
+- ☐ Waveforms appear and the Show editor remains responsive while loading tracks. Listen for normal playback and inspect waveform readability at several zoom levels.
+- **Note:** The fork's configurable mel-bank gain, noise gate and profile processing remain in effect. Its meters do not claim upstream's fixed -60 dBFS, pink-flat FFT calibration.
+
+### 37.5 Optional services and RDM transport [DMX]
+
+- **Do:** In a separate installation, start without service plugins and inspect normal I/O operation. If an API-compatible RDM service is available, install it there and use an owned ArtNet node or supported Enttec interface.
+- ☐ Ordinary DMX operation remains usable without optional services. In the classic v4 UI, unavailable RDM functionality is clearly indicated rather than exposing unusable discovery controls.
+- ☐ With the RDM service installed, discovery and device properties identify the expected fixtures. Normal output remains stable during discovery and after closing the manager.
+- **Note:** Skip the service-installed check if no compatible service or RDM hardware is available. Building ArtNet and DMX USB does not prove physical transport.
+
+### 37.6 Classic UI scaling
+
+- **Do:** In a v4 build, open Click & Go color and position controls on standard-DPI and high-DPI displays. Resize them and move the application between displays where available.
+- ☐ Buttons, indicators and picker contents stay aligned, readable and hittable without clipping or distorted scaling.
+
+### 37.7 Android translations
+
+- **Do:** Install an Android v5 package built from the merged branch. Select an available non-English language, restart that test installation and visit the fixture and Virtual Console editors.
+- ☐ Translated labels appear consistently after restart. Controls remain legible without missing translation assets or unusable clipping.
+
+### 37.8 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, service plugin and hardware used. Leave unavailable v4, Android and physical RDM/DMX checks unsigned.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Disabled controls and color tools | | | | |
+| EFX, paused-show fades and RGB matrix | | | | |
+| Audio profiles and waveform loading | | | | |
+| Optional services and physical RDM | | | | |
+| Classic UI scaling | | | | |
+| Android translations | | | | |

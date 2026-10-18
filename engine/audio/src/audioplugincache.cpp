@@ -86,10 +86,7 @@ void AudioPluginCache::load(const QDir &dir)
         QString fileName(it.next());
         QString path = dir.absoluteFilePath(fileName);
 
-        // NOTE: do not parent the loader to `this` (AudioPluginCache). This method
-        // may run on a worker thread (e.g. the Show Manager waveform generator),
-        // and creating a QObject child of a parent living on another thread is
-        // illegal and crashes. The loader is a stack local and needs no parent.
+        // Waveform workers use the main-thread cache, so loaders must be unparented.
         QPluginLoader loader(path);
         AudioDecoder* ptr = qobject_cast<AudioDecoder*> (loader.instance());
         if (ptr != NULL)
@@ -113,7 +110,7 @@ QStringList AudioPluginCache::getSupportedFormats()
     QStringList caps;
     foreach (QString path, m_pluginsMap)
     {
-        QPluginLoader loader(path); // unparented: may run off the main thread
+        QPluginLoader loader(path);
         AudioDecoder* ptr = qobject_cast<AudioDecoder*> (loader.instance());
         if (ptr != NULL)
         {
@@ -134,8 +131,6 @@ AudioDecoder *AudioPluginCache::getDecoderForFile(const QString &filename)
 
     foreach (QString path, m_pluginsMap)
     {
-        // unparented loader: getDecoderForFile runs on the waveform worker thread,
-        // so it must not create a QObject child of this main-thread cache.
         QPluginLoader loader(path);
         AudioDecoder* ptr = qobject_cast<AudioDecoder*> (loader.instance());
         if (ptr != NULL)
