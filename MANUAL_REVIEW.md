@@ -2323,3 +2323,97 @@ DMX/RDM delivery remain untested. The running application was not restarted.
 | Optional services and physical RDM | | | | |
 | Classic UI scaling | | | | |
 | Android translations | | | | |
+
+---
+
+## 38. Upstream 4c13ab364 slider and deployment fixes
+
+> Covers upstream a977c98b3..4c13ab364. Use a disposable workspace and owned devices. All checks below await human sign-off.
+
+**2026-10-19 automated verification**
+
+The v5 application, translations and affected Peperoni, ArtNet, sACN,
+Loopback, MIDI, OSC and OS2L plugin targets built on macOS.
+Seven Qt suites reported 484 passes
+with no failures or skips, including setup/cleanup. The app-linked integration
+selection covers slider copies, non-intensity attribute/range ordering,
+Click & Go colors, copied keyboard bindings, fader handle proportions,
+zoomed copies, minimum-size resize, undo/history, layout persistence and
+fixture selection. The remaining suites cover Doc/I/O and MCP input,
+query and dispatch contracts.
+
+The supplemental `showcommandrecorder_test` selection did not pass. Its
+minimal-view fixture rejects controls with "cannot fit its usable size"
+before recording assertions, then a later case dereferences a missing
+control and crashes. The isolated `onlyUserInputAuthors:slider-pointer`
+case fails identically when both changed VC C++ files are compiled from
+the original parent (`c3353a4f2`). Other merged objects remain in that
+comparison; this is not a complete pre-merge build. The fixture, bridge,
+frame, page and geometry-admission sources are unchanged. The recorder
+selection is excluded from the passing total and its replay coverage
+remains unverified.
+
+From `tools/manual-review`,
+`npm test -- src/parser-real.test.ts src/parser.test.ts` passed all 46
+tests. The native canvas parser found seven new cases and 12 checks;
+the existing document prefix is unchanged. The iOS resource-copy script
+executed successfully, and the plist and asset JSON parsed successfully.
+These checks do not establish an iOS application build or device behavior.
+
+Commands, return codes and logs are in
+`~/.copilot/session-state/5eb73ee1-becb-42a8-b94b-2a68d516491c/files/`
+(`configure.log`, `build.log`, `translations.log`, `test-build.log`, `final-test-build.log`,
+`run-merge-tests.py`, `test-results.json`, per-suite logs and
+`recorder-comparison.json`). Windows translation execution, iOS deployment,
+visual review and physical Peperoni/DMX output remain untested.
+The running application was not restarted.
+
+### 38.1 Slider copies and keyboard bindings
+
+- **Do:** Copy Level and Adjust sliders with custom ranges, a non-intensity EFX attribute, Flash enabled, keyboard shortcuts and Click & Go colors or a gobo preset. Compare originals and copies at different page zoom levels.
+- ☐ The copied controls show the same range, selected attribute, colors or gobo preview and Flash availability. Captions and values remain readable without layout shifts.
+- ☐ In Operate mode, use the copied sliders and shortcuts. Confirm the intended controls respond, including after save/reload, without unexpected playback during editing.
+
+### 38.2 Fader scaling and bounded resize
+
+- **Do:** Resize a VC slider to narrow and wide shapes, then zoom the page out and in. Drag all four resize corners on a slider and a nested frame, including near their minimum sizes. Undo and redo the edits.
+- ☐ Fader handles remain proportional and hittable without horizontal clipping. Labels and Flash/reset controls remain usable at each zoom level.
+- ☐ Resize previews and final geometry agree. Controls stay within their parent, avoid negative dimensions and preserve the opposite corner. Undo/redo restores the same layout without starting a function.
+- **Note:** The fork retains its centralized per-widget minimum-size and transactional geometry rules rather than upstream's separate QML-only minimum.
+
+### 38.3 Fixture label stacking and orientation
+
+- **Do:** In the 2D fixture view, overlap several labeled fixtures. Hover and select different fixtures, then rotate them through 90, 180 and 270 degrees, including negative and full-turn angles.
+- ☐ Hovered and selected fixtures expose readable labels above neighboring fixtures without hiding selection feedback.
+- ☐ Labels flip appropriately as fixtures turn upside down. Text remains legible around the orientation boundaries and after save/reload.
+
+### 38.4 Audio I/O selection
+
+- **Do:** Open Inputs/Outputs, select an audio device row, then switch between audio and ordinary universe rows.
+- ☐ Selection highlighting and the detail panel follow the selected row. Audio controls remain usable without stale selections or visible errors.
+
+### 38.5 Peperoni USBDMX21 refresh [DMX]
+
+- **Do:** Connect an owned USBDMX21, enable both output universes, refresh device discovery repeatedly, then disconnect and reconnect it. Repeat with a single-output Peperoni device if available.
+- ☐ Both USBDMX21 output lines retain stable names and remain usable across refreshes. Output does not freeze or disappear when the other line is idle.
+- ☐ Disconnect removes both lines without a crash. Reconnect restores both outputs and physical DMX responds after repatching.
+- **Note:** Skip if Peperoni hardware is unavailable. A successful plugin build does not establish USB hotplug or physical output.
+
+### 38.6 iOS deployment and translations
+
+- **Do:** On a supported iOS toolchain, build/install the v5 app. Inspect its icon and orientation, choose a non-English language, and open fixture, RGB script, MIDI-template and sample-workspace selectors. Exercise a network output on an owned node.
+- ☐ The app launches with the expected icon, readable translated controls and bundled resources. Rotating the device leaves editors usable.
+- ☐ Built-in network and MIDI plugins appear without loading external libraries. Local-network permission is understandable and the selected network output reaches the node after permission is granted.
+- **Note:** Windows translation execution and iOS device behavior are not established by a macOS desktop build.
+
+### 38.7 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, display scale, platform and hardware. Leave unavailable Peperoni/iOS checks unsigned.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Slider copies and keyboard bindings | | | | |
+| Fader scaling and bounded resize | | | | |
+| Fixture labels and audio selection | | | | |
+| Peperoni refresh and physical output | | | | |
+| iOS deployment and translations | | | | |

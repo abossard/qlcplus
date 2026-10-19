@@ -116,6 +116,19 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
   });
 
+  it.each([
+    { number: '38', commit: '4c13ab364',
+      cases: ['38.1', '38.2', '38.3', '38.4', '38.5', '38.6', '38.7'],
+      checks: [2, 2, 2, 1, 2, 2, 1], tags: [[], [], [], [], ['DMX'], [], []] },
+  ])('recognizes upstream $commit slider and deployment review cases', ({ number, commit, cases, checks, tags }) => {
+    const section = parseManualReview(md).sections.find(s => s.number === number);
+    expect(section?.title).toContain(commit);
+    expect(section?.cases.map(c => c.number)).toEqual(cases);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual(checks);
+    expect(section!.cases.map(c => c.tags)).toEqual(tags);
+    expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
+  });
+
   it.skipIf(skip)('finds checkable items', () => {
     const plan = parseManualReview(md);
     const total = countCheckItems(plan);

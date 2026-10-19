@@ -6,8 +6,10 @@ project(plugins)
 # manual symlinks during development.
 set(PLUGIN_OUTPUT_DIR "${CMAKE_BINARY_DIR}/${PLUGINDIR}")
 
-# libusb-1.0
-pkg_check_modules(LIBUSB_1 IMPORTED_TARGET libusb-1.0)
+if(IOS)
+    add_compile_definitions(QT_STATICPLUGIN)
+    add_subdirectory(midi)
+endif()
 
 add_subdirectory(artnet)
 add_subdirectory(ddp)
@@ -21,6 +23,8 @@ add_subdirectory(vdjbridge)
 set(_plugin_targets artnet ddp e131 loopback osc os2l vdjbridge)
 
 if(NOT ANDROID AND NOT IOS)
+    # libusb-1.0
+    pkg_check_modules(LIBUSB_1 IMPORTED_TARGET libusb-1.0)
     pkg_check_modules(LIBOLA IMPORTED_TARGET libola)
     pkg_check_modules(LIBOLASERVER IMPORTED_TARGET libolaserver)
 

@@ -35,6 +35,7 @@
 #undef private
 #include "contextmanager.h"
 #include "doc.h"
+#include "efx.h"
 #include "djmanager.h"
 #include "editorview.h"
 #include "fixture.h"
@@ -141,6 +142,10 @@ private slots:
     void colorSelectionMarker_data();
     void colorSelectionMarker();
     void identicalWidgetFont();
+    void vcSliderCopy_data();
+    void vcSliderCopy();
+    void faderHandleScaling_data();
+    void faderHandleScaling();
     void selectedFixtureColors_data();
     void selectedFixtureColors();
     void colorPressOwnership();
@@ -3838,6 +3843,95 @@ void UpstreamIntegration_Test::vcReparentBindings()
         QCOMPARE(targetButton->intensity(), qreal(64) / 255 * 0.25);
     }
     QCOMPARE(m_app->runningFunctionsCount(), 0);
+}
+
+void UpstreamIntegration_Test::vcSliderCopy_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<int>("attribute");
+    QTest::newRow("level") << int(VCSlider::Level) << int(Function::Intensity);
+    QTest::newRow("adjust-intensity") << int(VCSlider::Adjust) << int(Function::Intensity);
+    QTest::newRow("adjust-width") << int(VCSlider::Adjust) << int(EFX::Width);
+    QTest::newRow("submaster") << int(VCSlider::Submaster) << int(Function::Intensity);
+}
+
+void UpstreamIntegration_Test::vcSliderCopy()
+{
+    QFETCH(int, mode);
+    QFETCH(int, attribute);
+    Doc *doc = m_app->doc();
+    auto *efx = new EFX(doc);
+    QVERIFY(doc->addFunction(efx));
+    const auto cleanup = qScopeGuard([&]() { QVERIFY(doc->deleteFunction(efx->id())); });
+    VCFrame frame(doc, m_app->virtualConsole());
+    VCSlider source(doc, &frame);
+    source.setSliderMode(static_cast<VCSlider::SliderMode>(mode));
+    if (mode == VCSlider::Adjust)
+    {
+        source.setControlledFunction(efx->id());
+        source.setControlledAttribute(attribute);
+        source.setAdjustFlashEnabled(true);
+    }
+    source.setRangeLowLimit(20);
+    source.setRangeHighLimit(100);
+    source.setClickAndGoType(VCSlider::CnGColors);
+    const QColor primary(12, 90, 180), secondary(30, 60, 90);
+    source.setClickAndGoColors(primary, secondary);
+    source.setValue(72, false, false);
+    source.setMonitorEnabled(mode == VCSlider::Level);
+    source.addKeySequence(QKeySequence(Qt::Key_F8), 2);
+    source.setLogicalGeometry(QRectF(20, 30, 80, 200));
+    source.ensureRecordingId();
+    std::unique_ptr<VCWidget> copied(source.createCopy(&frame));
+    auto *copy = qobject_cast<VCSlider *>(copied.get());
+    QVERIFY(copy);
+    QCOMPARE(copy->sliderMode(), source.sliderMode());
+    QCOMPARE(copy->controlledFunction(), source.controlledFunction());
+    QCOMPARE(copy->controlledAttribute(), source.controlledAttribute());
+    QCOMPARE(copy->attributeMinValue(), source.attributeMinValue());
+    QCOMPARE(copy->attributeMaxValue(), source.attributeMaxValue());
+    QCOMPARE(copy->adjustFlashEnabled(), source.adjustFlashEnabled());
+    QCOMPARE(copy->rangeLowLimit(), qreal(20));
+    QCOMPARE(copy->rangeHighLimit(), qreal(100));
+    QCOMPARE(copy->value(), source.value());
+    QCOMPARE(copy->clickAndGoType(), VCSlider::CnGColors);
+    QCOMPARE(copy->cngPrimaryColor(), primary);
+    QCOMPARE(copy->cngSecondaryColor(), secondary);
+    QCOMPARE(copy->monitorEnabled(), source.monitorEnabled());
+    QCOMPARE(copy->keySequenceMap(), source.keySequenceMap());
+    QCOMPARE(copy->logicalGeometry(), source.logicalGeometry());
+    QVERIFY(copy->recordingId().isNull());
+    QVERIFY(!efx->isRunning());
+    QVERIFY(!doc->masterTimer()->isStartQueued(efx));
+}
+
+void UpstreamIntegration_Test::faderHandleScaling_data()
+{
+    QTest::addColumn<qreal>("width");
+    QTest::addColumn<qreal>("scale");
+    for (qreal width : {qreal(12), qreal(120)})
+        for (qreal scale : {qreal(0.5), qreal(1), qreal(2)})
+            QTest::newRow(qPrintable(QString("width-%1-scale-%2").arg(width).arg(scale))) << width << scale;
+}
+
+void UpstreamIntegration_Test::faderHandleScaling()
+{
+    QFETCH(qreal, width);
+    QFETCH(qreal, scale);
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/QLCPlusFader.qml"));
+    std::unique_ptr<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    QVERIFY(object->setProperty("width", width));
+    QVERIFY(object->setProperty("scaleFactor", scale));
+    auto *handle = qvariant_cast<QQuickItem *>(object->property("handle"));
+    QVERIFY(handle);
+    QQmlExpression iconSize(qmlContext(object.get()), object.get(), "UISettings.iconSizeDefault");
+    const qreal defaultWidth = iconSize.evaluate().toReal();
+    QVERIFY2(!iconSize.hasError(), qPrintable(iconSize.error().toString()));
+    QVERIFY(defaultWidth > 0);
+    const qreal expected = qMin(defaultWidth * scale, width);
+    QTRY_COMPARE(handle->implicitWidth(), expected);
+    QCOMPARE(handle->implicitHeight(), expected * qreal(0.75));
 }
 
 void UpstreamIntegration_Test::vcZoomedCopy_data()
