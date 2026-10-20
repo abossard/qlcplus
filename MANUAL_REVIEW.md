@@ -2417,3 +2417,63 @@ The running application was not restarted.
 | Fixture labels and audio selection | | | | |
 | Peperoni refresh and physical output | | | | |
 | iOS deployment and translations | | | | |
+
+---
+
+## 39. Upstream 95c323cd0 history and small-screen updates
+
+> Covers upstream 4c13ab364..95c323cd0. Use a disposable workspace. All checks below await human sign-off.
+>
+> Automated results (macOS, Qt 6.12.0, offscreen/software): `cmake --build build --target upstreamintegration_test mcp_uimanager_preset_test mcp_vc_query_filter_test mcp_vc_authoring_input_tools_test mcp_dispatch_smoke_test showcommandrecorder_test fixturegroup_test -j8` passed across the affected-target builds, including `qlcplus5`. `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software ./build/qmlui/test/upstreamintegration/upstreamintegration_test` passed 529 checks; eight opt-in screenshot fixtures were skipped because `QLC_VC_VISUAL_DIR` was unset. Geometry fixtures pin scale 1.0; separate parameterized cases exercise automatic defaults and saved scales.
+>
+> Additional suites passed: UI presets (6), fixture groups (18), MCP VC queries (65), authoring inputs (77), dispatch (35), and `cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts` (47). Both checklist parsers preserve seven new cases with eleven pending checks and the original document prefix.
+>
+> Limitation: the separate `showcommandrecorder_test` history/Perform selection still has 47 fixture-setup failures at widget geometry admission ("cannot fit its usable size"), as previously recorded in section 38. Those rows did not reach their history assertions. The production-App-linked `tardisRecordingHistory` cases pass for grouping, capacity, refusal and Perform guards, but do not establish the failed harness's end-to-end editor interactions. Mobile builds, physical display readability and human interaction checks below remain unverified.
+
+### 39.1 Undo/redo and recording-editor history
+
+- **Do:** Rename fixtures/functions and move VC controls in separate edits, then undo everything and redo one step at a time. Undo again and make a new edit. Repeat with recording-event edits interleaved with ordinary edits and a batch layout operation.
+- ☐ Undo and redo restore the expected visible state one step at a time. A recording-event edit remains its own step, while a batch layout operation replays together.
+- ☐ A new edit after undo replaces the old redo branch. Repeated undo/redo remains responsive without stale controls, unexpected playback or a freeze.
+
+### 39.2 Workspaces without Virtual Console pages
+
+- **Do:** Open a workspace whose VirtualConsole element contains no Frame elements, first from a one-page workspace and then from a multi-page workspace. Open the VC editor, add a control, save and reopen.
+- ☐ Loading finishes and leaves one usable VC page. The page switcher, editor and saved control remain usable without a hang or stale page selection.
+
+### 39.3 Stopped cue-list previous/next
+
+- **Do:** Attach a three-step chaser to a cue list. Before starting playback, press Previous and Next with the Select and Run Next behaviors, in both forward and backward directions. Repeat after Stop and with a one-step chaser.
+- ☐ Selection starts at the correct end of the list for the chosen direction and button, wraps at either end and never leaves a phantom negative selection.
+- ☐ Select only changes the highlighted step. Run Next starts the selected step, and Stop leaves the list ready for another previous/next action.
+
+### 39.4 Automatic scaling and saved preferences
+
+- **Do:** On a small display, use an isolated user configuration with no saved UI style. Launch QLC+, dismiss the scaling message, inspect editors and set a custom scale. Relaunch with that configuration, then move the window between small and large displays and use the scaling reset button.
+- ☐ The first launch explains the automatic scale. Text, popups and controls fit the display and remain readable and hittable, including in portrait orientation.
+- ☐ A saved custom scale survives relaunch and display changes. Reset selects the current screen's default rather than forcing 1.0. The fork's default dark theme and saved theme presets remain available.
+
+### 39.5 Mobile and desktop 3D entry
+
+- **Do:** Open Fixtures and Functions on Android or iOS, then compare the navigation with a desktop build that supports 3D.
+- ☐ Mobile navigation hides the 3D View entry and leaves the remaining editors usable. Desktop navigation still offers 3D when its view is not detached.
+- **Note:** Leave this case unsigned without both a mobile build and a supported desktop build.
+
+### 39.6 Fixture-group head and range selection
+
+- **Do:** Edit a group containing several multi-head fixtures and empty grid cells. Click member fixtures and individual heads in the tree, Control-click to extend selection, then Shift-click forwards and backwards across holes. Move, rotate and delete a selection, then switch groups and select again.
+- ☐ Tree clicks select the matching group heads without leaving the group editor. Control adds heads, Shift selects the occupied range from its anchor, and nonmember clicks still permit normal editor navigation.
+- ☐ The grid highlight follows moved/transformed selections and clears on group changes. The toolbar has no whole-group reset button; selection deletion remains usable without affecting unselected heads.
+
+### 39.7 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, display size/scale and desktop/mobile platform. Leave untested platforms and interaction paths unsigned.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Undo/redo and recording history | | | | |
+| Empty VC loading and authoring | | | | |
+| Stopped cue-list selection/playback | | | | |
+| Scaling and theme preferences | | | | |
+| Mobile/desktop 3D navigation | | | | |
+| Fixture-group selection | | | | |

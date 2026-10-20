@@ -33,6 +33,7 @@ UiManager::UiManager(QQuickView *view, Doc *doc, QObject *parent)
     : QObject(parent)
     , m_view(view)
     , m_doc(doc)
+    , m_uiStyle(nullptr)
     , m_currentPreset("Classic")
 {
     initPresets();
@@ -42,7 +43,7 @@ UiManager::~UiManager()
 {
 }
 
-void UiManager::initialize()
+bool UiManager::initialize()
 {
     /** Force the creation of the UISettings singleton and
      *  store a reference to it. In this way it is possible
@@ -58,8 +59,11 @@ void UiManager::initialize()
     QObject *item = component.create();
     m_uiStyle = qvariant_cast<QObject*>(item->property("style"));
 
-    /** Store default values first */
-    setDefaultParameter("sizes", "scalingFactor", 1.0);
+    /** Store default values first. The scaling factor default
+     *  might have been already set to fit the current screen */
+    QVariant scaling = getDefault("scalingFactor");
+    setDefaultParameter("sizes", "scalingFactor", scaling.isValid() ? scaling : 1.0);
+    setModified("scalingFactor", getDefault("scalingFactor"));
 
     setDefaultParameter("colors", "bgStronger", m_uiStyle->property("bgStronger"));
     setDefaultParameter("colors", "bgStrong", m_uiStyle->property("bgStrong"));
@@ -98,53 +102,61 @@ void UiManager::initialize()
 
     /** Then load (if available) the user configuration */
     QFile jsonFile(userConfFilepath());
-    if (jsonFile.exists())
+    if (jsonFile.exists() == false)
     {
-        QJsonParseError parseError;
-        if (jsonFile.open(QIODevice::ReadOnly) != true)
-            return;
+        applyPreset("VS Code Dark");
 
-        QByteArray ba = jsonFile.readAll();
-        QJsonDocument jsonDoc = QJsonDocument::fromJson(ba, &parseError);
-
-        if (parseError.error != QJsonParseError::NoError)
+        /** No user configuration yet. If the scaling factor has been reduced
+         *  to fit the screen, store it so that from now on it is a user setting */
+        if (getDefault("scalingFactor").toReal() < 1.0)
         {
-            qWarning() << "UI Style parse error at" << parseError.offset << ":" << parseError.errorString();
+            saveSettings();
+            return true;
         }
-        else
-        {
-            QJsonObject jsonObject = jsonDoc.object();
+        return false;
+    }
 
-            /** Apply saved preset first (if any) */
-            if (jsonObject.contains("preset"))
-            {
-                QString presetName = jsonObject.value("preset").toString();
-                if (presetName != "Classic" && m_presets.contains(presetName))
-                    applyPreset(presetName);
-                else
-                    setCurrentPreset(presetName);
-            }
+    QJsonParseError parseError;
+    if (jsonFile.open(QIODevice::ReadOnly) != true)
+        return false;
 
-            for (QString &category : jsonObject.keys())
-            {
-                if (category == "preset")
-                    continue;
+    QByteArray ba = jsonFile.readAll();
+    QJsonDocument jsonDoc = QJsonDocument::fromJson(ba, &parseError);
 
-                QJsonObject categoryObj = jsonObject.value(category).toObject();
-                for (QString &paramName : categoryObj.keys())
-                {
-                    QJsonValue paramVal = categoryObj.value(paramName);
-                    setModified(paramName, paramVal.toVariant());
-                }
-            }
-        }
-        jsonFile.close();
+    if (parseError.error != QJsonParseError::NoError)
+    {
+        qWarning() << "UI Style parse error at" << parseError.offset << ":" << parseError.errorString();
     }
     else
     {
-        /** No saved config — apply VS Code Dark as the default theme */
-        applyPreset("VS Code Dark");
+        QJsonObject jsonObject = jsonDoc.object();
+
+        /** Apply saved preset first (if any) */
+        if (jsonObject.contains("preset"))
+        {
+            QString presetName = jsonObject.value("preset").toString();
+            if (presetName != "Classic" && m_presets.contains(presetName))
+                applyPreset(presetName);
+            else
+                setCurrentPreset(presetName);
+        }
+
+        for (QString &category : jsonObject.keys())
+        {
+            if (category == "preset")
+                continue;
+
+            QJsonObject categoryObj = jsonObject.value(category).toObject();
+            for (QString &paramName : categoryObj.keys())
+            {
+                QJsonValue paramVal = categoryObj.value(paramName);
+                setModified(paramName, paramVal.toVariant());
+            }
+        }
     }
+    jsonFile.close();
+
+    return false;
 }
 
 void UiManager::setDefaultParameter(QString category, QString name, QVariant value)
@@ -175,6 +187,23 @@ void UiManager::setModified(QString name, QVariant value)
     m_parameterMap.insert(name, prop);
     std::string str = name.toStdString();
     m_uiStyle->setProperty(str.c_str(), value);
+}
+
+void UiManager::setDefaultScalingFactor(qreal factor)
+{
+    UiProperty prop = m_parameterMap.value("scalingFactor");
+
+    /** Follow the new default, unless the user changed it */
+    if (prop.m_modified == prop.m_default)
+        prop.m_modified = factor;
+
+    prop.m_category = "sizes";
+    prop.m_default = factor;
+    m_parameterMap.insert("scalingFactor", prop);
+
+    /** Before initialize() the UI style is not available yet */
+    if (m_uiStyle)
+        m_uiStyle->setProperty("scalingFactor", prop.m_modified);
 }
 
 QString UiManager::userConfFilepath() const

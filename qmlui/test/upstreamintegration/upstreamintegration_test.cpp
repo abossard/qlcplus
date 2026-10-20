@@ -34,6 +34,7 @@
 #include "ioplugincache.h"
 #undef private
 #include "contextmanager.h"
+#include "chaser.h"
 #include "doc.h"
 #include "efx.h"
 #include "djmanager.h"
@@ -41,6 +42,7 @@
 #include "fixture.h"
 #include "fixtureeditor.h"
 #include "fixturegroup.h"
+#include "fixturegroupeditor.h"
 #include "fixturemanager.h"
 #include "functionmanager.h"
 #include "inputoutputmap.h"
@@ -55,8 +57,11 @@
 #include "showfunction.h"
 #include "showfactory.h"
 #include "showmanager.h"
+#include "showcommandrecorder.h"
 #include "showrunner.h"
+#define private public
 #include "tardis.h"
+#undef private
 #include "track.h"
 #include "universe.h"
 #include "vccuelist.h"
@@ -78,6 +83,7 @@
 #include "qlcfixturemode.h"
 #include "qlcinputchannel.h"
 #include "fixtureutils.h"
+#include "uimanager.h"
 
 #define private public
 #include "scriptv4.h"
@@ -116,6 +122,20 @@ private slots:
     void cueListResizeGuard();
     void fixtureGroupDrag_data();
     void fixtureGroupDrag();
+    void fixtureGroupSelection_data();
+    void fixtureGroupSelection();
+    void defaultUiScaling_data();
+    void defaultUiScaling();
+    void uiSettingsInitialization_data();
+    void uiSettingsInitialization();
+    void emptyVirtualConsole_data();
+    void emptyVirtualConsole();
+    void stoppedCueNavigation_data();
+    void stoppedCueNavigation();
+    void tardisHistory_data();
+    void tardisHistory();
+    void tardisRecordingHistory_data();
+    void tardisRecordingHistory();
     void internalDragOverlay();
     void mixedPasteAndTiming_data();
     void mixedPasteAndTiming();
@@ -4462,6 +4482,8 @@ void UpstreamIntegration_Test::initTestCase()
     m_app = std::make_unique<App>();
     m_app->set3dSupported(false);
     m_app->startup();
+    // Geometry fixtures use a fixed scale, independent of the offscreen screen size.
+    m_app->m_uiManager->setModified("scalingFactor", 1.0);
     m_app->resize(1200, 800);
     m_app->doc()->masterTimer()->stop();
     QVERIFY2(m_app->status() == QQuickView::Ready, qPrintable(m_app->errors().value(0).toString()));
@@ -4470,6 +4492,449 @@ void UpstreamIntegration_Test::initTestCase()
 void UpstreamIntegration_Test::cleanupTestCase()
 {
     m_app.reset();
+}
+
+void UpstreamIntegration_Test::fixtureGroupSelection_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::addColumn<QVariantList>("expected");
+    QTest::newRow("fixture-heads") << QString("fixture") << QVariantList{0, 2, 5};
+    QTest::newRow("single-head") << QString("head") << QVariantList{2};
+    QTest::newRow("control-add") << QString("control") << QVariantList{0, 2, 5};
+    QTest::newRow("shift-range-skips-holes") << QString("range") << QVariantList{0, 2, 5};
+    QTest::newRow("nonmember-keeps-selection") << QString("missing") << QVariantList{5};
+    QTest::newRow("reset-selection") << QString("reset") << QVariantList{};
+}
+
+void UpstreamIntegration_Test::fixtureGroupSelection()
+{
+    QFETCH(QString, operation);
+    QFETCH(QVariantList, expected);
+    Doc *doc = m_app->doc();
+    auto *fixture = new Fixture(doc);
+    fixture->setChannels(3);
+    QVERIFY(doc->addFixture(fixture));
+    const auto cleanup = qScopeGuard([&]() { doc->deleteFixture(fixture->id()); });
+    FixtureGroup group(doc);
+    group.setSize(QSize(3, 2));
+    QVERIFY(group.assignHead(QLCPoint(0, 0), GroupHead(fixture->id(), 0)));
+    QVERIFY(group.assignHead(QLCPoint(2, 0), GroupHead(fixture->id(), 1)));
+    QVERIFY(group.assignHead(QLCPoint(2, 1), GroupHead(fixture->id(), 2)));
+    FixtureGroupEditor editor(m_app.get(), doc, m_app->m_fixtureManager);
+    editor.setEditGroup(QVariant::fromValue(&group));
+    QCOMPARE(editor.groupSelection(2, 1, 0), QVariantList{5});
+    QSignalSpy changed(&editor, &FixtureGroupEditor::selectionDataChanged);
+    if (operation == "range")
+    {
+        editor.resetSelection();
+        QCOMPARE(editor.groupSelection(0, 0, 0), QVariantList{0});
+        editor.groupSelection(2, 1, Qt::ShiftModifier);
+    }
+    else if (operation == "reset")
+        editor.resetGroup();
+    else
+    {
+        const int head = operation == "fixture" ? -1 : operation == "control" ? 0 : 1;
+        const quint32 id = operation == "missing" ? Fixture::invalidId()
+            : FixtureUtils::fixtureItemID(fixture->id(), 0, 0);
+        QCOMPARE(editor.selectFixtureHeads(id, head, operation == "control" ? int(Qt::ControlModifier) : 0),
+                 operation != "missing");
+        if (operation == "control")
+            QVERIFY(editor.selectFixtureHeads(FixtureUtils::fixtureItemID(fixture->id(), 0, 0),
+                                              1, Qt::ControlModifier));
+        if (operation != "missing")
+            QVERIFY(!changed.isEmpty());
+    }
+    QCOMPARE(editor.selectionData(), expected);
+}
+
+void UpstreamIntegration_Test::defaultUiScaling_data()
+{
+    QTest::addColumn<bool>("userModified");
+    QTest::newRow("follow-screen-default") << false;
+    QTest::newRow("preserve-explicit-scale") << true;
+}
+
+void UpstreamIntegration_Test::defaultUiScaling()
+{
+    QFETCH(bool, userModified);
+    UiManager manager(m_app.get(), m_app->doc());
+    manager.setDefaultScalingFactor(0.65);
+    QCOMPARE(manager.getDefault("scalingFactor").toReal(), 0.65);
+    QCOMPARE(manager.getModified("scalingFactor").toReal(), 0.65);
+    UiManager *applicationManager = m_app->m_uiManager;
+    const qreal previousDefault = applicationManager->getDefault("scalingFactor").toReal();
+    const qreal previousScale = applicationManager->getModified("scalingFactor").toReal();
+    const auto restore = qScopeGuard([&]() {
+        applicationManager->setDefaultScalingFactor(previousDefault);
+        applicationManager->setModified("scalingFactor", previousScale);
+    });
+    applicationManager->setModified("scalingFactor", previousDefault);
+    if (userModified)
+        applicationManager->setModified("scalingFactor", 1.25);
+    applicationManager->setDefaultScalingFactor(0.75);
+    QCOMPARE(applicationManager->getDefault("scalingFactor").toReal(), 0.75);
+    QCOMPARE(applicationManager->getModified("scalingFactor").toReal(), userModified ? 1.25 : 0.75);
+    QQmlExpression scale(qmlContext(m_app->rootObject()), m_app->rootObject(), "UISettings.scalingFactor");
+    QCOMPARE(scale.evaluate().toReal(), userModified ? 1.25 : 0.75);
+    QVERIFY(!scale.hasError());
+}
+
+void UpstreamIntegration_Test::uiSettingsInitialization_data()
+{
+    QTest::addColumn<double>("defaultScale");
+    QTest::addColumn<QString>("preset");
+    QTest::newRow("first-small-screen") << 0.65 << QString();
+    QTest::newRow("first-desktop-screen") << 1.0 << QString();
+    QTest::newRow("saved-classic") << 0.65 << QString("Classic");
+    QTest::newRow("saved-dark") << 0.65 << QString("VS Code Dark");
+}
+
+void UpstreamIntegration_Test::uiSettingsInitialization()
+{
+    QFETCH(double, defaultScale);
+    QFETCH(QString, preset);
+    QTemporaryDir home;
+    QVERIFY(home.isValid());
+    const QByteArray oldHome = qgetenv("HOME");
+    const QByteArray oldProfile = qgetenv("USERPROFILE");
+    const auto restore = qScopeGuard([&]() {
+        if (oldHome.isNull()) qunsetenv("HOME"); else qputenv("HOME", oldHome);
+        if (oldProfile.isNull()) qunsetenv("USERPROFILE"); else qputenv("USERPROFILE", oldProfile);
+    });
+    qputenv("HOME", home.path().toUtf8());
+    qputenv("USERPROFILE", home.path().toUtf8());
+    QQuickView view;
+    view.rootContext()->setContextProperty("screenPixelDensity", 2.0);
+    UiManager manager(&view, m_app->doc());
+    manager.setDefaultScalingFactor(defaultScale);
+    QFile config(manager.userConfFilepath());
+    if (!preset.isEmpty())
+    {
+        QVERIFY(config.open(QIODevice::WriteOnly));
+        const QByteArray saved = QJsonDocument(QJsonObject{
+            {"preset", preset}, {"sizes", QJsonObject{{"scalingFactor", 1.25}}},
+            {"colors", QJsonObject{{"highlight", "#123456"}}}
+        }).toJson();
+        QCOMPARE(config.write(saved), saved.size());
+        config.close();
+    }
+    QCOMPARE(manager.initialize(), preset.isEmpty() && defaultScale < 1.0);
+    QCOMPARE(manager.currentPreset(), preset.isEmpty() ? QString("VS Code Dark") : preset);
+    QCOMPARE(manager.getModified("scalingFactor").toReal(), preset.isEmpty() ? defaultScale : 1.25);
+    if (preset.isEmpty())
+    {
+        QVERIFY(config.open(QIODevice::ReadOnly));
+        const QJsonObject saved = QJsonDocument::fromJson(config.readAll()).object();
+        QCOMPARE(saved.value("sizes").toObject().value("scalingFactor").toDouble(), defaultScale);
+        QCOMPARE(saved.value("preset").toString(), QString("VS Code Dark"));
+    }
+    else
+        QCOMPARE(manager.getModified("highlight").toString(), QString("#123456"));
+}
+
+void UpstreamIntegration_Test::emptyVirtualConsole_data()
+{
+    QTest::addColumn<int>("initialPages");
+    QTest::newRow("one-page") << 1;
+    QTest::newRow("multiple-pages") << 3;
+}
+
+void UpstreamIntegration_Test::emptyVirtualConsole()
+{
+    QFETCH(int, initialPages);
+    VirtualConsole *vc = m_app->virtualConsole();
+    const int originalPages = vc->pagesCount();
+    const int originalSelection = vc->selectedPage();
+    QString original;
+    QXmlStreamWriter writer(&original);
+    QVERIFY(vc->saveXML(&writer));
+    const auto restore = qScopeGuard([&]() {
+        QBuffer buffer;
+        buffer.setData(original.toUtf8());
+        QVERIFY(buffer.open(QIODevice::ReadOnly));
+        QXmlStreamReader reader(&buffer);
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(vc->loadXML(reader));
+        QVERIFY(!reader.hasError());
+        vc->postLoad();
+        QCOMPARE(vc->pagesCount(), originalPages);
+        vc->setSelectedPage(originalSelection);
+    });
+    while (vc->pagesCount() < initialPages)
+        vc->addPage(vc->pagesCount());
+    while (vc->pagesCount() > initialPages)
+        vc->deletePage(vc->pagesCount() - 1);
+    vc->page(0)->deleteChildren();
+    QXmlStreamReader reader(QStringLiteral("<VirtualConsole/>"));
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(vc->loadXML(reader));
+    QVERIFY(!reader.hasError());
+    vc->postLoad();
+    QCOMPARE(vc->pagesCount(), 1);
+    QVERIFY(vc->page(0));
+    QCOMPARE(vc->widget(vc->page(0)->id()), vc->page(0));
+    const QVariantMap created = vc->createWidgetGeometry(vc->page(0)->id(), "Button", QRectF(0, 0, 120, 100));
+    QVERIFY2(created.value("accepted").toBool(), qPrintable(created.value("error").toString()));
+    QVERIFY(vc->deleteAuthoringWidgets(created.value("widgetIDs").toList()).value("accepted").toBool());
+}
+
+void UpstreamIntegration_Test::stoppedCueNavigation_data()
+{
+    QTest::addColumn<bool>("backward");
+    QTest::addColumn<bool>("previous");
+    QTest::addColumn<int>("count");
+    for (bool backward : {false, true})
+        for (bool previous : {false, true})
+            for (int count : {1, 3})
+                QTest::newRow(qPrintable(QString("%1-%2-%3").arg(backward ? "backward" : "forward",
+                    previous ? "previous" : "next").arg(count))) << backward << previous << count;
+}
+
+void UpstreamIntegration_Test::stoppedCueNavigation()
+{
+    QFETCH(bool, backward);
+    QFETCH(bool, previous);
+    QFETCH(int, count);
+    Doc *doc = m_app->doc();
+    auto *scene = new Scene(doc);
+    QVERIFY(doc->addFunction(scene));
+    auto *chaser = new Chaser(doc);
+    QVERIFY(doc->addFunction(chaser));
+    const auto cleanup = qScopeGuard([&]() {
+        doc->deleteFunction(chaser->id());
+        doc->deleteFunction(scene->id());
+    });
+    chaser->setDirection(backward ? Function::Backward : Function::Forward);
+    for (int i = 0; i < count; i++)
+        chaser->addStep(ChaserStep(scene->id()));
+    VCCueList cue(doc);
+    cue.setChaserID(chaser->id());
+    cue.setNextPrevBehavior(VCCueList::Select);
+    QCOMPARE(cue.playbackIndex(), -1);
+    if (previous) cue.previousClicked();
+    else cue.nextClicked();
+    const int first = previous != backward ? count - 1 : 0;
+    QCOMPARE(cue.playbackIndex(), first);
+    for (int i = 0; i < count; i++)
+    {
+        if (previous) cue.previousClicked();
+        else cue.nextClicked();
+    }
+    QCOMPARE(cue.playbackIndex(), first);
+    QCOMPARE(cue.playbackStatus(), VCCueList::Stopped);
+    QVERIFY(!chaser->isRunning());
+}
+
+void UpstreamIntegration_Test::tardisHistory_data()
+{
+    QTest::addColumn<QString>("operation");
+    for (const QString &operation : {"roundtrip", "branch", "refused-undo", "refused-redo", "queued"})
+        QTest::newRow(qPrintable(operation)) << operation;
+}
+
+void UpstreamIntegration_Test::tardisHistory()
+{
+    QFETCH(QString, operation);
+    Tardis *tardis = Tardis::instance();
+    VirtualConsole *vc = m_app->virtualConsole();
+    VCButton target(m_app->doc());
+    vc->addWidgetToMap(&target);
+    const auto removeTarget = qScopeGuard([&]() { vc->removeWidgetFromMap(&target); });
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("three");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    const auto cleanup = qScopeGuard([&]() {
+        tardis->resetHistory();
+        m_app->doc()->deleteFunction(scene->id());
+    });
+    tardis->enqueueAction(Tardis::FunctionSetName, scene->id(), "zero", "settled");
+    const auto latest = [&]() {
+        QMutexLocker locker(&tardis->m_historyMutex);
+        return tardis->m_history.isEmpty() ? QString() : tardis->m_history.last().m_newValue.toString();
+    };
+    QTRY_COMPARE(latest(), QString("settled"));
+    {
+        QMutexLocker locker(&tardis->m_historyMutex);
+        tardis->m_history = {
+            {Tardis::FunctionSetName, 0, scene->id(), "zero", "one"},
+            {Tardis::FunctionSetName, 200, scene->id(), "one", "two"},
+            {Tardis::FunctionSetName, 201, scene->id(), "two", "three"}
+        };
+        tardis->m_historyIndex = 2;
+        tardis->m_historyCount = 2;
+        if (operation.startsWith("refused"))
+        {
+            tardis->m_history = {{Tardis::VCWidgetReparent, 0, target.id(),
+                VCWidget::invalidId(), VCWidget::invalidId()}};
+            tardis->m_historyIndex = operation == "refused-undo" ? 0 : -1;
+            tardis->m_historyCount = 1;
+        }
+    }
+    if (operation.startsWith("refused"))
+    {
+        if (operation == "refused-undo") tardis->undoAction();
+        else tardis->redoAction();
+        QMutexLocker locker(&tardis->m_historyMutex);
+        QCOMPARE(tardis->m_historyIndex, operation == "refused-undo" ? 0 : -1);
+        return;
+    }
+    bool callbackLockAvailable = true;
+    const auto connection = connect(scene, &Function::nameChanged, this, [&]() {
+        if (tardis->m_historyMutex.tryLock())
+            tardis->m_historyMutex.unlock();
+        else
+            callbackLockAvailable = false;
+    });
+    const auto disconnect = qScopeGuard([&]() { QObject::disconnect(connection); });
+    if (operation == "queued")
+    {
+        {
+            QMutexLocker locker(&tardis->m_historyMutex);
+            tardis->m_replayingHistory = true;
+        }
+        tardis->enqueueAction(Tardis::FunctionSetName, scene->id(), "one", "queued");
+    }
+    tardis->undoAction();
+    QCOMPARE(scene->name(), QString("one"));
+    QVERIFY(callbackLockAvailable);
+    if (operation == "queued")
+    {
+        QTRY_COMPARE(latest(), QString("queued"));
+        QMutexLocker locker(&tardis->m_historyMutex);
+        QCOMPARE(tardis->m_history.size(), 2);
+        QCOMPARE(tardis->m_historyIndex, 1);
+        return;
+    }
+    tardis->redoAction();
+    QCOMPARE(scene->name(), QString("three"));
+    tardis->undoAction();
+    tardis->undoAction();
+    QCOMPARE(scene->name(), QString("zero"));
+    if (operation == "branch")
+    {
+        scene->setName("branch");
+        tardis->enqueueAction(Tardis::FunctionSetName, scene->id(), "zero", "branch");
+        QTRY_COMPARE(latest(), QString("branch"));
+        tardis->redoAction();
+        QCOMPARE(scene->name(), QString("branch"));
+        tardis->undoAction();
+        QCOMPARE(scene->name(), QString("zero"));
+    }
+    else
+    {
+        tardis->redoAction();
+        QCOMPARE(scene->name(), QString("one"));
+        tardis->redoAction();
+        QCOMPARE(scene->name(), QString("three"));
+    }
+    QVERIFY(callbackLockAvailable);
+}
+
+void UpstreamIntegration_Test::tardisRecordingHistory_data()
+{
+    QTest::addColumn<QString>("operation");
+    for (const QString &operation : {"roundtrip", "stale", "capacity", "perform-guard"})
+        QTest::newRow(qPrintable(operation)) << operation;
+}
+
+void UpstreamIntegration_Test::tardisRecordingHistory()
+{
+    QFETCH(QString, operation);
+    Tardis *tardis = Tardis::instance();
+    ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
+    QVERIFY(recorder);
+    auto *manager = m_app->rootContext()->contextProperty("showManager").value<ShowManager *>();
+    QVERIFY(manager);
+    const int previousShow = manager->currentShowID();
+    const bool previousReadOnly = manager->readOnly();
+    auto *scene = new Scene(m_app->doc());
+    scene->setName("after");
+    QVERIFY(m_app->doc()->addFunction(scene));
+    auto *show = new Show(m_app->doc());
+    QVERIFY(m_app->doc()->addFunction(show));
+    const auto cleanup = qScopeGuard([&]() {
+        manager->setReadOnly(previousReadOnly);
+        manager->setCurrentShowID(previousShow);
+        tardis->resetHistory();
+        m_app->doc()->deleteFunction(show->id());
+        m_app->doc()->deleteFunction(scene->id());
+    });
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setIntensity(1, 1000, scene->id(), 0.6)));
+    QVERIFY(show->setCommandTrack(track));
+    manager->setReadOnly(false);
+    manager->setCurrentShowID(show->id());
+    tardis->enqueueAction(Tardis::FunctionSetName, scene->id(), "before", "after");
+    const auto latestSerial = [&]() {
+        QMutexLocker locker(&tardis->m_historyMutex);
+        return tardis->m_history.isEmpty() ? -1
+            : tardis->m_history.last().m_newValue.value<ShowCommandEdit>().serial;
+    };
+    QTRY_VERIFY(([&]() {
+        QMutexLocker locker(&tardis->m_historyMutex);
+        return !tardis->m_history.isEmpty() && tardis->m_history.last().m_newValue.toString() == "after";
+    })());
+    {
+        QMutexLocker locker(&tardis->m_historyMutex);
+        tardis->m_history = {{Tardis::FunctionSetName, 0, scene->id(), "before", "after"}};
+        tardis->m_historyIndex = 0;
+        tardis->m_historyCount = 1;
+    }
+    const int edits = operation == "capacity" ? 101 : 2;
+    {
+        tardis->beginBatch();
+        const auto endBatch = qScopeGuard([&]() { tardis->endBatch(); });
+        for (int i = 1; i <= edits; i++)
+            QVERIFY2(recorder->retimeCommand(show->id(), 1, 1000 + i), qPrintable(recorder->lastError()));
+    }
+    const int serial = recorder->lastEditSerial();
+    QTRY_COMPARE(latestSerial(), serial);
+    const auto time = [&]() { return show->commandTrack().commands().first().time; };
+    if (operation == "capacity")
+    {
+        {
+            QMutexLocker locker(&tardis->m_historyMutex);
+            QCOMPARE(tardis->m_historyCount, 100);
+            QCOMPARE(tardis->m_history.size(), 100);
+        }
+        for (int i = 0; i < 100; i++) tardis->undoAction();
+        QCOMPARE(time(), 1001u);
+        tardis->redoAction();
+        QCOMPARE(time(), 1002u);
+        QCOMPARE(scene->name(), QString("after"));
+        return;
+    }
+    if (operation == "stale")
+    {
+        QVERIFY(!tardis->undoCommandEdit(serial - 1));
+        QVERIFY(tardis->undoCommandEdit(serial));
+        QCOMPARE(time(), 1001u);
+        tardis->redoAction();
+        ShowCommandTrack changed = show->commandTrack();
+        QVERIFY(changed.retime(1, 1500));
+        QVERIFY(show->setCommandTrack(changed));
+        QVERIFY(!tardis->undoCommandEdit(serial));
+        QCOMPARE(time(), 1500u);
+        QVERIFY(!recorder->lastError().isEmpty());
+        QMutexLocker locker(&tardis->m_historyMutex);
+        QCOMPARE(tardis->m_historyIndex, 2);
+        return;
+    }
+    if (operation == "perform-guard")
+        manager->setReadOnly(true);
+    tardis->undoAction();
+    QCOMPARE(time(), 1001u);
+    tardis->undoAction();
+    QCOMPARE(time(), 1000u);
+    tardis->undoAction();
+    QCOMPARE(scene->name(), operation == "perform-guard" ? QString("after") : QString("before"));
+    if (operation != "perform-guard")
+        tardis->redoAction();
+    tardis->redoAction();
+    QCOMPARE(time(), 1001u);
+    tardis->redoAction();
+    QCOMPARE(time(), 1002u);
 }
 
 void UpstreamIntegration_Test::videoEditorUrlDialog_data()

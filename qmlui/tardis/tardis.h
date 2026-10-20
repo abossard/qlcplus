@@ -25,6 +25,7 @@
 #include <atomic>
 #include <QQueue>
 #include <QMutex>
+#include <QWaitCondition>
 #include <QVariant>
 #include <QSemaphore>
 #include <QQuickView>
@@ -348,6 +349,8 @@ protected slots:
     void slotProcessNetworkAction(int code, quint32 id, QVariant value);
 
 private:
+    bool undoHistory(int serial);
+
     /** The singleton Tardis instance */
     static Tardis* s_instance;
     /** Thread running status flag */
@@ -382,6 +385,12 @@ private:
     /** Synchronization variables between threads */
     QMutex m_queueMutex;
     QSemaphore m_queueSem;
+
+    /** Protects the history, its index and count, which are written by
+     *  the Tardis thread and read by undo/redo on the main thread */
+    QMutex m_historyMutex;
+    QWaitCondition m_historyReady;
+    bool m_replayingHistory = false;
 
     /** The actual history of actions */
     QList<TardisAction> m_history;
