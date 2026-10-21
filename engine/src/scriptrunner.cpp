@@ -451,7 +451,9 @@ int ScriptRunner::getChannelValue(int universe, int channel)
     if (m_running == false)
         return false;
 
-    QList<Universe*> uniList = m_doc->inputOutputMap()->claimUniverses();
+    QList<Universe*> uniList;
+    if (!m_doc->inputOutputMap()->claimUniversesWhileRunning(m_running, uniList))
+        return 0;
     uchar dmxValue = 0;
 
     if (universe >= 0 && universe < uniList.count())

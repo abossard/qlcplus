@@ -20,6 +20,8 @@ private slots:
     void nativeExecutionContractSweep();
     void scriptRunnerStop_data();
     void scriptRunnerStop();
+    void scriptRunnerNativeStop_data();
+    void scriptRunnerNativeStop();
     void scriptRunnerQueue_data();
     void scriptRunnerQueue();
     void scriptRunnerDispatch_data();

@@ -26,6 +26,7 @@
 #include "audioview.h"
 #include <QMutex>
 #include <QDir>
+#include <atomic>
 
 #include "qlcinputprofile.h"
 #include "grandmaster.h"
@@ -63,6 +64,7 @@ class InputOutputMap final : public QObject, public QLCRDMTransportProvider
     Q_DISABLE_COPY(InputOutputMap)
 
     friend class InputPatch;
+    friend class ScriptRunner;
 
     /*********************************************************************
      * Initialization
@@ -342,6 +344,8 @@ signals:
     void universeWritten(quint32 index, const QByteArray& universesData);
 
 private:
+    bool claimUniversesWhileRunning(const std::atomic<bool> &running, QList<Universe *> &universes);
+
     /** The values of all universes */
     QList<Universe *> m_universeArray;
 

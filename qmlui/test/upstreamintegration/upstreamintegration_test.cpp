@@ -4504,6 +4504,17 @@ void UpstreamIntegration_Test::initTestCase()
     m_app->resize(1200, 800);
     m_app->doc()->masterTimer()->stop();
     QVERIFY2(m_app->status() == QQuickView::Ready, qPrintable(m_app->errors().value(0).toString()));
+    QQmlExpression startupNotice(qmlContext(m_app->rootObject()), m_app->rootObject(), "scalingInfoPopup");
+    auto *notice = startupNotice.evaluate().value<QObject *>();
+    QVERIFY2(notice, qPrintable(startupNotice.error().toString()));
+    // Fresh offscreen settings can open the modal first-use scaling notice.
+    if (notice->property("visible").toBool())
+    {
+        QCOMPARE(notice->property("title").toString(), QString("Small screen detected"));
+        QVERIFY(QMetaObject::invokeMethod(notice, "accept"));
+        QTRY_VERIFY(!notice->property("visible").toBool());
+    }
+    QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
 }
 
 void UpstreamIntegration_Test::cleanupTestCase()

@@ -2532,3 +2532,21 @@ The running application was not restarted.
 | Settings scroll, scaling and presets | | | | |
 | Simple Desk high-byte levels | | | | |
 | Script responsiveness and cleanup | | | | |
+
+#### Correction validation (2026-10-21)
+
+> Fresh inspection found a native-read cancellation deadlock (four-second timeout versus a passing release-before-teardown control), intermittent short-window wheel failures, and a full VC cadence failure (197 passed, 1 failed). These remain recorded failures, not replaced by the earlier green summary.
+>
+> ScriptRunner now acquires universe ownership through a private cancellation-aware InputOutputMap path. Script teardown still joins the worker, destroys its engine on that worker, retires audio subscriptions and releases only its own output. The new parameterized production `Script::postRun` regression passes both blocked-read and nonblocked controls under a four-second process budget, with independent output retained.
+>
+> Wheel failures were fixture admission: fresh offscreen settings auto-scale to 0.9 and open the modal first-use scaling notice above the editor. A recorded event filter identified `QQuickPopupItem`, not the settings Flickable, as the recipient. Reusing the written settings passed without a code change. The shared App fixture now acknowledges only that named notice before UI interaction. Timestamp experiments failed and were removed. An intermediate full run (560 passed, 19 failed, 8 skipped) showed why acknowledging it only in the late settings test was insufficient. No production scrolling change, relaxed assertion or input retry was used.
+>
+> Completed build, exit 0: `cmake --build build --target qlcplus5 upstreamintegration_test mcp_script_tool_test audioconsumers_test vcaudiotriggers_test chaser_test chaserstep_test chaserrunner_test mcp_uimanager_preset_test mcp_dispatch_smoke_test -j8`. Subsequent changed-test rebuilds passed, including final `cmake --build build --target upstreamintegration_test -j8`.
+>
+> Final rebuilt native executions, each exit 0 with `-maxwarnings 0`, offscreen/software, fresh isolated settings/HOME/TMPDIR and owned output directories: full `upstreamintegration_test` 579 passed / 8 opt-in screenshot skips; incoming-change selection 59 passed; two separate final settings selections 4 passed each; `audioconsumers_test` 667 passed / 2 opt-in media/replay skips; dedicated `scriptRunnerNativeStop` 4 passed; `vcaudiotriggers_test` 198 passed; focused `visualCadence` 4 passed; script tools 79; chaser 23; chaserstep 12; chaserrunner 23; presets 6; dispatch 35.
+>
+> Comparable baseline: exact first parent `b92031004af1ef78c7b15b7e731d78f36c2d64c0` was exported without switching branch/worktree and built separately with matching Qt/compiler flags and independent dependency binaries. Serial full baseline/current runs produced 197/1 versus 198/0; baseline's unchanged low-latency assertion observed 39 signals / 40 polls. Awake and suspension-inclusive durations matched (84.34s baseline, 84.48s current). Both focused runs passed 40/40. Thus that failure is runtime-demonstrated before the merge, not repaired or evidence of reliable cadence. The first baseline attempt had an unexplained awake/Qt-time discrepancy and is retained as supplemental, not the decisive comparison.
+>
+> Correction artifacts: `build/upstream-correction-2026-10-21/executions.json` records every retained selection, exact argv/environment/cwd, raw inner exit, continuous-time budget, failures/skips and executable/engine/audio hashes before and after execution. Named build/test logs and `baseline-identity.json` retain the red attempts and matched baseline provenance.
+>
+> All ten human checks above remain pending. Eight screenshot fixtures, media export, ten-minute replay, physical input/display feel, audio/output hardware and real-show cadence remain unverified. No running application or live workspace was changed.

@@ -385,6 +385,25 @@ QList<Universe*> InputOutputMap::claimUniverses()
     return m_universeArray;
 }
 
+bool InputOutputMap::claimUniversesWhileRunning(const std::atomic<bool> &running,
+                                               QList<Universe *> &universes)
+{
+    // Script teardown may join its worker while the timer owns this mutex.
+    while (running)
+    {
+        if (!m_universeMutex.tryLock(10))
+            continue;
+        if (!running)
+        {
+            m_universeMutex.unlock();
+            return false;
+        }
+        universes = m_universeArray;
+        return true;
+    }
+    return false;
+}
+
 void InputOutputMap::releaseUniverses(bool changed)
 {
     m_universeChanged = changed;

@@ -47,6 +47,7 @@
 
 #define private public
 #include "scriptrunner.h"
+#include "scriptv4.h"
 #undef private
 
 #ifdef Q_OS_MACOS
@@ -1708,6 +1709,75 @@ void AudioConsumers_Test::scriptRunnerStop()
             QVERIFY(destructionOnRunner);
         QVERIFY(engineUnpublished);
     }
+}
+
+void AudioConsumers_Test::scriptRunnerNativeStop_data()
+{
+    QTest::addColumn<bool>("releaseBeforeStop");
+    QTest::newRow("blocked-read") << false;
+    QTest::newRow("released-read-control") << true;
+}
+
+void AudioConsumers_Test::scriptRunnerNativeStop()
+{
+    QFETCH(bool, releaseBeforeStop);
+    Doc doc(nullptr);
+    doc.masterTimer()->stop();
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(1);
+    QVERIFY(doc.addFixture(fixture, 1));
+    Script script(&doc);
+    script.setData("Engine.getAudioLevel(); Engine.setFixture(1, 0, 173);"
+                   "Engine.objectName = 'reading'; Engine.getChannelValue(0, 0);"
+                   "Engine.objectName = 'read'; Engine.waitTime(60000);");
+    script.m_runner = new ScriptRunner(&doc, &script, script.data());
+    ScriptRunner *runner = script.m_runner;
+    QSemaphore reading, resume, read;
+    bool engineDestroyedOnWorker = false;
+    connect(runner, &QObject::objectNameChanged, runner, [&](const QString &name) {
+        if (name == "reading")
+        {
+            connect(runner->m_engine, &QObject::destroyed, runner, [&]() {
+                engineDestroyedOnWorker = QThread::currentThread() == runner;
+            }, Qt::DirectConnection);
+            reading.release();
+            resume.acquire();
+        }
+        else if (name == "read")
+            read.release();
+    }, Qt::DirectConnection);
+    runner->execute();
+    QVERIFY(reading.tryAcquire(1, 5000));
+    auto *map = doc.inputOutputMap();
+    const auto universes = map->claimUniverses();
+    QVERIFY(runner->write(doc.masterTimer(), universes));
+    QVERIFY(!runner->m_fadersMap.isEmpty());
+    QCOMPARE(runner->m_registeredBands.size(), 1);
+    universes.first()->write(0, 173, true);
+    universes.first()->write(100, 91, true);
+    if (releaseBeforeStop)
+        map->releaseUniverses(false);
+    resume.release();
+    if (releaseBeforeStop)
+        QVERIFY(read.tryAcquire(1, 5000));
+    else
+        QVERIFY(!read.tryAcquire(1, 100));
+
+    const auto owned = releaseBeforeStop ? map->claimUniverses() : universes;
+    // Match MasterTimer's ownership across the real Script teardown.
+    QElapsedTimer teardown;
+    teardown.start();
+    script.postRun(doc.masterTimer(), owned);
+    map->releaseUniverses(false);
+    QVERIFY(teardown.elapsed() < 4000);
+    QVERIFY(script.m_runner == nullptr);
+    QVERIFY(engineDestroyedOnWorker);
+    QVERIFY(runner->m_engine == nullptr);
+    QVERIFY(runner->m_registeredBands.isEmpty());
+    QVERIFY(runner->m_fadersMap.isEmpty());
+    QCOMPARE(universes.first()->preGMValue(0), uchar(0));
+    QCOMPARE(universes.first()->preGMValue(100), uchar(91));
 }
 
 void AudioConsumers_Test::scriptRunnerQueue_data()
