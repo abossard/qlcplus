@@ -84,9 +84,12 @@
 #include "qlcinputchannel.h"
 #include "fixtureutils.h"
 #include "uimanager.h"
+#include "listmodel.h"
+#include "simpledesk.h"
 
 #define private public
 #include "scriptv4.h"
+#include "scriptrunner.h"
 #undef private
 
 class UpstreamIntegration_Test : public QObject
@@ -151,6 +154,20 @@ private slots:
     void showPlayheadVisibilityAndFollow();
     void scriptDurationCache_data();
     void scriptDurationCache();
+    void incomingListModel_data();
+    void incomingListModel();
+    void incomingDeskBytes_data();
+    void incomingDeskBytes();
+    void incomingDistribution_data();
+    void incomingDistribution();
+    void incomingChaserTempo_data();
+    void incomingChaserTempo();
+    void incomingChaserCommonHistory_data();
+    void incomingChaserCommonHistory();
+    void incomingSettingsScroll_data();
+    void incomingSettingsScroll();
+    void incomingScriptNotifications_data();
+    void incomingScriptNotifications();
     void externalFunctionRename_data();
     void externalFunctionRename();
     void timelineViewport_data();
@@ -6564,6 +6581,387 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
     manager->stopShow();
     QTRY_VERIFY(!manager->isPlaying());
     QVERIFY(cursor->isVisible());
+}
+
+void UpstreamIntegration_Test::incomingListModel_data()
+{
+    QTest::addColumn<int>("row");
+    QTest::addColumn<int>("role");
+    QTest::addColumn<bool>("empty");
+    QTest::newRow("last-valid-role") << 0 << int(Qt::UserRole + 2) << false;
+    QTest::newRow("first-invalid-role") << 0 << int(Qt::UserRole + 3) << false;
+    QTest::newRow("negative-row") << -1 << int(Qt::UserRole + 1) << false;
+    QTest::newRow("empty-model") << 0 << int(Qt::UserRole + 1) << true;
+}
+
+void UpstreamIntegration_Test::incomingListModel()
+{
+    QFETCH(int, row);
+    QFETCH(int, role);
+    QFETCH(bool, empty);
+    ListModel model;
+    model.setRoleNames({"first", "last"});
+    const QVariantMap original{{"first", 10}, {"last", 20}};
+    if (!empty)
+        model.addDataMap(original);
+    const QModelIndex index = model.index(row, 0);
+    const bool valid = !empty && row == 0 && role == Qt::UserRole + 2;
+    QCOMPARE(model.data(index, role).isValid(), valid);
+    QCOMPARE(model.setData(index, 42, role), valid);
+    if (valid)
+        QCOMPARE(model.data(index, role).toInt(), 42);
+    model.setDataMap(model.index(-1, 0), {{"first", 99}});
+    if (!empty)
+        QCOMPARE(model.data(model.index(0, 0), Qt::UserRole + 1).toInt(), 10);
+}
+
+void UpstreamIntegration_Test::incomingDeskBytes_data()
+{
+    QTest::addColumn<int>("value");
+    QTest::addColumn<bool>("overridden");
+    for (int value : {0, 127, 128, 255})
+        for (bool overridden : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(value).arg(overridden)))
+                << value << overridden;
+}
+
+void UpstreamIntegration_Test::incomingDeskBytes()
+{
+    QFETCH(int, value);
+    QFETCH(bool, overridden);
+    SimpleDesk desk(m_app.get(), m_app->doc(), m_app->m_functionManager);
+    desk.setUniverseFilter(0);
+    if (overridden)
+        desk.setAbsoluteChannelValue(500, 91);
+    QByteArray bytes(512, char(0));
+    bytes[500] = char(value);
+    QVERIFY(QMetaObject::invokeMethod(&desk, "slotUniverseWritten", Qt::DirectConnection,
+        Q_ARG(quint32, 0), Q_ARG(QByteArray, bytes)));
+    desk.setUniverseFilter(0);
+    auto *model = desk.channelList().value<ListModel *>();
+    QVERIFY(model);
+    const QVariantMap channel = model->itemAt(500).toMap();
+    QCOMPARE(channel.value("chValue").toUInt(), overridden ? 91u : uint(value));
+    QCOMPARE(channel.value("isOverride").toBool(), overridden);
+}
+
+void UpstreamIntegration_Test::incomingDistribution_data()
+{
+    QTest::addColumn<int>("view");
+    QTest::addColumn<int>("units");
+    QTest::addColumn<int>("direction");
+    QTest::addColumn<int>("count");
+    for (int view : {int(MonitorProperties::FrontView), int(MonitorProperties::LeftSideView),
+                     int(MonitorProperties::RightSideView)})
+        for (int units : {int(MonitorProperties::Meters), int(MonitorProperties::Feet)})
+            for (int direction : {int(Qt::Horizontal), int(Qt::Vertical)})
+                for (int count : {2, 3})
+                    QTest::newRow(qPrintable(QString("%1-%2-%3-%4").arg(view).arg(units).arg(direction).arg(count)))
+                        << view << units << direction << count;
+}
+
+void UpstreamIntegration_Test::incomingDistribution()
+{
+    QFETCH(int, view);
+    QFETCH(int, units);
+    QFETCH(int, direction);
+    QFETCH(int, count);
+    Doc *doc = m_app->doc();
+    auto *props = doc->monitorProperties();
+    auto *context = m_app->m_contextManager;
+    const auto oldView = props->pointOfView();
+    const auto oldUnits = props->gridUnits();
+    const auto oldGrid = props->gridSize();
+    const QVariantList oldSelection = context->selectedItemIDVariantList();
+    QList<quint32> ids;
+    const auto restore = qScopeGuard([&]() {
+        context->resetFixtureSelection();
+        for (quint32 id : ids) doc->deleteFixture(id);
+        props->setPointOfView(oldView);
+        props->setGridUnits(oldUnits);
+        props->setGridSize(oldGrid);
+        for (const auto &id : oldSelection) context->setFixtureSelection(id.toUInt(), -1, true);
+    });
+    context->resetFixtureSelection();
+    props->setGridUnits(MonitorProperties::GridUnits(units));
+    props->setGridSize(QVector3D(12, 8, 10));
+    props->setPointOfView(MonitorProperties::PointOfView(view));
+    const QList<QVector3D> before{{-900.25f, -1600.5f, -1000.25f},
+                                {-100.5f, -1200.25f, -500.5f},
+                                {1300.75f, 700.25f, 1400.75f}};
+    QList<QPointF> projected;
+    for (int i = 0; i < count; ++i)
+    {
+        auto *fixture = new Fixture(doc);
+        fixture->setChannels(1);
+        fixture->setAddress(480 + i);
+        QVERIFY(doc->addFixture(fixture));
+        ids.append(fixture->id());
+        props->setFixturePosition(ids.last(), 0, 0, before[i]);
+        context->setFixtureSelection(FixtureUtils::fixtureItemID(ids.last(), 0, 0), -1, true);
+        projected.append(FixtureUtils::item2DPosition(props, view, before[i]));
+    }
+    QCOMPARE(context->selectedFixturesCount(), count);
+    QList<qreal> originalPositions;
+    for (const auto &point : projected)
+        originalPositions.append(direction == Qt::Horizontal ? point.x() : point.y());
+    std::sort(originalPositions.begin(), originalPositions.end());
+    context->setFixturesDistribution(direction);
+    QList<qreal> positions;
+    for (int i = 0; i < count; ++i)
+    {
+        const auto after = props->fixturePosition(ids[i], 0, 0);
+        if (count == 2)
+            QCOMPARE(after, before[i]);
+        const auto point = FixtureUtils::item2DPosition(props, view, after);
+        positions.append(direction == Qt::Horizontal ? point.x() : point.y());
+        const qreal originalPosition = direction == Qt::Horizontal ? projected[i].x() : projected[i].y();
+        const qreal expectedPosition = count == 3 && originalPosition != originalPositions.first() &&
+                originalPosition != originalPositions.last()
+            ? (originalPositions.first() + originalPositions.last()) / 2 : originalPosition;
+        QVERIFY(qAbs(positions.last() - expectedPosition) < 0.01);
+        const qreal untouched = direction == Qt::Horizontal ? point.y() : point.x();
+        const qreal original = direction == Qt::Horizontal ? projected[i].y() : projected[i].x();
+        QVERIFY(qAbs(untouched - original) < 0.01);
+        if (direction == Qt::Horizontal)
+            QCOMPARE(after.y(), before[i].y());
+        else
+            QCOMPARE(after.z(), before[i].z());
+        if (view != MonitorProperties::FrontView)
+            QCOMPARE(after.x(), before[i].x());
+    }
+    if (count == 3)
+    {
+        std::sort(positions.begin(), positions.end());
+        QVERIFY(qAbs(positions[1] - (positions[0] + positions[2]) / 2) < 0.01);
+    }
+}
+
+void UpstreamIntegration_Test::incomingChaserTempo_data()
+{
+    QTest::addColumn<uint>("hold");
+    QTest::addColumn<int>("from");
+    for (uint hold : {Function::infiniteSpeed(), Function::defaultSpeed(), 2000u})
+        for (int from : {int(Function::Time), int(Function::Beats)})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(hold).arg(from))) << hold << from;
+}
+
+void UpstreamIntegration_Test::incomingChaserTempo()
+{
+    QFETCH(uint, hold);
+    QFETCH(int, from);
+    auto *scene = new Scene(m_app->doc());
+    QVERIFY(m_app->doc()->addFunction(scene));
+    auto *chaser = new Chaser(m_app->doc());
+    QVERIFY(m_app->doc()->addFunction(chaser));
+    const QVariant previous = m_app->rootContext()->contextProperty("chaserEditor");
+    const auto cleanup = qScopeGuard([&]() {
+        m_app->rootContext()->setContextProperty("chaserEditor", previous);
+        m_app->doc()->deleteFunction(chaser->id());
+        m_app->doc()->deleteFunction(scene->id());
+    });
+    chaser->setTempoType(Function::TempoType(from));
+    chaser->setFadeInMode(Chaser::PerStep);
+    chaser->setFadeOutMode(Chaser::PerStep);
+    chaser->setDurationMode(Chaser::PerStep);
+    QVERIFY(chaser->addStep(ChaserStep(scene->id(), 500, hold, 250)));
+    ChaserEditor editor(m_app.get(), m_app->doc());
+    editor.setFunctionID(chaser->id());
+    const int to = from == Function::Time ? Function::Beats : Function::Time;
+    editor.setTempoType(to);
+    const auto converted = chaser->steps().first();
+    QCOMPARE(converted.duration, Function::speedAdd(converted.fadeIn, converted.hold));
+    if (hold == Function::infiniteSpeed() || hold == Function::defaultSpeed())
+        QCOMPARE(converted.hold, hold);
+    editor.setTempoType(from);
+    const auto restored = chaser->steps().first();
+    QCOMPARE(restored.duration, Function::speedAdd(restored.fadeIn, restored.hold));
+    QCOMPARE(restored.hold, hold);
+}
+
+void UpstreamIntegration_Test::incomingChaserCommonHistory_data()
+{
+    QTest::addColumn<uint>("hold");
+    QTest::addColumn<int>("property");
+    for (uint hold : {1000u, Function::infiniteSpeed()})
+        for (int property : {int(Function::FadeIn), int(Function::Hold)})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(hold).arg(property))) << hold << property;
+}
+
+void UpstreamIntegration_Test::incomingChaserCommonHistory()
+{
+    QFETCH(uint, hold);
+    QFETCH(int, property);
+    Doc *doc = m_app->doc();
+    auto *scene = new Scene(doc);
+    auto *chaser = new Chaser(doc);
+    QVERIFY(doc->addFunction(scene));
+    QVERIFY(doc->addFunction(chaser));
+    const QVariant previous = m_app->rootContext()->contextProperty("chaserEditor");
+    Tardis *history = Tardis::instance();
+    const auto cleanup = qScopeGuard([&]() {
+        history->resetHistory();
+        m_app->rootContext()->setContextProperty("chaserEditor", previous);
+        doc->deleteFunction(chaser->id());
+        doc->deleteFunction(scene->id());
+    });
+    chaser->setFadeInMode(Chaser::Common);
+    chaser->setDurationMode(Chaser::Common);
+    chaser->setFadeInSpeed(500);
+    const uint oldDuration = Function::speedAdd(500, hold);
+    chaser->setDuration(oldDuration);
+    QVERIFY(chaser->addStep(ChaserStep(scene->id(), 500, hold)));
+    ChaserEditor editor(m_app.get(), doc);
+    editor.setFunctionID(chaser->id());
+    history->enqueueAction(Tardis::FunctionSetName, scene->id(), "fence-before", "fence-after");
+    const auto drained = [&]() {
+        QMutexLocker locker(&history->m_historyMutex);
+        return !history->m_history.isEmpty() &&
+            history->m_history.last().m_newValue.toString() == "fence-after";
+    };
+    QTRY_VERIFY(drained());
+    history->resetHistory();
+    editor.setStepSpeed(0, 1500, property);
+    const uint newFade = property == Function::FadeIn ? 1500u : 500u;
+    const uint newHold = property == Function::Hold ? 1500u : hold;
+    const uint newDuration = Function::speedAdd(newFade, newHold);
+    QCOMPARE(chaser->fadeInSpeed(), newFade);
+    QCOMPARE(chaser->duration(), newDuration);
+    const auto editRecorded = [&]() {
+        QMutexLocker locker(&history->m_historyMutex);
+        return !history->m_history.isEmpty() &&
+            history->m_history.last().m_action == Tardis::ChaserSetStepDuration &&
+            history->m_history.last().m_objID == chaser->id() &&
+            history->m_history.last().m_newValue.value<UIntPair>().second == newDuration;
+    };
+    QTRY_VERIFY(editRecorded());
+    history->undoAction();
+    QCOMPARE(chaser->fadeInSpeed(), 500u);
+    QCOMPARE(chaser->duration(), oldDuration);
+    history->redoAction();
+    QCOMPARE(chaser->fadeInSpeed(), newFade);
+    QCOMPARE(chaser->duration(), newDuration);
+}
+
+void UpstreamIntegration_Test::incomingSettingsScroll_data()
+{
+    QTest::addColumn<int>("height");
+    QTest::newRow("short-viewport") << 220;
+    QTest::newRow("fitting-viewport") << 1600;
+}
+
+void UpstreamIntegration_Test::incomingSettingsScroll()
+{
+    QFETCH(int, height);
+    const QSize oldSize = m_app->size();
+    const bool wasVisible = m_app->isVisible();
+    const auto restore = qScopeGuard([&]() {
+        m_app->resize(oldSize);
+        if (!wasVisible) m_app->hide();
+    });
+    m_app->show();
+    QTRY_VERIFY(m_app->isExposed());
+    m_app->resize(1200, height);
+    QTRY_COMPARE(m_app->height(), height);
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/UISettingsEditor.qml"));
+    std::unique_ptr<QObject> object(component.create(m_app->rootContext()));
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto *item = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY(item);
+    item->setParentItem(m_app->rootObject());
+    item->setZ(1000);
+    QQmlExpression flickable(qmlContext(item), item, "editorFlickable");
+    auto *flick = flickable.evaluate().value<QObject *>();
+    QVERIFY2(flick, qPrintable(flickable.error().toString()));
+    flick->setProperty("height", height);
+    QTRY_VERIFY(flick->property("contentHeight").toReal() > 0);
+    const qreal overflow = qMax(qreal(0), flick->property("contentHeight").toReal() - height);
+    if (height == 220) QVERIFY(overflow > 0);
+    else QCOMPARE(overflow, 0);
+    flick->setProperty("contentY", overflow);
+    QCOMPARE(flick->property("contentY").toReal(), overflow);
+    QQmlExpression wheel(qmlContext(item), item, "sfSlider.wheelEnabled");
+    QVERIFY(!wheel.evaluate().toBool());
+    QVERIFY(!wheel.hasError());
+    QQmlExpression preset(qmlContext(item), item, "presetCombo.model.indexOf('Classic')");
+    QVERIFY(preset.evaluate().toInt() >= 0);
+    QVERIFY(!preset.hasError());
+    QQmlExpression sliderExpression(qmlContext(item), item, "sfSlider");
+    auto *slider = sliderExpression.evaluate().value<QQuickItem *>();
+    QVERIFY(slider);
+    flick->setProperty("contentY", 0);
+    const qreal scale = slider->property("value").toReal();
+    QSignalSpy painted(m_app.get(), &QQuickWindow::frameSwapped);
+    m_app->update();
+    QTRY_VERIFY(!painted.isEmpty());
+    const QPoint pointer = slider->mapToScene(QPointF(slider->width() / 2, slider->height() / 2)).toPoint();
+    QVERIFY(QRect(QPoint(), m_app->size()).contains(pointer));
+    QWheelEvent event(pointer, m_app->mapToGlobal(pointer), QPoint(), QPoint(0, -120),
+                      Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+    QCoreApplication::sendEvent(m_app.get(), &event);
+    QCoreApplication::processEvents();
+    QCOMPARE(slider->property("value").toReal(), scale);
+    if (height == 220) QTRY_VERIFY(flick->property("contentY").toReal() > 0);
+    else QCOMPARE(flick->property("contentY").toReal(), 0);
+}
+
+void UpstreamIntegration_Test::incomingScriptNotifications_data()
+{
+    QTest::addColumn<bool>("waitForStart");
+    QTest::newRow("main-loop-function-start") << true;
+    QTest::newRow("main-loop-function-stop") << false;
+}
+
+void UpstreamIntegration_Test::incomingScriptNotifications()
+{
+    QFETCH(bool, waitForStart);
+    Doc document(nullptr);
+    Doc *doc = &document;
+    auto *fixture = new Fixture(doc);
+    fixture->setChannels(2);
+    QVERIFY(doc->addFixture(fixture));
+    auto *scene = new Scene(doc);
+    scene->setValue(fixture->id(), 1, 91);
+    auto *script = new Script(doc);
+    QVERIFY(doc->addFunction(scene));
+    QVERIFY(doc->addFunction(script));
+    auto *timer = doc->masterTimer();
+    const auto cleanup = qScopeGuard([&]() {
+        script->stop(FunctionParent::master());
+        scene->stop(FunctionParent::master());
+        QTRY_VERIFY(script->stopped() && scene->stopped());
+        timer->stop();
+        doc->deleteFunction(script->id());
+        doc->deleteFunction(scene->id());
+    });
+    script->setData(QString("Engine.setFixture(%1, 0, 173); Engine.waitFunction%2(%3);")
+        .arg(fixture->id()).arg(waitForStart ? "Start" : "Stop").arg(scene->id()));
+    doc->inputOutputMap()->startUniverses();
+    QTRY_VERIFY(doc->inputOutputMap()->universes().first()->isRunning());
+    timer->start();
+    if (!waitForStart)
+    {
+        scene->start(timer, FunctionParent::master());
+        QTRY_VERIFY(scene->isRunning());
+    }
+    script->start(timer, FunctionParent::master());
+    const auto awaiting = [&]() {
+        if (!script->m_runner)
+            return false;
+        QMutexLocker lock(&script->m_runner->m_mutex);
+        return script->m_runner->m_waitFunctionId == scene->id();
+    };
+    QTRY_VERIFY(awaiting());
+    QCOMPARE(script->m_runner->thread(), QCoreApplication::instance()->thread());
+    if (waitForStart)
+        scene->start(timer, FunctionParent::master());
+    else
+        scene->stop(FunctionParent::master());
+    QTRY_VERIFY(script->stopped());
+    QTRY_VERIFY(script->m_runner == nullptr);
+    QCOMPARE(doc->inputOutputMap()->universes().first()->preGMValue(0), uchar(0));
+    if (waitForStart)
+        QTRY_COMPARE(doc->inputOutputMap()->universes().first()->preGMValue(1), uchar(91));
 }
 
 void UpstreamIntegration_Test::scriptDurationCache_data()

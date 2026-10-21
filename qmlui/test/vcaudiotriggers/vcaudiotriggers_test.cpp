@@ -1700,7 +1700,7 @@ Engine.setFixture(19, 0, 173);
             runner.execute();
             QVERIFY(runner.wait(3000));
             QCOMPARE(runner.m_fixtureValueQueue.size(), 1);
-            QCOMPARE(runner.m_fixtureValueQueue.head().m_value, uchar(173));
+            QCOMPARE(runner.m_fixtureValueQueue.constBegin().value().m_value, uchar(173));
         }
         QCOMPARE(capture->subscribers(), subscribers);
         if (phase == 0)

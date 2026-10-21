@@ -29,6 +29,10 @@
 #include "huescriptscache.h"
 #include "rgbscriptscache.h"
 #include "rgbaudio.h"
+#include "fixture.h"
+#include "scene.h"
+#include "mastertimer.h"
+#include "universe.h"
 
 #include <algorithm>
 #include <array>
@@ -1630,11 +1634,14 @@ void AudioConsumers_Test::scriptRunnerStop()
     doc.m_inputCapture.reset(new ConsumerTestCapture());
     ScriptRunner runner(&doc, nullptr, content);
     QSemaphore entered, continueScript, destroying, continueDestruction;
+    std::thread stopper;
     bool destructionOnRunner = false;
     bool engineUnpublished = false;
     const auto cleanup = qScopeGuard([&]() {
         continueScript.release();
         continueDestruction.release();
+        if (stopper.joinable())
+            stopper.join();
         runner.stop();
         runner.wait();
     });
@@ -1675,15 +1682,21 @@ void AudioConsumers_Test::scriptRunnerStop()
     }
 
     if (cancel || invalidSyntax)
-        runner.stop();
+    {
+        stopper = std::thread([&]() { runner.stop(); });
+        QTRY_VERIFY(!runner.m_running);
+    }
     continueScript.release();
     if (!beforePublication && !invalidSyntax)
     {
         QVERIFY2(destroying.tryAcquire(1, 5000), "runner did not begin engine destruction");
         // The worker is inside engine destruction while the caller stops it.
-        runner.stop();
+        if (!stopper.joinable())
+            stopper = std::thread([&]() { runner.stop(); });
         continueDestruction.release();
     }
+    if (stopper.joinable())
+        stopper.join();
     QVERIFY2(runner.wait(5000), "runner did not finish after stop");
     QVERIFY(!runner.m_running);
     QVERIFY(runner.m_engine == nullptr);
@@ -1695,6 +1708,186 @@ void AudioConsumers_Test::scriptRunnerStop()
             QVERIFY(destructionOnRunner);
         QVERIFY(engineUnpublished);
     }
+}
+
+void AudioConsumers_Test::scriptRunnerQueue_data()
+{
+    QTest::addColumn<quint32>("secondID");
+    QTest::addColumn<quint32>("secondChannel");
+    QTest::newRow("independent-channels") << quint32(1) << quint32(1);
+    QTest::newRow("independent-fixtures") << quint32(2) << quint32(0);
+    QTest::newRow("full-width-fixture-ids") << quint32(0x1000001) << quint32(0);
+}
+
+void AudioConsumers_Test::scriptRunnerQueue()
+{
+    QFETCH(quint32, secondID);
+    QFETCH(quint32, secondChannel);
+    Doc doc(nullptr);
+    doc.masterTimer()->stop();
+    auto *first = new Fixture(&doc);
+    first->setChannels(2);
+    QVERIFY(doc.addFixture(first, 1));
+    if (secondID != 1)
+    {
+        auto *second = new Fixture(&doc);
+        second->setChannels(2);
+        second->setAddress(8);
+        QVERIFY(doc.addFixture(second, secondID));
+    }
+    ScriptRunner runner(&doc, nullptr, QString());
+    runner.m_running = true;
+    for (int i = 0; i < 1000; ++i)
+        QVERIFY(runner.setFixture(1, 0, uchar(i), uint(i)));
+    QVERIFY(runner.setFixture(secondID, secondChannel, 173, 20));
+    QCOMPARE(runner.m_fixtureValueQueue.size(), 2);
+    const auto latest = runner.m_fixtureValueQueue.value(ScriptRunner::fixtureValueKey(0, 1, 0));
+    QCOMPARE(latest.m_value, uchar(999));
+    QCOMPARE(latest.m_fadeTime, 999u);
+    runner.m_running = false;
+    if (secondID > 0xFFFF)
+    {
+        runner.stop();
+        QVERIFY(runner.m_fixtureValueQueue.isEmpty());
+        return;
+    }
+    QVERIFY(!runner.write(doc.masterTimer(), doc.inputOutputMap()->universes()));
+    QVERIFY(runner.m_fixtureValueQueue.isEmpty());
+    QCOMPARE(runner.m_fadersMap.size(), 1);
+    auto *universe = doc.inputOutputMap()->universes().first();
+    universe->write(0, 173, true);
+    universe->write(100, 91, true);
+    runner.stop();
+    QVERIFY(runner.m_fadersMap.isEmpty());
+    QCOMPARE(universe->preGMValue(0), uchar(0));
+    QCOMPARE(universe->preGMValue(100), uchar(91));
+}
+
+void AudioConsumers_Test::scriptRunnerDispatch_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::newRow("deleted-function-progress") << QString("deleted");
+    QTest::newRow("stale-universe-progress") << QString("stale");
+    QTest::newRow("duplicate-function-ownership") << QString("duplicate");
+}
+
+void AudioConsumers_Test::scriptRunnerDispatch()
+{
+    QFETCH(QString, operation);
+    Doc doc(nullptr);
+    doc.masterTimer()->stop();
+    ScriptRunner runner(&doc, nullptr, QString());
+    if (operation == "stale")
+    {
+        const FixtureValue value{999, 1, 0, 255, 0};
+        runner.m_fixtureValueQueue.insert(ScriptRunner::fixtureValueKey(999, 1, 0), value);
+    }
+    else if (operation == "deleted")
+        runner.m_functionQueue.enqueue(qMakePair(quint32(12345), ScriptRunner::START));
+    else
+    {
+        auto *scene = new Scene(&doc);
+        QVERIFY(doc.addFunction(scene));
+        runner.m_running = true;
+        QVERIFY(runner.startFunction(scene->id()));
+        QVERIFY(runner.startFunction(scene->id()));
+        QVERIFY(runner.write(doc.masterTimer(), doc.inputOutputMap()->universes()));
+        QCOMPARE(runner.m_startedFunctions.size(), 1);
+        runner.m_running = false;
+    }
+    QVERIFY(!runner.write(doc.masterTimer(), doc.inputOutputMap()->universes()));
+    QVERIFY(runner.m_functionQueue.isEmpty());
+    QVERIFY(runner.m_fixtureValueQueue.isEmpty());
+    runner.stop();
+    QVERIFY(runner.m_startedFunctions.isEmpty());
+}
+
+void AudioConsumers_Test::scriptRunnerWait_data()
+{
+    QTest::addColumn<bool>("cancel");
+    QTest::addColumn<bool>("stringWait");
+    for (bool cancel : {false, true})
+        for (bool stringWait : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(cancel ? "stop" : "ticks",
+                stringWait ? "string" : "numeric"))) << cancel << stringWait;
+}
+
+void AudioConsumers_Test::scriptRunnerWait()
+{
+    QFETCH(bool, cancel);
+    QFETCH(bool, stringWait);
+    Doc doc(nullptr);
+    doc.masterTimer()->stop();
+    ScriptRunner runner(&doc, nullptr, stringWait ? "Engine.waitTime('80ms');" : "Engine.waitTime(80);");
+    const auto cleanup = qScopeGuard([&]() { runner.stop(); });
+    runner.execute();
+    QTRY_COMPARE(runner.currentWaitTime(), 80);
+    if (cancel)
+        runner.stop();
+    else
+        while (runner.currentWaitTime() > 0)
+            runner.write(doc.masterTimer(), {});
+    QVERIFY(runner.wait(5000));
+    QVERIFY(!runner.m_running);
+    QVERIFY(!runner.write(doc.masterTimer(), {}));
+}
+
+void AudioConsumers_Test::scriptRunnerRandom_data()
+{
+    QTest::addColumn<int>("minimum");
+    QTest::addColumn<int>("maximum");
+    QTest::newRow("equal") << 7 << 7;
+    QTest::newRow("inverted") << 20 << -10;
+    QTest::newRow("int-max") << INT_MAX - 2 << INT_MAX;
+    QTest::newRow("full-range") << INT_MIN << INT_MAX;
+}
+
+void AudioConsumers_Test::scriptRunnerRandom()
+{
+    QFETCH(int, minimum);
+    QFETCH(int, maximum);
+    Doc doc(nullptr);
+    ScriptRunner runner(&doc, nullptr, QString());
+    QCOMPARE(runner.random(minimum, maximum), 0);
+    runner.m_running = true;
+    for (int i = 0; i < 100; ++i)
+    {
+        const int value = runner.random(minimum, maximum);
+        QVERIFY(value >= qMin(minimum, maximum));
+        QVERIFY(value <= qMax(minimum, maximum));
+    }
+}
+
+void AudioConsumers_Test::scriptRunnerCompletion_data()
+{
+    QTest::addColumn<QString>("audioCall");
+    QTest::newRow("audio-level") << QString("getAudioLevel");
+    QTest::newRow("audio-snapshot") << QString("getAudioSnapshot");
+}
+
+void AudioConsumers_Test::scriptRunnerCompletion()
+{
+    QFETCH(QString, audioCall);
+    Doc doc(nullptr);
+    doc.masterTimer()->stop();
+    doc.m_inputCapture.reset(new ConsumerTestCapture());
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(1);
+    QVERIFY(doc.addFixture(fixture, 1));
+    ScriptRunner runner(&doc, nullptr,
+        QString("Engine.%1(); Engine.setFixture(1, 0, 173);").arg(audioCall));
+    runner.execute();
+    QVERIFY(runner.wait(5000));
+    QVERIFY(!runner.m_running);
+    QVERIFY(runner.m_engine == nullptr);
+    QCOMPARE(runner.m_registeredBands.size(), 1);
+    QCOMPARE(runner.m_fixtureValueQueue.size(), 1);
+    QVERIFY(!runner.write(doc.masterTimer(), doc.inputOutputMap()->universes()));
+    QCOMPARE(runner.m_fadersMap.size(), 1);
+    runner.stop();
+    QVERIFY(runner.m_registeredBands.isEmpty());
+    QVERIFY(runner.m_fadersMap.isEmpty());
+    runner.stop();
 }
 
 void AudioConsumers_Test::pcmToPixels_data()

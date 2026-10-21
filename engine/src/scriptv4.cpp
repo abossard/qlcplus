@@ -17,6 +17,7 @@
   limitations under the License.
 */
 
+#include <QCoreApplication>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QRandomGenerator>
@@ -87,6 +88,9 @@ quint32 Script::totalDuration()
         return m_cachedDuration;
 
     ScriptRunner *runner = new ScriptRunner(doc(), nullptr, m_data);
+    // Fix thread affinity: MasterTimerPrivate lacks a Qt event loop, which causes queued cross-thread
+    // signals to freeze. Moving ScriptRunner to the main thread routes signals to a working event loop.
+    runner->moveToThread(qApp->thread());
     runner->collectScriptData();
     m_cachedDuration = runner->currentWaitTime();
     m_durationValid = true;
@@ -356,6 +360,9 @@ bool Script::saveXML(QXmlStreamWriter *doc) const
 void Script::preRun(MasterTimer* timer)
 {
     m_runner = new ScriptRunner(doc(), this, m_data);
+    // Fix thread affinity: MasterTimerPrivate lacks a Qt event loop, which causes queued cross-thread
+    // signals to freeze. Moving ScriptRunner to the main thread routes signals to a working event loop.
+    m_runner->moveToThread(qApp->thread());
     m_runner->execute();
 
     Function::preRun(timer);
@@ -379,7 +386,7 @@ void Script::postRun(MasterTimer* timer, QList<Universe *> universes)
 {
     if (m_runner)
     {
-        m_runner->stop();
+        m_runner->stop(&universes);
         m_runner->exit();
         m_runner->wait();
         // we can't directly delete m_runner here because the finished() signal of
@@ -608,4 +615,3 @@ QString Script::convertLegacyMethod(QString method)
     else if (method == systemLegacy) return systemCmd;
     else return "";
 }
-

@@ -20,6 +20,16 @@ private slots:
     void nativeExecutionContractSweep();
     void scriptRunnerStop_data();
     void scriptRunnerStop();
+    void scriptRunnerQueue_data();
+    void scriptRunnerQueue();
+    void scriptRunnerDispatch_data();
+    void scriptRunnerDispatch();
+    void scriptRunnerWait_data();
+    void scriptRunnerWait();
+    void scriptRunnerRandom_data();
+    void scriptRunnerRandom();
+    void scriptRunnerCompletion_data();
+    void scriptRunnerCompletion();
     void pcmToPixels_data();
     void pcmToPixels();
     void powerEcho_data();

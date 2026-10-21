@@ -2477,3 +2477,58 @@ The running application was not restarted.
 | Scaling and theme preferences | | | | |
 | Mobile/desktop 3D navigation | | | | |
 | Fixture-group selection | | | | |
+
+## 40. Upstream b95e399e5 runner and editor integration
+
+> Covers upstream 95c323cd0..b95e399e5. Use a disposable workspace. All checks below await human sign-off.
+>
+> Build results: `cmake --build build --target qlcplus5 upstreamintegration_test mcp_script_tool_test audioconsumers_test vcaudiotriggers_test chaser_test chaserstep_test chaserrunner_test mcp_uimanager_preset_test mcp_dispatch_smoke_test -j8` passed. After reconciliation, `cmake --build build --target upstreamintegration_test audioconsumers_test -j8` and the final `cmake --build build --target upstreamintegration_test -j8` passed, including their production app/library dependencies.
+>
+> Native results (Qt 6.12.0, offscreen/software, isolated settings/HOME/TMPDIR and output directory): every final suite exited 0 with `-maxwarnings 0`. `build/qmlui/test/upstreamintegration/upstreamintegration_test` passed 579, skipped 8 opt-in screenshot fixtures; its focused incoming-change and scriptDurationCache selection passed 59 without skips. `build/engine/test/audioconsumers/audioconsumers_test` passed 665, skipped 2 opt-in media/replay cases. `build/qmlui/test/vcaudiotriggers/vcaudiotriggers_test` passed 198. `build/mcp/test/mcp_script_tool_test` passed 79; `build/engine/test/chaser/chaser_test` 23; `build/engine/test/chaserstep/chaserstep_test` 12; `build/engine/test/chaserrunner/chaserrunner_test` 23; `build/mcp/test/mcp_uimanager_preset_test` 6; `build/mcp/test/mcp_dispatch_smoke_test` 35. Exact absolute commands, environments, working directories, exit statuses and earlier failed attempts are retained in `build/upstream-2026-10-21/results.json` and its named logs.
+>
+> Parser results: `cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts` passed 48 tests. The native canvas parser independently retained the original 166361-byte prefix and all prior parsed sections/IDs/states, and found six new cases with ten pending checks.
+>
+> Limitations: the first complete VCAudioTriggers run failed the unchanged low-latency visualCadence timing row (39 signals / 40 polls); the complete rerun passed 198. That observed scheduling sensitivity is not a claim of reliable real-show timing. Full-width fixture IDs are covered at the new pending-queue boundary only; downstream GenericFader retains its pre-existing 16-bit fixture-key limit. Screenshot fixtures, media export, ten-minute audio replay, physical hardware and human checks remain unverified. No live smoke run, application restart or workspace mutation was performed.
+>
+> Manual boundaries: offscreen tests do not establish physical display readability, pointer/trackpad feel, output hardware mapping, audio responsiveness or performance under a real show load. No checks below have been performed on the user's running application.
+
+### 40.1 Fixture distribution in front and side views
+
+- **Do:** Place at least three fixtures at irregular, negative and fractional coordinates. Distribute horizontally and vertically in Front, Left and Right views, with both meters and feet. Compare the 2D layout with the 3D view. Repeat with only two selected fixtures.
+- ☐ Three or more fixtures keep their view order and appear evenly spaced without flipping, jumping to the wrong plane or snapping fractional coordinates. The untouched axes remain visually stable.
+- ☐ Two selected fixtures do not move. Switching views and units leaves the resulting stage layout coherent.
+
+### 40.2 Infinite chaser holds and tempo changes
+
+- **Do:** Use a chaser with a nonzero fade and an infinite step hold, alongside a finite step. Switch between time and beat tempo in both directions. Edit common fades/holds, then undo and redo.
+- ☐ The infinite step still waits indefinitely in both tempo modes. Finite steps keep meaningful fade and hold timing rather than wrapping to a tiny duration.
+- ☐ Common timing edits, undo and redo restore the intended visible timing and playback without corrupting other steps.
+
+### 40.3 Scrolling UI settings and theme presets
+
+- **Do:** Open UI settings in a short window. Scroll to the last settings with a wheel or trackpad, including with the pointer over the scaling slider. Change a theme preset, deliberately drag scaling, and close the editor. Repeat with a window tall enough to fit the settings.
+- ☐ Lower settings and the close button remain reachable. Scrolling feels natural, does not accidentally change scaling, and does not force overflow when the contents fit.
+- ☐ Preset selection, deliberate scaling changes and reset remain effective. Text and controls are readable and hittable at the chosen scale.
+
+### 40.4 Unsigned Simple Desk channel display
+
+- **Do:** In a disposable workspace, feed known channel values 0, 127, 128 and 255. Switch Simple Desk universes and return, then apply and release a local override.
+- ☐ Displayed levels stay in 0..255 and match the output monitor. High values never appear as huge or negative levels, and the override indicator/value remain correct.
+
+### 40.5 Script responsiveness and cleanup
+
+- **Do:** Run a script that repeatedly writes the same channel between ticks, another that starts/waits for/stops a function, and an audio-reactive script. Stop them during a wait and after natural completion while unrelated fixture output continues.
+- ☐ Output remains responsive without a whole-show freeze, visible stale queued commands or a burst of old values. Function waits resume when their matching function starts or stops.
+- ☐ Script-owned output and audio activity retire cleanly. Unrelated output continues unchanged, including after repeated starts/stops and natural completion.
+
+### 40.6 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, display size/scale, audio source and any output hardware. Leave unavailable interaction and hardware paths unsigned.
+
+| Area | Tester | Date | Pass / Fail | Notes |
+|------|--------|------|-------------|-------|
+| Front/side fixture distribution | | | | |
+| Infinite holds and timing history | | | | |
+| Settings scroll, scaling and presets | | | | |
+| Simple Desk high-byte levels | | | | |
+| Script responsiveness and cleanup | | | | |

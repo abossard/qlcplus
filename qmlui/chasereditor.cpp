@@ -696,14 +696,16 @@ void ChaserEditor::setTempoType(int tempoType)
         if (tempoType == Function::Beats)
         {
             step.fadeIn = Function::timeToBeats(step.fadeIn, beatDuration);
-            step.hold = Function::timeToBeats(step.hold, beatDuration);
+            if (step.hold != Function::defaultSpeed())
+                step.hold = Function::timeToBeats(step.hold, beatDuration);
             step.fadeOut = Function::timeToBeats(step.fadeOut, beatDuration);
         }
         // Beats -> Time
         else
         {
             step.fadeIn = Function::beatsToTime(step.fadeIn, beatDuration);
-            step.hold = Function::beatsToTime(step.hold, beatDuration);
+            if (step.hold != Function::defaultSpeed())
+                step.hold = Function::beatsToTime(step.hold, beatDuration);
             step.fadeOut = Function::beatsToTime(step.fadeOut, beatDuration);
         }
 
@@ -714,7 +716,7 @@ void ChaserEditor::setTempoType(int tempoType)
         Tardis::instance()->enqueueAction(Tardis::ChaserSetStepFadeOut, m_chaser->id(), QVariant::fromValue(oldFadeOut),
                                           QVariant::fromValue(UIntPair(index, step.fadeOut)));
 
-        step.duration = step.fadeIn + step.hold;
+        step.duration = Function::speedAdd(step.fadeIn, step.hold);
         Tardis::instance()->enqueueAction(Tardis::ChaserSetStepDuration, m_chaser->id(), QVariant::fromValue(oldDuration),
                                           QVariant::fromValue(UIntPair(index, step.duration)));
 
