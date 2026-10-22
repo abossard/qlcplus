@@ -252,6 +252,7 @@ Rectangle
     onShowIDChanged: { resetSelectionNavigationView(); renderAndCenter() }
     Component.onCompleted:
     {
+        disableMouseDragPanning()
         renderAndCenter()
         forceActiveFocus()
         if (showCommandRecorder)
@@ -506,6 +507,10 @@ Rectangle
                 || timelineViewportWidth <= 0)
             return
 
+        // the user moving the view comes first; an explicit reveal still goes through
+        if (!playheadRevealRequested && userIsScrolling())
+            return
+
         var cursorX = hdrItem.cursorPosition
         if ((showManager.readOnly || playheadRevealRequested) && cursorX < xViewOffset)
             xViewOffset = Math.max(0, cursorX - (timelineViewportWidth / 2))
@@ -548,6 +553,133 @@ Rectangle
             ts = 0.1
         showManager.timeScale = ts
         centerView()
+    }
+
+    // ---- trackpad scrolling and zoom ----
+
+    // when the user last moved the view by hand: following the playhead waits for them to stop
+    property double lastUserScroll: 0
+
+    function noteUserScroll()
+    {
+        lastUserScroll = Date.now()
+    }
+
+    function userIsScrolling()
+    {
+        return Date.now() - lastUserScroll < 2500 || itemsArea.moving || timelineHeader.moving || horScrollBar.pressed
+    }
+
+    // A Flickable pans and flings under a mouse drag, which is easy to trigger
+    // by accident with a trackpad click and takes the drag away from the ruler
+    // and the items. Qt 6.9 can turn it off; older versions keep the drag.
+    function disableMouseDragPanning()
+    {
+        var flickables = [timelineHeader, showContents, itemsArea]
+        for (var i = 0; i < flickables.length; i++)
+        {
+            if ("acceptedButtons" in flickables[i])
+                flickables[i].acceptedButtons = Qt.NoButton
+        }
+    }
+
+    // moves the playhead to the time at the given pixel of the ruler
+    function seekToPixel(x)
+    {
+        if (showManager.readOnly)
+            return
+        if (showManager.timeBasedDivision)
+            showManager.requestSeek(TimeUtils.posToMs(x, timeScale, tickSize))
+        else
+            showManager.requestSeek(TimeUtils.posToBeatMs(x, tickSize, showManager.bpmNumber, showManager.beatsDivision))
+    }
+
+    // The WheelRouter hands the trackpad travel here, so that a swipe in any
+    // direction moves the one view: the ruler and the lanes share xViewOffset
+    function scrollTimelineBy(dx, dy)
+    {
+        if (dy !== 0)
+        {
+            var maxY = Math.max(0, showContents.contentHeight - showContents.height)
+            showContents.contentY = Math.max(0, Math.min(maxY, Math.round(showContents.contentY - dy)))
+        }
+        if (dx !== 0)
+        {
+            var maxX = Math.max(0, timelineHeader.contentWidth - timelineViewportWidth)
+            xViewOffset = Math.max(0, Math.min(maxX, Math.round(xViewOffset - dx)))
+            noteUserScroll()
+        }
+    }
+
+    // pixels on the ruler the Show shows and back, as the playhead and the
+    // seek click convert them, but without rounding the time to whole ms
+    function pixelsToTime(x)
+    {
+        if (showManager.timeBasedDivision)
+            return x * 1000 * showManager.timeScale / showManager.tickSize
+        return TimeUtils.posToBeatMs(x, showManager.tickSize, showManager.bpmNumber, showManager.beatsDivision)
+    }
+
+    function timeToPixels(time)
+    {
+        if (showManager.timeBasedDivision)
+            return TimeUtils.timeToSize(time, showManager.timeScale, showManager.tickSize)
+        return TimeUtils.timeToBeatPosition(time, showManager.tickSize, showManager.bpmNumber, showManager.beatsDivision)
+    }
+
+    // Continuous zoom for the pinch and Cmd/Ctrl + scroll: the time under the
+    // pointer stays under the pointer. factor > 1 zooms in.
+    function zoomTimelineAt(factor, pointerX)
+    {
+        if (showManager.tickSize <= 0 || !(factor > 0))
+            return
+
+        var timeBased = showManager.timeBasedDivision
+        var viewX = Math.max(0, Math.min(timelineViewportWidth, pointerX - trackWidth - verticalDivider.width))
+        var anchor = pixelsToTime(xViewOffset + viewX)
+
+        // as in zoomTimeline(): a larger timeScale shrinks the Time ruler and grows the Beats one
+        var ts = showManager.timeScale * (timeBased ? 1 / factor : factor)
+        ts = Math.max(0.1, Math.min(timeBased ? 1000 : 64, ts))
+        if (ts === showManager.timeScale)
+            return
+
+        showManager.timeScale = ts
+        var maxX = Math.max(0, timelineHeader.contentWidth - timelineViewportWidth)
+        xViewOffset = Math.max(0, Math.min(maxX, Math.round(timeToPixels(anchor) - viewX)))
+        noteUserScroll()
+    }
+
+    // A zoom step lays out every item again, so steps that arrive faster than
+    // the view can follow are merged into one
+    property real pendingZoom: 1
+    property real pendingZoomX: 0
+
+    function requestZoom(factor, pointerX)
+    {
+        pendingZoom *= factor
+        pendingZoomX = pointerX
+        if (!zoomTimer.running)
+            applyPendingZoom()
+    }
+
+    function applyPendingZoom()
+    {
+        var factor = pendingZoom
+        pendingZoom = 1
+        zoomTimelineAt(factor, pendingZoomX)
+        zoomTimer.start()
+    }
+
+    Timer
+    {
+        id: zoomTimer
+        interval: 33
+        onTriggered:
+        {
+            if (showMgrContainer.pendingZoom !== 1)
+                showMgrContainer.applyPendingZoom()
+        }
     }
 
     function renderAndCenter()
@@ -1259,10 +1391,12 @@ Rectangle
 
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
+        pixelAligned: true
 
         contentWidth: hdrItem.width //> width ? hdrItem.width : width
 
         onContentXChanged: xViewOffset = contentX
+        onMovingChanged: showMgrContainer.noteUserScroll()
         onWidthChanged: showMgrContainer.followPlayhead()
 
         HeaderAndCursor
@@ -1306,12 +1440,11 @@ Rectangle
             {
                 if (showManager.readOnly)
                     return
-                if (showManager.timeBasedDivision)
-                    showManager.requestSeek(TimeUtils.posToMs(mouseX, timeScale, tickSize))
-                else
-                    showManager.requestSeek(TimeUtils.posToBeatMs(mouseX, tickSize, showManager.bpmNumber, showManager.beatsDivision))
+                showMgrContainer.seekToPixel(mouseX)
                 showManager.resetItemsSelection()
             }
+
+            onScrubbed: (mouseX) => showMgrContainer.seekToPixel(mouseX)
         }
     }
 
@@ -1329,6 +1462,7 @@ Rectangle
 
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
+        pixelAligned: true
         ScrollBar.vertical: CustomScrollBar { }
 
         contentHeight: totalTracksHeight > height ? totalTracksHeight : height
@@ -1543,11 +1677,13 @@ Rectangle
             clip: true
 
             boundsBehavior: Flickable.StopAtBounds
+            pixelAligned: true
             contentHeight: showContents.contentHeight
             contentWidth: timelineHeader.contentWidth
             ScrollBar.horizontal: horScrollBar
 
             onContentXChanged: xViewOffset = contentX
+            onMovingChanged: showMgrContainer.noteUserScroll()
 
             MouseArea
             {
@@ -1898,6 +2034,22 @@ Rectangle
         z: 10
         width: timelineHeader.width
         orientation: Qt.Horizontal
+        onPressedChanged: showMgrContainer.noteUserScroll()
+    }
+
+    // one owner for every trackpad swipe, pinch and Cmd/Ctrl + scroll over the ruler, the tracks
+    // and the lanes: the nested Flickables would ignore swipes that are not clearly vertical or horizontal
+    WheelRouter
+    {
+        x: 0
+        y: topBar.height
+        z: 5
+        width: showContents.width
+        height: showMgrContainer.timelineBottom - topBar.height
+        visible: showMgrContainer.timelineShown
+
+        onScrolled: (dx, dy) => showMgrContainer.scrollTimelineBy(dx, dy)
+        onZoomed: (factor, x, y) => showMgrContainer.requestZoom(factor, x)
     }
     // the Recordings tab: the recorded commands of the selected Show, with
     // the same REC control, playhead and transport in the top bar

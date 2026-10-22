@@ -53,7 +53,9 @@ Rectangle
             ? TimeUtils.timeToSize(currentTime, timeScale, tickSize)
             : TimeUtils.timeToBeatPosition(currentTime, tickSize, bpmNumber, beatsDivision)
 
+    // pressing the ruler seeks, dragging along it scrubs
     signal clicked(int mouseX, int mouseY)
+    signal scrubbed(int mouseX)
 
     onVisibleWidthChanged:
     {
@@ -326,6 +328,11 @@ Rectangle
     {
         enabled: showTimeMarkers && !showManager.readOnly
         anchors.fill: parent
-        onClicked: (mouse) => tlHeaderCursorLayer.clicked(mouse.x, mouse.y)
+        onPressed: (mouse) => tlHeaderCursorLayer.clicked(mouse.x, mouse.y)
+        onPositionChanged: (mouse) =>
+        {
+            if (pressed)
+                tlHeaderCursorLayer.scrubbed(Math.max(0, mouse.x))
+        }
     }
 }

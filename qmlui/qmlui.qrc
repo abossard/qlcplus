@@ -310,6 +310,7 @@
     <file alias="TimingUtils.qml">qml/showmanager/TimingUtils.qml</file>
     <file alias="ShowCommandList.qml">qml/showmanager/ShowCommandList.qml</file>
     <file alias="ShowRecordingLane.qml">qml/showmanager/ShowRecordingLane.qml</file>
+    <file alias="WheelRouter.qml">qml/showmanager/WheelRouter.qml</file>
 
     <!-- Fixture Definition Editor -->
     <file alias="FixtureEditor.qml">qml/fixtureeditor/FixtureEditor.qml</file>

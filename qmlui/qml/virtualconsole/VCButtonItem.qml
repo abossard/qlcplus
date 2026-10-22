@@ -200,7 +200,6 @@ VCWidgetItem
         }
     }
 
-    WheelEater { anchors.fill: parent; z: 1 }
     MouseArea
     {
         id: buttonMouseArea

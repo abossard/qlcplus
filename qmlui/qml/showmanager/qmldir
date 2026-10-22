@@ -32,3 +32,4 @@ WindowLoader 0.1 ../WindowLoader.qml
 ZoomItem 0.1 ../ZoomItem.qml
 ShowCommandList 0.1 ShowCommandList.qml
 ShowRecordingLane 0.1 ShowRecordingLane.qml
+WheelRouter 0.1 WheelRouter.qml

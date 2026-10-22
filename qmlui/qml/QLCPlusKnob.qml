@@ -54,6 +54,30 @@ Dial
     onKnobColorChanged: kCanvas.requestPaint()
     onLevelColorChanged: kCanvas.requestPaint()
 
+    /** Finger travel, in pixels, that turns the knob through its whole range
+     *  with a trackpad */
+    property real wheelTravel: 500
+
+    // A mouse wheel notch turns the knob by one step. A trackpad swipe is a
+    // stream of small pixel deltas followed by an inertia tail, and the page
+    // can slide a knob under a resting pointer in the middle of a swipe, so:
+    // only a swipe that began over this knob turns it, the turn follows the
+    // finger travel instead of the number of events, and the inertia tail is
+    // ignored.
+    property bool wheelOwned: false
+    property real wheelRemainder: 0
+
+    Timer
+    {
+        id: wheelOwnerTimer
+        interval: 350
+        onTriggered:
+        {
+            control.wheelOwned = false
+            control.wheelRemainder = 0
+        }
+    }
+
     MouseArea
     {
         anchors.fill: parent
@@ -62,23 +86,74 @@ Dial
         onWheel: (wheel) =>
         {
             if (!control.enabled)
+            {
+                wheel.accepted = false
                 return
+            }
 
             var previousValue = control.value
-            var rawSteps = wheel.angleDelta.y / 120.0
-            if (rawSteps === 0 && wheel.pixelDelta.y !== 0)
-                rawSteps = wheel.pixelDelta.y > 0 ? 1 : -1
 
-            var steps = rawSteps > 0 ? Math.ceil(rawSteps) : Math.floor(rawSteps)
-            if (steps > 0)
+            if (wheel.phase === undefined || wheel.phase === Qt.NoScrollPhase)
             {
-                for (var i = 0; i < steps; i++)
-                    control.increase()
+                var rawSteps = wheel.angleDelta.y / 120.0
+                if (rawSteps === 0 && wheel.pixelDelta.y !== 0)
+                    rawSteps = wheel.pixelDelta.y > 0 ? 1 : -1
+
+                var steps = rawSteps > 0 ? Math.ceil(rawSteps) : Math.floor(rawSteps)
+                if (steps > 0)
+                {
+                    for (var i = 0; i < steps; i++)
+                        control.increase()
+                }
+                else if (steps < 0)
+                {
+                    for (var j = 0; j < -steps; j++)
+                        control.decrease()
+                }
             }
-            else if (steps < 0)
+            else
             {
-                for (var j = 0; j < -steps; j++)
-                    control.decrease()
+                if (wheel.phase === Qt.ScrollBegin)
+                    control.wheelOwned = true
+
+                // content sliding under a resting pointer keeps scrolling the page
+                if (!control.wheelOwned)
+                {
+                    wheel.accepted = false
+                    return
+                }
+
+                wheelOwnerTimer.restart()
+
+                if (wheel.phase === Qt.ScrollMomentum)
+                {
+                    wheel.accepted = true
+                    return
+                }
+
+                // stepped like the notch above, so a value bound by the owner of
+                // the knob stays bound
+                var travel = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y : wheel.angleDelta.y / 2
+                var stepsInRange = (control.to - control.from) / (control.stepSize > 0 ? control.stepSize : 1)
+                control.wheelRemainder += travel * stepsInRange / control.wheelTravel
+                var whole = control.wheelRemainder > 0 ? Math.floor(control.wheelRemainder) : Math.ceil(control.wheelRemainder)
+                if (whole !== 0)
+                {
+                    control.wheelRemainder -= whole
+                    for (var k = 0; k < Math.abs(whole); k++)
+                    {
+                        if (whole > 0)
+                            control.increase()
+                        else
+                            control.decrease()
+                    }
+                }
+
+                if (wheel.phase === Qt.ScrollEnd)
+                {
+                    control.wheelOwned = false
+                    control.wheelRemainder = 0
+                }
             }
 
             if (control.value !== previousValue)

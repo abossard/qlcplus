@@ -120,6 +120,4 @@ VCWidgetItem
             labelColor: isRecording ? "#FF4444" : "#888"
         }
     }
-
-    WheelEater { anchors.fill: parent; z: 1 }
 }

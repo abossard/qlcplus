@@ -105,6 +105,8 @@ Item
     // Snap-to-item properties
     property var snapEdges: []
     property real snapThreshold: 15
+    // pointer travel in pixels before a press turns into a drag
+    property real dragThreshold: 6
     property real pressMouseX: 0
     property real pressMouseY: 0
     property bool dragActive: false
@@ -340,11 +342,20 @@ Item
             return (f && f.contentX !== undefined) ? f : null
         }
 
-        property real viewLeft: timelineView ? timelineView.contentX - itemRoot.x : 0
-        property real viewRight: timelineView ? viewLeft + timelineView.width : itemRoot.width
+        /* Like the header and the grid, the Canvas does not follow the view
+           pixel by pixel: it covers three viewports of the item, the one the
+           view is in and its two neighbours, and moves one viewport at a
+           time. Following every scroll step meant repainting the preview of
+           every item crossing the edge of the view at the rate the trackpad
+           sends wheel events. */
+        property int viewChunk: timelineView && timelineView.width > 0
+                                ? Math.floor(timelineView.contentX / timelineView.width) : 0
+        property real chunkLeft: timelineView ? (viewChunk - 1) * timelineView.width - itemRoot.x : 0
+        property real chunkRight: timelineView ? (viewChunk + 2) * timelineView.width - itemRoot.x
+                                               : itemRoot.width
 
-        x: timelineView ? Math.max(0, Math.min(viewLeft, itemRoot.width)) : 0
-        width: timelineView ? Math.max(0, Math.min(viewRight, itemRoot.width) - x)
+        x: timelineView ? Math.max(0, Math.min(chunkLeft, itemRoot.width)) : 0
+        width: timelineView ? Math.max(0, Math.min(chunkRight, itemRoot.width) - x)
                             : itemRoot.width
 
         onXChanged: requestPaint()
@@ -396,7 +407,7 @@ Item
                 return
 
             /* paint in the item's own coordinates: the Canvas covers only the
-               visible slice of the item (see above), so shift it into place */
+               part of the item near the view (see above), so shift it into place */
             context.save()
             context.translate(-prCanvas.x, 0)
 
@@ -551,7 +562,7 @@ Item
 
             if (!dragActive)
             {
-                if (Math.abs(dx) < 30 && Math.abs(dy) < 30)
+                if (Math.abs(dx) < dragThreshold && Math.abs(dy) < dragThreshold)
                     return
                 dragActive = true
                 itemRoot.z++
