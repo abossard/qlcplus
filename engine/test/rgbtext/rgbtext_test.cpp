@@ -277,17 +277,14 @@ void RGBText_Test::load()
     RGBText text(m_doc);
     QVERIFY(text.loadXML(xmlReader) == true);
     QCOMPARE(text.text(), QString("Foobar"));
-    compareFontSemantics(text.font(), fn);
+    QCOMPARE(text.font(), fn);
     QCOMPARE(text.animationStyle(), RGBText::Horizontal);
     QCOMPARE(text.xOffset(), 10);
     QCOMPARE(text.yOffset(), -20);
 
     buffer.close();
     QByteArray bData = buffer.data();
-    const QString malformed = "a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t,u,v,w,x,y,z";
-    QFont qtParsedFont;
-    const bool qtAcceptedMalformed = qtParsedFont.fromString(malformed);
-    bData.replace(fn.toString().toUtf8(), malformed.toUtf8());
+    bData.replace(fn.toString().toUtf8(), "a,b,c");
     buffer.setData(bData);
     buffer.open(QIODevice::ReadWrite | QIODevice::Text);
     buffer.seek(0);
@@ -295,10 +292,7 @@ void RGBText_Test::load()
     xmlReader.readNextStartElement();
 
     QVERIFY(text.loadXML(xmlReader) == true);
-    if (qtAcceptedMalformed)
-        compareFontSemantics(text.font(), qtParsedFont);
-    else
-        compareFontSemantics(text.font(), fn);
+    QCOMPARE(text.font(), fn); // Invalid font is ignored by loadXML()
 
     buffer.close();
     bData = buffer.data();

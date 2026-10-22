@@ -38,6 +38,14 @@ Rectangle
     property string currentContext: ""
     property int popupCount: 0
 
+    // Window edges overlaid by system UI (e.g. Android status/navigation bars
+    // drawn edge-to-edge). Interactive items must stay inside these margins.
+    readonly property bool isAndroid: Qt.platform.os === "android"
+    readonly property real safeTop: isAndroid ? SafeArea.margins.top : 0
+    readonly property real safeBottom: isAndroid ? SafeArea.margins.bottom : 0
+    readonly property real safeLeft: isAndroid ? SafeArea.margins.left : 0
+    readonly property real safeRight: isAndroid ? SafeArea.margins.right : 0
+
     Component.onCompleted:
     {
         UISettings.sidePanelWidth = Math.min(width / 3, UISettings.bigItemHeight * 5)
@@ -203,7 +211,9 @@ Rectangle
     {
         id: mainToolbar
         visible: qlcplus.accessMask & App.AC_VCControl ? false : true // this is kiosk mode
-        width: parent.width
+        x: mainView.safeLeft
+        y: mainView.safeTop
+        width: parent.width - mainView.safeLeft - mainView.safeRight
         height: UISettings.iconSizeDefault
         z: 50
         gradient: Gradient
@@ -582,8 +592,8 @@ Rectangle
                 {
                     id: beatSelectionPanel
                     parent: mainView
-                    y: mainToolbar.height
-                    x: beatIndicator.x - width
+                    y: mainToolbar.y + mainToolbar.height
+                    x: mainToolbar.x + beatIndicator.x - width
                     z: 51
                     visible: false
                 }
@@ -713,9 +723,10 @@ Rectangle
         source: "qrc:/FixturesAndFunctions.qml"
         active: false
         visible: currentContext === "FIXANDFUNC"
-        width: parent.width
-        height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0) - debugDock.dockHeight
-        y: mainToolbar.visible ? mainToolbar.height : 0
+        x: mainView.safeLeft
+        y: mainView.safeTop + (mainToolbar.visible ? mainToolbar.height : 0)
+        width: parent.width - mainView.safeLeft - mainView.safeRight
+        height: parent.height - y - mainView.safeBottom - debugDock.dockHeight
     }
 
     // Swapping loader for all other contexts
@@ -724,9 +735,10 @@ Rectangle
         id: otherViewLoader
         active: visible
         visible: currentContext !== "FIXANDFUNC" && currentContext !== ""
-        width: parent.width
-        height: parent.height - (mainToolbar.visible ? mainToolbar.height : 0) - debugDock.dockHeight
-        y: mainToolbar.visible ? mainToolbar.height : 0
+        x: mainView.safeLeft
+        y: mainView.safeTop + (mainToolbar.visible ? mainToolbar.height : 0)
+        width: parent.width - mainView.safeLeft - mainView.safeRight
+        height: parent.height - y - mainView.safeBottom - debugDock.dockHeight
     }
 
     // The shared debug panel, docked below whichever view is shown: the
@@ -765,8 +777,8 @@ Rectangle
     ActionsMenu
     {
         id: actionsMenu
-        x: 1
-        y: actEntry.height + 1
+        x: mainToolbar.x + 1
+        y: mainToolbar.y + actEntry.height + 1
         visible: false
         z: visible ? 99 : 0
     }
