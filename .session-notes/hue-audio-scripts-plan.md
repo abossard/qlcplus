@@ -199,7 +199,7 @@ Group E
 - [ ] E3 scanflare.js:34,249-251, scanmulti.js:34,285-287 LedFx mode speed default 0.5 % per second; almost still.
 - [ ] E4 shot.js:101,104 Trigger ignored; every mode fires on onset, Mids and Highs identical.
 - [ ] E5 scan.js:151-166 `boxBlur` linear hue (X5).
-- [ ] E6 smoke.js:95-106 (and noise) zoom axes swapped. LedFx?
+- [-] E6 smoke.js:95-106 (and noise) zoom axes swapped. Dropped: LedFx noise2d.py/smoke2d.py do the same.
 - [ ] E7 shockwave.js:117 dominant tint needs 3 colors, `acceptColors` is 2.
 - [ ] E8 shockwave.js:77-82 clearing the palette never restores defaults.
 - [ ] E9 shockwave.js:224,227 decay x waveDecay >= 1 gives NaN intensity.
@@ -222,7 +222,7 @@ Group F
 - [ ] F10 spectrum.js:168-173 Decay control never read.
 - [ ] F11 strobe.js:259,386 `setColorStep("abc")` throws (X3).
 - [ ] F12 vumeter.js:104-124 1xN always dark (X6).
-- [ ] F13 vumeter.js:107 peak marker 0 px under width 100 at the default 1%. LedFx?
+- [-] F13 vumeter.js:107 peak marker 0 px under width 100 at the default 1%. Dropped: LedFx vumeter.py does the same.
 - [ ] F14 vumeter.js:98-100 per-call alphas (X4).
 - [ ] F15 water.js:155,168 Artistic black when width < 5 (X6).
 - [ ] F16 water.js:212-214 ripple steps per call (X4).
@@ -264,3 +264,28 @@ Group F
 - 2026-10-24 Red tests committed (f6497ece6, 69c85d855). Running in parallel: phase 2 round 2 (cross-file
   helpers proposed by the group agents, fix/hue-audio-scripts-shared-helpers) and group red tests
   (fix/hue-audio-scripts-red-a..f).
+- 2026-10-24 G-F red tests (a9cb51fcc): F1, F3, F5, F6, F10, F16, F17, F18 red; F13 dropped (LedFx parity).
+  F17/F18: LedFx waterfall2d.py has the same code; fix anyway unless the script has a mode promising LedFx
+  parity (then keep it there). F16 fix must time-scale Artistic emitter drift too and keep harness row61
+  (one ripple iteration at 1/60 s for speed 1.2 and 1.8).
+- 2026-10-24 G-B red tests (4d1e98be5): B2, B5, B9, B10 (Artistic only; LedFx mode stays seconds-based like
+  LedFx time()), B11, B12, B8 crawler Artistic + digitalrain motion. Assumption to confirm in the fix:
+  chaser "Volume" follows volume.normalized.
+- 2026-10-24 G-E red tests (557890929): E2 (Artistic), E3, E4, E7, E8, E9, E11, E12, E14 smoke. E6 dropped
+  (LedFx parity). Soap rate dependence real but no stable frame-level assertion; left as is.
+  Harness assertions the fixes must update: smoke oracle `expectedNoiseLikeMap` per-render alpha (C54, plain
+  assert, aborts the run; shared with noise); EVENT_STIMULUS['audioshot.js'] = 'onset' with default Trigger
+  Beat; shot decay check spawns with an onset under Trigger Beat (would pass vacuously).
+- 2026-10-24 G-A red tests (219e2c48e): A2, A3, A4, A5, A6, A7 (second trigger = kickFired, per the pre-45f16b507
+  `audio.beat.kick`), A8 (LedFx np.roll parity), A9, A11 (keeps the 5-slot layout). Aurora/blocks/blurz rate
+  dependence already red in X4. Harness assertion the A2 fix must update: line ~3000 'row05 fill: must fill
+  toward row 0' (plain assert, aborts the run).
+- 2026-10-24 G-D red tests (6dffa286e): D3, D4, D5, D7, D8, D9 (marching, noise, plasma, puddles baseline),
+  D10, D11 (new ripples get the index-8 color and old rings cross the grid), D12. Harness assertions the fixes
+  must update: noise/smoke oracle `expectedNoiseLikeMap` per-render alpha (C36, plain assert); marching
+  row31 tolerance 1e-3 (0.0016 with a time-based alpha). Power blur through attachStripTransformControls
+  changes the X3 failure text; X4 reactor stays red after D3 alone.
+- 2026-10-24 G-C red tests (878bf14ac): C2, C3, C4, C5, C6, C8, C9, C10, C12, C13, C14, C15, C16, C18 (glitch,
+  glitch2, hueshift, eq2d spin). Harness assertions the fixes must update: C22/life/health-all (encodes the
+  wrong "All"); X5 flame case is invalid (flame has acceptColors 0 and its own orange Mid color): remove it at
+  merge, C9 covers flame blur.
