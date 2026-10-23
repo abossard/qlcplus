@@ -11,6 +11,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const os = require('os');
+const { execFileSync } = require('child_process');
 
 const SCRIPTS_DIR = path.join(__dirname, '..', 'resources', 'huescripts');
 const HSV_UTIL = fs.readFileSync(path.join(SCRIPTS_DIR, 'hsvutil.js'), 'utf8');
@@ -332,6 +334,23 @@ const totals = {
 };
 const executedCases = new Set();
 
+// Runs every case even when earlier ones fail, so one red case does not hide the others.
+function runCases(title, cases, check) {
+    let failed = 0;
+    for (const testCase of cases) {
+        try {
+            check(testCase);
+        } catch (error) {
+            failed++;
+            console.error(`FAIL ${title} [${testCase.label}]: ${error.message}`);
+        }
+    }
+    if (failed)
+        process.exitCode = 1;
+    console.log(`${failed ? 'FAIL' : 'PASS'} ${title}: ${cases.length - failed}/${cases.length} cases`);
+    return failed;
+}
+
 function markCase(caseId) {
     executedCases.add(caseId);
 }
@@ -400,6 +419,61 @@ function audio(overrides = {}) {
     return Object.assign({}, BASE_AUDIO, overrides);
 }
 
+// The full fifth rgbMap() argument as engine/src/audioview.cpp audioViewToVariant() publishes it.
+// Unavailable views carry zero levels, zero bank values and no event deltas, like the engine's.
+function engineAudio(input = {}) {
+    const available = input.available !== false;
+    const tempoValid = available && input.tempoValid === true;
+    const bpm = tempoValid ? (input.bpm || 120) : 0;
+    const visualBpm = tempoValid ? bpm : 120;
+    const phase = input.phase || 0;
+    const deltaSeconds = input.deltaSeconds === undefined ? 0.02 : input.deltaSeconds;
+    const level = name => available ? (input[name] || 0) : 0;
+    const beat = level('beat'), bass = level('bass'), mid = level('mid'), high = level('high');
+    const raw = Object.assign({ beat, bass, mid, high }, available ? input.raw : {});
+    raw.low = (raw.beat + raw.bass) / 2;
+    const zeroEvents = { onset: 0, beat: 0, kick: 0, bar: 0 };
+    const delta = Object.assign({}, zeroEvents, available ? input.delta : {});
+    const counters = Object.assign({}, zeroEvents, input.counters);
+    const bins = input.bins || Array(24).fill(0);
+    const bank = (minHz, maxHz, from, to) => {
+        const values = bins.slice(from, to);
+        const last = Math.max(1, values.length - 1);
+        return {
+            count: values.length, minHz, maxHz,
+            centersHz: values.map((_, i) => minHz * Math.pow(maxHz / minHz, i / last)),
+            processed: values.map(v => available ? v : 0),
+            novelty: values.map(v => available ? v * 0.4 : 0)
+        };
+    };
+    const pitchValid = available && input.pitchHz > 0;
+    return {
+        version: 6, beat, bass, low: (beat + bass) / 2, mid, high,
+        onset: delta.onset > 0, onsetIntensity: available ? (input.onsetIntensity || 0) : 0,
+        beatFired: delta.beat > 0, kickFired: delta.kick > 0, downbeat: delta.bar > 0,
+        bpm: visualBpm, phase, barPhase: input.barPhase || 0,
+        dt: deltaSeconds * visualBpm / 60,
+        cosPulse: tempoValid ? Math.max(0, Math.cos(phase * Math.PI)) : 0,
+        sourceId: input.sourceId === undefined ? 'test-source' : input.sourceId,
+        profileId: 1, sourceEpoch: input.sourceEpoch || 1,
+        frameSequence: input.frameSequence || 0, configRevision: 1,
+        sampleTime: 0, publishTimeNs: 0,
+        available, status: available ? 'available' : 'unavailable', staleAgeMs: 0,
+        gateOpen: available && input.gateOpen !== false,
+        banks: { low: bank(20, 350, 0, 8), mid: bank(20, 2000, 0, 16), full: bank(20, 15000, 0, bins.length) },
+        volume: { rawRms: level('volume') * 0.2, rmsDb: available ? -20 : -96, peakDb: available ? -13 : -96,
+            normalized: level('volume') },
+        tempo: { valid: tempoValid, bpm, confidence: tempoValid ? 0.9 : 0, beatPhase: phase,
+            barPhase: input.barPhase || 0, beatInBar: input.beatInBar || 0, beatsPerBar: 4 },
+        powers: { raw },
+        pitch: { valid: pitchValid, hz: pitchValid ? input.pitchHz : 0,
+            midi: pitchValid ? 69 + 12 * Math.log2(input.pitchHz / 440) : 0,
+            confidence: pitchValid ? 0.9 : 0 },
+        events: { counters, delta },
+        timing: { deltaSeconds, elapsedBeats: tempoValid ? deltaSeconds * bpm / 60 : 0 }
+    };
+}
+
 function seededRandom(seed) {
     let value = seed >>> 0;
     return function() {
@@ -423,6 +497,13 @@ function sandboxDate(clock) {
     return ScriptDate;
 }
 
+const hsvUtilSources = new Map([[SCRIPTS_DIR, HSV_UTIL]]);
+function hsvUtilSource(directory) {
+    if (!hsvUtilSources.has(directory))
+        hsvUtilSources.set(directory, fs.readFileSync(path.join(directory, 'hsvutil.js'), 'utf8'));
+    return hsvUtilSources.get(directory);
+}
+
 function loadScript(scriptFile, seed = 0x5eed, directory = SCRIPTS_DIR, options = true) {
     const normalized = typeof options === 'boolean'
         ? { expectedUsesAudio: options, clock: null }
@@ -444,7 +525,7 @@ function loadScript(scriptFile, seed = 0x5eed, directory = SCRIPTS_DIR, options 
         testAlgo: null
     };
     vm.createContext(sandbox);
-    vm.runInContext(HSV_UTIL, sandbox, { filename: 'hsvutil.js' });
+    vm.runInContext(hsvUtilSource(directory), sandbox, { filename: 'hsvutil.js' });
     vm.runInContext(
         fs.readFileSync(path.join(directory, scriptFile), 'utf8'),
         sandbox,
@@ -11932,7 +12013,7 @@ function optionalCliValue(flag) {
     const index = process.argv.indexOf(flag);
     if (index < 0) return null;
     const value = process.argv[index + 1];
-    assert(value && !value.startsWith('--'), `${flag} requires a directory path`);
+    assert(value && !value.startsWith('--'), `${flag} requires a value`);
     return value;
 }
 
@@ -12049,7 +12130,117 @@ function assertMatrixResponsePreservation() {
     console.log(`PASS matrix preservation: ${summaries.join(', ')} exact HSV checks; only matrixLayout metadata delta allowed`);
 }
 
-if (process.argv.includes('--matrix-layout-only')) {
+// Phase-2 refactoring safety net: render every audio script from this tree and from
+// --baseline-ref <git-ref> over the same configs, sizes and engine-shaped audio, and
+// compare what the engine would output (HSV -> RGB as engine/src/huecolor.h does it).
+function exportHueScripts(ref) {
+    const root = path.join(__dirname, '..');
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'huescripts-baseline-'));
+    const archive = execFileSync('git', ['-C', root, 'archive', ref, 'resources/huescripts'],
+        { maxBuffer: 256 * 1024 * 1024 });
+    execFileSync('tar', ['-x', '-C', target], { input: archive });
+    return path.join(target, 'resources', 'huescripts');
+}
+
+function engineRgb(h, s, v) {
+    h = Number.isFinite(h) ? h - Math.floor(h) : 0;
+    s = Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0;
+    v = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+    const c = v * s, x = c * (1 - Math.abs((h * 6) % 2 - 1)), m = v - c;
+    const rgb = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][Math.floor(h * 6) % 6];
+    return rgb.map(channel => channel + m);
+}
+
+function equivalenceFrame(tick) {
+    const quiet = tick < 6, transients = tick >= 18 && tick < 30;
+    const envelope = quiet ? 0.04 : transients ? 0.85 : 0.55;
+    const kick = transients && tick % 3 === 0 ? 1 : 0;
+    const bins = Array.from({ length: 24 }, (_, i) =>
+        envelope * (0.15 + 0.6 * (0.5 + 0.5 * Math.sin(i * 0.55 + tick * 0.4))) + (i < 4 ? 0.3 * kick : 0));
+    return engineAudio({
+        available: tick !== 30,
+        tempoValid: tick >= 6 && tick < 36,
+        bpm: 124, phase: (tick % 6) / 6, barPhase: (tick % 24) / 24, beatInBar: Math.floor(tick / 6) % 4,
+        deltaSeconds: tick === 31 ? 0.5 : tick === 32 ? 0 : tick % 5 === 4 ? 0.04 : 0.02,
+        beat: Math.min(1, envelope * 0.3 + kick * 0.7),
+        bass: envelope * (0.5 + 0.3 * Math.sin(tick * 0.7)),
+        mid: envelope * (0.5 + 0.3 * Math.sin(tick * 1.1 + 1)),
+        high: envelope * (0.4 + 0.4 * Math.sin(tick * 1.9 + 2)),
+        volume: envelope, onsetIntensity: kick * 0.9, bins,
+        pitchHz: quiet ? 0 : 130.81 * Math.pow(2, [0, 3, 7, 10, 12, 7][tick % 6] / 12),
+        delta: { onset: transients && tick % 2 === 0 ? 1 : 0, beat: tick % 6 === 0 ? 1 : 0,
+            kick, bar: tick % 24 === 0 ? 1 : 0 },
+        counters: { onset: tick, beat: Math.floor(tick / 6), kick: Math.floor(tick / 3), bar: Math.floor(tick / 24) },
+        sourceEpoch: tick >= 33 ? 2 : 1, frameSequence: tick + 1
+    });
+}
+
+function equivalenceConfigs(algo) {
+    const configs = [{ label: 'defaults', settings: [] }];
+    const nudged = [];
+    for (const property of algo.properties.map(parseProperty)) {
+        const current = String(algo[property.read]());
+        if (property.type === 'list') {
+            for (const value of propertyValues(property))
+                if (value !== current)
+                    configs.push({ label: `${property.name}=${value}`, settings: [[property.write, value]] });
+        } else if (property.type === 'range') {
+            const [min, max] = propertyValues(property);
+            nudged.push([property.write, String(Math.round((min + max) / 2))]);
+        } else if (property.type === 'float') {
+            const value = Number(current);
+            nudged.push([property.write, String(value ? value * 1.5 : 0.5)]);
+        }
+    }
+    if (nudged.length)
+        configs.push({ label: 'numbers nudged', settings: nudged });
+    return configs;
+}
+
+function assertBaselineEquivalence(ref) {
+    const baseline = exportHueScripts(ref);
+    const only = optionalCliValue('--only');
+    const files = EXPECTED_SCRIPTS.filter(file => !only || only.split(',').includes(file));
+    const sizes = [[1, 1], [12, 1], [1, 7], [7, 5]];
+    let renders = 0;
+    const cases = files.map(file => ({ label: file, file }));
+    runCases(`equivalence with ${ref}`, cases, ({ file }) => {
+        const probe = loadScript(file);
+        assert.strictEqual(JSON.stringify(probe.properties),
+            JSON.stringify(loadScript(file, 0x5eed, baseline).properties), `${file}: property descriptors changed`);
+        for (const config of equivalenceConfigs(probe)) {
+            for (const [width, height] of sizes) {
+                const clocks = [0, 1].map(() => ({ ms: 0, now() { return this.ms; } }));
+                const pair = [SCRIPTS_DIR, baseline].map((directory, i) =>
+                    loadScript(file, 0x5eed, directory, { expectedUsesAudio: true, clock: clocks[i] }));
+                for (const algo of pair)
+                    for (const [setter, value] of config.settings)
+                        algo[setter](value);
+                for (let tick = 0; tick < 48; tick++) {
+                    const frame = equivalenceFrame(tick);
+                    const [w, h] = tick < 40 ? [width, height] : [width + 3, height + 1];
+                    const maps = pair.map((algo, i) => {
+                        clocks[i].ms += frame.timing.deltaSeconds * 1000;
+                        return algo.rgbMap(w, h, PALETTE[0], tick % 4, frame);
+                    });
+                    renders += 2;
+                    assert.strictEqual(maps[0].length, maps[1].length, `${config.label} ${w}x${h} tick ${tick}: map length`);
+                    for (let pixel = 0; pixel < maps[0].length / 3; pixel++) {
+                        const [a, b] = maps.map(map => engineRgb(map[pixel * 3], map[pixel * 3 + 1], map[pixel * 3 + 2]));
+                        const diff = Math.max(...a.map((channel, c) => Math.abs(channel - b[c])));
+                        assert(diff <= 1e-5, `${config.label} ${w}x${h} tick ${tick} pixel ${pixel}: ` +
+                            `rgb ${a.map(x => x.toFixed(4))} vs baseline ${b.map(x => x.toFixed(4))}`);
+                    }
+                }
+            }
+        }
+    });
+    console.log(`equivalence: ${renders} renders compared`);
+}
+
+if (process.argv.includes('--baseline-ref')) {
+    assertBaselineEquivalence(optionalCliValue('--baseline-ref'));
+} else if (process.argv.includes('--matrix-layout-only')) {
     assertMatrixResponseGeometry();
     assertMatrixLayoutChoices();
     assertMatrixResponsePreservation();
