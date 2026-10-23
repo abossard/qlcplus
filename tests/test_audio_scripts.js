@@ -1965,6 +1965,222 @@ function assertCrossCuttingContracts() {
 
 // Group A bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
 function assertGroupABugs() {
+    const litRows = (map, width, height, x) =>
+        Array.from({ length: height }, (_, y) => y).filter(y => map[(y * width + x) * 3 + 2] > 0.01);
+    const litPixels = (map, threshold) => {
+        const out = [];
+        for (let i = 0; i < map.length / 3; i++)
+            if (map[i * 3 + 2] > threshold) out.push(i);
+        return out;
+    };
+    const peakV = map => Math.max(...Array.from(map).filter((_, i) => i % 3 === 2));
+    const withNovelty = (frame, novelty) => {
+        frame.banks.full = Object.assign({}, frame.banks.full,
+            { count: novelty.length, novelty, processed: novelty.slice() });
+        return frame;
+    };
+
+    runCases('A2 bleep Fill fills between the trace and the baseline row', [
+        { label: 'silence lights only the baseline row', amp: 0, rows: [8] },
+        { label: 'half scale fills the lower half', amp: 0.5, rows: [4, 5, 6, 7, 8] },
+        { label: 'full scale fills every row', amp: 1, rows: [0, 1, 2, 3, 4, 5, 6, 7, 8] }
+    ], c => {
+        const context = sharedScriptContext();
+        const instance = context.load('audiobleep.js');
+        setProperty(instance.algo, 'mode', 'Fill');
+        setProperty(instance.algo, 'mirror', 'No');
+        setProperty(instance.algo, 'points', '8');
+        let map;
+        for (let tick = 0; tick < 150; tick++)
+            map = context.render(instance, 8, 9, engineAudio({ high: c.amp, frameSequence: tick + 1 }));
+        for (let x = 0; x < 8; x++) {
+            const rows = litRows(map, 8, 9, x);
+            assert.deepStrictEqual(rows, c.rows, `column ${x}: lit rows ${rows.join(',')}, want ${c.rows.join(',')}`);
+        }
+    });
+
+    runCases('A3 bandsmatrix Matrix layout keeps rows intact under mirror/flip/blur', [
+        { label: 'Flip', settings: [['flip', 'On']], opts: { flip: 'On' } },
+        { label: 'Mirror', settings: [['mirror', 'Yes']], opts: { mirror: 'On' } },
+        { label: 'Blur 1', settings: [['blur', '1']], opts: { blur: 1 } }
+    ], c => {
+        const width = 9, height = 6;
+        const context = sharedScriptContext();
+        const instance = context.load('audiobandsmatrix.js');
+        setProperty(instance.algo, 'bandCount', '3');
+        const frame = withNovelty(engineAudio({}), [1, 1, 1, 0.5, 0.5, 0.5, 0.25, 0.25, 0.25]);
+        const plain = Array.from(context.render(instance, width, height, frame));
+        for (const [name, value] of c.settings)
+            setProperty(instance.algo, name, value);
+        const transformed = Array.from(context.render(instance, width, height, frame));
+        // Each row goes through the strip transforms on its own, as in the Repeated rows layout.
+        const opts = Object.assign({ flip: 'Off', mirror: 'Off', backgroundMode: 'Off', backgroundColor: '#000000',
+            backgroundBrightness: 1, brightness: 1, blur: 0 }, c.opts);
+        let worst = { error: 0, x: 0, y: 0, got: [], want: [] };
+        for (let y = 0; y < height; y++) {
+            const row = new Float32Array(plain.slice(y * width * 3, (y + 1) * width * 3));
+            const expected = context.sandbox.HSVUtil.applyStripTransforms(row, width, 1, opts);
+            for (let x = 0; x < width; x++) {
+                const i = (y * width + x) * 3;
+                const got = engineRgb(transformed[i], transformed[i + 1], transformed[i + 2]);
+                const want = engineRgb(expected[x * 3], expected[x * 3 + 1], expected[x * 3 + 2]);
+                const error = Math.max(...got.map((value, k) => Math.abs(value - want[k])));
+                if (error > worst.error)
+                    worst = { error, x, y, got, want };
+            }
+        }
+        assert(worst.error < 1e-4, `row ${worst.y} pixel ${worst.x}: rgb ${worst.got.map(v => v.toFixed(2))}, ` +
+            `the row transformed alone gives ${worst.want.map(v => v.toFixed(2))}`);
+    });
+
+    runCases('A4 beatcolors steps through the colors when no tempo is detected', [
+        { label: 'step 0', step: 0, input: {} },
+        { label: 'step 1', step: 1, input: {} },
+        { label: 'step 2', step: 2, input: {} },
+        { label: 'step 3', step: 3, input: {} },
+        { label: 'step 2, source unavailable', step: 2, input: { available: false } }
+    ], c => {
+        const context = sharedScriptContext();
+        const instance = context.load('audiobeatcolors.js');
+        const map = context.render(instance, 4, 1,
+            engineAudio(Object.assign({ tempoValid: false, beat: 0.6, bass: 0.5 }, c.input)), c.step);
+        const want = instance.algo.colors[c.step].h;
+        assert(Math.abs(map[0] - want) < 1e-6, `hue ${map[0].toFixed(3)}, want color ${c.step + 1} hue ${want}`);
+    });
+
+    // Head of the single beam: the lit pixel farthest from the edge it started at.
+    const laserTravel = hz => {
+        const width = 64;
+        const context = sharedScriptContext();
+        const instance = context.load('audiobasslaser.js');
+        setProperty(instance.algo, 'presetDirection', 'Horizontal');
+        setProperty(instance.algo, 'presetMaxBeams', '1');
+        setProperty(instance.algo, 'presetTrailLength', '20');
+        let fromLeft = null, lit = [];
+        for (let n = 0; n <= Math.round(0.4 * hz); n++) {
+            const map = context.render(instance, width, 1, engineAudio({ onsetIntensity: 1, deltaSeconds: 1 / hz,
+                delta: { beat: n === 0 ? 1 : 0 }, frameSequence: n + 1 }));
+            lit = litPixels(map, 0.1);
+            if (n === 0)
+                fromLeft = lit[0] < width / 2;
+        }
+        assert(lit.length > 0, `${hz} Hz: no beam after 0.4 s`);
+        return fromLeft ? Math.max(...lit) : width - 1 - Math.min(...lit);
+    };
+    runCases('A5 basslaser beam travels the same distance per second at any render rate', [
+        { label: '25 Hz vs 50 Hz', hz: 25 },
+        { label: '100 Hz vs 50 Hz', hz: 100 }
+    ], c => {
+        const reference = laserTravel(50), actual = laserTravel(c.hz);
+        assert(Math.abs(actual - reference) <= 2,
+            `in 0.4 s the beam travels ${actual} px at ${c.hz} Hz and ${reference} px at 50 Hz`);
+    });
+
+    // The engine calls rgbMapSetColors with every slot (an unset one arrives as black) and injects
+    // algo.colors with unset slots filled by the step color, which is color 1 for a one-step script.
+    const red = { h: 0, s: 1, v: 1 }, blue = { h: 2 / 3, s: 1, v: 1 }, unset = { h: 0, s: 0, v: 0 };
+    const renderLikeEngine = (context, instance, color1, color2, frame) => {
+        instance.algo.rgbMapSetColors([color1, color2]);
+        instance.algo.colors = [color1, color2.v > 0 ? color2 : color1];
+        instance.algo.hasUserColors = true;
+        return Array.from(context.render(instance, 16, 4, frame));
+    };
+    runCases('A6 basslaser takes trail and ambient colors from the injected palette', [
+        { label: 'color 1 red, color 2 unset: ambient twinkle in silence', color1: red, check: 'ambient' },
+        { label: 'color 1 blue, color 2 unset: ambient twinkle in silence', color1: blue, check: 'ambient' },
+        { label: 'color 1 red, color 2 unset: beams as with color 2 set to the injected color', color1: red, check: 'same' }
+    ], c => {
+        const context = sharedScriptContext();
+        const instance = context.load('audiobasslaser.js');
+        if (c.check === 'ambient') {
+            let peak = 0;
+            for (let tick = 0; tick < 10; tick++)
+                peak = Math.max(peak, peakV(renderLikeEngine(context, instance, c.color1, unset,
+                    engineAudio({ frameSequence: tick + 1 }))));
+            assert(peak > 0.01, `silence with no beams stays black (peak V ${peak.toFixed(3)})`);
+            return;
+        }
+        const otherContext = sharedScriptContext();
+        const other = otherContext.load('audiobasslaser.js');
+        for (let tick = 0; tick < 30; tick++) {
+            const actual = renderLikeEngine(context, instance, c.color1, unset, loudFrame(tick));
+            const expected = renderLikeEngine(otherContext, other, c.color1, c.color1, loudFrame(tick));
+            const worst = Math.max(...actual.map((value, i) => Math.abs(value - expected[i])));
+            assert(worst < 1e-6, `tick ${tick}: output differs by ${worst.toFixed(3)} although algo.colors is the same`);
+        }
+    });
+
+    // The script's history shows two triggers; the flat API has beatFired and kickFired (docs/audio-data-usage.md).
+    runCases('A7 basslaser a kick spawns a beam', ['Horizontal', 'Vertical', 'Both'].map(direction =>
+        ({ label: `kick only, ${direction}`, direction })), c => {
+        const context = sharedScriptContext();
+        const instance = context.load('audiobasslaser.js');
+        setProperty(instance.algo, 'presetDirection', c.direction);
+        for (let tick = 0; tick < 10; tick++)
+            context.render(instance, 16, 8, engineAudio({ onsetIntensity: 1, frameSequence: tick + 1 }));
+        const map = context.render(instance, 16, 8,
+            engineAudio({ onsetIntensity: 1, delta: { kick: 1 }, frameSequence: 11 }));
+        assert(peakV(map) > 0.15, `no beam after a kick (peak V ${peakV(map).toFixed(3)})`);
+    });
+
+    runCases('A8 bands invert align rolls like LedFx np.roll(-vol // 2)', [
+        { label: 'vol 1 of 8', vol: 1, lit: '00000001' },
+        { label: 'vol 3 of 8', vol: 3, lit: '10000011' },
+        { label: 'vol 4 of 8', vol: 4, lit: '11000011' },
+        { label: 'vol 5 of 8', vol: 5, lit: '11000111' },
+        { label: 'vol 7 of 8', vol: 7, lit: '11101111' }
+    ], c => {
+        const context = sharedScriptContext();
+        const instance = context.load('audiobands.js');
+        setProperty(instance.algo, 'bandCount', '1');
+        setProperty(instance.algo, 'align', 'invert');
+        const map = context.render(instance, 8, 1, withNovelty(engineAudio({}), Array(8).fill(c.vol / 8)));
+        const lit = Array.from({ length: 8 }, (_, i) => map[i * 3 + 2] > 0 ? '1' : '0').join('');
+        assert.strictEqual(lit, c.lit, `lights ${lit}, LedFx lights ${c.lit}`);
+    });
+
+    runCases('A9 bleep clears its history when the audio source changes', [
+        { label: 'new sourceId', next: { sourceId: 'other-source' } },
+        { label: 'new sourceEpoch', next: { sourceEpoch: 2 } }
+    ], c => {
+        const context = sharedScriptContext();
+        const instance = context.load('audiobleep.js');
+        setProperty(instance.algo, 'mode', 'Points');
+        setProperty(instance.algo, 'points', '8');
+        for (let tick = 0; tick < 150; tick++)
+            context.render(instance, 8, 9, engineAudio({ high: 0.9, frameSequence: tick + 1 }));
+        const map = context.render(instance, 8, 9, engineAudio(Object.assign({ high: 0, frameSequence: 1 }, c.next)));
+        const above = litPixels(map, 0.01).filter(i => i < 8 * 8);
+        assert.strictEqual(above.length, 0,
+            `the previous source's trace is still drawn at ${above.length} pixels above the baseline row`);
+    });
+
+    // Burst position slots are floor(slot * width / 5); search the engine inputs for one that reaches each.
+    let blurzColumns = null;
+    const reachedBurstColumns = () => {
+        if (blurzColumns) return blurzColumns;
+        blurzColumns = new Set();
+        const context = sharedScriptContext();
+        const levels = [0, 0.5, 1];
+        const binPatterns = [[0, 0], [0, 24], [0, 8], [8, 16], [16, 24]]
+            .map(([from, to]) => Array.from({ length: 24 }, (_, i) => i >= from && i < to ? 1 : 0));
+        for (const beat of levels) for (const bass of levels) for (const mid of levels) for (const high of levels)
+            for (const bins of binPatterns) {
+                const instance = context.load('audioblurz.js');
+                setProperty(instance.algo, 'presetBurstSpread', '0');
+                setProperty(instance.algo, 'presetAxis', 'Horizontal');
+                const map = context.render(instance, 20, 1, engineAudio({ beat, bass, mid, high, bins,
+                    onsetIntensity: 1, delta: { onset: 1 } }));
+                litPixels(map, 0.001).forEach(x => blurzColumns.add(x));
+            }
+        return blurzColumns;
+    };
+    runCases('A11 blurz every burst position slot is reachable', [0, 1, 2, 3, 4].map(slot =>
+        ({ label: `slot ${slot} of 5`, column: Math.floor(slot * 20 / 5) })), c => {
+        const reached = reachedBurstColumns();
+        assert(reached.has(c.column), `no engine input puts a burst at column ${c.column} ` +
+            `(reached ${Array.from(reached).sort((a, b) => a - b).join(',')})`);
+    });
 }
 
 
