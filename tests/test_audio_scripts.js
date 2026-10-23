@@ -1671,6 +1671,72 @@ function assertSharedHueHelperBoundaries() {
     markCase('shared-helper-boundaries');
 }
 
+function assertSharedEffectBuildingBlocks() {
+    const helpers = vm.runInNewContext(HSV_UTIL + '\nHSVUtil;', { Float32Array });
+    const near = (actual, expected, label) =>
+        assert(Math.abs(actual - expected) < 1e-12, `${label}: ${actual} != ${expected}`);
+    runCases('HSVUtil.lerpHue takes the shortest arc', [
+        { label: 'inside', a: 0.2, b: 0.4, t: 0.5, expected: 0.3 },
+        { label: 'across 0 upward', a: 0.95, b: 0.05, t: 0.5, expected: 0 },
+        { label: 'across 0 downward', a: 0.05, b: 0.85, t: 0.5, expected: 0.95 },
+        { label: 'end point', a: 0.9, b: 0.1, t: 1, expected: 0.1 }
+    ], c => near(helpers.lerpHue(c.a, c.b, c.t), c.expected, c.label));
+    runCases('HSVUtil.hueMean is circular and weighted', [
+        { label: 'reds around 0', hues: [0.95, 0.05], weights: [1, 1], expected: 0 },
+        { label: 'weights pull', hues: [0.2, 0.4], weights: [3, 1], expected: 0.2445426979336497 },
+        { label: 'no weight', hues: [0.3], weights: [0], expected: 0 }
+    ], c => {
+        const mean = helpers.hueMean(c.hues, c.weights);
+        near(Math.min(Math.abs(mean - c.expected), 1 - Math.abs(mean - c.expected)), 0, c.label);
+    });
+    runCases('HSVUtil.dominantBand prefers the lower band on ties', [
+        { label: 'low', audio: { low: 0.5, mid: 0.2, high: 0.1 }, expected: 0 },
+        { label: 'mid', audio: { low: 0.1, mid: 0.5, high: 0.2 }, expected: 1 },
+        { label: 'high', audio: { low: 0.1, mid: 0.2, high: 0.5 }, expected: 2 },
+        { label: 'low = mid', audio: { low: 0.5, mid: 0.5, high: 0.1 }, expected: 0 },
+        { label: 'mid = high', audio: { low: 0.1, mid: 0.5, high: 0.5 }, expected: 1 },
+        { label: 'silence', audio: { low: 0, mid: 0, high: 0 }, expected: 0 }
+    ], c => assert.strictEqual(helpers.dominantBand(c.audio), c.expected));
+    runCases('HSVUtil.smoothFollow rises fast and falls slowly', [
+        { label: 'rise, smoothing 0', current: 0, target: 1, smoothing: 0, expected: 0.55 },
+        { label: 'fall, smoothing 0', current: 1, target: 0, smoothing: 0, expected: 0.95 },
+        { label: 'rise, smoothing 10', current: 0, target: 1, smoothing: 10, expected: 0.05 },
+        { label: 'one frame equals the per-render step', current: 0.2, target: 0.9, smoothing: 4, frames: 1,
+            expected: 0.2 + (0.5 * 0.6 + 0.05) * 0.7 },
+        { label: 'two frames compound', current: 0, target: 1, smoothing: 10, frames: 2, expected: 1 - 0.95 * 0.95 }
+    ], c => near(helpers.smoothFollow(c.current, c.target, c.smoothing, c.frames), c.expected, c.label));
+    runCases('HSVUtil.barEnvelope releases half the bar on the downbeat', [
+        { label: 'build-up', steps: [[0.5, 2, false]], bar: 1, flash: 0 },
+        { label: 'release', steps: [[0.5, 2, false], [0, 0, true]], bar: 0, flash: 0.5 * 0.85 },
+        { label: 'release is capped', steps: [[1, 4, false], [0, 0, true]], bar: 0, flash: 0.85 }
+    ], c => {
+        const state = { bar: 0, flash: 0 };
+        for (const [energy, dt, downbeat] of c.steps)
+            helpers.barEnvelope(state, energy, dt, downbeat, 0.85);
+        near(state.bar, c.bar, `${c.label} bar`);
+        near(state.flash, c.flash, `${c.label} flash`);
+    });
+    runCases('HSVUtil.addPixel keeps the brighter hue and adds brightness', [
+        { label: 'onto black', start: [0, 0, 0], add: [0.6, 1, 0.4], expected: [0.6, 1, 0.4] },
+        { label: 'dimmer keeps hue', start: [0.1, 1, 0.5], add: [0.6, 1, 0.2], expected: [0.1, 1, 0.7] },
+        { label: 'brighter takes hue, capped', start: [0.1, 1, 0.5], add: [0.6, 0.5, 0.8], expected: [0.6, 0.5, 1] }
+    ], c => {
+        const map = new Float32Array(c.start);
+        helpers.addPixel(map, 1, 1, 0, 0, c.add[0], c.add[1], c.add[2]);
+        helpers.addPixel(map, 1, 1, 1, 0, 1, 1, 1);
+        c.expected.forEach((value, i) => assert(Math.abs(map[i] - value) < 1e-6, `${c.label} channel ${i}`));
+    });
+    runCases('HSVUtil.ledFxGradientStops falls back to red, green, blue', [
+        { label: 'user palette', algo: { hasUserColors: true, colors: PALETTE.slice(0, 2) }, expected: PALETTE.slice(0, 2) },
+        { label: 'no user colors', algo: { hasUserColors: false, colors: PALETTE }, expected: [0, 1 / 3, 2 / 3] },
+        { label: 'one color', algo: { hasUserColors: true, colors: PALETTE.slice(0, 1) }, expected: [0, 1 / 3, 2 / 3] }
+    ], c => {
+        const stops = helpers.ledFxGradientStops(c.algo);
+        assert.deepStrictEqual(Array.from(stops, stop => stop.h),
+            c.expected.map(stop => typeof stop === 'number' ? stop : stop.h));
+    });
+}
+
 function assertNonAudioScripts() {
     const makeClock = (nowMs = 1000) => ({ nowMs, now() { return this.nowMs; } });
     const decoyAudio = Object.freeze({
@@ -12376,6 +12442,7 @@ assertMatrixLayoutChoices();
 assertMatrixResponsePreservation();
 assertScrollPlusFractionalShift();
 assertSharedHueHelperBoundaries();
+assertSharedEffectBuildingBlocks();
 assertWorkerMCrawlerRows();
 assertPitchNontrivialComposition();
 assertWorkerLPitchTimingRows();

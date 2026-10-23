@@ -52,22 +52,25 @@ Status keys: `[ ]` open, `[x]` done, `[~]` in progress, `[-]` dropped (reason gi
   Run: `node tests/test_audio_scripts.js --baseline-ref <ref> [--only a.js,b.js]` (63 scripts, ~16 s).
   Engine-shaped input comes from `engineAudio()`; reuse it for phase 3 tests.
 - [x] P1.3 Case runner `runCases(title, cases, fn)` (per-case FAIL lines, sets exit code, continues).
-- [ ] P1.4 Commit; record the commit as the phase 2 baseline ref here: `BASELINE=`
+- [x] P1.4 Commit; record the commit as the phase 2 baseline ref here: `BASELINE=90447f48c`
 
 ## Phase 2: simplification and consolidation
 
-Central (coordinator, `hsvutil.js`), each verified by equivalence:
-- [ ] H1 `ledFxGradientStops` (crawler, water, fire, lava, blocks, glitch, melt, meltsparkle, ...): one helper.
-- [ ] H2 `referenceOutput` (barcode, energy, energy2, spectrum, strobe): one helper.
-- [ ] H3 Smoothing rise/decay alpha from `presetSmoothing` (~17 copies): one helper, per-frame for now.
-- [ ] H4 Bar build-up/release envelope (tunnel, vortex, chaser, energy, scan, scanflare, scanmulti): one helper
+Central (coordinator, `hsvutil.js`), each verified by equivalence. Helpers added (adoption is per group):
+`lerpHue`, `hueMean`, `addPixel`, `hexToHsv`, `dominantBand`, `smoothFollow(current, target, smoothing, frames?)`,
+`barEnvelope(state{bar,flash}, energy, dt, downbeat, flashDecay)`, `ledFxGradientStops(algo)`,
+`referenceOutput(algo, pixels, width, height)`. Tests: `assertSharedEffectBuildingBlocks`.
+- [x] H1 `ledFxGradientStops` (crawler, water, fire, lava, blocks, glitch, melt, meltsparkle, ...): one helper.
+- [x] H2 `referenceOutput` (barcode, energy, energy2, spectrum, strobe): one helper.
+- [x] H3 Smoothing rise/decay alpha from `presetSmoothing` (~17 copies): one helper, per-frame for now.
+- [x] H4 Bar build-up/release envelope (tunnel, vortex, chaser, energy, scan, scanflare, scanmulti): one helper
   if the copies are identical, otherwise per group.
-- [ ] H5 Additive brightness blend with hue takeover (~6 copies) and weighted circular hue mean
+- [x] H5 Additive brightness blend with hue takeover (~6 copies) and weighted circular hue mean
   (aurora, blurz, chaser): one helper each.
-- [ ] H6 Dominant band (argmax low/mid/high) (~6 copies): one helper.
-- [ ] H7 Hex to HSV (vumeter, strobe, equalizer2d, hierarchy): one helper.
-- [ ] H8 Remove unused exports `beatTime`, `beatAngle`, `beatPosition`, `noiseField2d`.
-- [ ] H9 `hsvutil.js` local cleanups: dead `stops.length <= 1` (142), repeated indexing/min guards (157, 165-167).
+- [x] H6 Dominant band (argmax low/mid/high) (~6 copies): one helper.
+- [x] H7 Hex to HSV (vumeter, strobe, equalizer2d, hierarchy): one helper.
+- [x] H8 Remove unused exports `beatTime`, `beatAngle`, `beatPosition`, `noiseField2d`.
+- [x] H9 `hsvutil.js` local cleanups: dead `stops.length <= 1` (142), repeated indexing/min guards (157, 165-167).
 
 Per group (agents), each verified by equivalence for the group's scripts:
 - [ ] G-A aurora, bands, bandsmatrix, barcode, basslaser, beatcolors, bladepower, bleep, blocks, blurz
@@ -222,3 +225,7 @@ Group F
 ## Log
 
 - 2026-10-24 Plan written. Preview removed.
+- 2026-10-24 Phase 1 committed (90447f48c). Main checkout is shared with another session: all work happens in
+  `/Users/abossard/Desktop/projects/qlcplus-worktrees/fix-hue-audio-scripts`.
+- 2026-10-24 Phase 2 central helpers committed; copies verified identical (ledFxGradientStops x8 by md5,
+  referenceOutput x5 whitespace-only, smoothing x18 same formula, bar envelope x7, dominant band ties equal).
