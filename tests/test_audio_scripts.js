@@ -2205,6 +2205,220 @@ function assertGroupABugs() {
 
 // Group B bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
 function assertGroupBBugs() {
+    // Render n (from 1) at a constant tempo and render rate, with the beat deltas the engine publishes.
+    const tempoFrame = (n, bpm, hz, levels = {}) => {
+        const beats = n * bpm / (60 * hz), before = (n - 1) * bpm / (60 * hz);
+        return engineAudio(Object.assign({
+            tempoValid: true, bpm, deltaSeconds: 1 / hz, phase: beats % 1, beatInBar: Math.floor(beats) % 4,
+            delta: { beat: Math.floor(beats) - Math.floor(before) }, frameSequence: n
+        }, levels));
+    };
+    const hueDistance = (a, b) => Math.abs((((a - b) % 1) + 1.5) % 1 - 0.5);
+    const values = (map, channel) => Array.from(map).filter((_, i) => i % 3 === channel);
+    const loadWith = (context, file, settings) => {
+        const instance = context.load(file);
+        for (const [name, value] of settings)
+            setProperty(instance.algo, name, value);
+        return instance;
+    };
+
+    // Audio Buildup in Monochrome: FILLING shows the build color, DROP opens with a white flash.
+    const buildupLook = map => {
+        if (values(map, 1).every(s => s < 0.01) && values(map, 2).some(v => v > 0)) return 'flash';
+        if (values(map, 0).every(h => hueDistance(h, PALETTE[0].h) < 0.02)) return 'filling';
+        return 'drop color';
+    };
+    const buildup = (context, cycle) => loadWith(context, 'audiobuildup.js',
+        [['presetCycleBeats', String(cycle)], ['presetColorScheme', 'Monochrome']]);
+
+    runCases('B2 buildup leaves DROP after the drop', [
+        { label: '4-beat cycle at 120 BPM', cycle: 4, bpm: 120 },
+        { label: '8-beat cycle at 120 BPM', cycle: 8, bpm: 120 },
+        { label: '4-beat cycle at 90 BPM', cycle: 4, bpm: 90 },
+        { label: 'default 16-beat cycle at 128 BPM', cycle: 16, bpm: 128 }
+    ], ({ cycle, bpm }) => {
+        const hz = 50, framesPerBeat = 60 * hz / bpm;
+        const context = sharedScriptContext();
+        const instance = buildup(context, cycle);
+        const looks = [];
+        for (let n = 1; n <= Math.ceil((cycle * 2 + 10) * framesPerBeat); n++)
+            looks.push(buildupLook(context.render(instance, 16, 1, tempoFrame(n, bpm, hz, { beat: 0.6, bass: 0.6 }))));
+        const drop = looks.indexOf('flash');
+        assert(drop >= 0, `no drop within ${looks.length} frames`);
+        const refill = looks.indexOf('filling', drop);
+        assert(refill > drop, `never fills again after the drop at frame ${drop + 1}; ` +
+            `later frames only show ${[...new Set(looks.slice(drop))].join(', ')}`);
+        const beats = (refill - drop) / framesPerBeat;
+        assert(Math.abs(refill - drop - 4 * framesPerBeat) <= 2,
+            `fills again ${beats.toFixed(2)} beats after the drop, expected 4 (2 drop + 2 cooldown)`);
+    });
+
+    const beatRender = (beats, seconds) => engineAudio({ tempoValid: true, bpm: 120, phase: 0.5,
+        deltaSeconds: seconds, delta: { beat: beats } });
+    const idleRender = engineAudio({ tempoValid: true, bpm: 120, phase: 0.5 });
+    // Fill level after the given renders, as the number of separately rendered beats that gives the same output.
+    const buildupBeatsCounted = (cycle, renders) => {
+        const satAfter = frames => {
+            const context = sharedScriptContext();
+            const instance = buildup(context, cycle);
+            let map;
+            for (const frame of frames.concat([idleRender]))
+                map = context.render(instance, 16, 1, frame);
+            return buildupLook(map) === 'filling' ? map[1] : null;
+        };
+        const separate = Array.from({ length: cycle }, (_, k) =>
+            satAfter([idleRender].concat(...Array(k).fill([beatRender(1, 0.5), idleRender]))));
+        const sat = satAfter(renders);
+        return sat === null ? cycle : separate.findIndex(s => Math.abs(s - sat) < 1e-6);
+    };
+
+    runCases('B12 buildup counts every beat in events.delta.beat', [
+        { label: '3 beats in one render after a 1.5 s stall', cycle: 8, beats: 3,
+            renders: [idleRender, beatRender(3, 1.5)] },
+        { label: 'a beat on each of 3 consecutive 0.5 s renders', cycle: 8, beats: 3,
+            renders: [idleRender, beatRender(1, 0.5), beatRender(1, 0.5), beatRender(1, 0.5)] },
+        { label: 'a whole 4-beat cycle in one 2 s render starts the drop', cycle: 4, beats: 4,
+            renders: [idleRender, beatRender(4, 2)] }
+    ], ({ cycle, beats, renders }) => {
+        const counted = buildupBeatsCounted(cycle, renders);
+        assert(counted === beats, `the fill shows ${counted} of ${beats} beats`);
+    });
+
+    // Distance one Audio Chaser dot travels on a 60 px strip once the bar build-up boost is at its cap.
+    const chaserTravel = (mode, levels) => {
+        const W = 60, context = sharedScriptContext();
+        const instance = loadWith(context, 'audiochaser.js', [['presetSpeedMode', mode],
+            ['presetDotCount', '1'], ['presetTrailLength', '1'], ['presetBaseSpeed', '1']]);
+        let last = null, travel = 0;
+        for (let n = 1; n <= 900; n++) {
+            const map = context.render(instance, W, 1,
+                engineAudio(Object.assign({ tempoValid: true, bpm: 120, frameSequence: n }, levels)));
+            if (n <= 400) continue;
+            const v = values(map, 2), head = v.indexOf(Math.max(...v));
+            if (last !== null)
+                travel += Math.abs((((head - last) % W) + W * 1.5) % W - W / 2);
+            last = head;
+        }
+        return travel;
+    };
+
+    runCases('B5 chaser Bass and Volume drivers follow their own input', [
+        { label: 'Bass: bass-heavy input outruns mid-only input', mode: 'Bass', expect: 'faster',
+            a: { beat: 0.9, bass: 0.9 }, b: { mid: 0.9 } },
+        { label: 'Bass: adding mid to the same bass keeps the speed', mode: 'Bass', expect: 'same',
+            a: { beat: 0.5, bass: 0.5, mid: 0.9 }, b: { beat: 0.5, bass: 0.5 } },
+        { label: 'Volume: loud volume outruns quiet volume at equal band powers', mode: 'Volume', expect: 'faster',
+            a: { volume: 0.9, mid: 0.5 }, b: { volume: 0.1, mid: 0.5 } }
+    ], ({ mode, expect, a, b }) => {
+        const ratio = chaserTravel(mode, a) / chaserTravel(mode, b);
+        if (expect === 'faster')
+            assert(ratio > 1.5, `${JSON.stringify(a)} moves ${ratio.toFixed(2)}x as far as ${JSON.stringify(b)}, expected > 1.5x`);
+        else
+            assert(ratio > 0.85 && ratio < 1.18, `${JSON.stringify(a)} moves ${ratio.toFixed(2)}x as far as ${JSON.stringify(b)}, expected the same`);
+    });
+
+    // Brightness of the first (lit) Audio Energy pixel on the 40th render; renders before it are off the beat.
+    const energyPixelV = (phase, release) => {
+        const context = sharedScriptContext();
+        const instance = context.load('audioenergy.js');
+        let map;
+        for (let n = 1; n <= 40; n++)
+            map = context.render(instance, 20, 1, engineAudio({ tempoValid: true, bpm: 120,
+                phase: n === 40 ? phase : 0.5, beat: 0.6, bass: 0.6, mid: 0.4, high: 0.3, frameSequence: n,
+                delta: n === 40 && release ? { beat: 1, bar: 1 } : {} }));
+        assert(map[2] > 0, 'pixel 0 is not lit');
+        return map[2];
+    };
+
+    runCases('B9 energy beat pulse and release flash change brightness', [
+        { label: 'on the beat vs off the beat', brighter: [0, false], dimmer: [0.5, false] },
+        { label: 'downbeat release vs none, off the beat', brighter: [0.5, true], dimmer: [0.5, false] }
+    ], ({ brighter, dimmer }) => {
+        const high = energyPixelV(...brighter), low = energyPixelV(...dimmer);
+        assert(high > low + 0.02, `lit pixel brightness ${high.toFixed(3)} vs ${low.toFixed(3)}, expected a visible rise`);
+    });
+
+    // Audio Energy 2 (Artistic) after the given number of beats, rendered in 120 equal steps of silence.
+    const energy2AfterBeats = (bpm, beats, speed) => {
+        const frames = 120, context = sharedScriptContext();
+        const instance = loadWith(context, 'audioenergy2.js', [['presetSpeed', String(speed)]]);
+        let map;
+        for (let n = 1; n <= frames; n++)
+            map = context.render(instance, 10, 1, engineAudio({ tempoValid: true, bpm,
+                deltaSeconds: beats * 60 / bpm / frames, frameSequence: n }));
+        return map;
+    };
+
+    runCases('B10 energy2 speed is cycles per beat', [
+        { label: '60 vs 180 BPM, 0.075 cyc/beat over 3 beats', bpms: [60, 180], speed: 0.075, beats: 3 },
+        { label: '90 vs 150 BPM, 0.3 cyc/beat over 2 beats', bpms: [90, 150], speed: 0.3, beats: 2 }
+    ], ({ bpms, speed, beats }) => {
+        const [slow, fast] = bpms.map(bpm => energy2AfterBeats(bpm, beats, speed));
+        const hueGap = Math.max(...values(slow, 0).map((h, i) => hueDistance(h, values(fast, 0)[i])));
+        const vGap = Math.max(...values(slow, 2).map((v, i) => Math.abs(v - values(fast, 2)[i])));
+        assert(hueGap < 1e-3 && vGap < 1e-3, `after ${beats} beats at ${bpms[0]} and ${bpms[1]} BPM ` +
+            `hue differs by ${hueGap.toFixed(3)}, brightness by ${vGap.toFixed(3)}`);
+    });
+
+    runCases('B11 djlight blobs stay inside at any speed', [
+        { label: 'speed 60 at 50 Hz', speed: 60, hz: 50 },
+        { label: 'speed 100 at 50 Hz', speed: 100, hz: 50 },
+        { label: 'speed 1000 at 50 Hz', speed: 1000, hz: 50 },
+        { label: 'speed 30 at 25 Hz', speed: 30, hz: 25 }
+    ], ({ speed, hz }) => {
+        const context = sharedScriptContext();
+        const instance = loadWith(context, 'audiodjlight.js', [['presetSpeed', String(speed)]]);
+        for (let n = 1; n <= 200; n++) {
+            const map = context.render(instance, 30, 1,
+                tempoFrame(n, 120, hz, { beat: 0.8, bass: 0.7, mid: 0.6, high: 0.5 }));
+            const peak = Math.max(...values(map, 2));
+            assert(n <= 10 || peak > 0.3, `render ${n}: peak brightness ${peak.toFixed(3)}, the blobs left the strip`);
+        }
+    });
+
+    // Crawler Artistic picture after `seconds` of steady bass, from silence.
+    const crawlerAfter = settings => (hz, seconds) => {
+        const context = sharedScriptContext();
+        const instance = loadWith(context, 'audiocrawler.js', settings);
+        let map;
+        for (let n = 1; n <= Math.round(seconds * hz); n++)
+            map = context.render(instance, 30, 1, engineAudio({ tempoValid: true, bpm: 120,
+                deltaSeconds: 1 / hz, beat: 0.9, bass: 0.9, frameSequence: n }));
+        return values(map, 2);
+    };
+    // Rows one Digital Rain line falls (single line, 1x400) from 0.6 s to 1.4 s; the music stops at 0.6 s.
+    const rainFallAfterMusic = hz => {
+        const H = 400, context = sharedScriptContext();
+        const instance = loadWith(context, 'audiodigitalrain.js', [['count', '0.01'], ['runSeconds', '10']]);
+        const stop = Math.round(0.6 * hz);
+        let start = -1, end = -1;
+        for (let n = 1; n <= Math.round(1.4 * hz); n++) {
+            const map = context.render(instance, 1, H, engineAudio({ tempoValid: true, bpm: 120, deltaSeconds: 1 / hz,
+                frameSequence: n, raw: n <= stop ? { beat: 0.9, bass: 0.9, mid: 0.9, high: 0.9 } : {} }));
+            const s = values(map, 1);
+            end = values(map, 2).findIndex((value, y) => s[y] === 0 && value >= 0.5);
+            if (n === stop) start = end;
+        }
+        assert(start >= 0 && end >= 0, `${hz} Hz: the line left the map (rows ${start}, ${end})`);
+        return [end - start];
+    };
+
+    runCases('B8 crawler and digital rain motion does not depend on the render rate', [
+        { label: 'crawler Artistic 0.2 s after bass starts', measure: crawlerAfter([]), seconds: 0.2,
+            what: 'pixel brightness', tolerance: 0.02 },
+        { label: 'crawler Artistic 0.4 s after bass starts', measure: crawlerAfter([]), seconds: 0.4,
+            what: 'pixel brightness', tolerance: 0.02 },
+        { label: 'crawler Artistic speed 1, reactivity 1, 0.2 s after bass starts',
+            measure: crawlerAfter([['speed', '1'], ['reactivity', '1']]), seconds: 0.2,
+            what: 'pixel brightness', tolerance: 0.02 },
+        { label: 'digital rain fall in the 0.8 s after the music stops', measure: rainFallAfterMusic,
+            what: 'rows fallen', tolerance: 3 }
+    ], ({ measure, seconds, what, tolerance }) => {
+        const [slow, fast] = [25, 100].map(hz => measure(hz, seconds));
+        const gap = Math.max(...slow.map((value, i) => Math.abs(value - fast[i])));
+        assert(gap <= tolerance, `${what} differs by ${+gap.toFixed(3)} between 25 and 100 Hz ` +
+            `(${slow.length === 1 ? `${slow[0]} vs ${fast[0]}` : `limit ${tolerance}`})`);
+    });
 }
 
 
