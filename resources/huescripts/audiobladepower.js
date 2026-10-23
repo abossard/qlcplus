@@ -60,21 +60,11 @@ var testAlgo;
     function ensure(width, height, audio) {
         var identityKey = HSVUtil.audioIdentityKey(audio, state.identityKey);
         var geometryKey = width + "|" + height;
-        var n = width * height;
-        if (state.identityKey !== identityKey || state.geometryKey !== geometryKey || state.values.length !== n) {
+        if (state.identityKey !== identityKey || state.geometryKey !== geometryKey) {
             state.identityKey = identityKey;
             state.geometryKey = geometryKey;
-            state.values = new Array(n).fill(0);
+            state.values = new Array(width * height).fill(0);
         }
-    }
-
-    function sourcePower(audio) {
-        if (!audio) return 0;
-        var beat = HSVUtil.clamp01(audio.beat || 0);
-        var bass = HSVUtil.clamp01(audio.bass || 0);
-        if (algo.presetFrequencyRange === "Lows (beat+bass)")
-            return HSVUtil.clamp01((beat + bass) * 0.5);
-        return HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false);
     }
 
     algo.rgbMapStepCount = function() { return 1; };
@@ -85,7 +75,7 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         ensure(width, height, audio);
         var n = width * height;
-        var bar = sourcePower(audio) * algo.presetMultiplier * 2;
+        var bar = HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false) * algo.presetMultiplier * 2;
         var level = HSVUtil.clamp01(bar);
         var barIdx = Math.floor(level * n);
         var seconds = HSVUtil.audioSeconds(audio);
@@ -100,7 +90,7 @@ var testAlgo;
             var hueCoord = algo.presetFixHues === "Yes"
                 ? (Math.floor(i * 12 / Math.max(1, n - 1)) / 12)
                 : (n <= 1 ? 0 : i / (n - 1));
-            var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.0, s: 1, v: 1}, {h: 0.66, s: 1, v: 1}], hueCoord);
+            var color = HSVUtil.gradientLedfxAt(algo.colors, hueCoord);
             var o = i * 3;
             map[o] = color.h;
             map[o + 1] = color.s;

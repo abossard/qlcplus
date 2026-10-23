@@ -129,12 +129,6 @@ var testAlgo;
     algo.setScrollPlusThreshold = function(v) { algo.scrollPlusThreshold = HSVUtil.clamp01(parseFloat(v) || 0); };
     algo.getScrollPlusThreshold = function() { return algo.scrollPlusThreshold; };
 
-    function parseReferenceColors() {
-      return algo.referencePalette.split(",").map(function(hex) {
-        return HSVUtil.parseHexRgb(hex);
-      });
-    }
-
     function rangedProcessed(audio) {
       var values = audio && audio.banks && audio.banks.full && audio.banks.full.processed
         ? audio.banks.full.processed.slice() : [];
@@ -160,7 +154,11 @@ var testAlgo;
       return levels;
     }
 
-    function mixColor(levels, colors) {
+    function modeColor(audio, threshold) {
+      var colors = algo.referencePalette.split(",").map(function(hex) {
+        return HSVUtil.parseHexRgb(hex);
+      });
+      var levels = bandLevels(rangedProcessed(audio), threshold);
       return [
         colors[0][0] * levels[0] + colors[1][0] * levels[1] + colors[2][0] * levels[2],
         colors[0][1] * levels[0] + colors[1][1] * levels[1] + colors[2][1] * levels[2],
@@ -168,44 +166,30 @@ var testAlgo;
       ];
     }
 
-    function modeColor(audio, threshold) {
-      var colors = parseReferenceColors();
-      var values = rangedProcessed(audio || {});
-      var levels = bandLevels(values, threshold);
-      return { levels: levels, rgb: mixColor(levels, colors) };
-    }
-
-    function rgbToHsv(r, g, b) {
-      r = HSVUtil.clamp01(r);
-      g = HSVUtil.clamp01(g);
-      b = HSVUtil.clamp01(b);
-      var max = Math.max(r, g, b);
-      var min = Math.min(r, g, b);
-      var delta = max - min;
-      var h = 0;
-      if (delta) h = (max === r ? (g - b) / delta : max === g ? 2 + (b - r) / delta : 4 + (r - g) / delta) / 6;
-      return { h: HSVUtil.mod1(h), s: max ? delta / max : 0, v: max };
+    function stripState(previous, audio, n) {
+      var identityKey = HSVUtil.audioIdentityKey(audio, previous ? previous.identityKey : "");
+      if (previous && previous.n === n && previous.identityKey === identityKey)
+        return previous;
+      return {
+        n: n,
+        identityKey: identityKey,
+        offset: 0,
+        seeded: false,
+        strip: new Array(n).fill(0).map(function() { return [0, 0, 0]; })
+      };
     }
 
     function scrollPlusMap(width, height, audio) {
       var map = HSVUtil.createMap(width, height);
       var n = width * height;
-      var previousIdentity = scrollPlusState ? scrollPlusState.identityKey : "";
-      var identityKey = HSVUtil.audioIdentityKey(audio, previousIdentity);
-      if (!scrollPlusState || scrollPlusState.n !== n || scrollPlusState.identityKey !== identityKey)
-        scrollPlusState = {
-          n: n,
-          identityKey: identityKey,
-          offset: 0,
-          strip: new Array(n).fill(0).map(function() { return [0, 0, 0]; })
-        };
+      scrollPlusState = stripState(scrollPlusState, audio, n);
       var state = scrollPlusState;
       var dt = HSVUtil.audioSeconds(audio);
-      var mode = modeColor(audio || {}, algo.scrollPlusThreshold);
-      state.offset += algo.scrollPlusSpeed * n * Math.max(0, dt);
+      var rgb = modeColor(audio, algo.scrollPlusThreshold);
+      state.offset += algo.scrollPlusSpeed * n * dt;
       var shift = Math.floor(state.offset);
       state.offset -= shift;
-      var decay = dt > 0 ? Math.max(0, 1 - algo.scrollPlusDecay * dt * 3) : 1;
+      var decay = Math.max(0, 1 - algo.scrollPlusDecay * dt * 3);
       for (var i = 0; i < n; i++) {
         var p = state.strip[i];
         p[0] *= decay;
@@ -215,11 +199,11 @@ var testAlgo;
       shift = Math.min(shift, n);
       for (var i = 0; i < shift; i++) {
         state.strip.pop();
-        state.strip.unshift(mode.rgb.slice());
+        state.strip.unshift(rgb.slice());
       }
       for (var i = 0; i < n; i++) {
         var p = state.strip[i];
-        var hsv = rgbToHsv(p[0], p[1], p[2]);
+        var hsv = HSVUtil.rgbToHsv(p[0], p[1], p[2]);
         map[i * 3] = hsv.h;
         map[i * 3 + 1] = hsv.s;
         map[i * 3 + 2] = hsv.v;
@@ -235,54 +219,15 @@ var testAlgo;
       });
     }
 
-    function referenceOutput(pixels, width, height) {
-      var n = pixels.length;
-      var map = HSVUtil.createMap(width, height);
-      for (var i = 0; i < n; i++) {
-        var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
-        map[i * 3] = hsv.h;
-        map[i * 3 + 1] = hsv.s;
-        map[i * 3 + 2] = hsv.v;
-      }
-      HSVUtil.applyStripTransforms(map, width, height, {
-        flip: algo.referenceFlip,
-        mirror: algo.referenceMirror,
-        backgroundMode: algo.referenceBackgroundMode,
-        backgroundColor: algo.referenceBackgroundColor,
-        backgroundBrightness: algo.referenceBackgroundBrightness,
-        brightness: algo.referenceBrightness,
-        blur: algo.referenceBlur
-      });
-      if (algo.referenceDiagnostics) {
-        var transformed = new Array(n);
-        for (var j = 0; j < n; j++) {
-          var o = j * 3;
-          transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
-        }
-        algo.referenceFrame = {pre: pixels, transformed: transformed};
-      }
-      return map;
-    }
-
     function referenceMap(width, height, audio) {
       var n = width * height;
-      var previousIdentity = referenceState ? referenceState.identityKey : "";
-      var identityKey = HSVUtil.audioIdentityKey(audio, previousIdentity);
-      if (!referenceState || referenceState.n !== n || referenceState.identityKey !== identityKey)
-        referenceState = {
-          n: n,
-          identityKey: identityKey,
-          offset: 0,
-          seeded: false,
-          strip: new Array(n).fill(0).map(function() { return [0, 0, 0]; })
-        };
+      referenceState = stripState(referenceState, audio, n);
       var state = referenceState;
-      var dt = HSVUtil.audioSeconds(audio);
-      var ticks = Math.max(0, dt * 60);
-      var mode = modeColor(audio || {}, algo.referenceThreshold);
+      var ticks = HSVUtil.audioSeconds(audio) * 60;
+      var rgb = modeColor(audio, algo.referenceThreshold);
       if (!state.seeded) {
         var initialSpan = Math.min(n, Math.max(1, Math.floor(algo.referenceSpeed)));
-        for (var s = 0; s < initialSpan; s++) state.strip[s] = mode.rgb.slice();
+        for (var s = 0; s < initialSpan; s++) state.strip[s] = rgb.slice();
         state.seeded = true;
       }
       state.offset += algo.referenceSpeed * ticks;
@@ -300,16 +245,10 @@ var testAlgo;
         }
       }
       if (shift > 0) {
-        for (var i = 0; i < shift; i++) state.strip[i] = mode.rgb.slice();
+        for (var i = 0; i < shift; i++) state.strip[i] = rgb.slice();
       }
-      return referenceOutput(state.strip, width, height);
+      return HSVUtil.referenceOutput(algo, state.strip, width, height);
     }
-
-    var DEFAULT_GRADIENT = [
-        { h: 0.042, s: 1.0, v: 1.0 },   // orange-red (0xFF4000)
-        { h: 0, s: 0, v: 1.0 },          // white      (0xFFFFFF)
-        { h: 0.542, s: 1.0, v: 1.0 }     // cyan-blue  (0x00C0FF)
-    ];
 
     algo.presetLineWidth = 2;
     algo.properties.push(
@@ -398,45 +337,20 @@ var testAlgo;
     algo.rgbMapSetColors = function(_raw) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    // Additive blend for HSV pixels in the Float32Array: read existing pixel,
-    // keep the hue of the brighter contributor, add brightness values.
-    function blendAddPixel(map, width, px, py, ch, cs, cv) {
-        var idx = (py * width + px) * 3;
-        var ev = map[idx + 2];
-        if (ev <= 0) {
-            map[idx] = ch;
-            map[idx + 1] = cs;
-            map[idx + 2] = Math.min(1, cv);
-        } else {
-            // Keep hue/sat of brighter contributor
-            if (cv > ev) {
-                map[idx] = ch;
-                map[idx + 1] = cs;
-            }
-            map[idx + 2] = Math.min(1, ev + cv);
-        }
-    }
-
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
       if (algo.presetMode === "Scroll+")
         return scrollPlusMap(width, height, audio);
       if (algo.presetMode === "Reference")
         return referenceMap(width, height, audio);
-      var dt = audio.timing ? audio.timing.deltaSeconds : audio.dt * 60.0 / audio.bpm;
+      var dt = HSVUtil.audioSeconds(audio);
       ensureState(width, height);
 
       var horizontal = (algo.presetAxis === "Horizontal");
       var N = horizontal ? width : height;
 
-      var triggered;
-      var intensity;
-      if (algo.presetTrigger === "Onset") {
-        triggered = audio.onset;
-        intensity = audio.onsetIntensity;
-      } else {
-        triggered = (audio.onsetIntensity > algo.presetFluxThreshold / 100.0);
-        intensity = audio.onsetIntensity;
-      }
+      var intensity = audio.onsetIntensity;
+      var triggered = algo.presetTrigger === "Onset" ? audio.onset
+        : intensity > algo.presetFluxThreshold / 100.0;
       var threshold = algo.presetMinIntensity / 100.0;
 
       var count = algo.presetTrigger === "Onset" && audio.events ?
@@ -444,23 +358,21 @@ var testAlgo;
       algo.spawnAccumMs += dt * 1000;
       var canSpawn = algo.spawnAccumMs >= algo.presetMinSpawnMs;
 
-      for (var spawn = 0; intensity >= threshold && canSpawn && spawn < Math.min(count, algo.presetMaxLines); spawn++) {
-        var hfcScale = algo.presetHfcScale / 100.0;
-        if (hfcScale < 0.001) hfcScale = 0.001;
-        var t = audio.high / hfcScale;
-        var gradient = (algo.colors && algo.colors.length > 0)
-          ? algo.colors : DEFAULT_GRADIENT;
-        var color = HSVUtil.gradientAt(gradient, t);
-        algo.lines.push({
-          position: N - 1,
-          color: { h: color.h, s: color.s, v: color.v },
-          brightness: intensity
-        });
-        algo.spawnAccumMs = 0;
-
-        while (algo.lines.length > algo.presetMaxLines) {
-          algo.lines.shift();
+      var spawnCount = intensity >= threshold && canSpawn ? Math.min(count, algo.presetMaxLines) : 0;
+      if (spawnCount > 0) {
+        var hfcScale = Math.max(0.001, algo.presetHfcScale / 100.0);
+        var color = HSVUtil.gradientAt(algo.colors, audio.high / hfcScale);
+        for (var spawn = 0; spawn < spawnCount; spawn++) {
+          algo.lines.push({
+            position: N - 1,
+            color: { h: color.h, s: color.s, v: color.v },
+            brightness: intensity
+          });
+          while (algo.lines.length > algo.presetMaxLines) {
+            algo.lines.shift();
+          }
         }
+        algo.spawnAccumMs = 0;
       }
 
       var scrollPxPerSec = algo.presetScrollSpeed;
@@ -487,9 +399,9 @@ var testAlgo;
         var ss = lln.color.s;
         for (var p = x0; p <= x1; p++) {
           if (horizontal) {
-            for (var y = 0; y < height; y++) blendAddPixel(map, width, p, y, sh, ss, sv);
+            for (var y = 0; y < height; y++) HSVUtil.addPixel(map, width, height, p, y, sh, ss, sv);
           } else {
-            for (var x = 0; x < width; x++) blendAddPixel(map, width, x, p, sh, ss, sv);
+            for (var x = 0; x < width; x++) HSVUtil.addPixel(map, width, height, x, p, sh, ss, sv);
           }
         }
       }
