@@ -1393,7 +1393,7 @@ function assertPitchSpectrumUsesPitch() {
         }
     });
     const lowPitch = loadScript('audiopitchspectrum.js', 0xface);
-    lowPitch.setFade(0);
+    lowPitch.setFadeRate(0);
     lowPitch.setResponsiveness(1);
     const low = render(lowPitch, 'audiopitchspectrum.js', 9, 1, frame(220), 'pitch low');
     const high = render(lowPitch, 'audiopitchspectrum.js', 9, 1, frame(880), 'pitch high');
@@ -1403,9 +1403,9 @@ function assertPitchSpectrumUsesPitch() {
         'audiopitchspectrum.js: invalid pitch unexpectedly cleared output');
     const decoyA = loadScript('audiopitchspectrum.js', 0xface);
     const decoyB = loadScript('audiopitchspectrum.js', 0xface);
-    decoyA.setFade(0);
+    decoyA.setFadeRate(0);
     decoyA.setResponsiveness(1);
-    decoyB.setFade(0);
+    decoyB.setFadeRate(0);
     decoyB.setResponsiveness(1);
     const baseline = render(decoyA, 'audiopitchspectrum.js', 9, 1, Object.assign(frame(440), {
         low: 1, mid: 0, high: 1, beat: 1, bass: 1, onset: true

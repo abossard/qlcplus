@@ -45,12 +45,6 @@ var testAlgo;
         return beats > 0 ? beats : 0;
     }
 
-    function beatOsc(audio) {
-        return audio && audio.tempo && audio.tempo.valid && isFinite(audio.tempo.beatPhase)
-            ? HSVUtil.clamp01(audio.tempo.beatPhase)
-            : (audio && isFinite(audio.phase) ? HSVUtil.clamp01(audio.phase) : 0);
-    }
-
     function ease(x) {
         if (algo.presetEaseMethod === "ease_in_out") return 0.5 * Math.sin(Math.PI * (x - 0.5)) + 0.5;
         if (algo.presetEaseMethod === "ease_in") return x * x;
@@ -76,15 +70,14 @@ var testAlgo;
             state.audioKey = audioKey;
             state.geometryKey = geometryKey;
         }
-        var colors = algo.colors && algo.colors.length ? algo.colors : [{h: 0, s: 1, v: 1}];
         var beats = beatDelta(audio);
         for (var i = 0; i < beats; i++) {
             state.phase = 1 - state.phase;
             state.colorIdx = HSVUtil.mod1(state.colorIdx + algo.presetColorStep);
         }
-        var beatValue = ease(beatOsc(audio));
-        var fg = HSVUtil.gradientLedfxAt(colors, state.colorIdx);
-        var bg = HSVUtil.gradientLedfxAt(colors, HSVUtil.mod1(state.colorIdx + algo.presetColorStep));
+        var beatValue = ease(audio && isFinite(audio.phase) ? HSVUtil.clamp01(audio.phase) : 0);
+        var fg = HSVUtil.gradientLedfxAt(algo.colors, state.colorIdx);
+        var bg = HSVUtil.gradientLedfxAt(algo.colors, HSVUtil.mod1(state.colorIdx + algo.presetColorStep));
         var idx = beatValue;
         if (algo.presetMode === "wipe" && state.phase === 1) {
             idx = 1 - beatValue;

@@ -219,19 +219,14 @@ var testAlgo;
         algo.Unext = U; algo.Vnext = V;
       }
 
-      var gradient = (algo.colors && algo.colors.length > 0)
-        ? algo.colors : DEFAULT_GRADIENT;
       var gain = algo.presetGain / 100.0;
 
       var map = HSVUtil.createMap(width, height);
-      var Vfinal = algo.V;
-      for (var ry = 0; ry < H; ry++) {
-        for (var rx = 0; rx < W; rx++) {
-          var t = Vfinal[ry * W + rx] * gain;
-          if (t < 0) t = 0; else if (t > 1) t = 1;
-          var c = HSVUtil.gradientAt(gradient, t);
-          HSVUtil.setPixel(map, width, rx, ry, c.h, c.s, c.v);
-        }
+      for (var p = 0; p < W * H; p++) {
+        var c = HSVUtil.gradientAt(algo.colors, HSVUtil.clamp01(algo.V[p] * gain));
+        map[p * 3] = c.h;
+        map[p * 3 + 1] = c.s;
+        map[p * 3 + 2] = c.v;
       }
       return map;
     };

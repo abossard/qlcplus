@@ -46,10 +46,6 @@ var testAlgo;
 
     var state = { audioKey: "", geometryKey: "", x: 0, y: 0, z: 0, lowsImpulse: 0 };
 
-    function geometryIdentity(width, height) {
-        return [width, height].join("|");
-    }
-
     function resetState(audioKey, geometryKey) {
         state.audioKey = audioKey;
         state.geometryKey = geometryKey;
@@ -66,7 +62,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
         var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = geometryIdentity(width, height);
+        var geometryKey = width + "|" + height;
         if (state.audioKey !== audioKey || state.geometryKey !== geometryKey)
             resetState(audioKey, geometryKey);
         var dt = HSVUtil.audioSeconds(audio);
@@ -93,9 +89,8 @@ var testAlgo;
                 var nx = noiseX + scaleX * y;
                 var ny = noiseY + scaleY * x;
                 var n = HSVUtil.simplex3d(nx, ny, state.z);
-                var stretched = n * algo.presetStretch;
-                var t = HSVUtil.clamp01((stretched + 1) * 0.5);
-                var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.62, s: 1, v: 1}], t);
+                var t = HSVUtil.clamp01((n * algo.presetStretch + 1) * 0.5);
+                var color = HSVUtil.gradientLedfxAt(algo.colors, t);
                 var i = (y * width + x) * 3;
                 map[i] = color.h;
                 map[i + 1] = color.s;
