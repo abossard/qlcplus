@@ -1980,6 +1980,206 @@ function assertGroupCBugs() {
 
 // Group D bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
 function assertGroupDBugs() {
+    const start = (file, settings = []) => {
+        const context = sharedScriptContext();
+        const instance = context.load(file);
+        for (const [name, value] of settings)
+            setProperty(instance.algo, name, value);
+        return { context, instance };
+    };
+    const play = (run, width, height, frames) => {
+        let map = [];
+        for (const frame of frames)
+            map = Array.from(run.context.render(run.instance, width, height, frame));
+        return map;
+    };
+    const span = (first, last, make) => Array.from({ length: last - first + 1 }, (_, i) => make(first + i));
+    const rgbDiff = (a, b) => {
+        let worst = 0;
+        for (let p = 0; p < a.length / 3; p++) {
+            const x = engineRgb(a[p * 3], a[p * 3 + 1], a[p * 3 + 2]);
+            const y = engineRgb(b[p * 3], b[p * 3 + 1], b[p * 3 + 2]);
+            for (let c = 0; c < 3; c++)
+                worst = Math.max(worst, Math.abs(x[c] - y[c]));
+        }
+        return worst;
+    };
+    const hueDistance = (a, b) => {
+        const d = Math.abs(a - b) % 1;
+        return Math.min(d, 1 - d);
+    };
+    const litHues = map => {
+        const hues = [];
+        for (let i = 0; i < map.length; i += 3)
+            if (map[i + 2] > 0.05)
+                hues.push(map[i] - Math.floor(map[i]));
+        return hues;
+    };
+
+    const beatless = n => engineAudio({ beat: 0.3, bass: 0.3, frameSequence: n });
+    runCases('D3 reactor bar energy stays bounded without bars and resets with the source', [
+        { label: '30 s of beatless music', seconds: 30 },
+        { label: '120 s of beatless music', seconds: 120 },
+        { label: 'audio drops out for 3 s after 120 s', seconds: 120,
+            then: span(1, 150, n => engineAudio({ available: false, frameSequence: n })) },
+        { label: 'a new source after 120 s', seconds: 120,
+            then: span(1, 5, n => engineAudio({ sourceEpoch: 2, sourceId: 'other-source', frameSequence: n })) }
+    ], ({ seconds, then }) => {
+        const run = start('audioreactor.js');
+        const early = meanV(play(run, 16, 4, span(1, 50, beatless)));
+        const late = meanV(play(run, 16, 4, span(51, seconds * 50, beatless)));
+        if (!then) {
+            assert(late <= early + 0.05, `mean V ${late.toFixed(3)} after ${seconds} s, ${early.toFixed(3)} after 1 s`);
+            return;
+        }
+        const actual = meanV(play(run, 16, 4, then));
+        const expected = meanV(play(start('audioreactor.js'), 16, 4, then));
+        assert(Math.abs(actual - expected) <= 0.03,
+            `mean V ${actual.toFixed(3)}, a fresh instance shows ${expected.toFixed(3)}`);
+    });
+
+    const lowDominant = span(1, 50, n => engineAudio({ beat: 0.5, bass: 0.5, mid: 0.2, high: 0.1, frameSequence: n }));
+    runCases('D4 reactor lights an Nx1 strip', [[30, 1], [12, 1], [1, 1]].map(([width, height]) =>
+        ({ label: `${width}x${height}, low-dominant music`, width, height })), ({ width, height }) => {
+        const strip = meanV(play(start('audioreactor.js'), width, height, lowDominant));
+        const twoRows = meanV(play(start('audioreactor.js'), width, 2, lowDominant));
+        assert(strip > 0.05, `mean V ${strip.toFixed(3)}, ${width}x2 with the same music shows ${twoRows.toFixed(3)}`);
+    });
+
+    const loud = span(0, 29, tick => loudFrame(tick));
+    const bassOnly = span(1, 30, n => engineAudio({ beat: 0.8, bass: 0.8, frameSequence: n }));
+    const onsetsOnly = span(1, 30, n => engineAudio({ delta: { onset: 1 }, onsetIntensity: 0.8, frameSequence: n }));
+    runCases('D5 power Artistic applies the output, range and spark controls', [
+        { label: 'Brightness 0', settings: [['brightness', '0']], frames: loud,
+            check: map => assert(meanV(map) < 0.01, `mean V ${meanV(map).toFixed(3)}`) },
+        { label: 'Flip On', settings: [['flip', 'On']], frames: loud, check: (map, plain) => {
+            const reversed = [];
+            for (let p = plain.length / 3 - 1; p >= 0; p--)
+                reversed.push(plain[p * 3], plain[p * 3 + 1], plain[p * 3 + 2]);
+            const diff = rgbDiff(map, reversed);
+            assert(diff <= 0.01, `differs from the reversed unflipped strip by ${diff.toFixed(3)}`);
+        } },
+        { label: 'Frequency Range High, bass-only music', settings: [['frequency_range', 'High']], frames: bassOnly,
+            check: (map, plain) => assert(rgbDiff(map, plain) > 0.01, 'same output as Lows (beat+bass)') },
+        { label: 'Spark Color #00ff00, onsets only', settings: [['sparks_color', '#00ff00']], frames: onsetsOnly,
+            check: map => {
+                const hues = litHues(map);
+                assert(hues.length > 0, 'no sparks lit');
+                const off = hues.filter(h => hueDistance(h, 1 / 3) > 0.02);
+                assert(off.length === 0, `spark hues ${[...new Set(off.map(h => h.toFixed(3)))]}, expected 0.333`);
+            } }
+    ], ({ settings, frames, check }) => {
+        check(play(start('audiopower.js', settings), 40, 1, frames), play(start('audiopower.js'), 40, 1, frames));
+    });
+
+    const reds = [{ h: 0.95, s: 1, v: 1 }, { h: 0.05, s: 1, v: 1 }, { h: 0.92, s: 1, v: 1 },
+        { h: 0.08, s: 1, v: 1 }, { h: 0.98, s: 1, v: 1 }];
+    runCases('D7 power blur keeps a red palette red', [['1', 40, 1], ['2', 40, 1], ['3', 40, 1], ['1', 12, 6]].map(
+        ([blur, width, height]) => ({ label: `blur ${blur}, ${width}x${height}`, blur, width, height })), ({ blur, width, height }) => {
+        const run = start('audiopower.js', [['blur', blur]]);
+        run.instance.algo.colors = reds;
+        for (let tick = 0; tick < 60; tick++) {
+            const map = run.context.render(run.instance, width, height, loudFrame(tick));
+            for (let i = 0; i < map.length; i += 3) {
+                const h = map[i] - Math.floor(map[i]), sat = map[i + 1], v = map[i + 2];
+                assert(v < 0.05 || sat < 0.2 || h < 0.12 || h > 0.88,
+                    `tick ${tick} pixel ${i / 3}: hue ${h.toFixed(3)} (s ${sat.toFixed(2)}, v ${v.toFixed(2)}) left the red palette`);
+            }
+        }
+    });
+
+    const rainPulseAfter = (hz, seconds) => {
+        const hit = Array(24).fill(0);
+        hit[0] = hit[1] = 0.8;
+        const frames = [engineAudio({ bins: hit, deltaSeconds: 1 / hz, frameSequence: 1 })]
+            .concat(span(2, Math.round(seconds * hz), n => engineAudio({ deltaSeconds: 1 / hz, frameSequence: n })));
+        return meanV(play(start('audiopuddles.js', [['mode', 'Rain Pulse']]), 12, 1, frames));
+    };
+    runCases('D8 puddles Rain Pulse decays at the same speed at any render rate', [25, 60, 75, 100, 120].map(hz =>
+        ({ label: `${hz} Hz`, hz })), ({ hz }) => {
+        const actual = rainPulseAfter(hz, 0.2), expected = rainPulseAfter(50, 0.2);
+        assert(Math.abs(actual - expected) <= 0.03,
+            `V ${actual.toFixed(3)} 0.2 s after a pulse, ${expected.toFixed(3)} at 50 Hz`);
+    });
+
+    const music = { beat: 0.8, bass: 0.7, mid: 0.3, high: 0.2 };
+    const loudThenSilent = t => (t <= 0.4 ? music : {});
+    const rainHits = t => {
+        const bins = Array(24).fill(0);
+        bins[0] = t <= 0.04 ? 0.8 : t <= 0.08 ? 0 : 0.35;
+        return { bins };
+    };
+    const perRender = [
+        ['marching', 'audiomarching.js', [25, 100, 0]], ['noise', 'audionoise.js', [25, 100]],
+        ['plasma Artistic', 'audioplasma.js', [25, 100, 0]]
+    ].flatMap(([name, file, rates]) => rates.map(hz =>
+        ({ label: `${name} ${hz ? `${hz} Hz` : 'deltaSeconds 0'}`, file, hz, settings: [], size: [16, 4],
+            signal: loudThenSilent, seconds: 0.6 })))
+        .concat([{ label: 'puddles Rain Pulse 25 Hz', file: 'audiopuddles.js', hz: 25, settings: [['mode', 'Rain Pulse']],
+            size: [12, 1], signal: rainHits, seconds: 0.12 }]);
+    runCases('D9 smoothing does not depend on the render rate', perRender, c => {
+        const finalFrame = (run, hz) => play(run, c.size[0], c.size[1], span(1, Math.round(c.seconds * hz), n =>
+            engineAudio(Object.assign({ deltaSeconds: 1 / hz, frameSequence: n }, c.signal(n / hz)))));
+        if (c.hz === 0) {
+            const run = start(c.file, c.settings);
+            finalFrame(run, 50);
+            const still = engineAudio(Object.assign({ deltaSeconds: 0, frameSequence: 31 }, music));
+            const diff = rgbDiff(play(run, c.size[0], c.size[1], [still]), play(run, c.size[0], c.size[1], [still]));
+            assert(diff <= 1e-6, `a second render with deltaSeconds 0 changed rgb by ${diff.toFixed(3)}`);
+            return;
+        }
+        const diff = rgbDiff(finalFrame(start(c.file, c.settings), c.hz), finalFrame(start(c.file, c.settings), 50));
+        assert(diff <= 0.02, `final frame after ${c.seconds} s at ${c.hz} Hz differs from 50 Hz by rgb ${diff.toFixed(3)}`);
+    });
+
+    const reactionAfterStall = (c, stall) => {
+        const run = start('audioreaction.js', c.settings);
+        const steady = (n, deltaSeconds) => engineAudio(Object.assign({ deltaSeconds, frameSequence: n }, music));
+        play(run, c.size[0], c.size[1], span(1, 25, n => steady(n, 0.02)));
+        return play(run, c.size[0], c.size[1], [steady(26, stall)]);
+    };
+    runCases('D10 reaction-diffusion work per render is bounded after a stall', [
+        { label: '12x12, 10 s stall', size: [12, 12], settings: [], stall: 10 },
+        { label: '16x8 at Sim Steps 1, 10 s stall', size: [16, 8], settings: [['presetStepsPerFrame', '1']], stall: 10 },
+        { label: '30x30, 60 s stall', size: [30, 30], settings: [], stall: 60 }
+    ], c => {
+        const diff = rgbDiff(reactionAfterStall(c, c.stall), reactionAfterStall(c, 2));
+        assert(diff <= 1e-4, `frame after a ${c.stall} s stall differs from the one after a 2 s stall by rgb ${diff.toFixed(3)}`);
+    });
+
+    const onsetEvery5 = (n, first) => engineAudio({ delta: { onset: (n - first) % 5 === 0 ? 1 : 0 },
+        onsetIntensity: 0.8, frameSequence: n });
+    runCases('D11 puddles drops its ripples on resize', [[40, 40, 4, 4], [40, 40, 8, 1], [60, 20, 6, 6]].map(
+        ([fromW, fromH, width, height]) => ({ label: `${fromW}x${fromH} to ${width}x${height}`, fromW, fromH, width, height })),
+    ({ fromW, fromH, width, height }) => {
+        const after = span(41, 50, n => onsetEvery5(n, 41));
+        const resized = start('audiopuddles.js');
+        play(resized, fromW, fromH, span(1, 40, n => onsetEvery5(n, 1)));
+        const fresh = start('audiopuddles.js');
+        const hues = [], expected = [];
+        for (const frame of after) {
+            hues.push(...litHues(play(resized, width, height, [frame])));
+            expected.push(...litHues(play(fresh, width, height, [frame])));
+        }
+        const stale = hues.filter(h => !expected.some(e => hueDistance(h, e) < 0.005));
+        assert(stale.length === 0, `lit hues ${[...new Set(stale.map(h => h.toFixed(3)))]} after the resize, ` +
+            `a fresh instance shows ${[...new Set(expected.map(h => h.toFixed(3)))]}`);
+    });
+
+    const pitchHue = pitchHz => {
+        const map = play(start('audioreactor.js', [['presetPalette', 'Pitch Hue']]), 16, 4, span(1, 25, n =>
+            engineAudio({ beat: 0.6, bass: 0.6, mid: 0.2, high: 0.1, pitchHz, frameSequence: n })));
+        let brightest = 0;
+        for (let p = 1; p < map.length / 3; p++)
+            if (map[p * 3 + 2] > map[brightest * 3 + 2])
+                brightest = p;
+        return map[brightest * 3] - Math.floor(map[brightest * 3]);
+    };
+    runCases('D12 reactor Pitch Hue follows the pitch', [[261.63, 329.63], [329.63, 392], [440, 554.37]].map(
+        ([a, b]) => ({ label: `${a} Hz vs ${b} Hz, same bands`, a, b })), ({ a, b }) => {
+        const [ha, hb] = [pitchHue(a), pitchHue(b)];
+        assert(hueDistance(ha, hb) > 0.02, `hue ${ha.toFixed(3)} at ${a} Hz and ${hb.toFixed(3)} at ${b} Hz`);
+    });
 }
 
 
