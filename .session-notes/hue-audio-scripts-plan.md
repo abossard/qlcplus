@@ -289,3 +289,5 @@ Group F
   glitch2, hueshift, eq2d spin). Harness assertions the fixes must update: C22/life/health-all (encodes the
   wrong "All"); X5 flame case is invalid (flame has acceptColors 0 and its own orange Mid color): remove it at
   merge, C9 covers flame blur.
+- 2026-10-24 Group red tests merged (ffce2aa00). Default run: 62 red tables (X1-X6, A2..F18, H1-H2), RESULTS
+  63 passed. X5 now covers blurz, scan, tunnel, vortex; flame/power/strobe hue are C9, D7, F6.

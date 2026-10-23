@@ -1904,8 +1904,7 @@ function assertHueMixingStaysOnPalette() {
     const reds = [{ h: 0.97, s: 1, v: 1 }, { h: 0.02, s: 1, v: 1 }, { h: 0.99, s: 1, v: 1 },
         { h: 0.03, s: 1, v: 1 }, { h: 0.0, s: 1, v: 1 }];
     const cases = [
-        ['audioblurz.js', []], ['audioscan.js', []], ['audiopower.js', []], ['audioflame.js', []],
-        ['audiotunnel.js', []], ['audiovortex.js', []], ['audiostrobe.js', []]
+        ['audioblurz.js', []], ['audioscan.js', []], ['audiotunnel.js', []], ['audiovortex.js', []]
     ].map(([file, settings]) => ({ label: file, file, settings }));
     runCases('X5 hue mixing stays on a red palette', cases, ({ file, settings }) => {
         const context = sharedScriptContext();
