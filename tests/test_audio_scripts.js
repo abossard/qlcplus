@@ -1954,6 +1954,25 @@ function assertDegenerateGeometryStillLights() {
     });
 }
 
+function assertSharedHelperBugs() {
+    const helpers = vm.runInNewContext(HSV_UTIL + '\nHSVUtil;', { Float32Array });
+    runCases('H1 HSVUtil.mod1 stays in [0, 1)', [
+        { label: 'tiny negative', x: -1e-20 },
+        { label: 'negative epsilon', x: -1e-17 },
+        { label: 'negative integer', x: -3 },
+        { label: 'just below one', x: 1 - 1e-17 }
+    ], c => {
+        const m = helpers.mod1(c.x);
+        assert(m >= 0 && m < 1, `mod1(${c.x}) = ${m}`);
+    });
+    runCases('H2 HSVUtil.gradientAt tolerates a non-finite position', [
+        { label: 'NaN', t: NaN }, { label: 'Infinity', t: Infinity }, { label: '-Infinity', t: -Infinity }
+    ], c => {
+        const color = helpers.gradientAt(PALETTE.slice(0, 3), c.t);
+        assert(['h', 's', 'v'].every(k => Number.isFinite(color[k])), `gradientAt(${c.t}) = ${JSON.stringify(color)}`);
+    });
+}
+
 function assertCrossCuttingContracts() {
     assertGetColorsReturnsPackedColors();
     assertInstancesAreIsolated();
@@ -12706,6 +12725,7 @@ assertGroupCBugs();
 assertGroupDBugs();
 assertGroupEBugs();
 assertGroupFBugs();
+assertSharedHelperBugs();
 assertWorkerMCrawlerRows();
 assertPitchNontrivialComposition();
 assertWorkerLPitchTimingRows();
