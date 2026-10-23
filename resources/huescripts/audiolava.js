@@ -43,8 +43,7 @@ var testAlgo;
     algo.setReactivity = function(v) { algo.reactivity = parseFloat(v); };
     algo.getReactivity = function() { return algo.reactivity; };
 
-    var TWO_PI = 2 * Math.PI;
-    var timeState = { position: 0 };
+    var timePosition = 0;
     var ledFxTimePosition = 0;
     var emaLows = 0;
     var ledfxRawLows = 0;
@@ -58,24 +57,6 @@ var testAlgo;
     function hsvTime(modifier, ts) {
         var t = (ts * modifier / 65.536) % 1;
         return t < 0 ? t + 1 : t;
-    }
-
-    function hsvSin(v) { return 0.5 + 0.5 * Math.sin(v * TWO_PI); }
-
-    function rawLowPower(audio) {
-        if (audio && audio.powers && audio.powers.raw && isFinite(audio.powers.raw.low))
-            return HSVUtil.clamp01(audio.powers.raw.low);
-        return HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0);
-    }
-
-    function ledFxGradientStops() {
-        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
-            return algo.colors;
-        return [
-            {h: 0 / 3, s: 1, v: 1},
-            {h: 1 / 3, s: 1, v: 1},
-            {h: 2 / 3, s: 1, v: 1}
-        ];
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -98,23 +79,21 @@ var testAlgo;
             }
         }
 
-        var dt = audio.dt;
-        var dtSeconds = audio.timing
-            ? Math.max(0, audio.timing.deltaSeconds || 0)
-            : ((audio.bpm > 0 && isFinite(dt)) ? dt * 60 / audio.bpm : 0);
+        var dtSeconds = HSVUtil.audioSeconds(audio);
         // BPM-scaled free-running time: one unit per beat (matches seconds at 60 BPM).
         var timeAccum;
         if (ledFxMode) {
             ledFxTimePosition += dtSeconds;
             timeAccum = ledFxTimePosition;
         } else {
-            timeAccum = ((timeState.position = (timeState.position || 0) + audio.dt) && timeState.position);
+            timePosition = (timePosition || 0) + audio.dt;
+            timeAccum = timePosition;
         }
 
         var rawLows = audio.low;
         var lows;
         if (ledFxMode) {
-            var low = rawLowPower(audio);
+            var low = HSVUtil.powerForRange(audio, "Lows", true);
             var alphaRaw = low > ledfxRawLows ? algo.reactivity : 0.05;
             var adapted = 1 - Math.pow(1 - alphaRaw, dtSeconds * 50);
             ledfxRawLows += (low - ledfxRawLows) * adapted;
@@ -127,7 +106,7 @@ var testAlgo;
 
         var speed = algo.speed;
         var contrastInv = 1 - algo.contrast;
-        var stops = ledFxMode ? ledFxGradientStops() : null;
+        var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;
         var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
 
         var t1 = hsvTime(speed * Math.max(1, 1 + lows * 0.004), timeAccum);
@@ -139,10 +118,10 @@ var testAlgo;
             var y = ledFxMode ? Math.floor(i / width) : 0;
             var il = i / Math.max(1, pixelCount - 1);
 
-            var w1 = hsvSin(t1 + il);
-            var w2 = hsvSin(t2 - il);
+            var w1 = HSVUtil.sin01(t1 + il);
+            var w2 = HSVUtil.sin01(t2 - il);
             var w3raw = (il + w1 + w2) % 1;
-            var w3 = hsvSin(w3raw);
+            var w3 = HSVUtil.sin01(w3raw);
 
             var h = t1 + il;
 

@@ -23,12 +23,6 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_GRADIENT = [
-        {h: 0.958, s: 1.0, v: 1.0},
-        {h: 0.167, s: 1.0, v: 1.0},
-        {h: 0.611, s: 0.749, v: 1.0}
-    ];
-
     algo.presetParticleCount = 60;
     algo.properties.push(
       "name:presetParticleCount|type:range|display:Particle Count|" +
@@ -131,29 +125,14 @@ var testAlgo;
       algo.lastH = height;
     }
 
-    function spawnParticle(width, height, audio) {
-      var gradient = (algo.colors && algo.colors.length > 0)
-        ? algo.colors : DEFAULT_GRADIENT;
+    function spawnParticle(width, height) {
       return {
         x: Math.random() * width,
         y: Math.random() * height,
-        prevX: 0,
-        prevY: 0,
-        vx: 0,
-        vy: 0,
         ageMs: 0,
         lifeMs: algo.presetLifeMs,
-        color: HSVUtil.gradientAt(gradient, Math.random())
+        color: HSVUtil.gradientAt(algo.colors, Math.random())
       };
-    }
-
-    function stampPixel(width, height, x, y, color) {
-      if (x < 0 || x >= width || y < 0 || y >= height) return;
-      var i = (y * width + x) * 3;
-      var ev = algo.fb[i + 2];
-      var nv = Math.min(1, ev + color.v);
-      if (color.v > ev) { algo.fb[i] = color.h; algo.fb[i + 1] = color.s; }
-      algo.fb[i + 2] = nv;
     }
 
     function stampLine(width, height, x0, y0, x1, y1, color) {
@@ -164,7 +143,7 @@ var testAlgo;
       var err = dx + dy;
       var guard = dx - dy + 2;
       while (true) {
-        stampPixel(width, height, ix0, iy0, color);
+        HSVUtil.addPixel(algo.fb, width, height, ix0, iy0, color.h, color.s, color.v);
         if (ix0 === ix1 && iy0 === iy1) break;
         if (--guard < 0) break;
         var e2 = 2 * err;
@@ -178,17 +157,13 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
-      var dt = audio.dt * 60.0 / audio.bpm;
+      var dt = HSVUtil.audioSeconds(audio);
       ensureFb(width, height);
 
       var fieldSpeed01 = algo.presetFieldSpeed / 100.0;
       var morphSpeed01 = algo.presetMorphSpeed / 100.0;
-      // Asymmetric EMA on low and high bands (fast attack, slow decay)
-      var smoothing = algo.presetSmoothing / 10.0;
-      var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-      var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-      smoothLow += (audio.low > smoothLow ? riseAlpha : decayAlpha) * (audio.low - smoothLow);
-      smoothHigh += (audio.high > smoothHigh ? riseAlpha : decayAlpha) * (audio.high - smoothHigh);
+      smoothLow = HSVUtil.smoothFollow(smoothLow, audio.low, algo.presetSmoothing);
+      smoothHigh = HSVUtil.smoothFollow(smoothHigh, audio.high, algo.presetSmoothing);
       var fieldScale = fieldSpeed01 * (0.5 + 2.0 * smoothLow);
       algo.fieldRot += dt * audio.mid * fieldSpeed01;
       algo.noiseT += dt * morphSpeed01;
@@ -205,13 +180,13 @@ var testAlgo;
       if (nominal > maxP) nominal = maxP;
 
       while (algo.particles.length < nominal) {
-        algo.particles.push(spawnParticle(width, height, audio));
+        algo.particles.push(spawnParticle(width, height));
       }
 
       if (audio.beatFired) {
         for (var k = 0; k < algo.presetSpawnBurst; k++) {
           if (algo.particles.length >= maxP) break;
-          algo.particles.push(spawnParticle(width, height, audio));
+          algo.particles.push(spawnParticle(width, height));
         }
       }
 
@@ -223,17 +198,15 @@ var testAlgo;
 
       for (var p = algo.particles.length - 1; p >= 0; p--) {
         var part = algo.particles[p];
-        part.prevX = part.x;
-        part.prevY = part.y;
+        var prevX = part.x;
+        var prevY = part.y;
         var nx = part.x * fieldScale * 0.05 + noiseT;
         var ny = part.y * fieldScale * 0.05 + noiseT;
         var noiseVal = HSVUtil.simplex2d(nx, ny);
         var angle = noiseVal * Math.PI * (1.0 + turbulence) + rotation;
-        part.vx = Math.cos(angle) * baseSpeedNorm * width;
-        part.vy = Math.sin(angle) * baseSpeedNorm * height;
-        part.x += part.vx * dt;
-        part.y += part.vy * dt;
-        part.ageMs += (audio.dt * 60000 / audio.bpm);
+        part.x += Math.cos(angle) * baseSpeedNorm * width * dt;
+        part.y += Math.sin(angle) * baseSpeedNorm * height * dt;
+        part.ageMs += dt * 1000;
 
         var wrapped = false;
         if (wrap) {
@@ -260,18 +233,14 @@ var testAlgo;
 
         if (wrapped) {
           // Don't draw a line crossing the matrix; just stamp the new point.
-          stampPixel(width, height, Math.round(part.x), Math.round(part.y), part.color);
+          HSVUtil.addPixel(algo.fb, width, height, Math.round(part.x), Math.round(part.y),
+            part.color.h, part.color.s, part.color.v);
         } else {
-          stampLine(width, height, part.prevX, part.prevY, part.x, part.y, part.color);
+          stampLine(width, height, prevX, prevY, part.x, part.y, part.color);
         }
       }
 
-      var map = HSVUtil.createMap(width, height);
-      var total = width * height * 3;
-      for (var ci = 0; ci < total; ci++) {
-        map[ci] = algo.fb[ci];
-      }
-      return map;
+      return new Float32Array(algo.fb);
     };
 
     testAlgo = algo;

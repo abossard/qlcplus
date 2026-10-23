@@ -92,28 +92,9 @@ var testAlgo;
 
     function triangle(x) { return Math.abs(((x % 1) + 1) % 1 * 2 - 1); }
 
-    function bandColors() {
-        if (algo.hasUserColors && algo.colors.length >= 3)
-            return algo.colors;
-        return DEFAULT_BAND_COLORS;
-    }
-
     function dominantBandHsv(audio) {
-        var dom = (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})();
-        var bc = bandColors();
-        if (dom === "mid")  return bc[1];
-        if (dom === "high") return bc[2];
-        return bc[0];
-    }
-
-    function ledFxGradientStops() {
-        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
-            return algo.colors;
-        return [
-            {h: 0 / 3, s: 1, v: 1},
-            {h: 1 / 3, s: 1, v: 1},
-            {h: 2 / 3, s: 1, v: 1}
-        ];
+        var colors = algo.hasUserColors ? algo.colors : DEFAULT_BAND_COLORS;
+        return colors[Math.max(0, HSVUtil.dominantBand(audio))];
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -154,7 +135,7 @@ var testAlgo;
 
             var m = STRIPE_MID + triangle(t2) * STRIPE_AMP;
             var c = triangle(t3) * 10.0 + 4.0 * Math.sin(t4);
-            var stops = ledFxGradientStops();
+            var stops = HSVUtil.ledFxGradientStops(algo);
             var ledFxOutputOptions = getLedFxOutputOptions();
             var denom = Math.max(1, count - 1);
 
@@ -189,16 +170,13 @@ var testAlgo;
             return map;
         }
 
-        var dt = audio.dt;
-        var lowPower = audio.low;
-
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
         var satThreshold = algo.presetSaturation;
         var complexity = algo.presetComplexity;
 
         // Audio-reactive time boost (extra beats per frame)
-        var boostBeats = lowPower * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS * audio.bpm / 60000;
+        var boostBeats = audio.low * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS * audio.bpm / 60000;
         var effectiveDt = audio.dt + boostBeats;
 
         // t1 and t2 share the slow accumulator (read once, reuse value).
@@ -217,17 +195,17 @@ var testAlgo;
 
         if (audio.onset || audio.beatFired) {
             flashColor = dominantBandHsv(audio);
-            var hitScale = Math.min(1.0, HIT_FLOOR + HIT_RANGE * audio.onsetIntensity);
-            flashLevel = hitScale;
+            flashLevel = Math.min(1.0, HIT_FLOOR + HIT_RANGE * audio.onsetIntensity);
         }
         var dominant = (flashLevel > 0.01 && flashColor) ? flashColor : dominantBandHsv(audio);
 
+        // Glitch: modular arithmetic creates digital artifacts
+        var m = STRIPE_MID + triangle(t2) * STRIPE_AMP;
+        var c = triangle(t3) * complexity * 2 + 4 * Math.sin(t4);
+        var brightness = Math.max(BRIGHT_FLOOR, flashLevel);
+
         for (var x = 0; x < width; x++) {
             var il = (x - width / 2) / width;
-
-            // Glitch: modular arithmetic creates digital artifacts
-            var m = STRIPE_MID + triangle(t2) * STRIPE_AMP;
-            var c = triangle(t3) * complexity * 2 + 4 * Math.sin(t4);
 
             var h = ((il * c) % m + m) % m;
             h = h + Math.sin(t1);
@@ -244,8 +222,6 @@ var testAlgo;
             var tAbs = Math.abs(il * 2);
             var glitchMix = 0.55 + (1 - tAbs * 0.3) * 0.45;
 
-            var baseBrightness = Math.max(BRIGHT_FLOOR, flashLevel);
-            var brightness = baseBrightness;
             var hOut = HSVUtil.mod1(dominant.h + hNorm * (1 - dominant.s) * 0.4);
             var sOut = HSVUtil.clamp01(dominant.s + (1 - dominant.s) * sat * 0.5);
             var vOut = HSVUtil.clamp01((COLOR_FLOOR + glitchMix) * brightness * dominant.v);

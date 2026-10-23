@@ -50,9 +50,6 @@ var testAlgo;
     algo.getImpulseDecay = function() { return algo.presetImpulseDecay; };
     algo.setFreeRun = function(v) { algo.presetFreeRun = v === "No" ? "No" : "Yes"; };
     algo.getFreeRun = function() { return algo.presetFreeRun; };
-    // Compatibility aliases.
-    algo.setInjection = function(v) { algo.setSource(v); };
-    algo.getInjection = function() { return algo.getSource(); };
 
     var state = {
         audioKey: "",
@@ -66,22 +63,10 @@ var testAlgo;
         lastEventSequence: null
     };
 
-    function geometryIdentity(width, height) {
-        return [width, height].join("|");
-    }
-
     function idx(width, height, x, y) {
         var xx = (x + width) % width;
         var yy = (y + height) % height;
         return yy * width + xx;
-    }
-
-    function sourcePower(audio) {
-        if (algo.presetSource === "Beat") return HSVUtil.clamp01(audio && audio.beat || 0);
-        if (algo.presetSource === "Bass") return HSVUtil.clamp01(audio && audio.bass || 0);
-        if (algo.presetSource === "Lows") return HSVUtil.clamp01(audio && audio.low || 0);
-        if (algo.presetSource === "Mids") return HSVUtil.clamp01(audio && audio.mid || 0);
-        return HSVUtil.clamp01(audio && audio.high || 0);
     }
 
     function boardSignature(board) {
@@ -96,9 +81,8 @@ var testAlgo;
 
     function ensure(audio, width, height) {
         var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = geometryIdentity(width, height);
-        if (state.audioKey === audioKey && state.geometryKey === geometryKey &&
-            state.board.length === width * height)
+        var geometryKey = width + "|" + height;
+        if (state.audioKey === audioKey && state.geometryKey === geometryKey)
             return;
         state.audioKey = audioKey;
         state.geometryKey = geometryKey;
@@ -122,8 +106,8 @@ var testAlgo;
                         n += state.board[idx(width, height, x + dx, y + dy)];
                     }
                 }
-                var alive = state.board[idx(width, height, x, y)] === 1;
-                next[idx(width, height, x, y)] = (alive && (n === 2 || n === 3)) || (!alive && n === 3) ? 1 : 0;
+                var alive = state.board[y * width + x] === 1;
+                next[y * width + x] = (alive && (n === 2 || n === 3)) || (!alive && n === 3) ? 1 : 0;
             }
         }
         state.board = next;
@@ -150,7 +134,7 @@ var testAlgo;
         state.patternIndex++;
     }
 
-    function shouldReset(width, height) {
+    function shouldReset() {
         if (algo.presetHealthCheck === "None") return false;
         var alive = 0;
         for (var i = 0; i < state.board.length; i++) alive += state.board[i];
@@ -173,8 +157,7 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         ensure(audio, width, height);
         var dt = HSVUtil.audioSeconds(audio);
-        var p = sourcePower(audio);
-        var targetImpulse = p;
+        var targetImpulse = HSVUtil.powerForRange(audio, algo.presetSource, false);
         var alpha = targetImpulse > state.impulse ? 0.99 : algo.presetImpulseDecay;
         state.impulse += (targetImpulse - state.impulse) * alpha;
         var speedFactor = algo.presetFreeRun === "Yes"
@@ -208,7 +191,7 @@ var testAlgo;
         state.healthTimer += dt;
         if (state.healthTimer >= algo.presetHealthInterval) {
             state.healthTimer = state.healthTimer % algo.presetHealthInterval;
-            if (shouldReset(width, height)) randomize(width, height);
+            if (shouldReset()) randomize(width, height);
         }
 
         var occupancy = new Array(width * height).fill(0);
@@ -219,10 +202,10 @@ var testAlgo;
         var denom = Math.max(1, state.recent.length);
         for (var y2 = 0; y2 < height; y2++) {
             for (var x2 = 0; x2 < width; x2++) {
-                var id2 = idx(width, height, x2, y2);
+                var id2 = y2 * width + x2;
                 var occ = occupancy[id2] / denom;
-                var c = HSVUtil.gradientLedfxAt(algo.colors && algo.colors.length ? algo.colors : [{ h: 0.3, s: 1, v: 1 }], occ);
-                var o = (y2 * width + x2) * 3;
+                var c = HSVUtil.gradientLedfxAt(algo.colors, occ);
+                var o = id2 * 3;
                 map[o] = c.h;
                 map[o + 1] = c.s;
                 map[o + 2] = state.board[id2] ? c.v : c.v * occ * 0.35;
