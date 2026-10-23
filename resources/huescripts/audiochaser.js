@@ -71,9 +71,7 @@ var testAlgo;
     var smoothPow = [0, 0, 0];
 
     // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
+    var barState = {bar: 0, flash: 0};
 
     var DEFAULT_BAND_COLORS = [
         {h: 0.958, s: 1.0, v: 1.0},
@@ -138,50 +136,34 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.dt * 60.0 / audio.bpm;
+        var dt = HSVUtil.audioSeconds(audio);
 
         // Get 3 mel-bank powers; smooth (for brightness) and keep raw (for speed)
         var rawPows = [audio.low, audio.mid, audio.high];
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        for (var sb = 0; sb < 3; sb++) {
-            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
-            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
-        }
-        var powers = rawPows;        // for speed (responsive)
-        var briPowers = smoothPow;   // for brightness (smoothed)
-        var vol = audio.low;
-        var colorStops = algo.colors || DEFAULT_BAND_COLORS;
+        for (var sb = 0; sb < 3; sb++)
+            smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing);
 
         // --- Bar-level build-up ---
         var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
-        barEnergy += rawEnergy * dt;
-        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-        if (audio.downbeat) {
-            releaseFlash = Math.min(1, peakEnergy * 0.5);
-            barEnergy = 0;
-            peakEnergy = 0;
-        }
-        releaseFlash *= 0.85;
+        HSVUtil.barEnvelope(barState, rawEnergy, dt, audio.downbeat, 0.85);
 
         // Speed multiplier from audio
         var speedMult;
         if (algo.presetSpeedMode === 0) {
-            speedMult = 0.5 + vol * 4;
+            speedMult = 0.5 + audio.low * 4;
         } else if (algo.presetSpeedMode === 1) {
-            speedMult = 0.5 + powers[1] * 5;
+            speedMult = 0.5 + rawPows[1] * 5;
         } else {
-            speedMult = 0.5 + (powers[0] + powers[1] + powers[2]) * 2.0;
+            speedMult = 0.5 + (rawPows[0] + rawPows[1] + rawPows[2]) * 2.0;
         }
 
         var baseSpeed = algo.presetBaseSpeed * 5;
         var trailLen = algo.presetTrailLength;
 
         // Bar build-up subtly accelerates dots through the bar; the release
-        // burst on downbeat resets accumulation (peakEnergy=0) so speed dips
-        // to its baseline, producing a natural "swing".
-        var buildupBoost = 1.0 + Math.min(0.4, peakEnergy * 0.25);
+        // burst on downbeat resets accumulation so speed dips to its
+        // baseline, producing a natural "swing".
+        var buildupBoost = 1.0 + Math.min(0.4, barState.bar * 0.25);
         speedMult *= buildupBoost;
 
         // Kick flash for speed boost
@@ -191,7 +173,7 @@ var testAlgo;
         // Move dots
         for (var di = 0; di < dots.length; di++) {
             var dot = dots[di];
-            var bandPower = powers[dot.band];
+            var bandPower = rawPows[dot.band];
 
             // Each dot's speed is modulated by its band's power
             var dotSpeed = baseSpeed * speedMult * dot.speed * (0.3 + bandPower * 0.7);
@@ -207,10 +189,10 @@ var testAlgo;
             }
 
             // Render dot with trail
-            var color = colorStops[dot.band];
+            var color = algo.colors[dot.band];
             var beatBoost = 1.0 + 0.25 * audio.cosPulse;
             // Release adds a brightness burst on the downbeat
-            var brightness = (0.5 + briPowers[dot.band] * 0.5) * beatBoost + releaseFlash * 0.35;
+            var brightness = (0.5 + smoothPow[dot.band] * 0.5) * beatBoost + barState.flash * 0.35;
             brightness = Math.min(1.5, brightness);
             var headX = Math.floor(dot.pos);
 

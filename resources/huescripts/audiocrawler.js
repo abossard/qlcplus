@@ -51,8 +51,7 @@ var testAlgo;
     algo.setStretch = function(v) { algo.stretch = parseFloat(v); };
     algo.getStretch = function() { return algo.stretch; };
 
-    var TWO_PI = 2 * Math.PI;
-    var timeState = { position: 0 };
+    var timePosition = 0;
     var emaLows = 0;
     var ledFxLowsPower = 0;
     var ledFxFieldMs = 0;
@@ -70,14 +69,6 @@ var testAlgo;
         return t < 0 ? t + 1 : t;
     }
 
-    function hsvSin(v) { return 0.5 + 0.5 * Math.sin(v * TWO_PI); }
-
-    function rawLowPower(audio) {
-        if (audio && audio.powers && audio.powers.raw && isFinite(audio.powers.raw.low))
-            return HSVUtil.clamp01(audio.powers.raw.low);
-        return HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0);
-    }
-
     function elapsedAlpha(nominalAlpha, dtSeconds) {
         if (!(dtSeconds > 0) || !(nominalAlpha > 0)) return 0;
         if (nominalAlpha >= 1) return 1;
@@ -93,16 +84,6 @@ var testAlgo;
             ((previous - target) * decay * (1 - Math.pow(decay, stepCount)) / nominalAlpha);
     }
 
-    function ledFxGradientStops() {
-        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
-            return algo.colors;
-        return [
-            {h: 0 / 3, s: 1, v: 1},
-            {h: 1 / 3, s: 1, v: 1},
-            {h: 2 / 3, s: 1, v: 1}
-        ];
-    }
-
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
@@ -113,6 +94,13 @@ var testAlgo;
         if (!audio) return map;
 
         var ledFxMode = algo.presetMode === "LedFx Crawler";
+        var speed = algo.speed;
+        var reactivity = algo.reactivity;
+        var sway = algo.sway;
+        var chop = algo.chop;
+        var stretch = Math.max(0.00001, algo.stretch);
+        var stretchSpan = stretch / 10;
+        var lows, t1, t3;
         if (ledFxMode) {
             var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
             var geometryKey = width + "x" + height;
@@ -123,56 +111,28 @@ var testAlgo;
                 ledFxTimestepMs = 0;
                 ledFxLowsPower = 0;
             }
-        }
-
-        var dt = ledFxMode
-            ? (audio.timing && isFinite(audio.timing.deltaSeconds)
-                ? Math.max(0, audio.timing.deltaSeconds)
-                : ((audio.bpm > 0 && isFinite(audio.dt)) ? audio.dt * 60 / audio.bpm : 0))
-            : audio.dt;
-        var rawLows = ledFxMode ? rawLowPower(audio) : audio.low;
-        var lows;
-        if (ledFxMode) {
-            var nominalSteps = dt * NOMINAL_HZ;
-            var previousLows = ledFxLowsPower;
-            var alphaLedFx = elapsedAlpha(0.1, dt);
-            ledFxLowsPower += (rawLows - ledFxLowsPower) * alphaLedFx;
-            var ledFxLowsStepSum = smoothedStepSum(previousLows, rawLows, 0.1, nominalSteps);
+            var dt = HSVUtil.audioSeconds(audio);
+            var rawLows = HSVUtil.powerForRange(audio, "Lows", true);
+            var ledFxLowsStepSum = smoothedStepSum(ledFxLowsPower, rawLows, 0.1, dt * NOMINAL_HZ);
+            ledFxLowsPower += (rawLows - ledFxLowsPower) * elapsedAlpha(0.1, dt);
             lows = ledFxLowsPower;
-        } else {
-            emaLows = 0.1 * rawLows + 0.9 * emaLows;
-            lows = emaLows;
-        }
-
-        var speed = algo.speed;
-        var reactivity = algo.reactivity;
-        var sway = algo.sway;
-        var chop = algo.chop;
-        var stretch = Math.max(0.00001, algo.stretch);
-        var stretchSpan = stretch / 10;
-
-        var timeAccum = timeState.position || 0;
-        var timestep = timeAccum + lows * reactivity * speed;
-        if (!ledFxMode) {
-            timeAccum = ((timeState.position = (timeState.position || 0) + dt) && timeState.position);
-            timestep = timeAccum + lows * reactivity * speed;
-        }
-
-        var t1 = ledFxMode ? 0 : hsvTime(speed * sway, timestep);
-        var t3 = ledFxMode ? 0 : hsvTime(speed * chop + lows * reactivity, timeAccum);
-        if (ledFxMode) {
             var dtMs = dt * 1000.0;
             ledFxFieldMs += dtMs;
             ledFxTimestepMs += dtMs + ledFxLowsStepSum * reactivity * speed * 1000.0;
             t1 = HSVUtil.time01(speed * sway, ledFxTimestepMs);
             t3 = HSVUtil.time01(speed * chop + lows * reactivity, ledFxFieldMs);
+        } else {
+            emaLows = 0.1 * audio.low + 0.9 * emaLows;
+            lows = emaLows;
+            timePosition = (timePosition || 0) + audio.dt;
+            t1 = hsvTime(speed * sway, timePosition + lows * reactivity * speed);
+            t3 = hsvTime(speed * chop + lows * reactivity, timePosition);
         }
 
-        var sinT1 = hsvSin(t1);
+        var sinT1 = HSVUtil.sin01(t1);
         var pixelCount = ledFxMode ? Math.max(1, width * height) : Math.max(1, width);
         var denom = Math.max(1, pixelCount - 1);
-        var stops = ledFxMode ? ledFxGradientStops() : null;
-        var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
+        var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;
 
         for (var i = 0; i < pixelCount; i++) {
             var x = ledFxMode ? (i % width) : i;
@@ -185,14 +145,13 @@ var testAlgo;
             h += i1;
             h += sinT1;
 
-            var v = hsvSin(h);
+            var v = HSVUtil.sin01(h);
             v = v * v;
 
             h = HSVUtil.mod1(h);
             if (ledFxMode) {
                 var base = HSVUtil.gradientRgbAt(stops, h);
-                var rgbOut = [base[0] * v, base[1] * v, base[2] * v];
-                var hsvOut = HSVUtil.rgbToHsvUnclipped(rgbOut[0], rgbOut[1], rgbOut[2]);
+                var hsvOut = HSVUtil.rgbToHsvUnclipped(base[0] * v, base[1] * v, base[2] * v);
                 HSVUtil.setPixel(map, width, x, y, hsvOut.h, hsvOut.s, hsvOut.v);
             } else {
                 for (var yy = 0; yy < height; yy++)
@@ -201,7 +160,7 @@ var testAlgo;
         }
 
         if (ledFxMode)
-            HSVUtil.applyStripTransforms(map, width, height, ledFxOutputOptions);
+            HSVUtil.applyStripTransforms(map, width, height, getLedFxOutputOptions());
 
         return map;
     };

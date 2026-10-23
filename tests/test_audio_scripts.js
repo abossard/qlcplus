@@ -1486,10 +1486,10 @@ function assertWaterfallHistory() {
 
 function assertDigitalRainMotion() {
     const algo = loadScript('audiodigitalrain.js', 0xbead);
-    algo.setBirthsPerSecond(20);
-    algo.setMaxStreams(8);
+    algo.setAddSpeed(20);
+    algo.setCount(0.7);
     algo.setTail(0.5);
-    algo.setSpeed(8);
+    algo.setRunSeconds(1);
     const frame = seconds => audio({
         version: 6,
         dt: seconds * 2,
@@ -2770,14 +2770,12 @@ function assertWorkerBHistoryRows() {
         }
 
         var base = loadScript('audiodigitalrain.js', 0x1201);
-        base.setCount(1.2);
-        base.setMaxStreams(8);
+        base.setCount(0.7);
         base.setAddSpeed(20);
         base.setTail(0.5);
         base.setTailSegments(10);
         base.setRunSeconds(2);
         base.setLineWidth(5);
-        base.setSpeed(1);
         base.setMultiplier(10);
         base.setImpulseDecay(0.1);
 
@@ -2788,7 +2786,7 @@ function assertWorkerBHistoryRows() {
         assert.notDeepStrictEqual(moved, first, 'row12: positive dt failed to move streams');
 
         var phaseA = loadScript('audiodigitalrain.js', 0x1202);
-        phaseA.setCount(0.5); phaseA.setMaxStreams(1); phaseA.setAddSpeed(30); phaseA.setRunSeconds(5); phaseA.setTail(0.2);
+        phaseA.setCount(0.1); phaseA.setAddSpeed(30); phaseA.setRunSeconds(5); phaseA.setTail(0.2);
         render(phaseA, 'audiodigitalrain.js', 9, 9, rainFrame(0.1, 0.1, [0,0,0], { sourceId: 'rain-phase' }), 'row12 phase seed');
         var headA = render(phaseA, 'audiodigitalrain.js', 9, 9, rainFrame(0, 0.1, [0,0,0], { sourceId: 'rain-phase' }), 'row12 phase a');
         var headB = render(phaseA, 'audiodigitalrain.js', 9, 9, rainFrame(0, 0.6, [0,0,0], { sourceId: 'rain-phase' }), 'row12 phase b');
@@ -2799,7 +2797,7 @@ function assertWorkerBHistoryRows() {
         var slowBirth = loadScript('audiodigitalrain.js', 0x1203);
         var fastBirth = loadScript('audiodigitalrain.js', 0x1203);
         [slowBirth, fastBirth].forEach(function(a) {
-            a.setCount(2); a.setMaxStreams(20); a.setTail(0.4); a.setTailSegments(10); a.setRunSeconds(5); a.setMultiplier(0);
+            a.setCount(1.25); a.setTail(0.4); a.setTailSegments(10); a.setRunSeconds(5); a.setMultiplier(0);
         });
         slowBirth.setAddSpeed(1);
         fastBirth.setAddSpeed(20);
@@ -2810,7 +2808,7 @@ function assertWorkerBHistoryRows() {
         var seg2 = loadScript('audiodigitalrain.js', 0x1204);
         var seg10 = loadScript('audiodigitalrain.js', 0x1204);
         [seg2, seg10].forEach(function(a) {
-            a.setCount(0.8); a.setMaxStreams(4); a.setAddSpeed(20); a.setRunSeconds(3); a.setTail(0.8); a.setMultiplier(0);
+            a.setCount(0.4); a.setAddSpeed(20); a.setRunSeconds(3); a.setTail(0.8); a.setMultiplier(0);
         });
         seg2.setTailSegments(2);
         seg10.setTailSegments(10);
@@ -2821,14 +2819,14 @@ function assertWorkerBHistoryRows() {
         assert.notDeepStrictEqual(seg2Map, seg10Map, 'row12: tail segment count branch missing');
 
         var headOnly = loadScript('audiodigitalrain.js', 0x1205);
-        headOnly.setCount(0.6); headOnly.setAddSpeed(20); headOnly.setMaxStreams(3); headOnly.setTail(1); headOnly.setTailSegments(10); headOnly.setLineWidth(30);
+        headOnly.setCount(0.4); headOnly.setAddSpeed(20); headOnly.setTail(1); headOnly.setTailSegments(10); headOnly.setLineWidth(30);
         var headOnlyMap = render(headOnly, 'audiodigitalrain.js', 8, 8, rainFrame(0.2, 0.25, [0,0,0], { sourceId: 'rain-headonly' }), 'row12 short tail');
         assert(workerB_whiteHeads(headOnlyMap) > 0, 'row12: short tail should still render head');
 
         var accelLow = loadScript('audiodigitalrain.js', 0x1206);
         var accelMid = loadScript('audiodigitalrain.js', 0x1206);
         [accelLow, accelMid].forEach(function(a) {
-            a.setCount(1.5); a.setAddSpeed(30); a.setMaxStreams(8); a.setTail(0.5); a.setTailSegments(6); a.setRunSeconds(3); a.setMultiplier(10);
+            a.setCount(0.7); a.setAddSpeed(30); a.setTail(0.5); a.setTailSegments(6); a.setRunSeconds(3); a.setMultiplier(10);
         });
         render(accelLow, 'audiodigitalrain.js', 12, 12, rainFrame(0.1, 0.2, [0,0,0], { sourceId: 'rain-accel' }), 'row12 accel seed low');
         render(accelMid, 'audiodigitalrain.js', 12, 12, rainFrame(0.1, 0.2, [0,0,0], { sourceId: 'rain-accel' }), 'row12 accel seed mid');
@@ -2837,13 +2835,13 @@ function assertWorkerBHistoryRows() {
         assert.notDeepStrictEqual(lowPulse, midPulse, 'row12: per-stream raw-band acceleration branch missing');
 
         var unavailable = loadScript('audiodigitalrain.js', 0x1207);
-        unavailable.setCount(0.8); unavailable.setAddSpeed(10); unavailable.setMaxStreams(4); unavailable.setMultiplier(10);
+        unavailable.setCount(0.4); unavailable.setAddSpeed(10); unavailable.setMultiplier(10);
         render(unavailable, 'audiodigitalrain.js', 10, 8, rainFrame(0.2, null, [0,0,0], { sourceId: 'rain-unavail' }), 'row12 unavailable seed');
         var unavailMove = render(unavailable, 'audiodigitalrain.js', 10, 8, rainFrame(0.3, null, [0,0,0], { sourceId: 'rain-unavail' }), 'row12 unavailable motion');
         assert(workerB_lit(unavailMove) > 0, 'row12: no-beat unavailable input should still move/live');
 
         var identity = loadScript('audiodigitalrain.js', 0x1208);
-        identity.setCount(1.2); identity.setAddSpeed(30); identity.setMaxStreams(8); identity.setRunSeconds(5); identity.setTail(0.5);
+        identity.setCount(0.8); identity.setAddSpeed(30); identity.setRunSeconds(5); identity.setTail(0.5);
         var idSeed = render(identity, 'audiodigitalrain.js', 10, 8,
             rainFrame(0.2, 0.25, [0.1,0.1,0.1], { sourceId: 'rain-ident', profileId: 700, sourceEpoch: 1, configRevision: 4, available: true }),
             'row12 identity seed');

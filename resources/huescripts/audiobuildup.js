@@ -34,9 +34,6 @@ algo.properties.push(
   "name:presetColorScheme|type:list|display:ColorScheme|" +
   "values:Cool2Warm,Rainbow,Monochrome|write:setColorScheme|read:getColorScheme");
 
-algo.buildColor = {h: 0.583, s: 1.0, v: 1.0};
-algo.dropColor  = {h: 0.052, s: 1.0, v: 1.0};
-
 algo.rgbMapStepCount = function(width, height) { return 1; };
 algo.rgbMapSetColors = function(rawColors) { };
 algo.rgbMapGetColors = function() { return []; };
@@ -93,9 +90,9 @@ function initState() {
     algo.fillProgress = 0;
     algo.lastBeatFired = false;
 
-    algo.dropPhase = { phase: 0 };
-    algo.cooldownPhase = { phase: 0 };
-    algo.fillSparkPhase = { phase: 0 };
+    algo.dropPhase = 0;
+    algo.cooldownPhase = 0;
+    algo.fillSparkPhase = 0;
 }
 
 function transitionTo(newState) {
@@ -107,10 +104,10 @@ function transitionTo(newState) {
     }
     if (newState === algo.DROP) {
         algo.fillProgress = 1.0;
-        algo.dropPhase.phase = 0;
+        algo.dropPhase = 0;
     }
     if (newState === algo.COOLDOWN) {
-        algo.cooldownPhase.phase = 0;
+        algo.cooldownPhase = 0;
     }
 }
 
@@ -120,8 +117,8 @@ function renderFilling(map, width, height, audio, buildCol) {
     var maxEdgeDist = Math.floor(width / 2);
     var activeDepth = algo.fillProgress * maxEdgeDist;
     var monoHue = buildCol.h;
-    algo.fillSparkPhase.phase = (algo.fillSparkPhase.phase + audio.dt * (1.0 / Math.max(1.0, algo.presetCycleBeats))) % 1.0;
-    var shimmer01 = algo.fillSparkPhase.phase;
+    algo.fillSparkPhase = (algo.fillSparkPhase + audio.dt * (1.0 / Math.max(1.0, algo.presetCycleBeats))) % 1.0;
+    var shimmer01 = algo.fillSparkPhase;
     var beatPulse = audio.cosPulse;
 
     for (var y = 0; y < height; y++) {
@@ -149,15 +146,14 @@ function renderFilling(map, width, height, audio, buildCol) {
 }
 
 function renderDrop(map, width, height, audio, dropCol) {
-    algo.dropPhase.phase = (algo.dropPhase.phase + audio.dt * (1.0 / DROP_BEATS)) % 1.0;
-    var dropProgress = Math.min(1.0, algo.dropPhase.phase);
+    algo.dropPhase = (algo.dropPhase + audio.dt * (1.0 / DROP_BEATS)) % 1.0;
+    var dropProgress = Math.min(1.0, algo.dropPhase);
     var intensity = Math.max(0.1, Math.min(1.0, algo.presetDropIntensity));
 
     if (dropProgress <= DROP_FLASH_FRAC) {
         for (var fy = 0; fy < height; fy++)
             for (var fx = 0; fx < width; fx++)
                 HSVUtil.setPixel(map, width, fx, fy, 0, 0, intensity);
-        if (dropProgress >= 1.0) transitionTo(algo.COOLDOWN);
         return;
     }
 
@@ -178,13 +174,13 @@ function renderDrop(map, width, height, audio, dropCol) {
 }
 
 function renderCooldown(map, width, height, audio, dropCol) {
-    algo.cooldownPhase.phase = (algo.cooldownPhase.phase + audio.dt * (1.0 / COOLDOWN_BEATS)) % 1.0;
-    var t = Math.min(1.0, algo.cooldownPhase.phase);
+    algo.cooldownPhase = (algo.cooldownPhase + audio.dt * (1.0 / COOLDOWN_BEATS)) % 1.0;
+    var t = Math.min(1.0, algo.cooldownPhase);
     var afterglow = Math.max(0, 1 - t);
     var beatPulse = audio.cosPulse;
     var baseHue = dropCol.h;
-    algo.fillSparkPhase.phase = (algo.fillSparkPhase.phase + audio.dt * (1.0 / (COOLDOWN_BEATS * 2))) % 1.0;
-    var hueShift01 = algo.fillSparkPhase.phase;
+    algo.fillSparkPhase = (algo.fillSparkPhase + audio.dt * (1.0 / (COOLDOWN_BEATS * 2))) % 1.0;
+    var hueShift01 = algo.fillSparkPhase;
 
     for (var y = 0; y < height; y++) {
         for (var x = 0; x < width; x++) {
@@ -202,10 +198,8 @@ algo.rgbMap = function(width, height, rgb, step, audio)
     var map = HSVUtil.createMap(width, height);
     if (!audio) return map;
 
-    var buildCol = (algo.colors && algo.colors.length >= 1)
-        ? algo.colors[0] : algo.buildColor;
-    var dropCol = (algo.colors && algo.colors.length >= 2)
-        ? algo.colors[1] : algo.dropColor;
+    var buildCol = algo.colors[0];
+    var dropCol = algo.colors[1];
 
     // Edge-detect beat fires
     var beatNow = !!audio.beatFired;
