@@ -64,7 +64,7 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return []; };
 
     function spawnShot(width, height, audio) {
-        var band = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
+        var band = HSVUtil.dominantBand(audio);
         var color = (algo.colors && algo.colors.length >= 3) ? algo.colors[band] : {h: 0, s: 0, v: 1};
         var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onsetIntensity);
         var y;
@@ -143,10 +143,7 @@ var testAlgo;
                         // Blend hue toward brighter contributor
                         var total = existingV + falloff;
                         var t = falloff / Math.max(0.001, total);
-                        var dh = shot.h - map[i3];
-                        if (dh > 0.5) dh -= 1;
-                        else if (dh < -0.5) dh += 1;
-                        map[i3] = (map[i3] + t * dh) - Math.floor(map[i3] + t * dh);
+                        map[i3] = HSVUtil.lerpHue(map[i3], shot.h, t);
                         map[i3 + 1] = map[i3 + 1] * (1 - t) + shot.s * t;
                         map[i3 + 2] = newV;
                     }

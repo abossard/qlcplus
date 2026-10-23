@@ -135,9 +135,7 @@ var testAlgo;
     var smoothLow = 0;
 
     // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
+    var envelope = {bar: 0, flash: 0};
 
     var SPARKLE_MIN_INTERVAL_MS = 50;
 
@@ -198,9 +196,8 @@ var testAlgo;
         lastIdentityKey = identityKey;
         if (identityChanged) {
             smoothLow = 0;
-            barEnergy = 0;
-            peakEnergy = 0;
-            releaseFlash = 0;
+            envelope.bar = 0;
+            envelope.flash = 0;
             algo.scanPos = 0;
             algo.returning = false;
             algo.sparkles = [];
@@ -216,31 +213,16 @@ var testAlgo;
             algo.lastMode = algo.presetMode;
         }
 
-        var dt = ledFxMode ? HSVUtil.audioSeconds(audio) : (audio.dt * 60.0 / audio.bpm);
+        var dt = HSVUtil.audioSeconds(audio);
         algo.elapsedMs += dt * 1000;
-        var bpmEff = (audio.bpm > 0) ? audio.bpm : 120;
-        var beatsPerSec = bpmEff / 60.0;
+        var beatsPerSec = audio.bpm / 60.0;
 
         var rawLow = HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false) * 2.0;
         var power = rawLow;
         if (!ledFxMode) {
-            var smoothing = algo.presetSmoothing / 10.0;
-            var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-            var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-            smoothLow += (rawLow > smoothLow ? riseAlpha : decayAlpha) * (rawLow - smoothLow);
+            smoothLow = HSVUtil.smoothFollow(smoothLow, rawLow, algo.presetSmoothing);
             power = smoothLow;
-        }
-
-        // --- Bar-level build-up ---
-        if (!ledFxMode) {
-            barEnergy += rawLow * dt;
-            if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-            if (audio.downbeat) {
-                releaseFlash = Math.min(1, peakEnergy * 0.5);
-                barEnergy = 0;
-                peakEnergy = 0;
-            }
-            releaseFlash *= 0.85;
+            HSVUtil.barEnvelope(envelope, rawLow, dt, audio.downbeat, 0.85);
         }
 
         var multiplier = algo.presetMultiplier / 100.0;
@@ -250,7 +232,6 @@ var testAlgo;
             ? (n / 100.0 * Math.max(0, Math.min(100, algo.presetSpeed)))
             : (Math.max(1, n - scanW) * algo.presetSpeed * beatsPerSec);
         var stepSize = dt * stepPerSec * bar;
-        var bounce = algo.presetBounce === 1;
 
         if (algo.returning) algo.scanPos -= stepSize;
         else algo.scanPos += stepSize;
@@ -258,11 +239,11 @@ var testAlgo;
         var maxStart = n - scanW;
         if (maxStart < 0) maxStart = 0;
 
-        if (bounce) {
+        if (algo.presetBounce === 1) {
             if (algo.scanPos > maxStart) { algo.scanPos = maxStart; algo.returning = true; }
             if (algo.scanPos < 0) { algo.scanPos = 0; algo.returning = false; }
         } else {
-            algo.scanPos = ((algo.scanPos % n) + n) % n;
+            algo.scanPos = wrapPosition(algo.scanPos, n);
             if (algo.scanPos > maxStart) algo.scanPos = algo.scanPos - n;
         }
 
@@ -307,8 +288,8 @@ var testAlgo;
         if (algo.presetColorIntensity === 1)
             scanHsv = {h: scanHsv.h, s: scanHsv.s, v: scanHsv.v * Math.min(1, power)};
         // Release flares the scanner brightness on downbeat
-        if (!ledFxMode && releaseFlash > 0.01)
-            scanHsv = {h: scanHsv.h, s: scanHsv.s, v: Math.min(1, scanHsv.v + releaseFlash * 0.5)};
+        if (!ledFxMode && envelope.flash > 0.01)
+            scanHsv = {h: scanHsv.h, s: scanHsv.s, v: Math.min(1, scanHsv.v + envelope.flash * 0.5)};
         if (!ledFxMode) {
             drawSegment(strip, n, algo.scanPos, scanW, scanHsv);
         } else {
@@ -319,11 +300,6 @@ var testAlgo;
                 if (idx >= n) break;
                 stripRgb[idx] = [scanRgb[0], scanRgb[1], scanRgb[2]];
             }
-            var overflow = (start + scanW) - n;
-            if (!bounce && overflow > 0) {
-                for (var o = 0; o < overflow; o++)
-                    stripRgb[o] = [scanRgb[0], scanRgb[1], scanRgb[2]];
-            }
         }
 
         var alive = [];
@@ -333,13 +309,11 @@ var testAlgo;
             var health = 1 - (age / sp.dieMs);
             if (health <= 0) continue;
             sp.pos += sp.speed * dt * health;
-            if (ledFxMode)
-                sp.pos = wrapPosition(sp.pos, n);
-            if (!ledFxMode && (sp.pos < -sp.width || sp.pos >= n)) continue;
             if (!ledFxMode) {
-                var sparkleColor = {h: 0, s: 0, v: health};
-                drawSegment(strip, n, sp.pos, sp.width, sparkleColor);
+                if (sp.pos < -sp.width || sp.pos >= n) continue;
+                drawSegment(strip, n, sp.pos, sp.width, {h: 0, s: 0, v: health});
             } else {
+                sp.pos = wrapPosition(sp.pos, n);
                 var base = Math.floor(sp.pos);
                 for (var ws = 0; ws < sp.width; ws++) {
                     var wi = (base + ws) % n;
@@ -354,11 +328,11 @@ var testAlgo;
 
         if (ledFxMode) {
             for (var li = 0; li < n; li++) {
-                var hsv = HSVUtil.rgbToHsvUnclipped(stripRgb[li][0], stripRgb[li][1], stripRgb[li][2]);
+                var hsv = HSVUtil.rgbToHsv(stripRgb[li][0], stripRgb[li][1], stripRgb[li][2]);
                 var lo = li * 3;
                 map[lo] = hsv.h;
                 map[lo + 1] = hsv.s;
-                map[lo + 2] = HSVUtil.clamp01(hsv.v);
+                map[lo + 2] = hsv.v;
             }
             return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
         }

@@ -50,19 +50,14 @@ var testAlgo;
             var end = start + blockWidth;
             var peak = 0;
             for (var i = start; i < end; i++) peak = Math.max(peak, r[i]);
-            var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.6, s: 1, v: 1}], b / blocks);
-            var rgbColor = HSVUtil.hsvToRgb(color.h, color.s, color.v);
+            var color = HSVUtil.gradientLedfxAt(algo.colors, b / blocks);
             for (var j = start; j < end; j++) {
                 var power = r[j] * peak;
-                var mixed = HSVUtil.rgbToHsvUnclipped(
-                    rgbColor[0] * power,
-                    rgbColor[1] * power,
-                    rgbColor[2] * power
-                );
+                if (power <= 0) continue;
                 var o = j * 3;
-                map[o] = mixed.h;
-                map[o + 1] = mixed.s;
-                map[o + 2] = mixed.v;
+                map[o] = color.h;
+                map[o + 1] = color.s;
+                map[o + 2] = color.v * power;
             }
             start += blockWidth;
         }

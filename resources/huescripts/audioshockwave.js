@@ -81,8 +81,6 @@ var testAlgo;
         }
     }
 
-
-
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
@@ -110,18 +108,15 @@ var testAlgo;
 
     var smoothLow = 0;
 
-    function spawnWave(width, height, intensity, audio) {
+    function spawnWave(intensity, audio) {
         // Tint wave color toward dominant band color
-        var domIdx = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
         var domPower = Math.max(audio.low, audio.mid, audio.high);
-        var domHsv = (domPower >= 0.05 && algo.colors && algo.colors.length >= 3) ? algo.colors[domIdx] : waveColor;
+        var domHsv = (domPower >= 0.05 && algo.colors && algo.colors.length >= 3)
+            ? algo.colors[HSVUtil.dominantBand(audio)] : waveColor;
         var t = DOMINANT_TINT;
         var color = {h: waveColor.h + (domHsv.h - waveColor.h) * t, s: waveColor.s + (domHsv.s - waveColor.s) * t, v: waveColor.v + (domHsv.v - waveColor.v) * t};
         algo.waves.push({
-            cx: width / 2,
-            cy: height / 2,
             radius: 0,
-            maxRadius: Math.sqrt(width * width + height * height),
             intensity: Math.max(0, Math.min(MAX_INTENSITY, intensity * KICK_INTENSITY_BOOST)),
             color: color
         });
@@ -133,7 +128,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         updateColors();
-        var dtMs = audio ? (audio.timing ? audio.timing.deltaSeconds * 1000 : audio.dt * 60000 / audio.bpm) : 40;
+        var dtMs = audio ? HSVUtil.audioSeconds(audio) * 1000 : 40;
         var frameScale = dtMs / 40;
         algo.dtAccum += dtMs;
         if (width !== lastW || height !== lastH) {
@@ -163,32 +158,27 @@ var testAlgo;
             }
         }
 
-        var bass = audio.low;
         // Asymmetric EMA: smooth spawn-intensity driver
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        var alpha = bass > smoothLow ? riseAlpha : decayAlpha;
-        if (audio.timing) alpha = 1 - Math.pow(1 - alpha, audio.timing.deltaSeconds * 50);
-        smoothLow += alpha * (bass - smoothLow);
+        smoothLow = HSVUtil.smoothFollow(smoothLow, audio.low, algo.presetSmoothing,
+            audio.timing ? audio.timing.deltaSeconds * 50 : undefined);
 
         var count = audio.events ? Math.max(audio.events.delta.beat, audio.events.delta.onset) :
             (audio.beatFired || audio.onset ? 1 : 0);
         for (var spawn = 0; spawn < Math.min(count, algo.presetMaxWaves); spawn++)
-            spawnWave(width, height, Math.max(0.5, smoothLow), audio);
+            spawnWave(Math.max(0.5, smoothLow), audio);
 
         if (algo.waves.length < MAX_FILL_WAVES && smoothLow > MIN_BASS_FOR_FILL)
-            spawnWave(width, height, FILL_INTENSITY, audio);
+            spawnWave(FILL_INTENSITY, audio);
 
         // Render waves: intensity is snapshot at spawn, not re-read each frame
         var waveWidth = algo.presetWaveWidth;
         for (var wi = 0; wi < algo.waves.length; wi++) {
             var wave = algo.waves[wi];
-            var fade = Math.max(0, 1 - wave.radius / Math.max(1, wave.maxRadius));
+            var fade = Math.max(0, 1 - wave.radius / Math.max(1, maxRadius));
 
             for (var y = 0; y < height; y++) {
                 for (var x = 0; x < width; x++) {
-                    var dist = Math.sqrt((x - wave.cx) * (x - wave.cx) + (y - wave.cy) * (y - wave.cy));
+                    var dist = Math.sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
                     var ringDist = Math.abs(dist - wave.radius);
                     if (ringDist < waveWidth) {
                         var ringBri = (1 - ringDist / waveWidth);
@@ -206,11 +196,7 @@ var testAlgo;
                             } else {
                                 var total = existV + addV;
                                 var t = addV / Math.max(0.001, total);
-                                var dh = wave.color.h - map[i3];
-                                if (dh > 0.5) dh -= 1;
-                                else if (dh < -0.5) dh += 1;
-                                var h = map[i3] + t * dh;
-                                map[i3] = h - Math.floor(h);
+                                map[i3] = HSVUtil.lerpHue(map[i3], wave.color.h, t);
                                 map[i3 + 1] = map[i3 + 1] * (1 - t) + wave.color.s * t;
                             }
                             map[i3 + 2] = newV;
@@ -225,7 +211,7 @@ var testAlgo;
         for (var ui = algo.waves.length - 1; ui >= 0; ui--) {
             algo.waves[ui].radius += speed * frameScale;
             algo.waves[ui].intensity *= Math.pow(decayFactor, frameScale);
-            if (algo.waves[ui].intensity < MIN_WAVE_INTENSITY || algo.waves[ui].radius > algo.waves[ui].maxRadius)
+            if (algo.waves[ui].intensity < MIN_WAVE_INTENSITY || algo.waves[ui].radius > maxRadius)
                 algo.waves.splice(ui, 1);
         }
 

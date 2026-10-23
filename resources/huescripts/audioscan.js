@@ -109,9 +109,7 @@ var testAlgo;
     var smoothPower = 0;
 
     // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
+    var envelope = {bar: 0, flash: 0};
 
     var scanPos = 0.0;
     var returning = false;
@@ -122,20 +120,6 @@ var testAlgo;
 
     function gradientStops() {
         return (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_GRADIENT;
-    }
-
-    function bandColors() {
-        if (algo.colors && algo.colors.length > 0)
-            return algo.colors;
-        return [
-            {h: 0.0,   s: 1.0, v: 1.0},
-            {h: 0.333, s: 1.0, v: 1.0},
-            {h: 0.667, s: 1.0, v: 1.0}
-        ];
-    }
-
-    function powerFor(audio) {
-        return HSVUtil.powerForRange(audio, algo.frequency_range, false);
     }
 
     function setStrip(strip, idx, color) {
@@ -179,9 +163,8 @@ var testAlgo;
         lastIdentityKey = identityKey;
         if (identityChanged) {
             smoothPower = 0;
-            barEnergy = 0;
-            peakEnergy = 0;
-            releaseFlash = 0;
+            envelope.bar = 0;
+            envelope.flash = 0;
             scanPos = 0.0;
             returning = false;
             modulationClock = 0;
@@ -194,38 +177,22 @@ var testAlgo;
             modulationClock = 0;
         }
 
-        var dt = audio.dt;
-        var passed = ledFxMode ? HSVUtil.audioSeconds(audio)
-            : ((audio.dt * 60000 / audio.bpm) / 1000.0);
+        var passed = HSVUtil.audioSeconds(audio);
         modulationClock += passed;
         var count = Math.max(1, Math.min(10, algo.count));
         var block = span / count;
         var stepPerSec = span / 100.0 * Math.max(0, Math.min(100, algo.speed));
         var scanWidthPixels = Math.max(1, Math.floor(block / 100.0 * Math.max(1, Math.min(100, algo.scan_width))));
-        var rawPower = powerFor(audio) * 2.0;
+        var rawPower = HSVUtil.powerForRange(audio, algo.frequency_range, false) * 2.0;
         var power = rawPower;
         if (!ledFxMode) {
-            var smoothing = algo.presetSmoothing / 10.0;
-            var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-            var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-            smoothPower += (rawPower > smoothPower ? riseAlpha : decayAlpha) * (rawPower - smoothPower);
+            smoothPower = HSVUtil.smoothFollow(smoothPower, rawPower, algo.presetSmoothing);
             power = smoothPower;
-        }
-
-        // --- Bar-level build-up ---
-        if (!ledFxMode) {
-            barEnergy += rawPower * dt;
-            if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-            if (audio.downbeat) {
-                releaseFlash = Math.min(1, peakEnergy * 0.5);
-                barEnergy = 0;
-                peakEnergy = 0;
-            }
-            releaseFlash *= 0.85;
+            HSVUtil.barEnvelope(envelope, rawPower, audio.dt, audio.downbeat, 0.85);
         }
 
         // Build-up subtly widens the scan; release flares it
-        var widthBoost = ledFxMode ? 1.0 : (1.0 + releaseFlash * 0.4);
+        var widthBoost = ledFxMode ? 1.0 : (1.0 + envelope.flash * 0.4);
         var bar = power * widthBoost * Math.max(0, Math.min(5, parseFloat(algo.multiplier)));
         var stepSize = passed * stepPerSec * bar;
 
@@ -250,7 +217,7 @@ var testAlgo;
                     if (algo.full_grad_mod === "Sine")
                         color.v *= HSVUtil.sin01(phase);
                     else
-                        color.v *= HSVUtil.clamp01(0.2 + 0.8 * (1 - Math.abs(2 * phase - 1)));
+                        color.v *= 0.2 + 0.8 * HSVUtil.triangle(phase);
                 }
                 strip[gx] = color;
             }
@@ -260,21 +227,20 @@ var testAlgo;
 
         var scanColor;
         if (algo.use_grad === "Yes") {
-            var gt = ((scanPos / span) % 1 + 1) % 1;
+            var gt = HSVUtil.mod1(scanPos / span);
             scanColor = ledFxMode
                 ? HSVUtil.gradientLedfxAt(gradientStops(), gt)
                 : HSVUtil.gradientAt(gradientStops(), gt);
         } else {
-            var bc = bandColors();
-            scanColor = {h: bc[0].h, s: bc[0].s, v: bc[0].v};
+            scanColor = algo.colors[0];
         }
         if (algo.color_intensity === "Yes") {
-            var intensity = Math.min(1.0, power + (ledFxMode ? 0 : releaseFlash * 0.6));
+            var intensity = Math.min(1.0, power + (ledFxMode ? 0 : envelope.flash * 0.6));
             scanColor = {h: scanColor.h, s: scanColor.s, v: scanColor.v * intensity};
-        } else if (!ledFxMode && releaseFlash > 0.01) {
+        } else if (!ledFxMode && envelope.flash > 0.01) {
             // Even without color-intensity, release adds a brightness flare
             scanColor = {h: scanColor.h, s: scanColor.s,
-                         v: Math.min(1, scanColor.v + releaseFlash * 0.4)};
+                         v: Math.min(1, scanColor.v + envelope.flash * 0.4)};
         }
 
         for (var bi = 0; bi < count; bi++) {
