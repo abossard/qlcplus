@@ -73,12 +73,12 @@ Central (coordinator, `hsvutil.js`), each verified by equivalence. Helpers added
 - [x] H9 `hsvutil.js` local cleanups: dead `stops.length <= 1` (142), repeated indexing/min guards (157, 165-167).
 
 Per group (agents), each verified by equivalence for the group's scripts:
-- [ ] G-A aurora, bands, bandsmatrix, barcode, basslaser, beatcolors, bladepower, bleep, blocks, blurz
-- [ ] G-B bpmbar, buildup, cellular, chaser, concentric, crawler, digitalrain, djlight, energy, energy2, equalizer, filter
-- [ ] G-C equalizer2d, fire, fireworks, flame, flowfield, gameoflife, glitch, glitch2, gravimeter, hierarchy, hueshift, lava, magnitude
-- [ ] G-D marching, melt, meltsparkle, multicolorbar, noise, pitchspectrum, plasma, power, puddles, reaction, reactor
-- [ ] G-E scan, scanflare, scanmulti, shockwave, shot, smoke, soap, spectralblocks
-- [ ] G-F spectrum, splittower, spotlight, strobe, tunnel, vortex, vumeter, water, waterfall
+- [x] G-A aurora, bands, bandsmatrix, barcode, basslaser, beatcolors, bladepower, bleep, blocks, blurz
+- [x] G-B bpmbar, buildup, cellular, chaser, concentric, crawler, digitalrain, djlight, energy, energy2, equalizer, filter
+- [x] G-C equalizer2d, fire, fireworks, flame, flowfield, gameoflife, glitch, glitch2, gravimeter, hierarchy, hueshift, lava, magnitude
+- [x] G-D marching, melt, meltsparkle, multicolorbar, noise, pitchspectrum, plasma, power, puddles, reaction, reactor
+- [x] G-E scan, scanflare, scanmulti, shockwave, shot, smoke, soap, spectralblocks
+- [x] G-F spectrum, splittower, spotlight, strobe, tunnel, vortex, vumeter, water, waterfall
 
 Per-group work list: adopt H1-H7 and existing helpers (`audioSeconds`, `powerForRange`, `sin01`, `time01`,
 `mod1`, `triangle`, `rgbToHsv`, `gradientAt`, `setPixel`, `clamp01`); inline shallow single-use functions;
@@ -88,17 +88,23 @@ glitch2 T1 == T2); see the group sections below for file:line items.
 
 ## Phase 3: red tests
 
-Cross-cutting (coordinator), parametrized over all audio scripts:
-- [ ] X1 `rgbMapGetColors` returns only finite numbers (JS), and `HUEMatrix::setProperty` keeps the palette
+Cross-cutting (coordinator), parametrized over all audio scripts. Written while phase 2 runs, committed after
+the phase 2 merge. JS: `assertCrossCuttingContracts` (`--contracts-only`, ~60 s). Engine:
+`audioScriptPropertyWriteKeepsThePalette`, `audioScriptInstancesKeepTheirOwnProperties`.
+Red at 8a1b0bdbe: X1 8 scripts (JS and engine), X2 buildup (JS and engine), X3 119/393 cases,
+X4 23/63 (measures decay after the music stops, not motion speed), X5 blurz/scan/tunnel/vortex,
+X6 vumeter, water x2, spotlight, power, equalizer2d ring x2. Not reproduced by the generic setup, so left to
+group tests: X5 power/flame/strobe, X6 reactor Nx1 (D4), splittower narrow (F3, masked by F1).
+- [~] X1 `rgbMapGetColors` returns only finite numbers (JS), and `HUEMatrix::setProperty` keeps the palette
   for every audio script (engine). Red: reaction, blurz, chaser, energy, djlight, gravimeter, scan, scanflare.
-- [ ] X2 Instance isolation: two instances in one shared context (JS) and two `HUEMatrix` with the same
+- [~] X2 Instance isolation: two instances in one shared context (JS) and two `HUEMatrix` with the same
   script (engine) do not affect each other. Red: buildup (no IIFE), energy2 (`referenceState` global).
-- [ ] X3 Invalid setter input ("", "abc", "Infinity", "-1e9", "1e9") on every float/range property:
+- [~] X3 Invalid setter input ("", "abc", "Infinity", "-1e9", "1e9") on every float/range property:
   no throw, finite output, bounded time; restoring the default gives the output of a fresh instance.
-- [ ] X4 Frame-rate: same stimulus at 25/50/100 Hz gives the same state after 1 s (table of scripts and measures).
-- [ ] X5 Hue mixing: red palette (h 0.95/0.05) stays red; a blue burst keeps its hue in blur halos.
+- [~] X4 Frame-rate: same stimulus at 25/50/100 Hz gives the same state after 1 s (table of scripts and measures).
+- [~] X5 Hue mixing: red palette (h 0.95/0.05) stays red; a blue burst keeps its hue in blur halos.
   Red: blurz, scan, power, flame, tunnel, vortex, strobe tint.
-- [ ] X6 Degenerate geometry under loud input (1xN, Nx1, narrow): lit and not uniform where the effect has a spatial axis.
+- [~] X6 Degenerate geometry under loud input (1xN, Nx1, narrow): lit and not uniform where the effect has a spatial axis.
 
 Per group (agents): one parametrized test per bug in the group sections below.
 
@@ -106,7 +112,7 @@ Per group (agents): one parametrized test per bug in the group sections below.
 
 - [ ] Central: `parseNumber` (D2), time-based smoothing helper (D1), circular blend/blur (D3),
   `gradientAt` NaN-safe, `mod1(-1e-20)` returns 1 (hsvutil.js:382).
-- [ ] G-A  - [ ] G-B  - [ ] G-C  - [ ] G-D  - [ ] G-E  - [ ] G-F
+- [x] G-A  - [x] G-B  - [x] G-C  - [x] G-D  - [x] G-E  - [ ] G-F
 - [ ] Engine tests green, harness green, equivalence diffs limited to fixed scripts.
 - [ ] Docs: update only where documented behaviour changed (`docs/audio-data-usage.md`, `docs/hue-effects/README.md`).
 
@@ -229,3 +235,26 @@ Group F
   `/Users/abossard/Desktop/projects/qlcplus-worktrees/fix-hue-audio-scripts`.
 - 2026-10-24 Phase 2 central helpers committed; copies verified identical (ledFxGradientStops x8 by md5,
   referenceOutput x5 whitespace-only, smoothing x18 same formula, bar envelope x7, dominant band ties equal).
+- 2026-10-24 G-C phase 2 done (a1e3aab8a, 13/13 equivalent). Skipped: fireworks randomWeightedBand (consumes
+  Math.random), eq2d peak/bar loop merge (changes overwrite order), gameoflife frameSequence dedupe (harness
+  C22 needs it), glitch triangle and hueshift lerpHue and lava time01 (not equivalent). Proposed helpers:
+  attackRelease(current, target, rise, fall); LedFx saturation color; LedFx-mode reset key; Bresenham walker.
+- 2026-10-24 G-D phase 2 done (36053892c, 11/11 equivalent, -308 lines). Skipped: multicolorbar beatFired
+  fallback and puddles events-only (legacy v5 harness frames lack events), plasma powerFor (harness sets low
+  without beat/bass), reaction audioSeconds (1 ulp flips Math.round). Proposed helpers: strip box blur,
+  upper-third bank peak, one-pole follower 1-pow(0.9, dtSec*50).
+- 2026-10-24 G-E phase 2 done (10c2e25f4, 8/8 equivalent, -230 lines). Skipped: shot audioSeconds (no-timing
+  frames step 1), soap powerForRange (engine lows is min(1,(p0+p1)/2), not a clamped mean), scanmulti wrap.
+  Proposed helpers: blendPixel (arc-weighted additive blend, scanmulti/shockwave/shot), wrap(x, n),
+  RGB strip to HSV map. smoke and noise still near-identical.
+- 2026-10-24 G-A phase 2 done (1559090a8, 10/10 equivalent, -326 lines; own 780k-render check max diff 0).
+  Skipped: barcode attachStripTransformControls (descriptors differ), beatcolors mixHsv->gradientAt (gradientAt
+  throws on NaN t), beatcolors 142 min (output changes for sweep width > 3.27: phase 4), blurz DEFAULT_BANDS
+  (live: rgbMapGetColors may run before colors are injected), barcode legacy events branch.
+  Proposed helpers: bandPeaks(r, count), reference strip-options reader.
+- Note: editing scripts makes docs/hue-effects/media/generation.json source hashes stale (gallery tool only).
+- 2026-10-24 G-F phase 2 done (e26a81a7a, 9/9 equivalent, -276 lines). Skipped: spectrum/strobe reference
+  controls via attachStripTransformControls (descriptors differ), strobe artistic version>=6 branches (v5
+  harness frames), spotlight stops[0] per frame (spots keep spawn-time color). Proposed: eventCount helper.
+- 2026-10-24 Phase 2 groups merged (ad10b0993): equivalence 63/63 exact vs 90447f48c, harness 63/63, engine
+  tests green apart from the new red ones. Scripts: 1137+/2741-. Cross-cutting red tests committed next.

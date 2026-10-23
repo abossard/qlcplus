@@ -1737,6 +1737,232 @@ function assertSharedEffectBuildingBlocks() {
     });
 }
 
+// One sandbox like the engine's single QJSEngine: hsvutil.js once, then any number of
+// script evaluations. Each instance has its own seeded Math.random and clock, swapped in
+// around its calls, so instances sharing the sandbox stay comparable with a solo run.
+function sharedScriptContext() {
+    let active = { random: seededRandom(1), clock: { ms: 0 } };
+    const math = Object.create(Math);
+    Object.defineProperty(math, 'random', { get: () => active.random });
+    const sandbox = {
+        Math: math, Date: sandboxDate({ now: () => active.clock.ms }), Float32Array,
+        console: { log() {}, warn() {}, error() {} }, testAlgo: null
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(HSV_UTIL, sandbox, { filename: 'hsvutil.js' });
+    return {
+        sandbox,
+        load(file, seed = 0x5eed) {
+            const state = { random: seededRandom(seed), clock: { ms: 0 } };
+            active = state;
+            vm.runInContext(fs.readFileSync(path.join(SCRIPTS_DIR, file), 'utf8'), sandbox, { filename: file });
+            const algo = sandbox.testAlgo;
+            algo.colors = PALETTE.slice(0, Math.max(1, algo.acceptColors));
+            algo.hasUserColors = true;
+            return { algo, state };
+        },
+        render(instance, width, height, frame, step = 0) {
+            active = instance.state;
+            active.clock.ms += frame.timing.deltaSeconds * 1000;
+            return instance.algo.rgbMap(width, height, PALETTE[0], step, frame);
+        }
+    };
+}
+
+function setProperty(algo, name, value) {
+    const property = algo.properties.map(parseProperty).find(p => p.name === name);
+    assert(property, `no property ${name}`);
+    algo[property.write](value);
+}
+
+function meanV(map) {
+    let sum = 0;
+    for (let i = 2; i < map.length; i += 3)
+        sum += Math.min(1, Math.max(0, map[i] || 0));
+    return sum / (map.length / 3);
+}
+
+function loudFrame(tick, overrides = {}) {
+    return engineAudio(Object.assign({
+        tempoValid: true, bpm: 120, phase: (tick % 25) / 25, beatInBar: Math.floor(tick / 25) % 4,
+        beat: 0.8, bass: 0.7, mid: 0.6, high: 0.5, volume: 0.8, onsetIntensity: 0.7,
+        bins: Array.from({ length: 24 }, (_, i) => 0.4 + 0.4 * Math.sin(i * 0.7 + tick * 0.3)),
+        delta: { onset: tick % 5 === 0 ? 1 : 0, beat: tick % 25 === 0 ? 1 : 0,
+            kick: tick % 25 === 0 ? 1 : 0, bar: tick % 100 === 0 ? 1 : 0 },
+        frameSequence: tick + 1
+    }, overrides));
+}
+
+// X1: RGBMatrix::setProperty turns every rgbMapGetColors() entry into a matrix color with
+// QJSValue::toUInt(), so anything but a packed number becomes black.
+function assertGetColorsReturnsPackedColors() {
+    const files = EXPECTED_SCRIPTS.concat(EXPECTED_NON_AUDIO_SCRIPTS);
+    runCases('X1 rgbMapGetColors returns packed colors', files.map(file => ({ label: file, file })), ({ file }) => {
+        const algo = loadScript(file, 0x5eed, SCRIPTS_DIR, EXPECTED_SCRIPTS.includes(file));
+        for (const config of equivalenceConfigs(algo)) {
+            for (const [setter, value] of config.settings)
+                algo[setter](value);
+            const colors = Array.from(algo.rgbMapGetColors());
+            assert(colors.every(color => typeof color === 'number' && Number.isFinite(color)),
+                `${config.label}: returned ${JSON.stringify(colors).slice(0, 80)}`);
+        }
+    });
+}
+
+// X2: every clone runs in the same engine; two instances must not change each other's output.
+function assertInstancesAreIsolated() {
+    runCases('X2 instances in one engine are isolated', EXPECTED_SCRIPTS.map(file => ({ label: file, file })), ({ file }) => {
+        const probe = loadScript(file);
+        for (const config of equivalenceConfigs(probe)) {
+            const solo = sharedScriptContext();
+            const alone = solo.load(file);
+            const shared = sharedScriptContext();
+            const first = shared.load(file), second = shared.load(file, 0xbeef);
+            for (const instance of [alone, first, second])
+                for (const [setter, value] of config.settings)
+                    instance.algo[setter](value);
+            for (let tick = 0; tick < 48; tick++) {
+                const frame = equivalenceFrame(tick);
+                const expected = Array.from(solo.render(alone, 7, 5, frame, tick % 4));
+                shared.render(second, 12, 1, equivalenceFrame(47 - tick), 3);
+                const actual = Array.from(shared.render(first, 7, 5, frame, tick % 4));
+                assert.deepStrictEqual(actual, expected, `${config.label} tick ${tick}: output changed by a second instance`);
+            }
+        }
+    });
+}
+
+// X3: the engine passes any string to a setter (saved workspaces, MCP). Bad input may be
+// rejected, but must not break rendering, and restoring the value must restore the effect.
+function assertNumericSettersSurviveBadInput() {
+    const badValues = ['', 'abc', 'NaN', 'Infinity', '-Infinity', '1e9', '-1e9'];
+    const cases = [];
+    for (const file of EXPECTED_SCRIPTS)
+        for (const property of loadScript(file).properties.map(parseProperty))
+            if (property.type === 'float' || property.type === 'range')
+                cases.push({ label: `${file} ${property.name}`, file, property });
+    const renderInSandbox = (context, instance, frames) => {
+        context.sandbox.__instance = instance.algo;
+        context.sandbox.__frames = frames;
+        instance.state.clock.ms += frames.length * 20;
+        vm.runInContext('var __maps = []; for (var i = 0; i < __frames.length; i++) ' +
+            '__maps.push(__instance.rgbMap(12, 5, __instance.colors[0], 0, __frames[i]));',
+            context.sandbox, { timeout: 3000 });
+        return Array.from(context.sandbox.__maps);
+    };
+    const before = Array.from({ length: 12 }, (_, tick) => loudFrame(tick));
+    const after = Array.from({ length: 24 }, (_, tick) => loudFrame(tick + 12));
+    runCases('X3 numeric setters survive bad input', cases, ({ file, property }) => {
+        const freshContext = sharedScriptContext();
+        const fresh = freshContext.load(file);
+        renderInSandbox(freshContext, fresh, before);
+        const freshLit = renderInSandbox(freshContext, fresh, after).some(map => meanV(map) > 0.01);
+        for (const bad of badValues) {
+            const context = sharedScriptContext();
+            const instance = context.load(file);
+            const original = String(instance.algo[property.read]());
+            try { instance.algo[property.write](bad); } catch (error) { /* rejecting is fine */ }
+            const during = renderInSandbox(context, instance, before);
+            during.forEach((map, i) => assertMapContract(file, map, 12, 5, `${property.name}=${bad} frame ${i}`));
+            instance.algo[property.write](original);
+            const restored = renderInSandbox(context, instance, after);
+            restored.forEach((map, i) => assertMapContract(file, map, 12, 5, `${property.name} restored after ${bad}, frame ${i}`));
+            if (freshLit)
+                assert(restored.some(map => meanV(map) > 0.01), `${property.name}: stays dark after ${JSON.stringify(bad)} and a restore`);
+        }
+    });
+}
+
+// X4: the same second of audio must look the same whatever the render rate (D1).
+function assertRenderRateIndependence() {
+    const sample = (file, hz) => {
+        const context = sharedScriptContext();
+        const instance = context.load(file);
+        const means = [];
+        const frames = Math.round(1.2 * hz);
+        for (let n = 1; n <= frames; n++) {
+            const t = n / hz;
+            const tick = Math.round(t * 50);
+            const loud = t <= 0.6;
+            const frame = loud ? loudFrame(tick, { deltaSeconds: 1 / hz, delta: {} })
+                : engineAudio({ tempoValid: true, bpm: 120, deltaSeconds: 1 / hz, frameSequence: n });
+            const map = context.render(instance, 16, 4, frame);
+            if (t > 0.6 && Math.round(t * 100) % 4 === 0)
+                means.push(meanV(map));
+        }
+        return means;
+    };
+    runCases('X4 output does not depend on the render rate', EXPECTED_SCRIPTS.map(file => ({ label: file, file })), ({ file }) => {
+        const [slow, fast] = [25, 100].map(hz => sample(file, hz));
+        const worst = Math.max(...slow.map((value, i) => Math.abs(value - fast[i])));
+        assert(worst <= 0.05, `mean brightness after the music stops differs by ${worst.toFixed(3)} between 25 and 100 Hz`);
+    });
+}
+
+// X5: blurs and blends must mix hue around the circle; black carries no hue (D3).
+function assertHueMixingStaysOnPalette() {
+    const reds = [{ h: 0.97, s: 1, v: 1 }, { h: 0.02, s: 1, v: 1 }, { h: 0.99, s: 1, v: 1 },
+        { h: 0.03, s: 1, v: 1 }, { h: 0.0, s: 1, v: 1 }];
+    const cases = [
+        ['audioblurz.js', []], ['audioscan.js', []], ['audiopower.js', []], ['audioflame.js', []],
+        ['audiotunnel.js', []], ['audiovortex.js', []], ['audiostrobe.js', []]
+    ].map(([file, settings]) => ({ label: file, file, settings }));
+    runCases('X5 hue mixing stays on a red palette', cases, ({ file, settings }) => {
+        const context = sharedScriptContext();
+        const instance = context.load(file);
+        instance.algo.colors = reds.slice(0, Math.max(1, instance.algo.acceptColors));
+        for (const [name, value] of settings)
+            setProperty(instance.algo, name, value);
+        for (let tick = 0; tick < 60; tick++) {
+            const map = context.render(instance, 12, 6, loudFrame(tick));
+            for (let i = 0; i < map.length; i += 3) {
+                const h = map[i] - Math.floor(map[i]), sat = map[i + 1], v = map[i + 2];
+                assert(v < 0.05 || sat < 0.2 || h < 0.12 || h > 0.88,
+                    `tick ${tick} pixel ${i / 3}: hue ${h.toFixed(3)} (s ${sat.toFixed(2)}, v ${v.toFixed(2)}) left the red palette`);
+            }
+        }
+    });
+}
+
+// X6: strips and narrow matrices must still show the effect under loud input.
+function assertDegenerateGeometryStillLights() {
+    const cases = [
+        { label: 'vumeter 1x9', file: 'audiovumeter.js', size: [1, 9], check: 'lit' },
+        { label: 'water Artistic 1x9', file: 'audiowater.js', size: [1, 9], check: 'lit' },
+        { label: 'water Artistic 4x10', file: 'audiowater.js', size: [4, 10], check: 'lit' },
+        { label: 'spotlight 1x9', file: 'audiospotlight.js', size: [1, 9], check: 'varied' },
+        { label: 'power Artistic 12x1, onsets only', file: 'audiopower.js', size: [12, 1], check: 'lit',
+            audio: { beat: 0, bass: 0, mid: 0, high: 0 } },
+        { label: 'equalizer2d Ring, 1 band', file: 'audioequalizer2d.js', size: [16, 16], check: 'lit',
+            settings: [['mode', 'Ring'], ['bandCount', '1']] },
+        { label: 'equalizer2d Ring, 2 bands', file: 'audioequalizer2d.js', size: [16, 16], check: 'lit',
+            settings: [['mode', 'Ring'], ['bandCount', '2']] }
+    ];
+    runCases('X6 degenerate geometry still lights', cases, c => {
+        const context = sharedScriptContext();
+        const instance = context.load(c.file);
+        for (const [name, value] of c.settings || [])
+            setProperty(instance.algo, name, value);
+        const maps = [];
+        for (let tick = 0; tick < 50; tick++)
+            maps.push(Array.from(context.render(instance, c.size[0], c.size[1], loudFrame(tick, c.audio || {}))));
+        if (c.check === 'lit')
+            assert(maps.some(map => meanV(map) > 0.02), `stays dark (peak mean V ${Math.max(...maps.map(meanV)).toFixed(3)})`);
+        else
+            assert(maps.some(map => new Set(map.filter((_, i) => i % 3 === 2).map(v => v.toFixed(3))).size > 1),
+                'every pixel shows the same brightness');
+    });
+}
+
+function assertCrossCuttingContracts() {
+    assertGetColorsReturnsPackedColors();
+    assertInstancesAreIsolated();
+    assertNumericSettersSurviveBadInput();
+    assertRenderRateIndependence();
+    assertHueMixingStaysOnPalette();
+    assertDegenerateGeometryStillLights();
+}
+
 function assertNonAudioScripts() {
     const makeClock = (nowMs = 1000) => ({ nowMs, now() { return this.nowMs; } });
     const decoyAudio = Object.freeze({
@@ -12304,6 +12530,8 @@ function assertBaselineEquivalence(ref) {
 
 if (process.argv.includes('--baseline-ref')) {
     assertBaselineEquivalence(optionalCliValue('--baseline-ref'));
+} else if (process.argv.includes('--contracts-only')) {
+    assertCrossCuttingContracts();
 } else if (process.argv.includes('--matrix-layout-only')) {
     assertMatrixResponseGeometry();
     assertMatrixLayoutChoices();
@@ -12441,6 +12669,7 @@ assertMatrixResponsePreservation();
 assertScrollPlusFractionalShift();
 assertSharedHueHelperBoundaries();
 assertSharedEffectBuildingBlocks();
+assertCrossCuttingContracts();
 assertWorkerMCrawlerRows();
 assertPitchNontrivialComposition();
 assertWorkerLPitchTimingRows();

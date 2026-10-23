@@ -2291,4 +2291,99 @@ void HUEMatrix_Test::workerCpuDistinguishesBusyFromSleeping()
     QVERIFY2(probe->sleepCpu < probe->busyCpu, "busy did not out-consume sleep");
 }
 
+/****************************************************************************
+ * Audio HUE scripts at the engine boundary
+ ****************************************************************************/
+
+static void addAudioHueScriptRows(Doc *doc)
+{
+    QTest::addColumn<QString>("scriptName");
+    for (const QString &name : doc->hueScriptsCache()->hsvNames())
+    {
+        HUEMatrix probe(doc);
+        probe.setAlgorithm(HUEMatrix::createAlgorithm(doc, name));
+        if (probe.algorithm() != nullptr && probe.algorithm()->usesAudio())
+            QTest::newRow(qPrintable(name)) << name;
+    }
+}
+
+void HUEMatrix_Test::audioScriptPropertyWriteKeepsThePalette_data()
+{
+    addAudioHueScriptRows(m_doc);
+}
+
+// RGBMatrix::setProperty adopts rgbMapGetColors() as the matrix palette after
+// every property write, including the ones replayed on workspace load.
+void HUEMatrix_Test::audioScriptPropertyWriteKeepsThePalette()
+{
+    QFETCH(QString, scriptName);
+    HUEMatrix matrix(m_doc);
+    matrix.setAlgorithm(HUEMatrix::createAlgorithm(m_doc, scriptName));
+    HUEScript *script = static_cast<HUEScript *>(matrix.algorithm());
+    QVERIFY(script != nullptr);
+    const QList<RGBScriptProperty> properties = script->properties();
+    QVERIFY(!properties.isEmpty());
+
+    const QVector<QColor> palette{QColor(0x52, 0x18, 0x87), QColor(0xff, 0x48, 0x67),
+                                  QColor(0xff, 0xbd, 0x45), QColor(0x10, 0xd9, 0xc5),
+                                  QColor(0xbd, 0xef, 0xff)};
+    for (int i = 0; i < palette.size(); ++i)
+        matrix.setColor(i, palette.at(i));
+    const QVector<QColor> before = matrix.getColors();
+
+    const QString name = properties.first().m_name;
+    QVERIFY(matrix.setProperty(name, script->property(name)));
+    QCOMPARE(matrix.getColors(), before);
+}
+
+void HUEMatrix_Test::audioScriptInstancesKeepTheirOwnProperties_data()
+{
+    addAudioHueScriptRows(m_doc);
+}
+
+// Every clone is evaluated in the one shared QJSEngine; script state must not
+// leak between two matrices running the same effect.
+void HUEMatrix_Test::audioScriptInstancesKeepTheirOwnProperties()
+{
+    QFETCH(QString, scriptName);
+    HUEMatrix first(m_doc), second(m_doc);
+    first.setAlgorithm(HUEMatrix::createAlgorithm(m_doc, scriptName));
+    second.setAlgorithm(HUEMatrix::createAlgorithm(m_doc, scriptName));
+    HUEScript *firstScript = static_cast<HUEScript *>(first.algorithm());
+    HUEScript *secondScript = static_cast<HUEScript *>(second.algorithm());
+    QVERIFY(firstScript != nullptr && secondScript != nullptr);
+
+    int checked = 0;
+    for (const RGBScriptProperty &property : firstScript->properties())
+    {
+        QString firstValue, secondValue;
+        if (property.m_type == RGBScriptProperty::List && property.m_listValues.size() >= 2)
+        {
+            firstValue = property.m_listValues.at(0);
+            secondValue = property.m_listValues.at(1);
+        }
+        else if (property.m_type == RGBScriptProperty::Range)
+        {
+            firstValue = QString::number(property.m_rangeMinValue);
+            secondValue = QString::number(property.m_rangeMaxValue);
+        }
+        else if (property.m_type == RGBScriptProperty::Float)
+        {
+            firstValue = QStringLiteral("0.25");
+            secondValue = QStringLiteral("0.75");
+        }
+        else
+        {
+            continue;
+        }
+        const QString name = property.m_name;
+        QVERIFY(firstScript->setProperty(name, firstValue));
+        const QString kept = firstScript->property(name);
+        QVERIFY(secondScript->setProperty(name, secondValue));
+        QCOMPARE(firstScript->property(name), kept);
+        ++checked;
+    }
+    QVERIFY(checked > 0);
+}
+
 QTEST_MAIN(HUEMatrix_Test)
