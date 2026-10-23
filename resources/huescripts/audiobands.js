@@ -56,7 +56,7 @@ var testAlgo;
                 peak = Math.max(peak, HSVUtil.clamp01(r[i]));
             var vol = Math.floor(peak * bandWidth);
             var coord = b / bandsActive;
-            var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.6, s: 1, v: 1}], coord);
+            var color = HSVUtil.gradientLedfxAt(algo.colors, coord);
             for (var j = 0; j < bandWidth; j++) {
                 var idx = start + j;
                 var on = j < vol;

@@ -88,52 +88,23 @@ var testAlgo;
     algo.setBeat4 = function(_v) { algo.presetBeat4 = (_v === "On") ? 1 : 0; };
     algo.getBeat4 = function() { return algo.presetBeat4 ? "On" : "Off"; };
 
-    // Default colors as HSV
-    var DEFAULT_COLORS = [
-        { h: 0.0, s: 0.81, v: 1.0 },    // red     (0xFF3030)
-        { h: 0.115, s: 0.875, v: 1.0 },  // amber   (0xFFD020)
-        { h: 0.398, s: 0.81, v: 1.0 },   // green   (0x30FF80)
-        { h: 0.603, s: 0.81, v: 1.0 }    // blue    (0x3080FF)
-    ];
     var BASE_BRIGHTNESS = 0.5;
     var SWEEP_FLOOR = 0.02;
     var SWEEP_RANGE = 0.28;
 
-
-    // Lerp hue along shortest arc
-    function lerpHue(h1, h2, t) {
-        var d = h2 - h1;
-        if (d > 0.5) d -= 1.0;
-        else if (d < -0.5) d += 1.0;
-        var h = h1 + d * t;
-        return h < 0 ? h + 1.0 : (h >= 1.0 ? h - 1.0 : h);
-    }
-
     // Mix two HSV colors with shortest-arc hue interpolation
     function mixHsv(a, b, t) {
-        t = Math.max(0, Math.min(1, t));
+        t = HSVUtil.clamp01(t);
         return {
-            h: lerpHue(a.h, b.h, t),
+            h: HSVUtil.lerpHue(a.h, b.h, t),
             s: a.s * (1 - t) + b.s * t,
             v: a.v * (1 - t) + b.v * t
         };
     }
 
-    function beatColors() {
-        var src = (algo.colors && algo.colors.length > 0)
-            ? algo.colors : DEFAULT_COLORS;
-        var colors = src.slice();
-
-        var originalLength = colors.length;
-        for (var i = colors.length; i < 4; i++)
-            colors.push(colors[i % originalLength]);
-
-        return colors.slice(0, 4);
-    }
-
     function beatIndexFor(audio, step) {
         if (audio && audio.bpm > 0)
-            return ((Math.floor(Math.floor(audio.barPhase * 4)) % 4) + 4) % 4;
+            return ((Math.floor(audio.barPhase * 4) % 4) + 4) % 4;
         return ((step % 4) + 4) % 4;
     }
 
@@ -156,7 +127,6 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = HSVUtil.createMap(width, height);
-        var colors = beatColors();
         var beat = beatIndexFor(audio, step);
         var beatMask = [algo.presetBeat1, algo.presetBeat2, algo.presetBeat3, algo.presetBeat4];
         if (!beatMask[beat])
@@ -167,16 +137,16 @@ var testAlgo;
             var candidate = (beat - i + 4) % 4;
             if (beatMask[candidate]) { prevBeat = candidate; break; }
         }
-        var currentColor = colors[beat];
-        var previousColor = colors[prevBeat];
-        var phase = (audio && audio.bpm > 0) ? Math.max(0, Math.min(1, audio.phase)) : 0;
-        var cosPulse = audio ? Math.max(0, Math.min(1, audio.cosPulse)) : 0;
+        var currentColor = algo.colors[beat];
+        var previousColor = algo.colors[prevBeat];
+        var phase = (audio && audio.bpm > 0) ? HSVUtil.clamp01(audio.phase) : 0;
+        var cosPulse = audio ? HSVUtil.clamp01(audio.cosPulse) : 0;
         var brightness = BASE_BRIGHTNESS + 0.5 * cosPulse;
 
         brightness += cosPulse * algo.presetPulse;
         if (audio && audio.downbeat)
             brightness += algo.presetDownbeatBoost;
-        brightness = Math.max(0, Math.min(1, brightness));
+        brightness = HSVUtil.clamp01(brightness);
 
         var sweepWidth = SWEEP_FLOOR + SWEEP_RANGE * algo.presetSweepWidth;
 

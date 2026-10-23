@@ -65,54 +65,19 @@ var testAlgo;
     var VERT_WAVE_FREQ = 1.5;
     var auroraState = { phase: 0 };
 
-    // Default 3-bank aurora palette (low, mid, high) as HSV.
-    var DEFAULT_BAND_COLORS = [
-        { h: 0.731, s: 1.0, v: 1.0 },  // purple  (0x6400FF)
-        { h: 0.398, s: 1.0, v: 1.0 },  // green   (0x00FF64)
-        { h: 0.083, s: 1.0, v: 1.0 }   // orange  (0xFF8000)
-    ];
-
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
-
-    // Weighted circular hue average: sums sin/cos of hue angles weighted by
-    // intensity, then recovers the mean hue via atan2.
-    function blendHueWeighted(hues, weights) {
-        var sx = 0, sy = 0, tw = 0;
-        for (var i = 0; i < hues.length; i++) {
-            var w = weights[i];
-            if (w <= 0) continue;
-            var a = hues[i] * Math.PI * 2;
-            sx += Math.cos(a) * w;
-            sy += Math.sin(a) * w;
-            tw += w;
-        }
-        if (tw <= 0) return 0;
-        var angle = Math.atan2(sy, sx);
-        if (angle < 0) angle += Math.PI * 2;
-        return angle / (Math.PI * 2);
-    }
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.dt;
-
-        // Asymmetric EMA smoothing of band powers (fast attack, slow decay)
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
         var rawPows = [audio.low, audio.mid, audio.high];
-        for (var sb = 0; sb < 3; sb++) {
-            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
-            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
-        }
-        var bandPowers = smoothPow;
-        var bandColors = algo.colors || DEFAULT_BAND_COLORS;
+        for (var sb = 0; sb < 3; sb++)
+            smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing);
 
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;
@@ -141,8 +106,8 @@ var testAlgo;
                     var layerSpeed = (l + 1) * LAYER_SPEED_STEP;
                     var layerPhase = l * LAYER_PHASE_OFFSET;
                     var bandIdx = l % 3;
-                    var power = bandPowers[bandIdx];
-                    var col = bandColors[bandIdx];
+                    var power = smoothPow[bandIdx];
+                    var col = algo.colors[bandIdx];
 
                     var wave = Math.sin(
                         xNorm * waveFreq * Math.PI * 2 +
@@ -170,7 +135,7 @@ var testAlgo;
 
                 var ph = 0, ps = 0, pv = 0;
                 if (totalIntensity > 0) {
-                    ph = blendHueWeighted(layerHues, layerWeights);
+                    ph = HSVUtil.hueMean(layerHues, layerWeights);
                     ps = satAccum / totalIntensity;
                     pv = Math.min(1, totalIntensity * beatBoost);
                 }
