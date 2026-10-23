@@ -95,36 +95,6 @@ var testAlgo;
       return to > from ? values.slice(from, to) : [];
     }
 
-    // Linear RGB stays unclipped until the final HSV wire conversion.
-    function referenceOutput(pixels, width, height) {
-      var n = pixels.length;
-      var map = HSVUtil.createMap(width, height);
-      for (var i = 0; i < n; i++) {
-        var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
-        map[i * 3] = hsv.h;
-        map[i * 3 + 1] = hsv.s;
-        map[i * 3 + 2] = hsv.v;
-      }
-      HSVUtil.applyStripTransforms(map, width, height, {
-        flip: algo.referenceFlip,
-        mirror: algo.referenceMirror,
-        backgroundMode: algo.referenceBackgroundMode,
-        backgroundColor: algo.referenceBackgroundColor,
-        backgroundBrightness: algo.referenceBackgroundBrightness,
-        brightness: algo.referenceBrightness,
-        blur: algo.referenceBlur
-      });
-      if (algo.referenceDiagnostics) {
-        var transformed = new Array(n);
-        for (var j = 0; j < n; j++) {
-          var o = j * 3;
-          transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
-        }
-        algo.referenceFrame = {pre: pixels, transformed: transformed};
-      }
-      return map;
-    }
-
     function referenceMap(width, height, audio) {
       var n = width * height, bank = audio && audio.banks && audio.banks.full;
       var epoch = audio ? [
@@ -155,7 +125,7 @@ var testAlgo;
         }
         state.previous = y.slice();
       }
-      return referenceOutput(state.output, width, height);
+      return HSVUtil.referenceOutput(algo, state.output, width, height);
     }
 
     algo.presetRgbMix = 0;
@@ -174,48 +144,24 @@ var testAlgo;
 
     var prevY = null;
     var bFilter = null;
-    var lastPixelCount = -1;
 
     function ensureState(pixelCount) {
-      if (lastPixelCount === pixelCount && prevY) return;
-      prevY = new Array(pixelCount);
+      if (prevY && prevY.length === pixelCount) return;
+      prevY = new Array(pixelCount).fill(0);
       bFilter = null;
-      for (var i = 0; i < pixelCount; i++) prevY[i] = 0;
-      lastPixelCount = pixelCount;
     }
 
     function updateFilter(values, frameScale) {
       if (!bFilter || bFilter.length !== values.length) {
         bFilter = values.slice();
-        return bFilter.slice();
+        return bFilter;
       }
-      var out = new Array(values.length);
       for (var i = 0; i < values.length; i++) {
         var alpha = values[i] > bFilter[i] ? 0.5 : 0.1;
         alpha = 1 - Math.pow(1 - alpha, frameScale);
         bFilter[i] = alpha * values[i] + (1.0 - alpha) * bFilter[i];
-        out[i] = bFilter[i];
       }
-      return out;
-    }
-
-    // Local RGB→HSV (the effect inherently creates colors from 3 independent
-    // channels, so we convert the conceptual RGB to HSV for output).
-    function toHsv(r, g, b) {
-        r = Math.max(0, Math.min(1, r / 255));
-        g = Math.max(0, Math.min(1, g / 255));
-        b = Math.max(0, Math.min(1, b / 255));
-        var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-        var d = mx - mn;
-        var h = 0, s = (mx === 0) ? 0 : d / mx, v = mx;
-        if (d > 0) {
-            if (mx === r) h = ((g - b) / d) % 6;
-            else if (mx === g) h = (b - r) / d + 2;
-            else h = (r - g) / d + 4;
-            h /= 6;
-            if (h < 0) h += 1;
-        }
-        return {h: h, s: s, v: v};
+      return bFilter;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -233,28 +179,24 @@ var testAlgo;
       var bank = audio.banks && audio.banks.full;
       var y = HSVUtil.interpolate(bank && bank.count ? bank.processed :
           [audio.low, audio.mid, audio.high], pixelCount);
-      var filtered = bank && bank.count ? HSVUtil.interpolate(bank.novelty, pixelCount) : y.slice();
+      var filtered = bank && bank.count ? HSVUtil.interpolate(bank.novelty, pixelCount) : y;
       var frameScale = audio.timing ? audio.timing.deltaSeconds * 60 : 1;
       var filt = updateFilter(y, frameScale);
       var mix = rgbMixes[algo.presetRgbMix];
-      var nextPrev = y.slice();
 
       for (var i = 0; i < pixelCount; i++) {
         var channels = [0, 0, 0];
-        channels[mix[0]] = filtered[i] * 255.0;
-        channels[mix[1]] = Math.abs(y[i] - prevY[i]) * 255.0;
-        channels[mix[2]] = filt[i] * 255.0;
+        channels[mix[0]] = filtered[i];
+        channels[mix[1]] = Math.abs(y[i] - prevY[i]);
+        channels[mix[2]] = filt[i];
 
-        var hsv = toHsv(channels[0], channels[1], channels[2]);
-        var px = i % width;
-        var row = Math.floor(i / width);
-        var i3 = (row * width + px) * 3;
-        map[i3] = hsv.h;
-        map[i3 + 1] = hsv.s;
-        map[i3 + 2] = hsv.v;
+        var hsv = HSVUtil.rgbToHsv(channels[0], channels[1], channels[2]);
+        map[i * 3] = hsv.h;
+        map[i * 3 + 1] = hsv.s;
+        map[i * 3 + 2] = hsv.v;
       }
 
-      prevY = nextPrev;
+      prevY = y;
       return map;
     };
 

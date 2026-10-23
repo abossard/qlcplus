@@ -16,8 +16,8 @@ var testAlgo;
 (
   function () {
     var referenceState = null;
-    var runtimeGeometryKey;
-    var runtimeIdentityKey;
+    var runtimeGeometryKey = "";
+    var runtimeIdentityKey = "";
     var algo = new Object;
     algo.apiVersion = 3;
     algo.name = "Audio Strobe";
@@ -153,47 +153,6 @@ var testAlgo;
       return { palette: stops.join(","), positions: positionPart };
     }
 
-    function parseReferenceStops() {
-      var colors = algo.referencePalette.split(",");
-      var stops = [];
-      for (var i = 0; i < colors.length; i++) {
-        var rgb = HSVUtil.parseHexRgb(colors[i]);
-        var hsv = HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
-        stops.push({h: hsv.h, s: hsv.s, v: hsv.v});
-      }
-      if (!stops.length) stops = [{h: 0, s: 0, v: 0}];
-      return stops;
-    }
-
-    function referenceOutput(pixels, width, height) {
-        var n = pixels.length;
-        var map = HSVUtil.createMap(width, height);
-        for (var i = 0; i < n; i++) {
-            var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
-            map[i * 3] = hsv.h;
-            map[i * 3 + 1] = hsv.s;
-            map[i * 3 + 2] = hsv.v;
-        }
-        HSVUtil.applyStripTransforms(map, width, height, {
-          flip: algo.referenceFlip,
-          mirror: algo.referenceMirror,
-          backgroundMode: algo.referenceBackgroundMode,
-          backgroundColor: algo.referenceBackgroundColor,
-          backgroundBrightness: algo.referenceBackgroundBrightness,
-          brightness: algo.referenceBrightness,
-          blur: algo.referenceBlur
-        });
-        if (algo.referenceDiagnostics) {
-          var transformed = new Array(n);
-          for (var j = 0; j < n; j++) {
-            var o = j * 3;
-            transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
-          }
-          algo.referenceFrame = {pre: pixels, transformed: transformed};
-        }
-        return map;
-    }
-
     function referenceMap(width, height, audio) {
         var n = width * height;
         var epoch = audio ? [
@@ -209,7 +168,7 @@ var testAlgo;
             referenceState.rollPhase = HSVUtil.mod1(referenceState.rollPhase + seconds * algo.referenceRoll);
         var validClock = !!(audio && audio.tempo && audio.tempo.valid);
         if (algo.referenceClock === "Detected" && !validClock)
-            return referenceOutput(new Array(n).fill([0, 0, 0]), width, height);
+            return HSVUtil.referenceOutput(algo, new Array(n).fill([0, 0, 0]), width, height);
 
         var pulseCount = algo.referencePulseCount;
         var pulsePeriod = 1 / pulseCount;
@@ -220,18 +179,13 @@ var testAlgo;
         var maskOn = algo.referencePattern.charAt(beatIndex) === "*";
         var amplitude = maskOn ? base * base : 0;
 
-        var stops = parseReferenceStops();
+        var stops = algo.referencePalette.split(",").map(HSVUtil.hexToHsv);
         var rgb = HSVUtil.gradientRgbAt(stops, HSVUtil.mod1(bar + referenceState.rollPhase), algo.referencePositions);
         var color = [rgb[0] * amplitude, rgb[1] * amplitude, rgb[2] * amplitude];
-        return referenceOutput(new Array(n).fill(color), width, height);
+        return HSVUtil.referenceOutput(algo, new Array(n).fill(color), width, height);
     }
 
     var DOMINANT_TINT = 0.5;
-    var DEFAULT_HSV_STOPS = [
-        { h: 0.000, s: 1.0, v: 1.0 },
-        { h: 0.884, s: 1.0, v: 1.0 },
-        { h: 0.667, s: 1.0, v: 1.0 }
-    ];
     var BASS_REFRACTORY_MS = 200;
 
     algo.color_step = 0.0625;
@@ -279,25 +233,15 @@ var testAlgo;
     var onsetsQueued = 0;
     var elapsedMs = 0;
     var lastColorShiftMs = 0;
-    var lastStrobeMs = 0;
     var lastBassStrobeMs = 0;
     var colorIdx = 0;
     var bassStrobeColor = {h: 0, s: 0, v: 0};
     var bassStrobeColorRgb = [0, 0, 0];
-    var lastWidth = 0;
-    runtimeGeometryKey = "";
-    runtimeIdentityKey = "";
-    var lastEventFrameSignature = "";
 
     function zeroStrip(n) {
         var out = new Array(n);
         for (var i = 0; i < n; i++) out[i] = {h: 0, s: 0, v: 0};
         return out;
-    }
-
-    function gradientStops() {
-        return (algo.colors && algo.colors.length > 0)
-            ? algo.colors : DEFAULT_HSV_STOPS;
     }
 
     function resetDynamicState(width) {
@@ -308,25 +252,20 @@ var testAlgo;
         onsetsQueued = 0;
         elapsedMs = 0;
         lastColorShiftMs = 0;
-        lastStrobeMs = 0;
         lastBassStrobeMs = 0;
         colorIdx = 0;
-        bassStrobeColor = HSVUtil.gradientAt(gradientStops(), colorIdx);
+        bassStrobeColor = HSVUtil.gradientAt(algo.colors, colorIdx);
         bassStrobeColorRgb = HSVUtil.hsvToRgb(bassStrobeColor.h, bassStrobeColor.s, bassStrobeColor.v);
-        lastEventFrameSignature = "";
     }
 
     function ensure(width, height, audio) {
         var geometryKey = width + "x" + height;
         var previousIdentity = runtimeIdentityKey;
         var nextIdentity = audio ? HSVUtil.audioIdentityKey(audio, previousIdentity) : previousIdentity;
-        var geometryChanged = runtimeGeometryKey !== geometryKey || lastWidth !== width || strobeOverlay.length !== width;
-        var identityChanged = nextIdentity !== runtimeIdentityKey;
-        if (geometryChanged || identityChanged)
+        if (runtimeGeometryKey !== geometryKey || nextIdentity !== runtimeIdentityKey)
             resetDynamicState(width);
         runtimeIdentityKey = nextIdentity;
         runtimeGeometryKey = geometryKey;
-        lastWidth = width;
     }
 
     function scaleInPlace(strip, factor) {
@@ -342,31 +281,6 @@ var testAlgo;
         }
     }
 
-    function consumedEventDeltas(audio) {
-        var zero = {onset: 0, kick: 0, beat: 0, bar: 0};
-        var delta = audio && audio.events && audio.events.delta ? audio.events.delta : null;
-        if (!delta) return zero;
-        if (!isFinite(audio.frameSequence)) {
-            return {
-                onset: Math.max(0, Math.floor(delta.onset || 0)),
-                kick: Math.max(0, Math.floor(delta.kick || 0)),
-                beat: Math.max(0, Math.floor(delta.beat || 0)),
-                bar: Math.max(0, Math.floor(delta.bar || 0))
-            };
-        }
-        var signature = [
-            audio.sourceId, audio.profileId, audio.sourceEpoch, audio.configRevision, audio.frameSequence
-        ].join(":");
-        if (signature === lastEventFrameSignature) return zero;
-        lastEventFrameSignature = signature;
-        return {
-            onset: Math.max(0, Math.floor(delta.onset || 0)),
-            kick: Math.max(0, Math.floor(delta.kick || 0)),
-            beat: Math.max(0, Math.floor(delta.beat || 0)),
-            bar: Math.max(0, Math.floor(delta.bar || 0))
-        };
-    }
-
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
@@ -377,42 +291,37 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         var percussiveMode = algo.presetMode === "Percussive RGB";
-        var deltas = consumedEventDeltas(audio);
+        var delta = audio.events && audio.events.delta;
+        var onsets = delta ? Math.max(0, Math.floor(delta.onset || 0)) : 0;
         var seconds = HSVUtil.audioSeconds(audio);
         var frameScale = seconds * 50;
         elapsedMs += seconds * 1000;
 
         if (elapsedMs - lastColorShiftMs > Math.max(0, Math.min(1, parseFloat(algo.color_shift_delay))) * 1000.0) {
             colorIdx = (colorIdx + Math.max(0, Math.min(0.25, parseFloat(algo.color_step)))) % 1.0;
-            bassStrobeColor = HSVUtil.gradientAt(gradientStops(), colorIdx);
+            bassStrobeColor = HSVUtil.gradientAt(algo.colors, colorIdx);
             bassStrobeColorRgb = HSVUtil.hsvToRgb(bassStrobeColor.h, bassStrobeColor.s, bassStrobeColor.v);
             lastColorShiftMs = elapsedMs;
         }
 
         var bassDecay = 1.0 - Math.max(0, Math.min(1, parseFloat(algo.bass_strobe_decay_rate)));
         if (percussiveMode) {
-            var kickHit = audio.version >= 6
-                ? (deltas.kick > 0 || !!audio.kickFired)
-                : !!audio.beatFired;
-            if (kickHit && elapsedMs - lastBassStrobeMs > BASS_REFRACTORY_MS && bassDecay > 0) {
+            if (audio.kickFired && elapsedMs - lastBassStrobeMs > BASS_REFRACTORY_MS && bassDecay > 0) {
                 for (var b = 0; b < width; b++)
                     percussiveBassOverlay[b] = bassStrobeColorRgb.slice();
                 lastBassStrobeMs = elapsedMs;
             }
 
-            if (deltas.onset > 0) onsetsQueued += deltas.onset;
-            else if (!audio.events && audio.onset && elapsedMs - lastStrobeMs > 0) onsetsQueued++;
+            onsetsQueued += onsets;
             if (seconds > 0 && onsetsQueued > 0) {
                 onsetsQueued--;
                 var strobeWidth = Math.min(Math.max(0, Math.min(1000, algo.strobe_width)), width);
                 if (strobeWidth > 0) {
-                    var lengthDiff = width - strobeWidth;
-                    var position = lengthDiff === 0 ? 0 : Math.floor(Math.random() * (width - strobeWidth));
+                    var position = width === strobeWidth ? 0 : Math.floor(Math.random() * (width - strobeWidth));
                     var color = HSVUtil.parseHexRgb(algo.strobe_color || "#ffffff");
                     for (var s = position; s < position + strobeWidth; s++)
                         percussiveStrobeOverlay[s] = color.slice();
                 }
-                lastStrobeMs = elapsedMs;
             }
 
             for (var x = 0; x < width; x++) {
@@ -435,39 +344,30 @@ var testAlgo;
         }
 
         var bassTriggerFired = false;
-        if (algo.presetBassTrigger === "Tempo Beat") bassTriggerFired = !!audio.beatFired || deltas.beat > 0;
-        else if (algo.presetBassTrigger === "Onset") bassTriggerFired = !!audio.onset || deltas.onset > 0;
-        else if (algo.presetBassTrigger === "Kick") bassTriggerFired = audio.version >= 6 ? (!!audio.kickFired || deltas.kick > 0) : !!audio.beatFired;
-        else bassTriggerFired = audio.version >= 6 ? (!!audio.kickFired || deltas.kick > 0) : !!audio.onset;
+        if (algo.presetBassTrigger === "Tempo Beat") bassTriggerFired = !!audio.beatFired;
+        else if (algo.presetBassTrigger === "Onset") bassTriggerFired = !!audio.onset;
+        else if (algo.presetBassTrigger === "Kick") bassTriggerFired = audio.version >= 6 ? !!audio.kickFired : !!audio.beatFired;
+        else bassTriggerFired = audio.version >= 6 ? !!audio.kickFired : !!audio.onset;
         if (bassTriggerFired && elapsedMs - lastBassStrobeMs > BASS_REFRACTORY_MS && bassDecay) {
             for (var b = 0; b < width; b++)
                 bassStrobeOverlay[b] = {h: bassStrobeColor.h, s: bassStrobeColor.s, v: bassStrobeColor.v};
             lastBassStrobeMs = elapsedMs;
         }
 
-        if (deltas.onset > 0) {
-            onsetsQueued += deltas.onset;
-            lastStrobeMs = elapsedMs;
-        } else if (!audio.events && audio.onset && elapsedMs - lastStrobeMs > 0) {
-            onsetsQueued++;
-            lastStrobeMs = elapsedMs;
-        }
+        onsetsQueued += onsets;
 
+        var strobeWidth = Math.min(Math.max(0, Math.min(1000, algo.strobe_width)), width);
+        var bandColor = algo.colors[0];
+        var domHsv = Math.max(audio.low, audio.mid, audio.high) >= 0.05
+            ? algo.colors[HSVUtil.dominantBand(audio)] : bandColor;
+        var scol = {
+            h: bandColor.h + (domHsv.h - bandColor.h) * DOMINANT_TINT,
+            s: bandColor.s + (domHsv.s - bandColor.s) * DOMINANT_TINT,
+            v: bandColor.v + (domHsv.v - bandColor.v) * DOMINANT_TINT
+        };
         while (onsetsQueued > 0) {
             onsetsQueued--;
-            var strobeWidth = Math.min(Math.max(0, Math.min(1000, algo.strobe_width)), width);
-            var lengthDiff = width - strobeWidth;
-            var position = lengthDiff === 0 ? 0 : Math.floor(Math.random() * (width - strobeWidth));
-            var bandColor = (algo.colors && algo.colors.length >= 3) ? algo.colors[0] : {h: 0, s: 0, v: 1};
-            var domIdx = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
-            var domPower = Math.max(audio.low, audio.mid, audio.high);
-            var domHsv = (domPower >= 0.05 && algo.colors && algo.colors.length >= 3) ? algo.colors[domIdx] : bandColor;
-            var t2 = DOMINANT_TINT;
-            var scol = {
-                h: bandColor.h + (domHsv.h - bandColor.h) * t2,
-                s: bandColor.s + (domHsv.s - bandColor.s) * t2,
-                v: bandColor.v + (domHsv.v - bandColor.v) * t2
-            };
+            var position = width === strobeWidth ? 0 : Math.floor(Math.random() * (width - strobeWidth));
             for (var s = position; s < position + strobeWidth; s++)
                 strobeOverlay[s] = {h: scol.h, s: scol.s, v: scol.v};
         }
@@ -477,25 +377,13 @@ var testAlgo;
             var sv = strobeOverlay[x].v;
             var totalV = bv + sv;
             if (totalV > 0.001) {
-                var h, sat;
-                if (sv > bv) {
-                    h = strobeOverlay[x].h; sat = strobeOverlay[x].s;
-                    var t = bv / totalV;
-                    var dh = bassStrobeOverlay[x].h - h;
-                    if (dh > 0.5) dh -= 1; else if (dh < -0.5) dh += 1;
-                    h += t * dh;
-                    h = h - Math.floor(h);
-                    sat = sat * (1 - t) + bassStrobeOverlay[x].s * t;
-                } else {
-                    h = bassStrobeOverlay[x].h; sat = bassStrobeOverlay[x].s;
-                    if (sv > 0.001) {
-                        var t = sv / totalV;
-                        var dh = strobeOverlay[x].h - h;
-                        if (dh > 0.5) dh -= 1; else if (dh < -0.5) dh += 1;
-                        h += t * dh;
-                        h = h - Math.floor(h);
-                        sat = sat * (1 - t) + strobeOverlay[x].s * t;
-                    }
+                var top = sv > bv ? strobeOverlay[x] : bassStrobeOverlay[x];
+                var other = sv > bv ? bassStrobeOverlay[x] : strobeOverlay[x];
+                var h = top.h, sat = top.s;
+                if (sv > bv || sv > 0.001) {
+                    var t = other.v / totalV;
+                    h = HSVUtil.lerpHue(top.h, other.h, t);
+                    sat = top.s * (1 - t) + other.s * t;
                 }
                 var v = Math.min(1, totalV);
                 for (var y = 0; y < height; y++) {

@@ -45,11 +45,6 @@ var testAlgo;
     algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
     algo.getDecay = function() { return algo.presetDecay; };
 
-    var DEFAULT_BAND_COLORS = [
-        {h: 0.958, s: 1.0, v: 1.0},
-        {h: 0.167, s: 1.0, v: 1.0},
-        {h: 0.611, s: 0.749, v: 1.0}
-    ];
     var BEAT_PULSE_AMOUNT = 0.25;
     var TOP_DARKEN = 0.3;
 
@@ -84,7 +79,6 @@ var testAlgo;
         var numBands = algo.presetBands;
         var sourceBands = [audio.low, audio.mid, audio.high];
         var bands = (numBands === 3) ? sourceBands : HSVUtil.interpolate(sourceBands, numBands);
-        var bandColors = algo.colors || DEFAULT_BAND_COLORS;
         var fallStep = algo.presetDecay;
         var peakStep = Math.max(1, Math.round(algo.presetDecay * 50));
 
@@ -97,7 +91,7 @@ var testAlgo;
             else
                 algo.smoothBands[section] = Math.max(0, algo.smoothBands[section] - fallStep);
 
-            var smoothMagnitude = Math.max(0, algo.smoothBands[section]);
+            var smoothMagnitude = algo.smoothBands[section];
             var barHeight = Math.round(smoothMagnitude * height);
             if (magnitude > 0.01)
                 barHeight = Math.max(1, barHeight);
@@ -114,9 +108,7 @@ var testAlgo;
             var peakPosition = Math.round(algo.peakValues[section]);
             var sectionStart = Math.floor(section * width / numBands);
             var sectionEnd = Math.floor((section + 1) * width / numBands);
-            sectionStart = Math.max(0, Math.min(width, sectionStart));
-            sectionEnd = Math.max(sectionStart, Math.min(width, sectionEnd));
-            var color = bandColors[section % 3];
+            var color = algo.colors[section % 3];
 
             for (var x = sectionStart; x < sectionEnd; x++) {
                 for (var y = 0; y < height; y++) {
