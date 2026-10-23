@@ -55,13 +55,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "|" + height;
-        if (state.audioKey !== audioKey || state.geometryKey !== geometryKey) {
-            state.audioKey = audioKey;
-            state.geometryKey = geometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
             state.roll = 0;
-        }
         var power = HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false);
         var boosted = HSVUtil.aggressiveTopEndBias(power, algo.presetBoost);
         var roll = 0;

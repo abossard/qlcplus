@@ -92,13 +92,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "x" + height;
-        if (audioKey !== state.audioKey || geometryKey !== state.geometryKey) {
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
             resetState();
-            state.audioKey = audioKey;
-            state.geometryKey = geometryKey;
-        }
         var beatCount = countedBeat(audio);
         if (beatCount !== null) state.beatCount = beatCount;
         var validBeat = !!(audio && audio.tempo && audio.tempo.valid && isFinite(audio.tempo.beatPhase));

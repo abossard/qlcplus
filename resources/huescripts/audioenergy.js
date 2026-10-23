@@ -129,13 +129,8 @@ var testAlgo;
 
     function rangedThirdMeans(audio) {
       var bank = audio && audio.banks && audio.banks.full;
-      var values = bank && bank.count ? bank.processed : [];
-      if (!values || values.length === 0) return [0, 0, 0];
-      var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var from = Math.max(0, Math.floor(start * values.length));
-      var to = Math.min(values.length, Math.ceil(end * values.length));
-      values = to > from ? values.slice(from, to) : [];
+      var values = HSVUtil.rangeSlice(bank && bank.count ? bank.processed : [],
+        algo.referenceRangeStart, algo.referenceRangeEnd);
       if (!values.length) return [0, 0, 0];
       var bounds = [0, Math.floor(values.length * 0.2), Math.floor(values.length * 0.5), values.length];
       var means = [0, 0, 0];
@@ -173,8 +168,7 @@ var testAlgo;
             return Math.max(0, Math.floor(n * multiplier * means[band]));
         });
         if (algo.referenceColorCycler === "On") {
-            var kicks = audio && audio.events && audio.events.delta && isFinite(audio.events.delta.kick)
-                ? Math.max(0, Math.floor(audio.events.delta.kick)) : 0;
+            var kicks = HSVUtil.eventCount(audio, "kick", false);
             if (kicks > 0) {
                 var pool = parseCyclePalette();
                 for (var k = 0; k < kicks; k++) {
@@ -214,11 +208,8 @@ var testAlgo;
                 var alphaDecay = (algo.referenceSensitivity - 0.1) * 0.7;
                 for (var p = 0; p < n; p++) {
                     for (var c = 0; c < 3; c++) {
-                        var current = state.pixels[p][c];
-                        var next = target[p][c];
-                        var alpha = next > current ? alphaRise : alphaDecay;
-                        alpha = 1 - Math.pow(1 - alpha, scale);
-                        state.pixels[p][c] = current + alpha * (next - current);
+                        state.pixels[p][c] = HSVUtil.attackRelease(state.pixels[p][c], target[p][c],
+                            alphaRise, alphaDecay, scale);
                     }
                 }
             }

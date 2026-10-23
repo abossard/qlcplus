@@ -137,15 +137,6 @@ var testAlgo;
         });
     }
 
-    function rangedValues(values) {
-        if (!values || !values.length) return [];
-        var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
-        var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
-        var from = Math.max(0, Math.floor(start * values.length));
-        var to = Math.min(values.length, Math.ceil(end * values.length));
-        return to > from ? values.slice(from, to) : [];
-    }
-
     function referenceMap(width, height, audio) {
         var n = width * height;
         var bank = audio && audio.banks && audio.banks.full;
@@ -155,7 +146,8 @@ var testAlgo;
         ].join(":") : "";
         if (!referenceState || referenceState.n !== n || referenceState.epoch !== epoch)
             referenceState = {n: n, epoch: epoch, rollPhase: 0};
-        var values = bank && bank.count ? rangedValues(bank.novelty || []) : [];
+        var values = bank && bank.count
+            ? HSVUtil.rangeSlice(bank.novelty, algo.referenceRangeStart, algo.referenceRangeEnd) : [];
         values = HSVUtil.interpolate(values, n);
         var seconds = HSVUtil.audioSeconds(audio);
         if (seconds > 0)
@@ -219,7 +211,7 @@ var testAlgo;
         var frameScale = dt * 60;
         if (ledFxMode) {
             var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
-            smoothLow += (1 - Math.pow(0.9, frameScale)) * (rawLow - smoothLow);
+            smoothLow = HSVUtil.attackRelease(smoothLow, rawLow, 0.1, 0.1, frameScale);
         } else {
             // Asymmetric EMA smoothing (fast attack, slow decay)
             smoothLow = HSVUtil.smoothFollow(smoothLow, audio.low, algo.presetSmoothing, frameScale);

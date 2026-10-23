@@ -46,17 +46,11 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "x" + height;
-        if (audioKey !== state.audioKey || geometryKey !== state.geometryKey) {
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
             resetState();
-            state.audioKey = audioKey;
-            state.geometryKey = geometryKey;
-        }
         var dt = HSVUtil.audioSeconds(audio);
         var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
-        var alpha = rawLow > state.lowsPower ? 0.2 : 0.05;
-        state.lowsPower += (rawLow - state.lowsPower) * alpha;
+        state.lowsPower = HSVUtil.attackRelease(state.lowsPower, rawLow, 0.2, 0.05);
         state.t1 = HSVUtil.mod1(state.t1 + dt * algo.presetSpeed * 20);
         state.t2 = HSVUtil.mod1(state.t2 + dt * algo.presetSpeed);
         var reactiveOffset = algo.presetReactivity * state.lowsPower * 20;

@@ -80,12 +80,8 @@ var testAlgo;
     }
 
     function ensure(audio, width, height) {
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "|" + height;
-        if (state.audioKey === audioKey && state.geometryKey === geometryKey)
+        if (!HSVUtil.audioStateChanged(state, audio, width, height))
             return;
-        state.audioKey = audioKey;
-        state.geometryKey = geometryKey;
         state.carry = 0;
         state.healthTimer = 0;
         state.impulse = 0;
@@ -158,8 +154,7 @@ var testAlgo;
         ensure(audio, width, height);
         var dt = HSVUtil.audioSeconds(audio);
         var targetImpulse = HSVUtil.powerForRange(audio, algo.presetSource, false);
-        var alpha = targetImpulse > state.impulse ? 0.99 : algo.presetImpulseDecay;
-        state.impulse += (targetImpulse - state.impulse) * alpha;
+        state.impulse = HSVUtil.attackRelease(state.impulse, targetImpulse, 0.99, algo.presetImpulseDecay);
         var speedFactor = algo.presetFreeRun === "Yes"
             ? Math.max(0.01, state.impulse)
             : state.impulse;

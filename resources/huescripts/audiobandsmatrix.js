@@ -48,20 +48,12 @@ var testAlgo;
     algo.rgbMapSetColors = function() {};
     algo.rgbMapGetColors = function() { return []; };
 
+    // Bands of r, each tagged with whether its index is odd before any reordering.
     function bandPeaks(r, count) {
-        var baseWidth = Math.floor(r.length / count);
-        var extra = r.length - baseWidth * count;
-        var start = 0;
-        var bands = new Array(count);
-        for (var b = 0; b < count; b++) {
-            var bandWidth = baseWidth + (b < extra ? 1 : 0);
-            var peak = 0;
-            for (var i = start; i < start + bandWidth; i++)
-                peak = Math.max(peak, HSVUtil.clamp01(r[i]));
-            bands[b] = { width: bandWidth, peak: peak, odd: (b & 1) !== 0 };
-            start += bandWidth;
-        }
-        return bands;
+        return HSVUtil.bandPeaks(r, count).map(function(band, b) {
+            band.odd = (b & 1) !== 0;
+            return band;
+        });
     }
 
     function renderInternal(width, height, audio) {

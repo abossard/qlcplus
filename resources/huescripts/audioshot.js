@@ -131,22 +131,7 @@ var testAlgo;
                     var dist = Math.sqrt(dx * dx + dy * dy);
                     if (dist > sz) continue;
                     var falloff = b * (1 - dist / (sz + 0.5));
-
-                    var i3 = (py * width + px) * 3;
-                    var existingV = map[i3 + 2];
-                    var newV = Math.min(1, existingV + falloff);
-                    if (existingV < 0.001) {
-                        map[i3] = shot.h;
-                        map[i3 + 1] = shot.s;
-                        map[i3 + 2] = newV;
-                    } else {
-                        // Blend hue toward brighter contributor
-                        var total = existingV + falloff;
-                        var t = falloff / Math.max(0.001, total);
-                        map[i3] = HSVUtil.lerpHue(map[i3], shot.h, t);
-                        map[i3 + 1] = map[i3 + 1] * (1 - t) + shot.s * t;
-                        map[i3 + 2] = newV;
-                    }
+                    HSVUtil.blendPixel(map, (py * width + px) * 3, shot.h, shot.s, falloff);
                 }
             }
         }

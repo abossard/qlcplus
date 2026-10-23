@@ -46,15 +46,11 @@ var testAlgo;
         var source = bank && bank.count ? (bank.novelty || []) : fallback;
         var r = HSVUtil.interpolate(source, pixelCount);
         var bandsActive = Math.min(algo.presetBandCount, pixelCount);
-        var baseWidth = Math.floor(pixelCount / bandsActive);
-        var extra = pixelCount - baseWidth * bandsActive;
-        var start = 0;
+        var bands = HSVUtil.bandPeaks(r, bandsActive);
         for (var b = 0; b < bandsActive; b++) {
-            var bandWidth = baseWidth + (b < extra ? 1 : 0);
-            var peak = 0;
-            for (var i = start; i < start + bandWidth; i++)
-                peak = Math.max(peak, HSVUtil.clamp01(r[i]));
-            var vol = Math.floor(peak * bandWidth);
+            var start = bands[b].start;
+            var bandWidth = bands[b].width;
+            var vol = Math.floor(bands[b].peak * bandWidth);
             var coord = b / bandsActive;
             var color = HSVUtil.gradientLedfxAt(algo.colors, coord);
             for (var j = 0; j < bandWidth; j++) {
@@ -76,7 +72,6 @@ var testAlgo;
                     map[out + 2] = color.v;
                 }
             }
-            start += bandWidth;
         }
         return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
     };

@@ -135,8 +135,7 @@ var testAlgo;
 
     function updateSpin(audio, dt) {
         var target = HSVUtil.powerForRange(audio, algo.presetSpinSource, false) * algo.presetMultiplier;
-        var alpha = target > state.spinImpulse ? 0.99 : algo.presetDecay;
-        state.spinImpulse += (target - state.spinImpulse) * alpha;
+        state.spinImpulse = HSVUtil.attackRelease(state.spinImpulse, target, 0.99, algo.presetDecay);
         if (algo.presetSpin > 0)
             state.spinAngle = HSVUtil.mod1(state.spinAngle + state.spinImpulse * dt * algo.presetSpin * 0.5);
     }
@@ -207,22 +206,9 @@ var testAlgo;
     }
 
     function drawLine(map, width, height, a, b, color, size) {
-        var x0 = Math.round(a.x);
-        var y0 = Math.round(a.y);
-        var x1 = Math.round(b.x);
-        var y1 = Math.round(b.y);
-        var dx = Math.abs(x1 - x0);
-        var sx = x0 < x1 ? 1 : -1;
-        var dy = -Math.abs(y1 - y0);
-        var sy = y0 < y1 ? 1 : -1;
-        var err = dx + dy;
-        while (true) {
-            paintSquare(map, width, height, x0, y0, color, size);
-            if (x0 === x1 && y0 === y1) break;
-            var e2 = err * 2;
-            if (e2 >= dy) { err += dy; x0 += sx; }
-            if (e2 <= dx) { err += dx; y0 += sy; }
-        }
+        HSVUtil.walkLine(Math.round(a.x), Math.round(a.y), Math.round(b.x), Math.round(b.y), function(x, y) {
+            paintSquare(map, width, height, x, y, color, size);
+        });
     }
 
     function barCoord(y, level, height) {

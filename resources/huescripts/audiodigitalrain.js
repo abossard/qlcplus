@@ -61,8 +61,8 @@ var testAlgo;
     var readOutputControls = HSVUtil.attachStripTransformControls(algo);
 
     var state = {
-        key: "",
         audioKey: "",
+        geometryKey: "",
         lines: [],
         lastAdded: 0,
         low: 0, mid: 0, high: 0
@@ -76,8 +76,7 @@ var testAlgo;
     }
 
     function updateImpulse(current, target) {
-        var alpha = target > current ? 0.99 : algo.presetImpulseDecay;
-        return current + (target - current) * alpha;
+        return HSVUtil.attackRelease(current, target, 0.99, algo.presetImpulseDecay);
     }
 
     function rawPower(audio, name) {
@@ -107,11 +106,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var key = [width, height, audioKey].join("|");
-        if (key !== state.key) {
-            state.key = key;
-            state.audioKey = audioKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             state.lines = [];
             state.lastAdded = 0;
             state.low = 0;

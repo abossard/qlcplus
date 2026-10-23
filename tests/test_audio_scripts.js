@@ -1735,6 +1735,110 @@ function assertSharedEffectBuildingBlocks() {
         assert.deepStrictEqual(Array.from(stops, stop => stop.h),
             c.expected.map(stop => typeof stop === 'number' ? stop : stop.h));
     });
+    runCases('HSVUtil.wrap is a positive modulo', [
+        { label: 'inside', x: 2.5, n: 4, expected: 2.5 },
+        { label: 'negative', x: -1, n: 4, expected: 3 },
+        { label: 'past one period', x: 9, n: 4, expected: 1 },
+        { label: 'tiny negative wraps to 0', x: -1e-20, n: 4, expected: 0 }
+    ], c => assert.strictEqual(helpers.wrap(c.x, c.n), c.expected));
+    runCases('HSVUtil.audioStateChanged reports a new source or size', [
+        { label: 'first frame', steps: [[{ sourceId: 'a' }, 4, 2]], expected: [true] },
+        { label: 'same source and size', steps: [[{ sourceId: 'a' }, 4, 2], [{ sourceId: 'a' }, 4, 2]], expected: [true, false] },
+        { label: 'new size', steps: [[{ sourceId: 'a' }, 4, 2], [{ sourceId: 'a' }, 2, 4]], expected: [true, true] },
+        { label: 'new source', steps: [[{ sourceId: 'a' }, 4, 2], [{ sourceId: 'b' }, 4, 2]], expected: [true, true] },
+        { label: 'unavailable keeps the source', steps: [[{ sourceId: 'a' }, 4, 2], [{ available: false }, 4, 2]],
+            expected: [true, false] }
+    ], c => {
+        const state = {};
+        assert.deepStrictEqual(c.steps.map(([audio, w, h]) => helpers.audioStateChanged(state, audio, w, h)), c.expected);
+    });
+    runCases('HSVUtil.eventCount floors the delta and falls back to the legacy flag', [
+        { label: 'delta', audio: { events: { delta: { onset: 2.7 } } }, legacy: false, expected: 2 },
+        { label: 'negative delta', audio: { events: { delta: { onset: -3 } } }, legacy: true, expected: 0 },
+        { label: 'delta wins over the flag', audio: { events: { delta: { onset: 0 } } }, legacy: true, expected: 0 },
+        { label: 'no delta, flag set', audio: { events: { delta: {} } }, legacy: true, expected: 1 },
+        { label: 'non-finite delta, flag clear', audio: { events: { delta: { onset: Infinity } } }, legacy: false, expected: 0 },
+        { label: 'no audio', audio: null, legacy: false, expected: 0 }
+    ], c => assert.strictEqual(helpers.eventCount(c.audio, 'onset', c.legacy), c.expected));
+    runCases('HSVUtil.blendPixel weights hue by brightness and adds brightness', [
+        { label: 'onto black', start: [0.3, 0.2, 0], add: [0.6, 1, 0.4], expected: [0.6, 1, 0.4] },
+        { label: 'equal share', start: [0.1, 1, 0.5], add: [0.3, 0.5, 0.5], expected: [0.2, 0.75, 1] },
+        { label: 'across red', start: [0.9, 1, 0.3], add: [0.1, 1, 0.1], expected: [0.95, 1, 0.4] },
+        { label: 'capped', start: [0.5, 1, 0.9], add: [0.5, 1, 0.9], expected: [0.5, 1, 1] }
+    ], c => {
+        const map = new Float32Array([0, 0, 0].concat(c.start));
+        helpers.blendPixel(map, 3, c.add[0], c.add[1], c.add[2]);
+        c.expected.forEach((value, i) => assert(Math.abs(map[3 + i] - value) < 1e-6, `${c.label} channel ${i}: ${map[3 + i]}`));
+    });
+    runCases('HSVUtil.walkLine visits every pixel of the line once', [
+        { label: 'point', from: [2, 2], to: [2, 2], expected: [[2, 2]] },
+        { label: 'backwards vertical', from: [1, 2], to: [1, 0], expected: [[1, 2], [1, 1], [1, 0]] },
+        { label: 'diagonal', from: [0, 0], to: [2, 2], expected: [[0, 0], [1, 1], [2, 2]] },
+        { label: 'shallow', from: [0, 0], to: [4, 1], expected: [[0, 0], [1, 0], [2, 1], [3, 1], [4, 1]] },
+        { label: 'steep, right to left', from: [3, 0], to: [0, 2], expected: [[3, 0], [2, 1], [1, 1], [0, 2]] }
+    ], c => {
+        const visited = [];
+        helpers.walkLine(c.from[0], c.from[1], c.to[0], c.to[1], (x, y) => visited.push([x, y]));
+        assert.deepStrictEqual(visited, c.expected);
+    });
+    runCases('HSVUtil.rangeSlice keeps the entries between start and end', [
+        { label: 'all', values: [1, 2, 3, 4], start: 0, end: 1, expected: [1, 2, 3, 4] },
+        { label: 'widened to whole entries', values: [1, 2, 3, 4], start: 0.3, end: 0.6, expected: [2, 3] },
+        { label: 'reversed bounds', values: [1, 2, 3, 4], start: 1, end: 0.5, expected: [3, 4] },
+        { label: 'empty range', values: [1, 2, 3, 4], start: 0.5, end: 0.5, expected: [] },
+        { label: 'no values', values: null, start: 0, end: 1, expected: [] }
+    ], c => assert.deepStrictEqual(Array.from(helpers.rangeSlice(c.values, c.start, c.end)), c.expected));
+    runCases('HSVUtil.bandPeaks splits values into bands and keeps each peak', [
+        { label: 'even split', values: [0.1, 0.5, 0.2, 0.3], count: 2, expected: [[0, 2, 0.5], [2, 2, 0.3]] },
+        { label: 'first bands wider', values: [0.1, 0.2, 0.3, 0.4, 0.5], count: 3,
+            expected: [[0, 2, 0.2], [2, 2, 0.4], [4, 1, 0.5]] },
+        { label: 'peaks clamp to [0, 1]', values: [2, -1], count: 2, expected: [[0, 1, 1], [1, 1, 0]] },
+        { label: 'one band', values: [0.4, 0.9, 0.1], count: 1, expected: [[0, 3, 0.9]] }
+    ], c => assert.deepStrictEqual(
+        Array.from(helpers.bandPeaks(c.values, c.count), band => [band.start, band.width, band.peak]), c.expected));
+    runCases('HSVUtil.attackRelease rises and falls at their own rates', [
+        { label: 'rise', current: 0, target: 1, expected: 0.5 },
+        { label: 'fall', current: 1, target: 0, expected: 0.9 },
+        { label: 'hold', current: 0.4, target: 0.4, expected: 0.4 },
+        { label: 'two frames compound', current: 0, target: 1, frames: 2, expected: 0.75 },
+        { label: 'zero frames, no step', current: 1, target: 0, frames: 0, expected: 1 }
+    ], c => near(helpers.attackRelease(c.current, c.target, 0.5, 0.1, c.frames), c.expected, c.label));
+    runCases('HSVUtil.ledFxColor pulls toward the brightest channel and scales', [
+        { label: 'full color', s: 1, v: 1, expected: [1 / 3, 1, 1] },
+        { label: 'white at s 0', s: 0, v: 1, expected: [0, 0, 1] },
+        { label: 'half saturation', s: 0.5, v: 1, expected: [1 / 3, 0.5, 1] },
+        { label: 'dimmed', s: 1, v: 0.25, expected: [1 / 3, 1, 0.25] },
+        { label: 'overdrive stays unclipped', s: 1, v: 2, expected: [1 / 3, 1, 2] }
+    ], c => {
+        const green = { h: 1 / 3, s: 1, v: 1 };
+        const hsv = helpers.ledFxColor([green, green], 0.5, c.s, c.v);
+        [hsv.h, hsv.s, hsv.v].forEach((value, i) => near(value, c.expected[i], `${c.label} channel ${i}`));
+    });
+    runCases('HSVUtil.writeRgbPixels converts and clips each pixel', [
+        { label: 'red', pixels: [[1, 0, 0]], expected: [0, 1, 1] },
+        { label: 'grey', pixels: [[0.5, 0.5, 0.5]], expected: [0, 0, 0.5] },
+        { label: 'overdrive clips', pixels: [[2, 1, -1]], expected: [1 / 6, 1, 1] },
+        { label: 'second pixel', pixels: [[0, 0, 0], [0, 0, 1]], expected: [0, 0, 0, 2 / 3, 1, 1] }
+    ], c => {
+        const map = helpers.writeRgbPixels(new Float32Array(c.pixels.length * 3), c.pixels);
+        c.expected.forEach((value, i) => assert(Math.abs(map[i] - value) < 1e-6, `${c.label} channel ${i}: ${map[i]}`));
+    });
+    runCases('HSVUtil.noiseFieldRenderer maps noise -1..1 onto the palette', [
+        { label: 'low end', noise: -1, t: 0 },
+        { label: 'middle', noise: 0, t: 0.5 },
+        { label: 'high end', noise: 1, t: 1 },
+        { label: 'stretch clamps', noise: 0.75, stretch: 2, t: 1 }
+    ], c => {
+        const algo = { properties: [], colors: PALETTE.slice(0, 3), presetSpeed: 1, presetStretch: c.stretch || 1,
+            presetZoom: 2, presetImpulseDecay: 0.1, presetMultiplier: 1 };
+        const rgbMap = helpers.noiseFieldRenderer(algo, () => c.noise);
+        assert.strictEqual(algo.properties.length, 7, 'strip transform controls');
+        const map = rgbMap(3, 2, 0, 0, engineAudio({ bass: 0.5 }));
+        const expected = helpers.gradientLedfxAt(algo.colors, c.t);
+        for (let i = 0; i < map.length; i += 3)
+            [expected.h, expected.s, expected.v].forEach((value, k) =>
+                assert(Math.abs(map[i + k] - value) < 1e-6, `${c.label} pixel ${i / 3} channel ${k}: ${map[i + k]}`));
+    });
 }
 
 // One sandbox like the engine's single QJSEngine: hsvutil.js once, then any number of

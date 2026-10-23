@@ -136,20 +136,9 @@ var testAlgo;
     }
 
     function stampLine(width, height, x0, y0, x1, y1, color) {
-      var ix0 = Math.round(x0), iy0 = Math.round(y0);
-      var ix1 = Math.round(x1), iy1 = Math.round(y1);
-      var dx = Math.abs(ix1 - ix0), sx = ix0 < ix1 ? 1 : -1;
-      var dy = -Math.abs(iy1 - iy0), sy = iy0 < iy1 ? 1 : -1;
-      var err = dx + dy;
-      var guard = dx - dy + 2;
-      while (true) {
-        HSVUtil.addPixel(algo.fb, width, height, ix0, iy0, color.h, color.s, color.v);
-        if (ix0 === ix1 && iy0 === iy1) break;
-        if (--guard < 0) break;
-        var e2 = 2 * err;
-        if (e2 >= dy) { err += dy; ix0 += sx; }
-        if (e2 <= dx) { err += dx; iy0 += sy; }
-      }
+      HSVUtil.walkLine(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), function(x, y) {
+        HSVUtil.addPixel(algo.fb, width, height, x, y, color.h, color.s, color.v);
+      });
     }
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
@@ -211,11 +200,11 @@ var testAlgo;
         var wrapped = false;
         if (wrap) {
           if (part.x < 0 || part.x >= width) {
-            part.x = ((part.x % width) + width) % width;
+            part.x = HSVUtil.wrap(part.x, width);
             wrapped = true;
           }
           if (part.y < 0 || part.y >= height) {
-            part.y = ((part.y % height) + height) % height;
+            part.y = HSVUtil.wrap(part.y, height);
             wrapped = true;
           }
         } else {

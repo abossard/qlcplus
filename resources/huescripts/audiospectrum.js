@@ -86,15 +86,6 @@ var testAlgo;
     };
     algo.getReferenceBackgroundBrightness = function() { return algo.referenceBackgroundBrightness; };
 
-    function rangedValues(values) {
-      if (!values || !values.length) return [];
-      var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var from = Math.max(0, Math.floor(start * values.length));
-      var to = Math.min(values.length, Math.ceil(end * values.length));
-      return to > from ? values.slice(from, to) : [];
-    }
-
     function referenceMap(width, height, audio) {
       var n = width * height, bank = audio && audio.banks && audio.banks.full;
       var epoch = audio ? [
@@ -104,8 +95,9 @@ var testAlgo;
       if (!referenceState || referenceState.n !== n || referenceState.epoch !== epoch)
         referenceState = {n: n, epoch: epoch, previous: new Array(n).fill(0), envelope: null};
       var state = referenceState;
-      var processed = bank && bank.count ? rangedValues(bank.processed || []) : [];
-      var noveltyBank = bank && bank.count ? rangedValues(bank.novelty || []) : [];
+      var start = algo.referenceRangeStart, end = algo.referenceRangeEnd;
+      var processed = bank && bank.count ? HSVUtil.rangeSlice(bank.processed, start, end) : [];
+      var noveltyBank = bank && bank.count ? HSVUtil.rangeSlice(bank.novelty, start, end) : [];
       var y = HSVUtil.interpolate(processed, n);
       var novelty = HSVUtil.interpolate(noveltyBank, n);
       var scale = audio && audio.timing ? audio.timing.deltaSeconds * 60 : 1;

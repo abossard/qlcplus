@@ -201,7 +201,7 @@ var testAlgo;
                 if (algo.presetBounce) {
                     if (tx < 0 || tx >= width) continue;
                 } else {
-                    tx = ((tx % width) + width) % width;
+                    tx = HSVUtil.wrap(tx, width);
                 }
 
                 var trailFade = 1 - (t / (trailLen + 1));

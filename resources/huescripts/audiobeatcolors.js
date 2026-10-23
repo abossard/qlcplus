@@ -104,8 +104,8 @@ var testAlgo;
 
     function beatIndexFor(audio, step) {
         if (audio && audio.bpm > 0)
-            return ((Math.floor(audio.barPhase * 4) % 4) + 4) % 4;
-        return ((step % 4) + 4) % 4;
+            return HSVUtil.wrap(Math.floor(audio.barPhase * 4), 4);
+        return HSVUtil.wrap(step, 4);
     }
 
     function beforeEdgeBlend(value, phase, width) {

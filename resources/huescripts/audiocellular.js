@@ -39,7 +39,7 @@ var testAlgo;
       var out = [];
       for (var p = 0; p < parts.length; p++) {
         var n = parseInt(parts[p]);
-        if (!isNaN(n)) out.push(((n % 256) + 256) % 256);
+        if (!isNaN(n)) out.push(HSVUtil.wrap(n, 256));
       }
       if (out.length === 0) out.push(30);
       return out;

@@ -50,12 +50,8 @@ var testAlgo;
     };
 
     function ensure(width, height, audio) {
-        var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var nextGeometryKey = width + "|" + height;
         var n = width * height;
-        if (state.audioKey !== nextAudioKey || state.geometryKey !== nextGeometryKey || state.pixels.length !== n) {
-            state.audioKey = nextAudioKey;
-            state.geometryKey = nextGeometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height) || state.pixels.length !== n) {
             state.avgMidi = 0;
             state.hasValidPitch = false;
             state.hasCapturedFrame = false;

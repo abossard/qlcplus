@@ -47,8 +47,7 @@ var testAlgo;
     var ledFxTimePosition = 0;
     var emaLows = 0;
     var ledfxRawLows = 0;
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
@@ -69,11 +68,7 @@ var testAlgo;
         if (!audio) return map;
         var ledFxMode = algo.presetMode === "LedFx Lava Lamp";
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-                ledFxAudioIdentityKey = audioIdentityKey;
-                ledFxGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
                 ledFxTimePosition = 0;
                 ledfxRawLows = 0;
             }
@@ -94,9 +89,7 @@ var testAlgo;
         var lows;
         if (ledFxMode) {
             var low = HSVUtil.powerForRange(audio, "Lows", true);
-            var alphaRaw = low > ledfxRawLows ? algo.reactivity : 0.05;
-            var adapted = 1 - Math.pow(1 - alphaRaw, dtSeconds * 50);
-            ledfxRawLows += (low - ledfxRawLows) * adapted;
+            ledfxRawLows = HSVUtil.attackRelease(ledfxRawLows, low, algo.reactivity, 0.05, dtSeconds * 50);
             lows = ledfxRawLows;
         } else {
             var alpha = (rawLows > emaLows) ? algo.reactivity : 0.05;

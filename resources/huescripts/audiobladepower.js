@@ -55,16 +55,11 @@ var testAlgo;
     algo.getFixHues = function() { return algo.presetFixHues; };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo, { display: "" });
 
-    var state = { identityKey: "", geometryKey: "", values: [] };
+    var state = { audioKey: "", geometryKey: "", values: [] };
 
     function ensure(width, height, audio) {
-        var identityKey = HSVUtil.audioIdentityKey(audio, state.identityKey);
-        var geometryKey = width + "|" + height;
-        if (state.identityKey !== identityKey || state.geometryKey !== geometryKey) {
-            state.identityKey = identityKey;
-            state.geometryKey = geometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
             state.values = new Array(width * height).fill(0);
-        }
     }
 
     algo.rgbMapStepCount = function() { return 1; };
