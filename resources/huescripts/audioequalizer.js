@@ -103,32 +103,23 @@ var testAlgo;
     });
 
     var BAND_COUNT = 5;
-    var DEFAULT_COLORS = [
-        {h: 0.0,   s: 1.0, v: 1.0},  // red (beat)
-        {h: 0.083, s: 1.0, v: 1.0},  // orange (bass)
-        {h: 0.167, s: 1.0, v: 1.0},  // yellow (low)
-        {h: 0.398, s: 1.0, v: 1.0},  // green (mid)
-        {h: 0.611, s: 0.75, v: 1.0}  // blue (high)
-    ];
 
     var smoothed = [0, 0, 0, 0, 0];
     var peakValues = [0, 0, 0, 0, 0];
     var peakHolds = [0, 0, 0, 0, 0];
 
     function splitSizes(total, count) {
-        var active = Math.max(1, Math.min(count, Math.max(1, total)));
-        var base = Math.floor(total / active);
-        var extra = total - base * active;
-        var sizes = new Array(active);
-        for (var i = 0; i < active; i++)
+        var base = Math.floor(total / count);
+        var extra = total - base * count;
+        var sizes = new Array(count);
+        for (var i = 0; i < count; i++)
             sizes[i] = base + (i < extra ? 1 : 0);
         return sizes;
     }
 
     function paintAlignedMask(mask, start, size, volume, align) {
-        if (size <= 0 || volume <= 0) return;
-        var lit = Math.max(0, Math.min(size, volume));
-        if (lit <= 0) return;
+        if (volume <= 0) return;
+        var lit = Math.min(size, volume);
         if (align === "Right") {
             for (var i = size - lit; i < size; i++)
                 mask[start + i] = 1;
@@ -158,10 +149,9 @@ var testAlgo;
             var pixelCount = width * height;
             if (pixelCount <= 0) return map;
             var count = Math.max(1, Math.min(16, algo.presetSegmentCount | 0, pixelCount));
-            var bank = audio && audio.banks && audio.banks.full;
+            var bank = audio.banks && audio.banks.full;
             var novelty = bank && bank.count ? bank.novelty : [];
             var bins = HSVUtil.interpolate(novelty || [], pixelCount);
-            var stopsSeg = (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_COLORS;
             var clipped = new Array(pixelCount);
             for (var i = 0; i < pixelCount; i++)
                 clipped[i] = HSVUtil.clamp01(isFinite(bins[i]) ? bins[i] : 0);
@@ -181,7 +171,7 @@ var testAlgo;
             for (var p = 0; p < pixelCount; p++) {
                 if (mask[p]) {
                     var tSeg = pixelCount <= 1 ? 0 : p / (pixelCount - 1);
-                    var hsvSeg = HSVUtil.gradientLedfxAt(stopsSeg, tSeg);
+                    var hsvSeg = HSVUtil.gradientLedfxAt(algo.colors, tSeg);
                     var oSeg = p * 3;
                     map[oSeg] = hsvSeg.h;
                     map[oSeg + 1] = hsvSeg.s;
@@ -192,7 +182,6 @@ var testAlgo;
         }
 
         var rawBands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
-        var stops = (algo.colors && algo.colors.length >= 5) ? algo.colors : DEFAULT_COLORS;
 
         // EMA smoothing
         var decayAlpha = algo.presetDecay / 20.0;
@@ -213,7 +202,7 @@ var testAlgo;
             var bandWidth = colsPerBand + (band < remainder ? 1 : 0);
             var magnitude = smoothed[band];
             var barHeight = Math.round(magnitude * height);
-            var c = stops[band];
+            var c = algo.colors[band];
 
             // Peak markers
             if (algo.presetPeaks) {

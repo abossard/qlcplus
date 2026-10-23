@@ -62,8 +62,6 @@ var testAlgo;
     algo.pos = null;
     algo.vel = null;
     algo.lastN = -1;
-    algo.accIntensity = null;
-    algo.accLen = 0;
 
     function ensureBlobs(N) {
       if (algo.pos && algo.lastN === N) return;
@@ -80,63 +78,36 @@ var testAlgo;
     };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
-      var dt = audio.dt;
-      var dtBeats = audio.dt;
       var horizontal = (algo.presetAxis === "Horizontal");
       var N = horizontal ? width : height;
       ensureBlobs(N);
 
-      var speedScale = algo.presetSpeed;
       for (var i = 0; i < 3; i++) {
-        algo.pos[i] += algo.vel[i] * speedScale * dtBeats;
+        algo.pos[i] += algo.vel[i] * algo.presetSpeed * audio.dt;
         if (algo.pos[i] < 0) { algo.pos[i] = -algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
         if (algo.pos[i] > 1) { algo.pos[i] = 2 - algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
       }
 
       var map = HSVUtil.createMap(width, height);
-      var bandColors = (algo.colors && algo.colors.length >= 3)
-        ? algo.colors : DEFAULT_BAND_COLORS;
 
       // Asymmetric EMA smoothing of band powers (fast attack, slow decay)
-      var smoothing = algo.presetSmoothing / 10.0;
-      var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-      var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
       var rawPows = [audio.low, audio.mid, audio.high];
-      for (var sb = 0; sb < 3; sb++) {
-        var a = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
-        smoothPow[sb] += a * (rawPows[sb] - smoothPow[sb]);
-      }
-      var powers = smoothPow;
+      for (var sb = 0; sb < 3; sb++)
+        smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing);
       var sigma = Math.max(1, algo.presetBlobWidth);
       var twoSigSq = 2 * sigma * sigma;
-
-      // Per-band intensity accumulator for each long-axis position
-      if (algo.accLen !== N) {
-        algo.accIntensity = new Array(N);
-        for (var a = 0; a < N; a++) algo.accIntensity[a] = [0, 0, 0];
-        algo.accLen = N;
-      }
-      for (var p = 0; p < N; p++) {
-        algo.accIntensity[p][0] = 0;
-        algo.accIntensity[p][1] = 0;
-        algo.accIntensity[p][2] = 0;
-      }
-
-      // Accumulate per-band intensity at each position
-      for (var b = 0; b < 3; b++) {
-        var cx = algo.pos[b] * (N - 1);
-        var amp = powers[b];
-        for (var q = 0; q < N; q++) {
-          var d = q - cx;
-          var falloff = Math.exp(-(d * d) / twoSigSq);
-          algo.accIntensity[q][b] = amp * falloff;
-        }
-      }
+      var centers = [algo.pos[0] * (N - 1), algo.pos[1] * (N - 1), algo.pos[2] * (N - 1)];
+      var intensity = [0, 0, 0];
 
       for (var pos = 0; pos < N; pos++) {
-        var i0 = algo.accIntensity[pos][0];
-        var i1 = algo.accIntensity[pos][1];
-        var i2 = algo.accIntensity[pos][2];
+        // Per-band gaussian intensity at this long-axis position
+        for (var b = 0; b < 3; b++) {
+          var d = pos - centers[b];
+          intensity[b] = smoothPow[b] * Math.exp(-(d * d) / twoSigSq);
+        }
+        var i0 = intensity[0];
+        var i1 = intensity[1];
+        var i2 = intensity[2];
         var totalV = i0 + i1 + i2;
 
         if (totalV < 0.001) continue;
@@ -146,7 +117,7 @@ var testAlgo;
         if (i1 > i0 && i1 > i2) domBand = 1;
         else if (i2 > i0) domBand = 2;
 
-        var col = bandColors[domBand];
+        var col = algo.colors[domBand];
         var v = Math.min(1.0, totalV);
 
         if (horizontal) {

@@ -49,35 +49,29 @@ var testAlgo;
 
     var state = { audioKey: "", geometryKey: "", roll: 0 };
 
-    function ensureState(width, height, audio) {
-        var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var nextGeometryKey = width + "|" + height;
-        if (state.audioKey !== nextAudioKey || state.geometryKey !== nextGeometryKey) {
-            state.audioKey = nextAudioKey;
-            state.geometryKey = nextGeometryKey;
-            state.roll = 0;
-        }
-    }
-
     algo.rgbMapStepCount = function() { return 1; };
     algo.rgbMapSetColors = function() {};
     algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        ensureState(width, height, audio);
+        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
+        var geometryKey = width + "|" + height;
+        if (state.audioKey !== audioKey || state.geometryKey !== geometryKey) {
+            state.audioKey = audioKey;
+            state.geometryKey = geometryKey;
+            state.roll = 0;
+        }
         var power = HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false);
         var boosted = HSVUtil.aggressiveTopEndBias(power, algo.presetBoost);
-        var staticRgb = HSVUtil.parseHexRgb(algo.presetColor);
-        var staticColor = HSVUtil.rgbToHsv(staticRgb[0], staticRgb[1], staticRgb[2]);
         var roll = 0;
         if (algo.presetRollSpeed > 0) {
             var rollTime = (1 - algo.presetRollSpeed) * 59 + 1;
             state.roll = HSVUtil.mod1(state.roll + HSVUtil.audioSeconds(audio) / rollTime);
             roll = state.roll;
         }
-        var gradColor = HSVUtil.gradientLedfxAt(algo.colors || [staticColor], roll);
-        var color = algo.presetUseGradient === "Yes" ? gradColor : staticColor;
+        var color = algo.presetUseGradient === "Yes"
+            ? HSVUtil.gradientLedfxAt(algo.colors, roll) : HSVUtil.hexToHsv(algo.presetColor);
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
                 var i = (y * width + x) * 3;

@@ -98,23 +98,19 @@ var testAlgo;
         return dist;
     }
 
-    function ensureState(width, height, audio) {
-        var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var nextGeometryKey = width + "|" + height;
-        if (state.audioKey !== nextAudioKey || state.geometryKey !== nextGeometryKey) {
-            state.audioKey = nextAudioKey;
-            state.geometryKey = nextGeometryKey;
-            state.offset = 0;
-        }
-    }
-
     algo.rgbMapStepCount = function() { return 1; };
     algo.rgbMapSetColors = function() {};
     algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        ensureState(width, height, audio);
+        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
+        var geometryKey = width + "|" + height;
+        if (state.audioKey !== audioKey || state.geometryKey !== geometryKey) {
+            state.audioKey = audioKey;
+            state.geometryKey = geometryKey;
+            state.offset = 0;
+        }
         var dt = HSVUtil.audioSeconds(audio);
         var power = HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false) * algo.presetPowerMultiplier * 12;
         state.offset = HSVUtil.mod1(state.offset + (power + algo.presetIdleSpeed) * dt);
@@ -123,11 +119,11 @@ var testAlgo;
             for (var x = 0; x < width; x++) {
                 var d = dist[y * width + x];
                 var t = algo.presetInvert === "Yes" ? HSVUtil.mod1(d + state.offset) : HSVUtil.mod1(d - state.offset);
-                var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.65, s: 1, v: 1}], t);
+                var color = HSVUtil.gradientLedfxAt(algo.colors, t);
                 var i = (y * width + x) * 3;
                 map[i] = color.h;
                 map[i + 1] = color.s;
-                map[i + 2] = HSVUtil.clamp01(color.v);
+                map[i + 2] = color.v;
             }
         }
         return map;
