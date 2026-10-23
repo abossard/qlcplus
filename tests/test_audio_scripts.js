@@ -1990,6 +1990,165 @@ function assertGroupEBugs() {
 
 // Group F bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
 function assertGroupFBugs() {
+    const fresh = (file, settings = [], colors = null) => {
+        const context = sharedScriptContext();
+        const instance = context.load(file);
+        if (colors)
+            instance.algo.colors = colors;
+        for (const [name, value] of settings)
+            setProperty(instance.algo, name, value);
+        return (width, height, frame) => context.render(instance, width, height, frame);
+    };
+    const vAt = (map, width, x, y) => map[(y * width + x) * 3 + 2];
+    const maxV = map => Math.max(...map.filter((_, i) => i % 3 === 2));
+
+    runCases('F1 splittower keeps the bottom row dark in silence', [
+        { label: '9x6 silence', size: [9, 6] },
+        { label: '9x6 audio unavailable', size: [9, 6], audio: { available: false } },
+        { label: '12x1 strip silence', size: [12, 1] },
+        { label: '10x8 5 bands silence', size: [10, 8], settings: [['presetBands', '5']] },
+        { label: '9x6 silence 3 s after music', size: [9, 6], loudTicks: 25 }
+    ], c => {
+        const draw = fresh('audiosplittower.js', c.settings);
+        for (let tick = 0; tick < (c.loudTicks || 0); tick++)
+            draw(c.size[0], c.size[1], loudFrame(tick));
+        const start = c.loudTicks || 0;
+        for (let tick = start; tick < start + 150; tick++) {
+            const map = draw(c.size[0], c.size[1], engineAudio(Object.assign({ frameSequence: tick + 1 }, c.audio)));
+            if (!c.loudTicks || tick === start + 149)
+                assert(maxV(map) < 0.01, `frame ${tick}: brightest pixel V ${maxV(map).toFixed(2)} without sound`);
+        }
+    });
+
+    runCases('F3 splittower shows the bass band on narrow layouts', [
+        { label: '1x8, 3 bands', size: [1, 8], bands: '3' },
+        { label: '2x8, 3 bands', size: [2, 8], bands: '3' },
+        { label: '1x8, 2 bands', size: [1, 8], bands: '2' }
+    ], c => {
+        const settings = [['presetBands', c.bands]];
+        const bassOnly = fresh('audiosplittower.js', settings)(c.size[0], c.size[1],
+            engineAudio({ beat: 0.9, bass: 0.9, frameSequence: 1 }));
+        const silence = fresh('audiosplittower.js', settings)(c.size[0], c.size[1], engineAudio({ frameSequence: 1 }));
+        assert(meanV(bassOnly) > meanV(silence) + 0.1,
+            `mean V ${meanV(bassOnly).toFixed(2)} with bass only, ${meanV(silence).toFixed(2)} in silence`);
+    });
+
+    runCases('F5 tunnel Diamond stays inside the HSV range', [
+        { label: '10x10', size: [10, 10] },
+        { label: '8x8', size: [8, 8] },
+        { label: '16x9', size: [16, 9] },
+        { label: '7x11', size: [7, 11] },
+        { label: '10x10, palette ending at hue 0.9', size: [10, 10],
+            colors: [{ h: 0.0, s: 1, v: 1 }, { h: 0.5, s: 0.6, v: 0.9 }, { h: 0.9, s: 0.2, v: 0.5 }] }
+    ], c => {
+        const draw = fresh('audiotunnel.js', [['presetShape', 'Diamond']], c.colors);
+        for (let tick = 0; tick < 110; tick++)
+            assertMapContract('audiotunnel.js', draw(c.size[0], c.size[1], loudFrame(tick)),
+                c.size[0], c.size[1], `Diamond tick ${tick}`);
+    });
+
+    runCases('F6 strobe tint blends hue along the short arc', [
+        { label: 'colors 0.95/0.05, mids dominant', hues: [0.95, 0.05, 0.5], dominant: 'mid' },
+        { label: 'colors 0.05/0.95, mids dominant', hues: [0.05, 0.95, 0.5], dominant: 'mid' },
+        { label: 'colors 0.9/0.5/0.1, highs dominant', hues: [0.9, 0.5, 0.1], dominant: 'high' }
+    ], c => {
+        const draw = fresh('audiostrobe.js', [], c.hues.map(h => ({ h, s: 1, v: 1 })));
+        const levels = { beat: 0.1, bass: 0.1, mid: 0.1, high: 0.1, [c.dominant]: 0.8 };
+        const map = draw(10, 2, engineAudio(Object.assign(levels, { delta: { onset: 1 }, frameSequence: 1 })));
+        assert(maxV(map) > 0.5, 'the onset drew no strobe');
+        for (let i = 0; i < map.length; i += 3) {
+            const fromRed = Math.min(map[i] - Math.floor(map[i]), Math.ceil(map[i]) - map[i]);
+            assert(map[i + 2] < 0.05 || fromRed < 0.1, `pixel ${i / 3}: strobe hue ${map[i].toFixed(2)} is not red`);
+        }
+    });
+
+    runCases('F10 spectrum Decay changes how fast bars fall', [
+        { label: 'Artistic', mode: 'Artistic' },
+        { label: 'Reference', mode: 'Reference' }
+    ], c => {
+        const afterMusic = decay => {
+            const draw = fresh('audiospectrum.js', [['mode', c.mode], ['decay', decay]]);
+            const means = [];
+            for (let tick = 0; tick < 50; tick++) {
+                const frame = tick < 25 ? loudFrame(tick) : engineAudio({ frameSequence: tick + 1 });
+                const map = draw(16, 1, frame);
+                if (tick >= 25)
+                    means.push(meanV(map));
+            }
+            return means;
+        };
+        const [slow, fast] = [afterMusic('0.05'), afterMusic('0.9')];
+        const largest = Math.max(...slow.map((value, i) => Math.abs(value - fast[i])));
+        assert(largest > 0.02,
+            `after the music stops, Decay 0.05 and 0.9 differ by at most ${largest.toFixed(3)} mean V`);
+    });
+
+    runCases('F16 water ripples follow elapsed time', [
+        { label: 'Artistic, two renders at deltaSeconds 0', mode: 'Artistic', check: 'still' },
+        { label: 'LedFx Water, two renders at deltaSeconds 0', mode: 'LedFx Water', check: 'still' },
+        { label: 'Artistic, 25 vs 100 Hz', mode: 'Artistic', check: 'rate' },
+        { label: 'LedFx Water, 25 vs 100 Hz', mode: 'LedFx Water', check: 'rate' }
+    ], c => {
+        const width = 301;
+        if (c.check === 'still') {
+            const draw = fresh('audiowater.js', [['mode', c.mode]]);
+            for (let tick = 0; tick < 20; tick++)
+                draw(width, 1, loudFrame(tick));
+            const paused = loudFrame(20, { deltaSeconds: 0 });
+            const first = draw(width, 1, paused);
+            const second = draw(width, 1, paused);
+            const moved = second.filter((value, i) => i % 3 === 2 && Math.abs(value - first[i]) > 1e-6).length;
+            assert(moved === 0, `${moved} pixels changed between two renders without elapsed time`);
+            return;
+        }
+        const bassBins = Array.from({ length: 24 }, (_, i) => (i < 4 ? 1 : 0));
+        const spread = hz => {
+            const draw = fresh('audiowater.js', [['mode', c.mode]]);
+            const rest = fresh('audiowater.js', [['mode', c.mode]]);
+            let map = null, restMap = null;
+            for (let n = 1; n <= Math.round(0.24 * hz); n++) {
+                const quiet = engineAudio({ deltaSeconds: 1 / hz, frameSequence: n });
+                const frame = n / hz <= 0.04
+                    ? engineAudio({ beat: 0.9, bass: 0.9, bins: bassBins, deltaSeconds: 1 / hz, frameSequence: n })
+                    : quiet;
+                map = draw(width, 1, frame);
+                restMap = rest(width, 1, quiet);
+            }
+            return map.filter((value, i) => i % 3 === 2 && Math.abs(value - restMap[i]) > 0.02).length;
+        };
+        const [slow, fast] = [25, 100].map(spread);
+        assert(Math.abs(slow - fast) <= 0.3 * Math.max(slow, fast),
+            `0.24 s after a bass hit the ripple covers ${slow} pixels at 25 Hz, ${fast} at 100 Hz`);
+    });
+
+    runCases('F17 waterfall column brightness does not depend on height', [2, 4, 8].map(height => ({
+        label: `8x${height} vs 8x1`, height
+    })), c => {
+        const bins = Array.from({ length: 24 }, (_, i) => (i < 2 ? 1 : 0));
+        const settings = [['bands', '16'], ['aggregation', 'Max']];
+        const gray = [{ h: 0, s: 0, v: 0 }, { h: 0, s: 0, v: 1 }];
+        const strip = fresh('audiowaterfall.js', settings, gray)(8, 1, engineAudio({ bins, frameSequence: 1 }));
+        const tall = fresh('audiowaterfall.js', settings, gray)(8, c.height, engineAudio({ bins, frameSequence: 1 }));
+        for (let x = 0; x < 8; x++)
+            assert(Math.abs(vAt(tall, 8, x, 0) - vAt(strip, 8, x, 0)) < 0.05,
+                `column ${x}: newest row V ${vAt(tall, 8, x, 0).toFixed(2)} at 8x${c.height}, ` +
+                `${vAt(strip, 8, x, 0).toFixed(2)} at 8x1`);
+    });
+
+    runCases('F18 waterfall Center mode fades both center rows alike', [
+        { label: 'height 4, fade 1', height: 4, fade: '1' },
+        { label: 'height 6, fade 0.5', height: 6, fade: '0.5' },
+        { label: 'height 8, fade 1', height: 8, fade: '1' }
+    ], c => {
+        const map = fresh('audiowaterfall.js', [['centerMode', 'On'], ['fadeOut', c.fade]])(8, c.height, loudFrame(0));
+        const half = c.height / 2;
+        for (let x = 0; x < 8; x++) {
+            const upper = vAt(map, 8, x, half - 1), lower = vAt(map, 8, x, half);
+            assert(Math.max(upper, lower) > 0.05, `column ${x}: the newest row is dark`);
+            assert(Math.abs(upper - lower) < 0.01,
+                `column ${x}: center rows ${half - 1} and ${half} show V ${upper.toFixed(2)} and ${lower.toFixed(2)}`);
+        }
+    });
 }
 
 
