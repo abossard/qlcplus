@@ -1424,7 +1424,7 @@ function assertWaterfallHistory() {
     algo.setAggregation('Max');
     algo.setCenterMode('Off');
     algo.setDropSeconds(3);
-    algo.setFade('Off');
+    algo.setFadeOut(0);
     const frame = (values, seconds) => audio({
         version: 6,
         dt: seconds * 2,
@@ -1457,7 +1457,7 @@ function assertWaterfallHistory() {
         instance.setAggregation('Max');
         instance.setCenterMode('Off');
         instance.setDropSeconds(3);
-        instance.setFade('Off');
+        instance.setFadeOut(0);
     });
     const processedOnlyA = render(decoyA, 'audiowaterfall.js', 12, 5, audio({
         version: 6,

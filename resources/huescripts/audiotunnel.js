@@ -64,9 +64,7 @@ var testAlgo;
     // --- State ---
     var phase = 0;           // ring scroll phase (0-1, beat-locked)
     var energy = 0;          // smoothed overall energy (slow rise, slow decay)
-    var barEnergy = 0;       // energy accumulated within the current bar
-    var peakEnergy = 0;      // peak reached during build-up, released on downbeat
-    var releaseFlash = 0;    // burst brightness on downbeat, decays quickly
+    var envelope = {bar: 0, flash: 0};  // bar build-up, released as a flash on the downbeat
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -82,33 +80,17 @@ var testAlgo;
 
         // --- Envelope followers (smooth, stateful) ---
         var rawEnergy = (audio.low + audio.mid * 0.5 + audio.high * 0.3) / 1.8;
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        energy += (rawEnergy > energy ? riseAlpha : decayAlpha) * (rawEnergy - energy);
+        energy = HSVUtil.smoothFollow(energy, rawEnergy, algo.presetSmoothing);
 
-        // --- Bar-level build-up ---
-        barEnergy += rawEnergy * dt;
-        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-
-        // --- Downbeat: release + reset ---
-        if (audio.downbeat)
-        {
-            releaseFlash = Math.min(1, peakEnergy * 0.5);
-            barEnergy = 0;
-            peakEnergy = 0;
-        }
-
-        // Release flash decays over ~8 frames
-        releaseFlash *= 0.85;
+        // --- Bar-level build-up, released on the downbeat; the flash decays over ~8 frames ---
+        HSVUtil.barEnvelope(envelope, rawEnergy, dt, audio.downbeat, 0.85);
 
         // --- Phase accumulation (flow) ---
         var speedMod = 1 + energy * reactivity;
         phase = (phase + dt * algo.presetSpeed * speedMod) % 1.0;
 
         // --- Colors: user's 3-color gradient, sampled by ring distance ---
-        var colors = (algo.colors && algo.colors.length >= 3) ? algo.colors
-            : [{h:0.042,s:1,v:1},{h:0.399,s:1,v:1},{h:0.611,s:0.749,v:1}];
+        var colors = algo.colors;
 
         // Beat pulse: gentle, rides the envelope
         var beatGlow = audio.cosPulse * 0.15 * energy;
@@ -135,8 +117,7 @@ var testAlgo;
                     dist = Math.sqrt(dx * dx + dy * dy);
 
                 var normDist = dist / maxDist;
-                var ringPhase = (normDist * ringCount - phase) % 1;
-                ringPhase = ((ringPhase % 1) + 1) % 1;
+                var ringPhase = HSVUtil.mod1(normDist * ringCount - phase);
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
                 // Color: walk through user's 3 colors by distance from center
@@ -144,13 +125,13 @@ var testAlgo;
                 var ci = Math.min(1, Math.floor(t));
                 var cf = t - ci;
                 var ca = colors[ci];
-                var cb = colors[ci + 1] || colors[ci];
+                var cb = colors[ci + 1];
                 var h = ca.h + (cb.h - ca.h) * cf;
                 var s = ca.s + (cb.s - ca.s) * cf;
                 var baseV = ca.v + (cb.v - ca.v) * cf;
 
                 // Brightness: smooth energy envelope + gentle beat + release burst
-                var bright = ringVal * energy * (1 + beatGlow) + releaseFlash * (1 - normDist);
+                var bright = ringVal * energy * (1 + beatGlow) + envelope.flash * (1 - normDist);
                 bright = Math.min(1, bright);
 
                 var i3 = (y * width + x) * 3;

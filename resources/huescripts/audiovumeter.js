@@ -63,11 +63,6 @@ var testAlgo;
         return HSVUtil.clamp01(1 + (20 * Math.log10(rawRms)) / 100);
     }
 
-    function hexToHsv(hex) {
-        var rgb = HSVUtil.parseHexRgb(hex);
-        return HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
-    }
-
     function ensureState(width, height, audio) {
         var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
         var nextGeometryKey = width + "|" + height;
@@ -99,21 +94,18 @@ var testAlgo;
             if (volume < state.trough) state.trough = volume;
             else state.trough += (volume - state.trough) * alphaDecay;
         }
-        var volumeMin = algo.presetMinVolume;
-        var volumeMax = algo.presetMaxVolume;
         var volumePixels = Math.floor(width * volume);
-        var minPixels = Math.max(0, Math.min(width, Math.floor(width * volumeMin)));
-        var maxPixels = Math.max(0, Math.min(width, Math.floor(width * volumeMax)));
+        var minPixels = Math.floor(width * algo.presetMinVolume);
+        var maxPixels = Math.floor(width * algo.presetMaxVolume);
         var peakSize = Math.floor(algo.presetPeakPercent * (width / 100));
-        if (peakSize < 0) peakSize = 0;
-        var peakStart = Math.min(Math.floor(width * state.peak), width);
-        var peakEnd = Math.min(peakStart + peakSize, width);
-        var troughEnd = Math.max(0, Math.min(Math.floor(width * state.trough), width));
-        var troughStart = Math.max(0, troughEnd - peakSize);
-        var colorMin = hexToHsv(algo.presetColorMin);
-        var colorMid = hexToHsv(algo.presetColorMid);
-        var colorMax = hexToHsv(algo.presetColorMax);
-        var colorPeak = hexToHsv(algo.presetColorPeak);
+        var peakStart = Math.floor(width * state.peak);
+        var peakEnd = peakStart + peakSize;
+        var troughEnd = Math.min(Math.floor(width * state.trough), width);
+        var troughStart = troughEnd - peakSize;
+        var colorMin = HSVUtil.hexToHsv(algo.presetColorMin);
+        var colorMid = HSVUtil.hexToHsv(algo.presetColorMid);
+        var colorMax = HSVUtil.hexToHsv(algo.presetColorMax);
+        var colorPeak = HSVUtil.hexToHsv(algo.presetColorPeak);
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
                 var c = {h: 0, s: 0, v: 0};

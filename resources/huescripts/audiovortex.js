@@ -59,13 +59,11 @@ var testAlgo;
 
     var BEAT_PULSE_AMP = 0.15;
     var SPIRAL_FREQ = 0.3;
-    var vortexState = { phase: 0 };
 
     // --- State (audiotunnel-style envelope) ---
+    var phase = 0;           // spiral rotation phase (0-1)
     var energy = 0;          // smoothed overall energy
-    var barEnergy = 0;       // energy accumulated within the current bar
-    var peakEnergy = 0;      // peak reached during build-up
-    var releaseFlash = 0;    // burst brightness on downbeat, decays quickly
+    var envelope = {bar: 0, flash: 0};  // bar build-up, released as a flash on the downbeat
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -81,28 +79,15 @@ var testAlgo;
 
         // --- Envelope followers (asymmetric EMA, fast attack / slow decay) ---
         var rawEnergy = (audio.low + audio.mid * 0.5 + audio.high * 0.3) / 1.8;
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        energy += (rawEnergy > energy ? riseAlpha : decayAlpha) * (rawEnergy - energy);
+        energy = HSVUtil.smoothFollow(energy, rawEnergy, algo.presetSmoothing);
 
-        // --- Bar-level build-up ---
-        barEnergy += rawEnergy * dt;
-        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-
-        // --- Downbeat: release burst + reset ---
-        if (audio.downbeat) {
-            releaseFlash = Math.min(1, peakEnergy * 0.5);
-            barEnergy = 0;
-            peakEnergy = 0;
-        }
-        releaseFlash *= 0.85;
+        // --- Bar-level build-up, released as a burst on the downbeat ---
+        HSVUtil.barEnvelope(envelope, rawEnergy, dt, audio.downbeat, 0.85);
 
         // --- Phase accumulation ---
-        var speed = algo.presetSpeed;
         var speedMod = 1 + energy * reactivity;
-        vortexState.phase = (vortexState.phase + dt * speed * speedMod) % 1.0;
-        var angle = vortexState.phase * Math.PI * 2;
+        phase = (phase + dt * algo.presetSpeed * speedMod) % 1.0;
+        var angle = phase * Math.PI * 2;
 
         var cx = width / 2;
         var cy = height / 2;
@@ -111,8 +96,7 @@ var testAlgo;
         var tightness = algo.presetTightness;
 
         // --- Colors: user's 3-color gradient, sampled by distance ---
-        var colors = (algo.colors && algo.colors.length >= 3) ? algo.colors
-            : [{h:0.042,s:1,v:1},{h:0.399,s:1,v:1},{h:0.611,s:0.749,v:1}];
+        var colors = algo.colors;
 
         // Gentle beat pulse rides the smoothed envelope
         var beatGlow = audio.cosPulse * BEAT_PULSE_AMP * energy;
@@ -133,13 +117,13 @@ var testAlgo;
                 var ci = Math.min(1, Math.floor(tcol));
                 var cf = tcol - ci;
                 var ca = colors[ci];
-                var cb = colors[ci + 1] || colors[ci];
+                var cb = colors[ci + 1];
                 var h = ca.h + (cb.h - ca.h) * cf;
                 var s = ca.s + (cb.s - ca.s) * cf;
                 var baseV = ca.v + (cb.v - ca.v) * cf;
 
                 // Brightness: smooth energy + gentle beat + release burst
-                var bright = armVal * energy * (1 + beatGlow) + releaseFlash * (1 - normDist);
+                var bright = armVal * energy * (1 + beatGlow) + envelope.flash * (1 - normDist);
                 bright = Math.min(1, bright);
 
                 var i3 = (y * width + x) * 3;
