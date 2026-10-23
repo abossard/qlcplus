@@ -39,15 +39,11 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         var magnitude = HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false);
         var total = width * height;
-        for (var y = 0; y < height; y++) {
-            for (var x = 0; x < width; x++) {
-                var coord = (y * width + x) / Math.max(1, total - 1);
-                var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.6, s: 1, v: 1}], coord);
-                var i = (y * width + x) * 3;
-                map[i] = color.h;
-                map[i + 1] = color.s;
-                map[i + 2] = color.v * magnitude;
-            }
+        for (var p = 0; p < total; p++) {
+            var color = HSVUtil.gradientLedfxAt(algo.colors, p / Math.max(1, total - 1));
+            map[p * 3] = color.h;
+            map[p * 3 + 1] = color.s;
+            map[p * 3 + 2] = color.v * magnitude;
         }
         HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
         return map;

@@ -46,11 +46,6 @@ var testAlgo;
 
     algo.particles = [];
     var lastW = 0, lastH = 0;
-    var DEFAULT_BAND_COLORS = [
-        {h: 0.958, s: 1.0, v: 1.0},
-        {h: 0.167, s: 1.0, v: 1.0},
-        {h: 0.611, s: 0.749, v: 1.0}
-    ];
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -90,21 +85,6 @@ var testAlgo;
     algo.setAmbientMin = function(_v) { algo.presetAmbientMin = parseFloat(_v); };
     algo.getAmbientMin = function() { return algo.presetAmbientMin; };
 
-
-    function additiveHsv(map, width, height, x, y, h, s, v) {
-        if (x < 0 || x >= width || y < 0 || y >= height) return;
-        var i = (y * width + x) * 3;
-        var ev = map[i + 2];
-        var nv = Math.min(1, ev + v);
-        if (v > ev) { map[i] = h; map[i + 1] = s; }
-        map[i + 2] = nv;
-    }
-
-    function bandColor(bandIndex) {
-        var colors = algo.colors || DEFAULT_BAND_COLORS;
-        return colors[Math.max(0, Math.min(2, bandIndex))];
-    }
-
     function randomWeightedBand(powers, start, end) {
         var total = 0;
         for (var i = start; i <= end; i++) {
@@ -131,9 +111,7 @@ var testAlgo;
         return [(width - 1) / 2.0, (height - 1) / 2.0];
     }
 
-    function spawnParticle(width, height, color, speed, life) {
-        var origin = chooseOrigin(width, height);
-        var angle = Math.random() * Math.PI * 2;
+    function spawnParticle(origin, angle, speed, color, life) {
         algo.particles.push({
             x: origin[0],
             y: origin[1],
@@ -146,21 +124,21 @@ var testAlgo;
     }
 
     function spawnBurst(width, height, type, powers) {
-        var countRange, speedRange, bandStart, bandEnd, lifeRange;
+        var countRange, speedRange, band, lifeRange;
         if (type === "low") {
             countRange = [24, 36];
             speedRange = [1.2, 2.5];
-            bandStart = 0; bandEnd = 0;
+            band = 0;
             lifeRange = [30, 45];
         } else if (type === "mid") {
             countRange = [16, 24];
             speedRange = [1.8, 3.5];
-            bandStart = 1; bandEnd = 1;
+            band = 1;
             lifeRange = [22, 35];
         } else {
             countRange = [8, 14];
             speedRange = [2.5, 4.5];
-            bandStart = 2; bandEnd = 2;
+            band = 2;
             lifeRange = [12, 20];
         }
 
@@ -169,17 +147,9 @@ var testAlgo;
         for (var i = 0; i < count; i++) {
             var angle = Math.random() * Math.PI * 2;
             var speed = speedRange[0] + Math.random() * (speedRange[1] - speedRange[0]);
-            var bandIndex = randomWeightedBand(powers, bandStart, bandEnd);
-            var color = bandColor(bandIndex);
+            var color = algo.colors[randomWeightedBand(powers, band, band)];
             var life = lifeRange[0] + Math.round(Math.random() * (lifeRange[1] - lifeRange[0]));
-
-            algo.particles.push({
-                x: origin[0], y: origin[1],
-                vx: Math.cos(angle) * speed * 0.5,
-                vy: Math.sin(angle) * speed * 0.5,
-                color: color,
-                life: life, maxLife: life
-            });
+            spawnParticle(origin, angle, speed, color, life);
         }
     }
 
@@ -189,12 +159,9 @@ var testAlgo;
             var bandIndex = randomWeightedBand(powers, 0, 2);
             var speed = 0.4 + Math.random() * 0.8;
             var life = 6 + Math.round(Math.random() * 6);
-            spawnParticle(width, height, bandColor(bandIndex), speed, life);
+            var origin = chooseOrigin(width, height);
+            spawnParticle(origin, Math.random() * Math.PI * 2, speed, algo.colors[bandIndex], life);
         }
-    }
-
-    function dominantBandType(audio) {
-        return (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})();
     }
 
     function renderParticle(map, width, height, particle, particleSize) {
@@ -208,20 +175,20 @@ var testAlgo;
         var ps = particle.color.s;
         var pv = particle.color.v;
 
-        additiveHsv(map, width, height, px, py, ph, ps, pv * bri);
+        HSVUtil.addPixel(map, width, height, px, py, ph, ps, pv * bri);
 
         if (particleSize >= 2 && bri > 0.3) {
-            additiveHsv(map, width, height, px - 1, py, ph, ps, pv * bri * 0.5);
-            additiveHsv(map, width, height, px + 1, py, ph, ps, pv * bri * 0.5);
-            additiveHsv(map, width, height, px, py - 1, ph, ps, pv * bri * 0.5);
-            additiveHsv(map, width, height, px, py + 1, ph, ps, pv * bri * 0.5);
+            HSVUtil.addPixel(map, width, height, px - 1, py, ph, ps, pv * bri * 0.5);
+            HSVUtil.addPixel(map, width, height, px + 1, py, ph, ps, pv * bri * 0.5);
+            HSVUtil.addPixel(map, width, height, px, py - 1, ph, ps, pv * bri * 0.5);
+            HSVUtil.addPixel(map, width, height, px, py + 1, ph, ps, pv * bri * 0.5);
         }
 
         if (particleSize >= 3 && bri > 0.3) {
-            additiveHsv(map, width, height, px - 1, py - 1, ph, ps, pv * bri * 0.25);
-            additiveHsv(map, width, height, px + 1, py - 1, ph, ps, pv * bri * 0.25);
-            additiveHsv(map, width, height, px - 1, py + 1, ph, ps, pv * bri * 0.25);
-            additiveHsv(map, width, height, px + 1, py + 1, ph, ps, pv * bri * 0.25);
+            HSVUtil.addPixel(map, width, height, px - 1, py - 1, ph, ps, pv * bri * 0.25);
+            HSVUtil.addPixel(map, width, height, px + 1, py - 1, ph, ps, pv * bri * 0.25);
+            HSVUtil.addPixel(map, width, height, px - 1, py + 1, ph, ps, pv * bri * 0.25);
+            HSVUtil.addPixel(map, width, height, px + 1, py + 1, ph, ps, pv * bri * 0.25);
         }
     }
 
@@ -232,9 +199,9 @@ var testAlgo;
         for (var i = 0; i < count; i++) {
             var x = Math.floor(Math.random() * width);
             var y = Math.floor(Math.random() * height);
-            var color = bandColor(randomWeightedBand(powers, 0, 2));
+            var color = algo.colors[randomWeightedBand(powers, 0, 2)];
             var sparkle = brightness * (0.5 + Math.random() * 0.5);
-            additiveHsv(map, width, height, x, y, color.h, color.s, color.v * sparkle);
+            HSVUtil.addPixel(map, width, height, x, y, color.h, color.s, color.v * sparkle);
         }
     }
 
@@ -260,7 +227,7 @@ var testAlgo;
 
         var bursts = Math.min(algo.presetMaxParticles, SPAWN_TRIGGERS[algo.presetTriggerMode](audio));
         for (var burst = 0; burst < bursts; burst++)
-            spawnBurst(width, height, dominantBandType(audio), powers);
+            spawnBurst(width, height, ["low", "mid", "high"][HSVUtil.dominantBand(audio)], powers);
 
         // Extra burst on strong kicks
         if ((audio.version >= 6 ? audio.kickFired : audio.beatFired) && onsetIntensity > algo.presetKickThreshold / 10

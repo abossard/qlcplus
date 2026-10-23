@@ -60,11 +60,6 @@ var testAlgo;
         filteredPower: 0
     };
 
-    function hexToHsv(hex) {
-        var rgb = HSVUtil.parseHexRgb(hex);
-        return HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
-    }
-
     function ensureState(width, height, audio) {
         var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
         var nextGeometryKey = width + "|" + height;
@@ -114,9 +109,9 @@ var testAlgo;
                 }
             }
         }
-        var color = state.selected === "low"
-            ? hexToHsv(algo.presetColorLows)
-            : (state.selected === "mid" ? hexToHsv(algo.presetColorMids) : hexToHsv(algo.presetColorHigh));
+        var color = HSVUtil.hexToHsv(state.selected === "low"
+            ? algo.presetColorLows
+            : (state.selected === "mid" ? algo.presetColorMids : algo.presetColorHigh));
         var brightness = HSVUtil.aggressiveTopEndBias(state.filteredPower, algo.presetBrightnessBoost);
 
         for (var y = 0; y < height; y++) {

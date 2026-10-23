@@ -50,17 +50,8 @@ var testAlgo;
     algo.getColorMid = function() { return algo.presetColorMid; };
     algo.setColorHigh = function(v) { algo.presetColorHigh = /^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : "#ffffff"; };
     algo.getColorHigh = function() { return algo.presetColorHigh; };
-    // Compatibility aliases.
-    algo.setSpawn = function(v) { algo.setSpawnRate(v); };
-    algo.getSpawn = function() { return algo.getSpawnRate(); };
-    algo.setFade = function(v) {};
-    algo.getFade = function() { return 0; };
 
     var state = { audioKey: "", geometryKey: "", particles: [], spawnCarry: 0, topCarry: 0 };
-
-    function geometryIdentity(width, height) {
-        return [width, height].join("|");
-    }
 
     function hexEnabled(hex) {
         return /^#[0-9a-f]{6}$/i.test(hex) && hex.toLowerCase() !== "#000000";
@@ -81,12 +72,6 @@ var testAlgo;
                 maxAge: 1.2 + Math.random() * 0.8
             });
         }
-    }
-
-    function populationColor(pop) {
-        if (pop === 0) return HSVUtil.parseHexRgb(algo.presetColorLow);
-        if (pop === 1) return HSVUtil.parseHexRgb(algo.presetColorMid);
-        return HSVUtil.parseHexRgb(algo.presetColorHigh);
     }
 
     function blurMap(map, width, height, amount) {
@@ -123,7 +108,7 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
         var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = geometryIdentity(width, height);
+        var geometryKey = width + "|" + height;
         if (state.audioKey !== audioKey || state.geometryKey !== geometryKey) {
             state.audioKey = audioKey;
             state.geometryKey = geometryKey;
@@ -161,13 +146,8 @@ var testAlgo;
             var life = HSVUtil.clamp01(1 - (part.age / part.maxAge));
             var v = Math.pow(life, 1.5);
             var sat = HSVUtil.clamp01(0.4 + 0.6 * life);
-            var baseRgb = populationColor(part.pop);
-            var rgbOut = [
-                baseRgb[0] * v,
-                baseRgb[1] * v,
-                baseRgb[2] * v
-            ];
-            var hsv = HSVUtil.rgbToHsv(rgbOut[0], rgbOut[1], rgbOut[2]);
+            var baseRgb = HSVUtil.parseHexRgb(colors[part.pop]);
+            var hsv = HSVUtil.rgbToHsv(baseRgb[0] * v, baseRgb[1] * v, baseRgb[2] * v);
             var hueDrift = (1 - life) * (part.pop === 0 ? 0.09 : (part.pop === 1 ? 0.05 : 0.02));
             hsv.h = HSVUtil.mod1(hsv.h + hueDrift);
             hsv.s = sat;
@@ -186,7 +166,7 @@ var testAlgo;
         if (state.topCarry >= 1) {
             state.topCarry = state.topCarry % 1;
             for (var x2 = 0; x2 < width; x2++) {
-                var top = (0 * width + x2) * 3;
+                var top = x2 * 3;
                 map[top] *= 0.4;
                 map[top + 1] *= 0.4;
                 map[top + 2] *= 0.4;

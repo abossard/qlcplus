@@ -51,9 +51,6 @@ var testAlgo;
     var sparks = null;
     var sparkX = null;
     var emaLows = 0;
-    var cooling = 0.95;
-    var curSpeed = 0.04;
-    var curFadeChance = 0.05;
     var ledFxStepAccumMs = 0;
     var LEDFX_STEP_MS = 1000 / 60;
     var MAX_STEPS_PER_FRAME = 240;
@@ -64,12 +61,6 @@ var testAlgo;
         prefix: "ledFx",
         display: "LedFx "
     });
-
-    function lowPower(audio, ledFxMode) {
-        if (ledFxMode && audio && audio.powers && audio.powers.raw && isFinite(audio.powers.raw.low))
-            return HSVUtil.clamp01(audio.powers.raw.low);
-        return HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0);
-    }
 
     function init(n) {
         sparkPixels = new Array(n);
@@ -82,16 +73,6 @@ var testAlgo;
             sparks[i] = 0;
             sparkX[i] = Math.random() * 5;
         }
-    }
-
-    function ledFxGradientStops() {
-        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
-            return algo.colors;
-        return [
-            {h: 0 / 3, s: 1, v: 1},
-            {h: 1 / 3, s: 1, v: 1},
-            {h: 2 / 3, s: 1, v: 1}
-        ];
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -116,20 +97,17 @@ var testAlgo;
             }
         }
         if (!sparkPixels || sparkPixels.length !== N || sparks.length !== algo.intensity) init(N);
-        var dt = audio.dt;
-        var dtSeconds = audio.timing
-            ? Math.max(0, audio.timing.deltaSeconds || 0)
-            : ((audio.bpm > 0 && isFinite(dt)) ? dt * 60 / audio.bpm : 0);
+        var dtSeconds = HSVUtil.audioSeconds(audio);
 
         // EMA filter on lows (decay=0.05, rise=0.99)
-        var rawLows = lowPower(audio, ledFxMode);
+        var rawLows = HSVUtil.powerForRange(audio, "Lows", ledFxMode);
         var alphaL = (rawLows > emaLows) ? 0.99 : 0.05;
         emaLows = alphaL * rawLows + (1 - alphaL) * emaLows;
 
         // Audio modulation
-        cooling = 0.75 + emaLows * 0.25;
-        curSpeed = algo.speed + emaLows * 0.01;
-        curFadeChance = algo.fade_chance / 10;
+        var cooling = 0.75 + emaLows * 0.25;
+        var curSpeed = algo.speed + emaLows * 0.01;
+        var curFadeChance = algo.fade_chance / 10;
 
         function simulateFireStep(stepMs, fadeChance) {
             for (var i = 0; i < N; i++)
@@ -173,36 +151,11 @@ var testAlgo;
             for (var n = 0; n < steps; n++)
                 simulateFireStep(LEDFX_STEP_MS, stepFadeChance);
         } else {
-            var deltaScaled = (audio.dt * 60000 / audio.bpm) * curSpeed;
-            var sc = sparks.length;
-            for (var i = 0; i < N; i++)
-                sparkPixels[i] *= cooling;
-            if (N > 5) {
-                for (var i = N - 1; i >= 5; i--)
-                    sparkPixels[i] = (sparkPixels[i - 1] + sparkPixels[i - 2] + sparkPixels[i - 3] * 2 + sparkPixels[i - 4] * 3) / 7;
-            }
-            for (var i = 0; i < sc; i++) {
-                if (sparks[i] <= 0) {
-                    sparks[i] = 0.5 + Math.random() * 0.5;
-                    sparkX[i] = Math.random() * 5;
-                }
-                var stepPx = sparks[i] * sparks[i] * deltaScaled * (N / 100);
-                sparkX[i] += stepPx;
-                if (sparkX[i] >= N || Math.random() < curFadeChance) {
-                    sparks[i] = 0;
-                    sparkX[i] = 0;
-                    continue;
-                }
-                var jStart = Math.max(0, Math.floor(sparkX[i] - stepPx));
-                var jEnd = Math.floor(sparkX[i]);
-                var heat = Math.max(0, Math.min(1, 1 - sparks[i] * 0.4)) * 0.5;
-                for (var j = jStart; j < jEnd && j < N; j++)
-                    sparkPixels[j] += heat;
-            }
+            simulateFireStep(audio.dt * 60000 / audio.bpm, curFadeChance);
         }
 
         var colorShift = algo.color_shift;
-        var stops = ledFxMode ? ledFxGradientStops() : null;
+        var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;
         var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
         for (var i = 0; i < N; i++) {
             var x = ledFxMode ? (i % width) : i;
