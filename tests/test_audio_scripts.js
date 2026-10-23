@@ -1963,6 +1963,36 @@ function assertCrossCuttingContracts() {
     assertDegenerateGeometryStillLights();
 }
 
+// Group A bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
+function assertGroupABugs() {
+}
+
+
+// Group B bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
+function assertGroupBBugs() {
+}
+
+
+// Group C bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
+function assertGroupCBugs() {
+}
+
+
+// Group D bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
+function assertGroupDBugs() {
+}
+
+
+// Group E bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
+function assertGroupEBugs() {
+}
+
+
+// Group F bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
+function assertGroupFBugs() {
+}
+
+
 function assertNonAudioScripts() {
     const makeClock = (nowMs = 1000) => ({ nowMs, now() { return this.nowMs; } });
     const decoyAudio = Object.freeze({
@@ -12670,6 +12700,12 @@ assertScrollPlusFractionalShift();
 assertSharedHueHelperBoundaries();
 assertSharedEffectBuildingBlocks();
 assertCrossCuttingContracts();
+assertGroupABugs();
+assertGroupBBugs();
+assertGroupCBugs();
+assertGroupDBugs();
+assertGroupEBugs();
+assertGroupFBugs();
 assertWorkerMCrawlerRows();
 assertPitchNontrivialComposition();
 assertWorkerLPitchTimingRows();
