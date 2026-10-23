@@ -326,16 +326,8 @@ var testAlgo;
         }
         algo.sparkles = alive;
 
-        if (ledFxMode) {
-            for (var li = 0; li < n; li++) {
-                var hsv = HSVUtil.rgbToHsv(stripRgb[li][0], stripRgb[li][1], stripRgb[li][2]);
-                var lo = li * 3;
-                map[lo] = hsv.h;
-                map[lo + 1] = hsv.s;
-                map[lo + 2] = hsv.v;
-            }
-            return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
-        }
+        if (ledFxMode)
+            return HSVUtil.applyStripTransforms(HSVUtil.writeRgbPixels(map, stripRgb), width, height, readOutputControls());
 
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {

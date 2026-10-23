@@ -55,8 +55,7 @@ var testAlgo;
     var LEDFX_STEP_MS = 1000 / 60;
     var MAX_STEPS_PER_FRAME = 240;
     var NOMINAL_HZ = 50;
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
@@ -87,11 +86,7 @@ var testAlgo;
         var ledFxMode = algo.presetMode === "LedFx Fire";
         var N = ledFxMode ? Math.max(1, width * height) : Math.max(1, width);
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-                ledFxAudioIdentityKey = audioIdentityKey;
-                ledFxGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
                 init(N);
                 emaLows = 0;
             }
@@ -167,12 +162,7 @@ var testAlgo;
             var v = px * 2;
 
             if (ledFxMode) {
-                var base = HSVUtil.gradientRgbAt(stops, h);
-                var maxRgb = Math.max(base[0], Math.max(base[1], base[2]));
-                var r = (base[0] + (maxRgb - base[0]) * (1 - s)) * v;
-                var g = (base[1] + (maxRgb - base[1]) * (1 - s)) * v;
-                var b = (base[2] + (maxRgb - base[2]) * (1 - s)) * v;
-                var hsvOut = HSVUtil.rgbToHsvUnclipped(r, g, b);
+                var hsvOut = HSVUtil.ledFxColor(stops, h, s, v);
                 HSVUtil.setPixel(map, width, x, y, hsvOut.h, hsvOut.s, hsvOut.v);
             } else {
                 var hc = HSVUtil.mod1(h);

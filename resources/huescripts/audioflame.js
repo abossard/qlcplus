@@ -107,11 +107,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "|" + height;
-        if (state.audioKey !== audioKey || state.geometryKey !== geometryKey) {
-            state.audioKey = audioKey;
-            state.geometryKey = geometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             state.particles = [];
             state.spawnCarry = 0;
             state.topCarry = 0;

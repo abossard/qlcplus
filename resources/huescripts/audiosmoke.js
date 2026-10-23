@@ -42,18 +42,6 @@ var testAlgo;
     algo.getImpulseDecay = function() { return algo.presetImpulseDecay; };
     algo.setMultiplier = function(v) { algo.presetMultiplier = Math.max(0, Math.min(4, parseFloat(v) || 0)); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
-    var readOutputControls = HSVUtil.attachStripTransformControls(algo);
-
-    var state = { audioKey: "", geometryKey: "", x: 0, y: 0, z: 0, lowsImpulse: 0 };
-
-    function resetState(audioKey, geometryKey) {
-        state.audioKey = audioKey;
-        state.geometryKey = geometryKey;
-        state.x = Math.random();
-        state.y = Math.random();
-        state.z = Math.random();
-        state.lowsImpulse = 0;
-    }
 
     function fbm(x, y, z) {
         var total = 0;
@@ -70,48 +58,7 @@ var testAlgo;
     algo.rgbMapStepCount = function() { return 1; };
     algo.rgbMapSetColors = function() {};
     algo.rgbMapGetColors = function() { return []; };
-
-    algo.rgbMap = function(width, height, rgb, step, audio) {
-        var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "|" + height;
-        if (state.audioKey !== audioKey || state.geometryKey !== geometryKey)
-            resetState(audioKey, geometryKey);
-        var dt = HSVUtil.audioSeconds(audio);
-        if (algo.presetSpeed > 0 && dt > 0) {
-            var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
-            var target = rawLow * algo.presetMultiplier;
-            var alpha = target > state.lowsImpulse ? 0.99 : algo.presetImpulseDecay;
-            state.lowsImpulse += (target - state.lowsImpulse) * alpha;
-        }
-        var mov = 0.5 * algo.presetSpeed * dt;
-        state.x += mov;
-        state.z += mov;
-        if (height > 1) state.y += mov;
-        var baseScaleX = algo.presetZoom / Math.max(1, width);
-        var baseScaleY = algo.presetZoom / Math.max(1, height);
-        var bassX = baseScaleX * state.lowsImpulse;
-        var bassY = height > 1 ? baseScaleY * state.lowsImpulse : (baseScaleY * state.lowsImpulse * (1 / Math.max(1, width)));
-        var scaleX = baseScaleX + bassX;
-        var scaleY = baseScaleY + bassY;
-        var noiseX = state.x - (scaleX * height * 0.5);
-        var noiseY = state.y - (scaleY * width * 0.5);
-        for (var y = 0; y < height; y++) {
-            for (var x = 0; x < width; x++) {
-                var nx = noiseX + scaleX * y;
-                var ny = noiseY + scaleY * x;
-                var n = fbm(nx, ny, state.z);
-                var stretched = n * algo.presetStretch;
-                var t = HSVUtil.clamp01((stretched + 1) * 0.5);
-                var color = HSVUtil.gradientLedfxAt(algo.colors, t);
-                var i = (y * width + x) * 3;
-                map[i] = color.h;
-                map[i + 1] = color.s;
-                map[i + 2] = color.v;
-            }
-        }
-        return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
-    };
+    algo.rgbMap = HSVUtil.noiseFieldRenderer(algo, fbm);
 
     testAlgo = algo;
     return algo;

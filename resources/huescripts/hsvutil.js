@@ -338,14 +338,7 @@ HSVUtil.applyStripTransforms = function(map, width, height, opts) {
         }
         pixels = blurred;
     }
-    for (var i = 0; i < n; i++) {
-        var hsv = HSVUtil.rgbToHsv(pixels[i][0], pixels[i][1], pixels[i][2]);
-        var o = i * 3;
-        map[o] = hsv.h;
-        map[o + 1] = hsv.s;
-        map[o + 2] = hsv.v;
-    }
-    return map;
+    return HSVUtil.writeRgbPixels(map, pixels);
 };
 
 /**
@@ -379,6 +372,11 @@ HSVUtil.clamp01 = function(x) {
 HSVUtil.mod1 = function(x) {
     var m = x - Math.floor(x);
     return m < 0 ? m + 1 : m;
+};
+
+/** Wrap x into [0, n) (positive modulo n). */
+HSVUtil.wrap = function(x, n) {
+    return ((x % n) + n) % n;
 };
 
 /** Triangle wave, period 1, range [0, 1]. f(0)=0, f(0.5)=1, f(1)=0. */
@@ -539,6 +537,32 @@ HSVUtil.audioIdentityKey = function(audio, previous) {
         (audio.configRevision || 0) + "|" + source;
 };
 
+/**
+ * Store the audio identity in state.audioKey and the size in state.geometryKey.
+ * Returns true when either changed, so the caller resets its state.
+ */
+HSVUtil.audioStateChanged = function(state, audio, width, height) {
+    var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
+    var geometryKey = width + "|" + height;
+    var changed = audioKey !== state.audioKey || geometryKey !== state.geometryKey;
+    state.audioKey = audioKey;
+    state.geometryKey = geometryKey;
+    return changed;
+};
+
+/**
+ * Events of type key since the last frame: audio.events.delta[key] floored, at least 0.
+ * Without a finite delta, 1 when legacyFired is truthy, else 0.
+ */
+HSVUtil.eventCount = function(audio, key, legacyFired) {
+    var delta = audio && audio.events && audio.events.delta;
+    if (delta && isFinite(delta[key])) {
+        var count = Math.floor(delta[key]);
+        return count > 0 ? count : 0;
+    }
+    return legacyFired ? 1 : 0;
+};
+
 HSVUtil.powerForRange = function(audio, range, useRaw) {
     if (!audio) return 0;
     var raw = useRaw && audio.powers ? (audio.powers.raw || {}) : {};
@@ -601,6 +625,75 @@ HSVUtil.addPixel = function(map, width, height, x, y, h, s, v) {
     map[i + 2] = Math.min(1, ev + v);
 };
 
+/**
+ * Add brightness v at map index i. Hue and saturation move toward (h, s) by v's share of
+ * the summed brightness; a pixel darker than 0.001 takes (h, s) outright.
+ */
+HSVUtil.blendPixel = function(map, i, h, s, v) {
+    var ev = map[i + 2];
+    if (ev < 0.001) {
+        map[i] = h;
+        map[i + 1] = s;
+    } else {
+        var t = v / Math.max(0.001, ev + v);
+        map[i] = HSVUtil.lerpHue(map[i], h, t);
+        map[i + 1] = map[i + 1] * (1 - t) + s * t;
+    }
+    map[i + 2] = Math.min(1, ev + v);
+};
+
+/**
+ * Visit every pixel of the Bresenham line from (x0, y0) to (x1, y1), both ends included.
+ * Endpoints must be integers.
+ */
+HSVUtil.walkLine = function(x0, y0, x1, y1, visit) {
+    var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    var dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
+    var err = dx + dy;
+    var guard = dx - dy + 2;
+    while (true) {
+        visit(x0, y0);
+        if (x0 === x1 && y0 === y1) break;
+        if (--guard < 0) break;
+        var e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+};
+
+/**
+ * The part of values between fractions start and end of its length (either order),
+ * widened to whole entries. [] when nothing is left.
+ */
+HSVUtil.rangeSlice = function(values, start, end) {
+    if (!values || !values.length) return [];
+    var lo = Math.min(start, end);
+    var hi = Math.max(start, end);
+    var from = Math.max(0, Math.floor(lo * values.length));
+    var to = Math.min(values.length, Math.ceil(hi * values.length));
+    return to > from ? values.slice(from, to) : [];
+};
+
+/**
+ * Split values into count consecutive bands, the first (length % count) one entry wider.
+ * Each band is {start, width, peak}; peak is its largest value clamped to [0, 1].
+ */
+HSVUtil.bandPeaks = function(values, count) {
+    var baseWidth = Math.floor(values.length / count);
+    var extra = values.length - baseWidth * count;
+    var start = 0;
+    var bands = new Array(count);
+    for (var b = 0; b < count; b++) {
+        var width = baseWidth + (b < extra ? 1 : 0);
+        var peak = 0;
+        for (var i = start; i < start + width; i++)
+            peak = Math.max(peak, HSVUtil.clamp01(values[i]));
+        bands[b] = {start: start, width: width, peak: peak};
+        start += width;
+    }
+    return bands;
+};
+
 HSVUtil.hexToHsv = function(hex) {
     var rgb = HSVUtil.parseHexRgb(hex);
     return HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
@@ -620,6 +713,17 @@ HSVUtil.dominantBand = function(audio) {
 HSVUtil.smoothFollow = function(current, target, smoothing, frames) {
     var s = smoothing / 10.0;
     var alpha = target > current ? 0.5 * (1 - s) + 0.05 : 0.02 + 0.03 * (1 - s);
+    if (frames !== undefined)
+        alpha = 1 - Math.pow(1 - alpha, frames);
+    return current + alpha * (target - current);
+};
+
+/**
+ * Move current toward target at rate rise when target is above it, else at rate fall.
+ * Without frames the step is one render; with frames it covers that many reference frames.
+ */
+HSVUtil.attackRelease = function(current, target, rise, fall, frames) {
+    var alpha = target > current ? rise : fall;
     if (frames !== undefined)
         alpha = 1 - Math.pow(1 - alpha, frames);
     return current + alpha * (target - current);
@@ -647,6 +751,31 @@ HSVUtil.ledFxGradientStops = function(algo) {
         {h: 1 / 3, s: 1, v: 1},
         {h: 2 / 3, s: 1, v: 1}
     ];
+};
+
+/**
+ * LedFx pixel color: the gradient's RGB at t, pulled toward its brightest channel
+ * by 1 - s, scaled by v and returned as unclipped HSV.
+ */
+HSVUtil.ledFxColor = function(stops, t, s, v) {
+    var base = HSVUtil.gradientRgbAt(stops, t);
+    var max = Math.max(base[0], Math.max(base[1], base[2]));
+    return HSVUtil.rgbToHsvUnclipped(
+        (base[0] + (max - base[0]) * (1 - s)) * v,
+        (base[1] + (max - base[1]) * (1 - s)) * v,
+        (base[2] + (max - base[2]) * (1 - s)) * v);
+};
+
+/** Write linear RGB pixels ([r, g, b], each clipped to [0, 1]) into the HSV map. */
+HSVUtil.writeRgbPixels = function(map, pixels) {
+    for (var i = 0; i < pixels.length; i++) {
+        var hsv = HSVUtil.rgbToHsv(pixels[i][0], pixels[i][1], pixels[i][2]);
+        var o = i * 3;
+        map[o] = hsv.h;
+        map[o + 1] = hsv.s;
+        map[o + 2] = hsv.v;
+    }
+    return map;
 };
 
 /**
@@ -681,4 +810,56 @@ HSVUtil.referenceOutput = function(algo, pixels, width, height) {
         algo.referenceFrame = {pre: pixels, transformed: transformed};
     }
     return map;
+};
+
+/**
+ * Body of Audio Noise and Audio Smoke: noise(x, y, z) sampled over the matrix, scrolled by
+ * algo.presetSpeed, zoomed in by the lows impulse and colored through algo.colors. Adds the
+ * strip transform controls and returns the rgbMap function.
+ */
+HSVUtil.noiseFieldRenderer = function(algo, noise) {
+    var readOutputControls = HSVUtil.attachStripTransformControls(algo);
+    var state = { audioKey: "", geometryKey: "", x: 0, y: 0, z: 0, lowsImpulse: 0 };
+
+    return function(width, height, rgb, step, audio) {
+        var map = HSVUtil.createMap(width, height);
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
+            state.x = Math.random();
+            state.y = Math.random();
+            state.z = Math.random();
+            state.lowsImpulse = 0;
+        }
+        var dt = HSVUtil.audioSeconds(audio);
+        if (algo.presetSpeed > 0 && dt > 0) {
+            var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
+            var target = rawLow * algo.presetMultiplier;
+            state.lowsImpulse = HSVUtil.attackRelease(state.lowsImpulse, target, 0.99, algo.presetImpulseDecay);
+        }
+        var mov = 0.5 * algo.presetSpeed * dt;
+        state.x += mov;
+        state.z += mov;
+        if (height > 1) state.y += mov;
+        var baseScaleX = algo.presetZoom / Math.max(1, width);
+        var baseScaleY = algo.presetZoom / Math.max(1, height);
+        var bassX = baseScaleX * state.lowsImpulse;
+        var bassY = height > 1 ? baseScaleY * state.lowsImpulse : (baseScaleY * state.lowsImpulse * (1 / Math.max(1, width)));
+        var scaleX = baseScaleX + bassX;
+        var scaleY = baseScaleY + bassY;
+        var noiseX = state.x - (scaleX * height * 0.5);
+        var noiseY = state.y - (scaleY * width * 0.5);
+        for (var y = 0; y < height; y++) {
+            for (var x = 0; x < width; x++) {
+                var nx = noiseX + scaleX * y;
+                var ny = noiseY + scaleY * x;
+                var n = noise(nx, ny, state.z);
+                var t = HSVUtil.clamp01((n * algo.presetStretch + 1) * 0.5);
+                var color = HSVUtil.gradientLedfxAt(algo.colors, t);
+                var i = (y * width + x) * 3;
+                map[i] = color.h;
+                map[i + 1] = color.s;
+                map[i + 2] = color.v;
+            }
+        }
+        return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
+    };
 };

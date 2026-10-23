@@ -184,23 +184,9 @@ var testAlgo;
                         var ringBri = (1 - ringDist / waveWidth);
                         ringBri = Math.sqrt(ringBri) * wave.intensity * fade;
 
-                        if (ringBri > MIN_RENDER_BRI) {
-                            var i3 = (y * width + x) * 3;
-                            var existV = map[i3 + 2];
-                            var addV = wave.color.v * ringBri;
-                            var newV = Math.min(1, existV + addV);
-
-                            if (existV < 0.001) {
-                                map[i3] = wave.color.h;
-                                map[i3 + 1] = wave.color.s;
-                            } else {
-                                var total = existV + addV;
-                                var t = addV / Math.max(0.001, total);
-                                map[i3] = HSVUtil.lerpHue(map[i3], wave.color.h, t);
-                                map[i3 + 1] = map[i3 + 1] * (1 - t) + wave.color.s * t;
-                            }
-                            map[i3 + 2] = newV;
-                        }
+                        if (ringBri > MIN_RENDER_BRI)
+                            HSVUtil.blendPixel(map, (y * width + x) * 3,
+                                wave.color.h, wave.color.s, wave.color.v * ringBri);
                     }
                 }
             }

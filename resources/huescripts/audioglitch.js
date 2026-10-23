@@ -76,8 +76,7 @@ var testAlgo;
     var BRIGHT_FLOOR = 0.4;
     var glitchLedTimestepMs = 0;
     var NOMINAL_HZ = 60;
-    var glitchLedAudioIdentityKey = "";
-    var glitchLedGeometryKey = "";
+    var glitchLedKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
@@ -90,7 +89,7 @@ var testAlgo;
     var flashColor = null;
     var flashLevel = 0;
 
-    function triangle(x) { return Math.abs(((x % 1) + 1) % 1 * 2 - 1); }
+    function triangle(x) { return Math.abs(HSVUtil.wrap(x, 1) * 2 - 1); }
 
     function dominantBandHsv(audio) {
         var colors = algo.hasUserColors ? algo.colors : DEFAULT_BAND_COLORS;
@@ -108,11 +107,7 @@ var testAlgo;
 
         var ledFxMode = algo.presetMode === "LedFx Glitch";
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, glitchLedAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== glitchLedAudioIdentityKey || geometryKey !== glitchLedGeometryKey) {
-                glitchLedAudioIdentityKey = audioIdentityKey;
-                glitchLedGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(glitchLedKeys, audio, width, height)) {
                 glitchLedTimestepMs = 0;
             }
             var dtSec = HSVUtil.audioSeconds(audio);
@@ -157,12 +152,7 @@ var testAlgo;
                 if (sat < satThreshold) sat = satThreshold;
                 if (sat > 1) sat = 1;
 
-                var base = HSVUtil.gradientRgbAt(stops, HSVUtil.mod1(h));
-                var maxRgb = Math.max(base[0], Math.max(base[1], base[2]));
-                var r = base[0] + (maxRgb - base[0]) * (1 - sat);
-                var g = base[1] + (maxRgb - base[1]) * (1 - sat);
-                var b = base[2] + (maxRgb - base[2]) * (1 - sat);
-                var hsvOut = HSVUtil.rgbToHsvUnclipped(r, g, b);
+                var hsvOut = HSVUtil.ledFxColor(stops, HSVUtil.mod1(h), sat, 1);
                 HSVUtil.setPixel(map, width, x, y, hsvOut.h, hsvOut.s, hsvOut.v);
             }
 
@@ -218,7 +208,7 @@ var testAlgo;
             var sat = 1 - triangle(s1 * s2);
             sat = Math.max(satThreshold, Math.min(1, sat));
 
-            var hNorm = ((h % 1) + 1) % 1;
+            var hNorm = HSVUtil.wrap(h, 1);
             var tAbs = Math.abs(il * 2);
             var glitchMix = 0.55 + (1 - tAbs * 0.3) * 0.45;
 

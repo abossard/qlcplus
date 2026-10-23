@@ -44,8 +44,7 @@ var testAlgo;
     var ledFxLow = 0;
     var ledFxTimestepMs = 0;
     var NOMINAL_HZ = 60;
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
@@ -61,11 +60,7 @@ var testAlgo;
         if (!audio) return map;
         var ledFxMode = algo.presetMode === "LedFx Melt";
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-                ledFxAudioIdentityKey = audioIdentityKey;
-                ledFxGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
                 ledFxLow = 0;
                 ledFxTimestepMs = 0;
             }
@@ -74,11 +69,10 @@ var testAlgo;
         var seconds = HSVUtil.audioSeconds(audio);
         var dtBeats = isFinite(audio.dt) ? audio.dt : (seconds * (audio.bpm > 0 ? audio.bpm : 120) / 60);
         var rawLows = ledFxMode ? HSVUtil.powerForRange(audio, "Lows", true) : audio.low;
-        var alpha = 1 - Math.pow(0.9, seconds * 50);
         if (ledFxMode) {
-            ledFxLow += (rawLows - ledFxLow) * alpha;
+            ledFxLow = HSVUtil.attackRelease(ledFxLow, rawLows, 0.1, 0.1, seconds * 50);
         } else {
-            emaLows += (rawLows - emaLows) * alpha;
+            emaLows = HSVUtil.attackRelease(emaLows, rawLows, 0.1, 0.1, seconds * 50);
         }
         var lows = ledFxMode ? ledFxLow : emaLows;
 

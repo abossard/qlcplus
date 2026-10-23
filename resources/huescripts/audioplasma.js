@@ -94,7 +94,7 @@ var testAlgo;
 
     var sourceModeState = {
         mode: "",
-        audioIdentity: "",
+        audioKey: "",
         geometryKey: "",
         seconds: 0,
         motion: 0,
@@ -136,7 +136,7 @@ var testAlgo;
 
     function resetSourceModeState() {
         sourceModeState.mode = "";
-        sourceModeState.audioIdentity = "";
+        sourceModeState.audioKey = "";
         sourceModeState.geometryKey = "";
         sourceModeState.seconds = 0;
         sourceModeState.motion = 0;
@@ -144,18 +144,13 @@ var testAlgo;
     }
 
     function syncSourceModeState(mode, width, height, audio) {
-        var nextAudioIdentity = HSVUtil.audioIdentityKey(audio, sourceModeState.audioIdentity);
-        var nextGeometryKey = width + "x" + height;
-        if (sourceModeState.mode !== mode ||
-            sourceModeState.audioIdentity !== nextAudioIdentity ||
-            sourceModeState.geometryKey !== nextGeometryKey) {
+        var changed = HSVUtil.audioStateChanged(sourceModeState, audio, width, height);
+        if (sourceModeState.mode !== mode || changed) {
             sourceModeState.seconds = 0;
             sourceModeState.motion = 0;
             sourceModeState.freeSeconds = 0;
         }
         sourceModeState.mode = mode;
-        sourceModeState.audioIdentity = nextAudioIdentity;
-        sourceModeState.geometryKey = nextGeometryKey;
     }
 
     function truncToUint8(value) {

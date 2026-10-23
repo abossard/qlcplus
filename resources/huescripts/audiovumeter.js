@@ -64,11 +64,7 @@ var testAlgo;
     }
 
     function ensureState(width, height, audio) {
-        var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var nextGeometryKey = width + "|" + height;
-        if (state.audioKey !== nextAudioKey || state.geometryKey !== nextGeometryKey) {
-            state.audioKey = nextAudioKey;
-            state.geometryKey = nextGeometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             state.peak = 0;
             state.trough = 1;
             state.initialized = false;

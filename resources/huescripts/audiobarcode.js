@@ -129,17 +129,6 @@ var testAlgo;
     algo.setScrollPlusThreshold = function(v) { algo.scrollPlusThreshold = HSVUtil.clamp01(parseFloat(v) || 0); };
     algo.getScrollPlusThreshold = function() { return algo.scrollPlusThreshold; };
 
-    function rangedProcessed(audio) {
-      var values = audio && audio.banks && audio.banks.full && audio.banks.full.processed
-        ? audio.banks.full.processed.slice() : [];
-      if (!values.length) return values;
-      var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var from = Math.max(0, Math.floor(start * values.length));
-      var to = Math.min(values.length, Math.ceil(end * values.length));
-      return to > from ? values.slice(from, to) : [];
-    }
-
     function bandLevels(values, threshold) {
       var bounds = [0, Math.floor(values.length * 0.2), Math.floor(values.length * 0.5), values.length];
       var levels = [0, 0, 0];
@@ -158,7 +147,9 @@ var testAlgo;
       var colors = algo.referencePalette.split(",").map(function(hex) {
         return HSVUtil.parseHexRgb(hex);
       });
-      var levels = bandLevels(rangedProcessed(audio), threshold);
+      var bank = audio && audio.banks && audio.banks.full;
+      var values = HSVUtil.rangeSlice(bank && bank.processed, algo.referenceRangeStart, algo.referenceRangeEnd);
+      var levels = bandLevels(values, threshold);
       return [
         colors[0][0] * levels[0] + colors[1][0] * levels[1] + colors[2][0] * levels[2],
         colors[0][1] * levels[0] + colors[1][1] * levels[1] + colors[2][1] * levels[2],

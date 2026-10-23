@@ -232,10 +232,9 @@ var testAlgo;
 
         if (ledFxMode) {
             var lowPowerLed = HSVUtil.powerForRange(audio, "Lows", true);
-            var smoothingLed = 1 - Math.pow(0.9, dtSec * 50);
-            smoothLowLedFx += (lowPowerLed - smoothLowLedFx) * smoothingLed;
+            smoothLowLedFx = HSVUtil.attackRelease(smoothLowLedFx, lowPowerLed, 0.1, 0.1, dtSec * 50);
             var midPowerLed = HSVUtil.clamp01(isFinite(audio.mid) ? audio.mid : 0);
-            smoothMidLedFx += (midPowerLed - smoothMidLedFx) * smoothingLed;
+            smoothMidLedFx = HSVUtil.attackRelease(smoothMidLedFx, midPowerLed, 0.1, 0.1, dtSec * 50);
 
             var speedLed = algo.presetSpeed;
             var reactivityLed = algo.presetReactivity;
@@ -306,12 +305,7 @@ var testAlgo;
                     vLed = Math.max(vLed, sparkleLed);
                 }
 
-                var baseLed = HSVUtil.gradientRgbAt(stopsLed, HSVUtil.mod1(hLed));
-                var maxLed = Math.max(baseLed[0], Math.max(baseLed[1], baseLed[2]));
-                var outR = (baseLed[0] + (maxLed - baseLed[0]) * (1 - satLed)) * vLed;
-                var outG = (baseLed[1] + (maxLed - baseLed[1]) * (1 - satLed)) * vLed;
-                var outB = (baseLed[2] + (maxLed - baseLed[2]) * (1 - satLed)) * vLed;
-                var outHsv = HSVUtil.rgbToHsvUnclipped(outR, outG, outB);
+                var outHsv = HSVUtil.ledFxColor(stopsLed, HSVUtil.mod1(hLed), satLed, vLed);
                 HSVUtil.setPixel(map, width, ledX, ledY, outHsv.h, outHsv.s, outHsv.v);
             }
 

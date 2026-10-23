@@ -213,10 +213,8 @@ var testAlgo;
                 }
             }
 
-            for (var b = 0; b < 3; b++) {
-                var coeff = peaks[b] > algo.rainPulseBaseline[b] ? 0.99 : 0.5;
-                algo.rainPulseBaseline[b] += coeff * (peaks[b] - algo.rainPulseBaseline[b]);
-            }
+            for (var b = 0; b < 3; b++)
+                algo.rainPulseBaseline[b] = HSVUtil.attackRelease(algo.rainPulseBaseline[b], peaks[b], 0.99, 0.5);
 
             var decaySteps = Math.round(dt * 50);
             for (var step = 0; step < decaySteps; step++) {

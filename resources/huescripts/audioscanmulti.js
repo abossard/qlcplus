@@ -301,8 +301,7 @@ var testAlgo;
             if (algo.presetFilter === "Off") {
                 smoothPow[sb] = source;
             } else {
-                var coeff = source > smoothPow[sb] ? algo.presetAttack : algo.presetDecay;
-                smoothPow[sb] += coeff * (source - smoothPow[sb]);
+                smoothPow[sb] = HSVUtil.attackRelease(smoothPow[sb], source, algo.presetAttack, algo.presetDecay);
             }
         }
 
@@ -325,7 +324,7 @@ var testAlgo;
                 if (scan.pos > maxStart) { scan.pos = maxStart; scan.returning = true; }
                 if (scan.pos < 0) { scan.pos = 0; scan.returning = false; }
             } else {
-                scan.pos = ((scan.pos % n) + n) % n;
+                scan.pos = HSVUtil.wrap(scan.pos, n);
                 if (scan.pos > maxStart) scan.pos = scan.pos - n;
             }
 
@@ -347,16 +346,8 @@ var testAlgo;
                 cumulative *= bar;
         }
 
-        if (ledFxMode) {
-            for (var i = 0; i < n; i++) {
-                var hsv = HSVUtil.rgbToHsv(stripRgb[i][0], stripRgb[i][1], stripRgb[i][2]);
-                var o = i * 3;
-                map[o] = hsv.h;
-                map[o + 1] = hsv.s;
-                map[o + 2] = hsv.v;
-            }
-            return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
-        }
+        if (ledFxMode)
+            return HSVUtil.applyStripTransforms(HSVUtil.writeRgbPixels(map, stripRgb), width, height, readOutputControls());
 
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {

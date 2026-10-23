@@ -53,19 +53,6 @@ var testAlgo;
 
     var state = { key: "", audioKey: "", amplitudes: [0], progress: 0 };
 
-    function bresenham(x0, y0, x1, y1, visit) {
-        var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-        var dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-        var err = dx + dy;
-        while (true) {
-            visit(x0, y0);
-            if (x0 === x1 && y0 === y1) break;
-            var e2 = 2 * err;
-            if (e2 >= dy) { err += dy; x0 += sx; }
-            if (e2 <= dx) { err += dx; y0 += sy; }
-        }
-    }
-
     function paint(map, width, height, x, y, color, size) {
         var thickness = Math.max(1, size || 1);
         var start = -Math.floor((thickness - 1) * 0.5);
@@ -184,8 +171,8 @@ var testAlgo;
             var a = coords[i2 - 1];
             var b = coords[i2];
             if (algo.presetMirror === "Yes") {
-                bresenham(a.x, a.yTop, b.x, b.yTop, function(x, y) { stroke(a, b, x, y); });
-                bresenham(a.x, a.yBottom, b.x, b.yBottom, function(x, y) { stroke(a, b, x, y); });
+                HSVUtil.walkLine(a.x, a.yTop, b.x, b.yTop, function(x, y) { stroke(a, b, x, y); });
+                HSVUtil.walkLine(a.x, a.yBottom, b.x, b.yBottom, function(x, y) { stroke(a, b, x, y); });
                 if (algo.presetMode === "Fill") {
                     var x0 = Math.min(a.x, b.x);
                     var x1 = Math.max(a.x, b.x);
@@ -203,7 +190,7 @@ var testAlgo;
                 continue;
             }
 
-            bresenham(a.x, a.y, b.x, b.y, function(x2, y2) {
+            HSVUtil.walkLine(a.x, a.y, b.x, b.y, function(x2, y2) {
                 var color = stroke(a, b, x2, y2);
                 if (algo.presetMode === "Fill")
                     for (var yy2 = 0; yy2 <= y2; yy2++) paint(map, width, height, x2, yy2, color, 1);

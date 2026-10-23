@@ -169,9 +169,7 @@ var testAlgo;
                 }
             }
 
-            var onsetDelta = audio.events && audio.events.delta && isFinite(audio.events.delta.onset)
-                ? Math.max(0, Math.floor(audio.events.delta.onset))
-                : (audio.onset ? 1 : 0);
+            var onsetDelta = HSVUtil.eventCount(audio, "onset", audio.onset);
             var sparksPerEvent = Math.max(1, Math.floor(n / 20));
             for (var e = 0; e < onsetDelta; e++) {
                 for (var s = 0; s < sparksPerEvent; s++) {
@@ -183,11 +181,8 @@ var testAlgo;
             }
 
             var bassRaw = HSVUtil.powerForRange(audio, algo.frequency_range, true);
-            if (elapsedSteps > 0) {
-                var bassCoeffPerStep = bassRaw > ledFilteredBass ? 0.8 : 0.1;
-                var bassCoeff = 1 - Math.pow(1 - bassCoeffPerStep, elapsedSteps);
-                ledFilteredBass += bassCoeff * (bassRaw - ledFilteredBass);
-            }
+            if (elapsedSteps > 0)
+                ledFilteredBass = HSVUtil.attackRelease(ledFilteredBass, bassRaw, 0.8, 0.1, elapsedSteps);
             var bass = HSVUtil.clamp01(ledFilteredBass);
             var bassIdx = Math.floor(bass * n);
             var bassColor = HSVUtil.gradientRgbAt(stops, bass);

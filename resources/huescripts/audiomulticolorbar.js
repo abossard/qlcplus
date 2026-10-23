@@ -63,13 +63,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "x" + height;
-        if (audioKey !== state.audioKey || geometryKey !== state.geometryKey) {
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
             resetState();
-            state.audioKey = audioKey;
-            state.geometryKey = geometryKey;
-        }
         var beats = beatDelta(audio);
         for (var i = 0; i < beats; i++) {
             state.phase = 1 - state.phase;

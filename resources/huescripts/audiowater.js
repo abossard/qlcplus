@@ -60,8 +60,7 @@ var testAlgo;
     var EMITTER_DRIFT_RATE = 0.0002;
     var midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
     var highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
@@ -139,11 +138,7 @@ var testAlgo;
         var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;
         var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-                ledFxAudioIdentityKey = audioIdentityKey;
-                ledFxGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
                 init(stripLength);
             }
         }
@@ -204,12 +199,7 @@ var testAlgo;
             var v = Math.max(0, Math.min(1, vScaled));
 
             if (ledFxMode) {
-                var base = HSVUtil.gradientRgbAt(stops, h);
-                var maxRgb = Math.max(base[0], Math.max(base[1], base[2]));
-                var r = (base[0] + (maxRgb - base[0]) * (1 - sv)) * v;
-                var g = (base[1] + (maxRgb - base[1]) * (1 - sv)) * v;
-                var b = (base[2] + (maxRgb - base[2]) * (1 - sv)) * v;
-                var hsvOut = HSVUtil.rgbToHsvUnclipped(r, g, b);
+                var hsvOut = HSVUtil.ledFxColor(stops, h, sv, v);
                 map[i * 3] = hsvOut.h;
                 map[i * 3 + 1] = hsvOut.s;
                 map[i * 3 + 2] = hsvOut.v;

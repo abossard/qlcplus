@@ -56,8 +56,7 @@ var testAlgo;
     var ledFxLowsPower = 0;
     var ledFxFieldMs = 0;
     var ledFxTimestepMs = 0;
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var NOMINAL_HZ = 60;
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
@@ -102,11 +101,7 @@ var testAlgo;
         var stretchSpan = stretch / 10;
         var lows, t1, t3;
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-                ledFxAudioIdentityKey = audioIdentityKey;
-                ledFxGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
                 ledFxFieldMs = 0;
                 ledFxTimestepMs = 0;
                 ledFxLowsPower = 0;
@@ -141,7 +136,7 @@ var testAlgo;
 
             var h = (i + t3 * pixelCount) / pixelCount;
             h *= stretch;
-            h = ((h % stretchSpan) + stretchSpan) % stretchSpan;
+            h = HSVUtil.wrap(h, stretchSpan);
             h += i1;
             h += sinT1;
 

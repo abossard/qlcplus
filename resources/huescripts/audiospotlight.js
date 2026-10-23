@@ -95,14 +95,6 @@ var testAlgo;
         return HSVUtil.hsvToRgb(color.h, color.s, color.v);
     }
 
-    function eventCount(deltaEvents, key, legacyFired) {
-        if (deltaEvents && isFinite(deltaEvents[key])) {
-            var count = Math.floor(deltaEvents[key]);
-            return count > 0 ? count : 0;
-        }
-        return legacyFired ? 1 : 0;
-    }
-
     algo.rgbMapStepCount = function() { return 1; };
     algo.rgbMapSetColors = function() {};
     algo.rgbMapGetColors = function() { return []; };
@@ -119,7 +111,6 @@ var testAlgo;
             state.activity = 0;
         }
         var dt = HSVUtil.audioSeconds(audio);
-        var deltaEvents = audio && audio.events && audio.events.delta ? audio.events.delta : null;
         for (var si = state.spots.length - 1; si >= 0; si--) {
             state.spots[si].life -= dt;
             if (state.spots[si].life <= 0) state.spots.splice(si, 1);
@@ -129,14 +120,12 @@ var testAlgo;
         state.prevActivity = activity;
         state.gradientPhase = HSVUtil.mod1(state.gradientPhase + dt * algo.presetGradientSpeed);
         var activityInput = HSVUtil.clamp01(activity + delta * 1.2);
-        var alpha = activityInput > state.activity ? 0.6 : 0.25;
-        state.activity += (activityInput - state.activity) * alpha;
-        state.activity = HSVUtil.clamp01(state.activity);
+        state.activity = HSVUtil.clamp01(HSVUtil.attackRelease(state.activity, activityInput, 0.6, 0.25));
         state.carry += dt * (2.5 + 14.0 * state.activity);
         state.carry += delta * algo.presetBirthGain;
         state.carry += HSVUtil.powerForRange(audio, algo.presetSource, false) * dt * 1.5;
-        var onsets = eventCount(deltaEvents, "onset", !!(audio && audio.onset));
-        var kicks = eventCount(deltaEvents, "kick", !!(audio && audio.kickFired));
+        var onsets = HSVUtil.eventCount(audio, "onset", audio && audio.onset);
+        var kicks = HSVUtil.eventCount(audio, "kick", audio && audio.kickFired);
         if (onsets > 0 || kicks > 0) {
             state.carry += (onsets + kicks) * (1.8 + delta * 1.2);
         }

@@ -46,9 +46,7 @@ var testAlgo;
 
     var state = { geometryKey: "", audioKey: "", rows: [], dropRemainder: 0 };
 
-    function reset(geometryKey, audioKey, width, height) {
-        state.geometryKey = geometryKey;
-        state.audioKey = audioKey;
+    function reset(width, height) {
         state.rows = [];
         for (var i = 0; i < height; i++) {
             state.rows.push(makeEmptyRow(width));
@@ -139,10 +137,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var geometryKey = [width, height].join("|");
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        if (state.geometryKey !== geometryKey || state.audioKey !== audioKey)
-            reset(geometryKey, audioKey, width, height);
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
+            reset(width, height);
 
         var dt = HSVUtil.audioSeconds(audio);
         var dropTick = Math.max(0.0001, algo.presetDropSeconds / Math.max(1, height));

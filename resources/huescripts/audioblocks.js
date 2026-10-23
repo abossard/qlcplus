@@ -62,8 +62,7 @@ var testAlgo;
     var phase3 = 0;
     var phase4 = 0;
     var ledFxMs = 0;
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
@@ -73,10 +72,6 @@ var testAlgo;
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
-
-    function mod(x, m) {
-        return ((x % m) + m) % m;
-    }
 
     function fixHueFast(hue) {
         hue = HSVUtil.mod1(hue);
@@ -94,7 +89,7 @@ var testAlgo;
             h -= n / 2.0;
             h /= n;
             h *= c;
-            h = mod(h, m);
+            h = HSVUtil.wrap(h, m);
             h += offset;
 
             var v = Math.abs(h);
@@ -125,11 +120,7 @@ var testAlgo;
 
     function renderLedFx(width, height, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-        var geometryKey = width + "x" + height;
-        if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-            ledFxAudioIdentityKey = audioIdentityKey;
-            ledFxGeometryKey = geometryKey;
+        if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
             ledFxMs = 0;
             ledFxLowsPower = 0;
         }
