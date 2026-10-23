@@ -1985,6 +1985,240 @@ function assertGroupDBugs() {
 
 // Group E bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
 function assertGroupEBugs() {
+    const isLit = (map, p) => map[p * 3 + 2] > 0.05;
+    const peak = map => Math.max(...Array.from(map).filter((_, i) => i % 3 === 2));
+    const rgbDistance = (left, right) => {
+        let worst = 0;
+        for (let i = 0; i < left.length; i += 3) {
+            const a = engineRgb(left[i], left[i + 1], left[i + 2]), b = engineRgb(right[i], right[i + 1], right[i + 2]);
+            for (let c = 0; c < 3; c++)
+                worst = Math.max(worst, Math.abs(a[c] - b[c]));
+        }
+        return worst;
+    };
+    const quietFrame = (tick, deltaSeconds = 0.02) =>
+        engineAudio({ tempoValid: true, bpm: 120, deltaSeconds, frameSequence: tick + 1 });
+
+    // E2: LedFx scan_and_flare.py and scan_multi.py draw the overflow at the strip start when bounce is off.
+    const wrapCases = [];
+    for (const file of ['audioscanflare.js', 'audioscanmulti.js'])
+        for (const [n, width] of [[1, 15], [10, 30], [60, 30]])
+            wrapCases.push({ label: `${file} ${n}x1, width ${width}%`, file, n, width });
+    runCases('E2 scanners without bounce wrap around the strip end', wrapCases, ({ file, n, width }) => {
+        const context = sharedScriptContext();
+        const instance = context.load(file);
+        setProperty(instance.algo, 'presetBounce', 'No');
+        setProperty(instance.algo, 'presetWidth', String(width));
+        const litFrames = Array(n).fill(0);
+        for (let tick = 0; tick < 500; tick++) {
+            const map = context.render(instance, n, 1, loudFrame(tick));
+            for (let p = 0; p < n; p++)
+                if (isLit(map, p))
+                    litFrames[p]++;
+        }
+        const darkest = litFrames.indexOf(Math.min(...litFrames));
+        assert(litFrames[darkest] >= 50, `pixel ${darkest} is lit in ${litFrames[darkest]}/500 frames`);
+    });
+
+    // E3: LedFx's scan defaults move the eye at 50 % of the strip per second times the band power.
+    const scannerCentre = map => {
+        let weight = 0, sum = 0;
+        for (let p = 0; p < map.length / 3; p++)
+            if (isLit(map, p) && map[p * 3 + 1] > 0.5) {
+                weight += map[p * 3 + 2];
+                sum += map[p * 3 + 2] * p;
+            }
+        return weight ? sum / weight : null;
+    };
+    runCases('E3 LedFx scan modes move with default settings', [
+        { label: 'audioscanflare.js', file: 'audioscanflare.js', mode: 'LedFx Scan and Flare' },
+        { label: 'audioscanmulti.js', file: 'audioscanmulti.js', mode: 'LedFx Scan Multi' }
+    ], ({ file, mode }) => {
+        const context = sharedScriptContext();
+        const instance = context.load(file);
+        setProperty(instance.algo, 'mode', mode);
+        let travelled = 0, previous = null;
+        for (let tick = 0; tick < 100; tick++) {
+            const map = context.render(instance, 60, 1, loudFrame(tick, { beat: 0.35, bass: 0.35, mid: 0, high: 0 }));
+            const centre = scannerCentre(map);
+            if (centre !== null && previous !== null)
+                travelled += Math.abs(centre - previous);
+            if (centre !== null)
+                previous = centre;
+        }
+        assert(travelled >= 15, `scanner travelled ${travelled.toFixed(1)} of 60 px in 2 s`);
+    });
+
+    // E4: each Trigger value spawns shots on its own event only.
+    const levels = { beat: 0.8, bass: 0.7, mid: 0.6, high: 0.5 };
+    const midOnset = { beat: 0, bass: 0, mid: 0.8, high: 0.1, delta: { onset: 1 } };
+    const highOnset = { beat: 0, bass: 0, mid: 0.1, high: 0.8, delta: { onset: 1 } };
+    runCases('E4 shot Trigger selects the firing event', [
+        { label: 'Beat, beat only', trigger: 'Beat', input: Object.assign({ delta: { beat: 1 } }, levels), fires: true },
+        { label: 'Beat, onset only', trigger: 'Beat', input: Object.assign({ delta: { onset: 1 } }, levels), fires: false },
+        { label: 'Bass, kick only', trigger: 'Bass', input: Object.assign({ delta: { kick: 1 } }, levels), fires: true },
+        { label: 'Bass, onset only', trigger: 'Bass', input: Object.assign({ delta: { onset: 1 } }, levels), fires: false },
+        { label: 'Mids, beat only', trigger: 'Mids', input: Object.assign({ delta: { beat: 1 } }, levels), fires: false },
+        { label: 'Highs, beat only', trigger: 'Highs', input: Object.assign({ delta: { beat: 1 } }, levels), fires: false },
+        { label: 'Mids, onset in the mids', trigger: 'Mids', input: midOnset, fires: true },
+        { label: 'Mids, onset in the highs', trigger: 'Mids', input: highOnset, fires: false },
+        { label: 'Highs, onset in the highs', trigger: 'Highs', input: highOnset, fires: true },
+        { label: 'Highs, onset in the mids', trigger: 'Highs', input: midOnset, fires: false }
+    ], ({ trigger, input, fires }) => {
+        const context = sharedScriptContext();
+        const instance = context.load('audioshot.js');
+        setProperty(instance.algo, 'presetTrigger', trigger);
+        const map = context.render(instance, 24, 9,
+            engineAudio(Object.assign({ tempoValid: true, onsetIntensity: 0.7, frameSequence: 1 }, input)));
+        assert.strictEqual(peak(map) > 0.05, fires, fires ? 'no shot fired' : `a shot fired (peak V ${peak(map).toFixed(2)})`);
+    });
+
+    // E7: the engine injects acceptColors (2) colors; the wave tint must still follow the dominant band.
+    const dominant = {
+        lows: { beat: 0.3, bass: 0.3, mid: 0.2, high: 0.1 },
+        mids: { beat: 0.3, bass: 0.3, mid: 0.6, high: 0.1 },
+        highs: { beat: 0.3, bass: 0.3, mid: 0.2, high: 0.6 }
+    };
+    const shockwaveSpawn = bands => {
+        const context = sharedScriptContext();
+        const instance = context.load('audioshockwave.js');
+        return context.render(instance, 15, 15, engineAudio(Object.assign(
+            { tempoValid: true, onsetIntensity: 0.7, delta: { onset: 1 }, frameSequence: 1 }, bands)));
+    };
+    runCases('E7 shockwave tint follows the dominant band', [
+        { label: 'lows vs mids', left: 'lows', right: 'mids' },
+        { label: 'lows vs highs', left: 'lows', right: 'highs' },
+        { label: 'mids vs highs', left: 'mids', right: 'highs' }
+    ], ({ left, right }) => {
+        const distance = rgbDistance(shockwaveSpawn(dominant[left]), shockwaveSpawn(dominant[right]));
+        assert(distance > 0.02, `waves look the same (max RGB difference ${distance.toFixed(4)})`);
+    });
+
+    // E8: clearing the palette injects step-color copies with hasUserColors false; the defaults must return.
+    runCases('E8 shockwave restores default colors when the palette is cleared', [
+        { label: 'orange step color', step: { h: 0.08, s: 1, v: 1 } },
+        { label: 'pale cyan step color', step: { h: 0.5, s: 0.6, v: 0.8 } }
+    ], ({ step }) => {
+        const clearPalette = algo => {
+            algo.colors = [Object.assign({}, step), Object.assign({}, step)];
+            algo.hasUserColors = false;
+        };
+        const cleared = sharedScriptContext(), never = sharedScriptContext();
+        const clearedInstance = cleared.load('audioshockwave.js'), neverInstance = never.load('audioshockwave.js');
+        clearPalette(neverInstance.algo);
+        let expected, actual;
+        for (let tick = 0; tick < 20; tick++) {
+            if (tick === 10)
+                clearPalette(clearedInstance.algo);
+            actual = cleared.render(clearedInstance, 9, 9, quietFrame(tick));
+            expected = never.render(neverInstance, 9, 9, quietFrame(tick));
+        }
+        assert(rgbDistance(actual, expected) < 1e-6,
+            `background hue ${actual[0].toFixed(3)} after clearing, ${expected[0].toFixed(3)} without a palette`);
+    });
+
+    // E9: a large Decay x Wave Decay must fade waves fast, not drop or poison them.
+    runCases('E9 shockwave waves fade at strong decay settings', [
+        { label: 'Decay 10, Wave Decay 0.1', decay: '10', waveDecay: '0.1' },
+        { label: 'Decay 10, Wave Decay 0.2', decay: '10', waveDecay: '0.2' },
+        { label: 'Decay 5, Wave Decay 0.3', decay: '5', waveDecay: '0.3' }
+    ], ({ decay, waveDecay }) => {
+        const maps = [true, false].map(onset => {
+            const context = sharedScriptContext();
+            const instance = context.load('audioshockwave.js');
+            setProperty(instance.algo, 'presetDecay', decay);
+            setProperty(instance.algo, 'presetWaveDecay', waveDecay);
+            context.render(instance, 15, 15, engineAudio({ tempoValid: true, beat: 0.3, bass: 0.3,
+                onsetIntensity: 0.7, delta: { onset: onset ? 1 : 0 }, frameSequence: 1 }));
+            const map = context.render(instance, 15, 15, quietFrame(1));
+            assertMapContract('audioshockwave.js', map, 15, 15, 'frame after the onset');
+            return map;
+        });
+        let brightest = 0;
+        for (let i = 2; i < maps[0].length; i += 3)
+            brightest = Math.max(brightest, maps[0][i] - maps[1][i]);
+        assert(brightest > 0.05, `wave gone 20 ms after the onset (brightest gain over background ${brightest.toFixed(3)})`);
+    });
+
+    // E11: Artistic sparkles never wrap, so they must also spawn next to the scanner, not at the far end.
+    runCases('E11 scanflare Artistic sparkles spawn next to the scanner', [
+        { label: '20x1, defaults', n: 20, settings: [] },
+        { label: '60x1, one sparkle of 100 ms', n: 60,
+            settings: [['presetMaxSparkles', '1'], ['presetSparkleTime', '100']] }
+    ], ({ n, settings }) => {
+        const context = sharedScriptContext();
+        const instance = context.load('audioscanflare.js');
+        for (const [name, value] of settings)
+            setProperty(instance.algo, name, value);
+        let previousWhite = [], spawns = 0;
+        for (let tick = 0; tick < 500; tick++) {
+            const map = context.render(instance, n, 1, loudFrame(tick));
+            const white = [], scanner = [];
+            for (let p = 0; p < n; p++)
+                if (isLit(map, p))
+                    (map[p * 3 + 1] < 0.2 ? white : scanner).push(p);
+            const fresh = white.filter(p => !previousWhite.some(q => Math.abs(p - q) <= 2));
+            previousWhite = white;
+            if (!scanner.length)
+                continue;
+            for (const p of fresh) {
+                spawns++;
+                const gap = Math.min(...scanner.map(q => Math.abs(p - q)));
+                assert(gap <= 3, `tick ${tick}: sparkle at pixel ${p} appeared ${gap} px from the scanner (${scanner[0]}-${scanner[scanner.length - 1]})`);
+            }
+        }
+        assert(spawns > 0, 'no sparkle spawned');
+    });
+
+    // E12: without a user palette the engine injects step-color copies; Audio Scan must fall back to its gradient.
+    runCases('E12 scan uses the default gradient without a user palette', [
+        { label: 'Artistic, Full Gradient', settings: [['full_grad', 'Yes'], ['scan_width', '100']] },
+        { label: 'LedFx Scan, Full Gradient', settings: [['mode', 'LedFx Scan'], ['full_grad', 'Yes'], ['scan_width', '100']] },
+        { label: 'LedFx Scan, Use Gradient', settings: [['mode', 'LedFx Scan'], ['use_grad', 'Yes']] }
+    ], ({ settings }) => {
+        const context = sharedScriptContext();
+        const instance = context.load('audioscan.js');
+        const step = { h: 0.55, s: 0.8, v: 0.9 };
+        instance.algo.colors = [0, 1, 2].map(() => Object.assign({}, step));
+        instance.algo.hasUserColors = false;
+        for (const [name, value] of settings)
+            setProperty(instance.algo, name, value);
+        const hues = new Set();
+        for (let tick = 0; tick < 100; tick++) {
+            const map = context.render(instance, 60, 1, loudFrame(tick));
+            for (let p = 0; p < 60; p++)
+                if (isLit(map, p) && map[p * 3 + 1] > 0.2)
+                    hues.add(Math.round(map[p * 3] * 50));
+        }
+        assert(hues.size >= 4, `${hues.size} hue(s) shown, the default gradient has 8 stops`);
+    });
+
+    // E14: X4 compares mean brightness only; smoke's impulse EMA steps per render and changes the pattern.
+    const smokeMaps = (hz, width, height) => {
+        const context = sharedScriptContext();
+        const instance = context.load('audiosmoke.js');
+        const maps = {};
+        for (let n = 1; n <= Math.round(1.2 * hz); n++) {
+            const t = n / hz;
+            const frame = t <= 0.6 ? loudFrame(Math.round(t * 50), { deltaSeconds: 1 / hz, delta: {} })
+                : quietFrame(n - 1, 1 / hz);
+            const map = context.render(instance, width, height, frame);
+            if (Math.round(t * 100) % 20 === 0)
+                maps[Math.round(t * 100) / 100] = Array.from(map);
+        }
+        return maps;
+    };
+    runCases('E14 smoke output does not depend on the render rate', [
+        { label: '16x4', width: 16, height: 4 },
+        { label: '30x1', width: 30, height: 1 },
+        { label: '12x12', width: 12, height: 12 }
+    ], ({ width, height }) => {
+        const [slow, fast] = [25, 100].map(hz => smokeMaps(hz, width, height));
+        for (const t of [0.8, 1, 1.2]) {
+            const distance = rgbDistance(slow[t], fast[t]);
+            assert(distance <= 0.02, `at ${t} s the 25 and 100 Hz frames differ by ${distance.toFixed(3)} RGB`);
+        }
+    });
 }
 
 
