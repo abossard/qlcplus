@@ -1769,6 +1769,12 @@ function sharedScriptContext() {
     };
 }
 
+// --only a.js,b.js limits the cross-cutting tests to those scripts.
+function onlyRequested(files) {
+    const only = optionalCliValue('--only');
+    return only ? files.filter(file => only.split(',').includes(file)) : files;
+}
+
 function setProperty(algo, name, value) {
     const property = algo.properties.map(parseProperty).find(p => p.name === name);
     assert(property, `no property ${name}`);
@@ -1796,7 +1802,7 @@ function loudFrame(tick, overrides = {}) {
 // X1: RGBMatrix::setProperty turns every rgbMapGetColors() entry into a matrix color with
 // QJSValue::toUInt(), so anything but a packed number becomes black.
 function assertGetColorsReturnsPackedColors() {
-    const files = EXPECTED_SCRIPTS.concat(EXPECTED_NON_AUDIO_SCRIPTS);
+    const files = onlyRequested(EXPECTED_SCRIPTS.concat(EXPECTED_NON_AUDIO_SCRIPTS));
     runCases('X1 rgbMapGetColors returns packed colors', files.map(file => ({ label: file, file })), ({ file }) => {
         const algo = loadScript(file, 0x5eed, SCRIPTS_DIR, EXPECTED_SCRIPTS.includes(file));
         for (const config of equivalenceConfigs(algo)) {
@@ -1811,7 +1817,7 @@ function assertGetColorsReturnsPackedColors() {
 
 // X2: every clone runs in the same engine; two instances must not change each other's output.
 function assertInstancesAreIsolated() {
-    runCases('X2 instances in one engine are isolated', EXPECTED_SCRIPTS.map(file => ({ label: file, file })), ({ file }) => {
+    runCases('X2 instances in one engine are isolated', onlyRequested(EXPECTED_SCRIPTS).map(file => ({ label: file, file })), ({ file }) => {
         const probe = loadScript(file);
         for (const config of equivalenceConfigs(probe)) {
             const solo = sharedScriptContext();
@@ -1837,7 +1843,7 @@ function assertInstancesAreIsolated() {
 function assertNumericSettersSurviveBadInput() {
     const badValues = ['', 'abc', 'NaN', 'Infinity', '-Infinity', '1e9', '-1e9'];
     const cases = [];
-    for (const file of EXPECTED_SCRIPTS)
+    for (const file of onlyRequested(EXPECTED_SCRIPTS))
         for (const property of loadScript(file).properties.map(parseProperty))
             if (property.type === 'float' || property.type === 'range')
                 cases.push({ label: `${file} ${property.name}`, file, property });
@@ -1892,7 +1898,7 @@ function assertRenderRateIndependence() {
         }
         return means;
     };
-    runCases('X4 output does not depend on the render rate', EXPECTED_SCRIPTS.map(file => ({ label: file, file })), ({ file }) => {
+    runCases('X4 output does not depend on the render rate', onlyRequested(EXPECTED_SCRIPTS).map(file => ({ label: file, file })), ({ file }) => {
         const [slow, fast] = [25, 100].map(hz => sample(file, hz));
         const worst = Math.max(...slow.map((value, i) => Math.abs(value - fast[i])));
         assert(worst <= 0.05, `mean brightness after the music stops differs by ${worst.toFixed(3)} between 25 and 100 Hz`);
@@ -1905,7 +1911,7 @@ function assertHueMixingStaysOnPalette() {
         { h: 0.03, s: 1, v: 1 }, { h: 0.0, s: 1, v: 1 }];
     const cases = [
         ['audioblurz.js', []], ['audioscan.js', []], ['audiotunnel.js', []], ['audiovortex.js', []]
-    ].map(([file, settings]) => ({ label: file, file, settings }));
+    ].filter(([file]) => onlyRequested([file]).length).map(([file, settings]) => ({ label: file, file, settings }));
     runCases('X5 hue mixing stays on a red palette', cases, ({ file, settings }) => {
         const context = sharedScriptContext();
         const instance = context.load(file);
@@ -1937,7 +1943,7 @@ function assertDegenerateGeometryStillLights() {
         { label: 'equalizer2d Ring, 2 bands', file: 'audioequalizer2d.js', size: [16, 16], check: 'lit',
             settings: [['mode', 'Ring'], ['bandCount', '2']] }
     ];
-    runCases('X6 degenerate geometry still lights', cases, c => {
+    runCases('X6 degenerate geometry still lights', cases.filter(c => onlyRequested([c.file]).length), c => {
         const context = sharedScriptContext();
         const instance = context.load(c.file);
         for (const [name, value] of c.settings || [])
