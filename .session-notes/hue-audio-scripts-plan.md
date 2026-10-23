@@ -106,7 +106,10 @@ group tests: X5 power/flame/strobe, X6 reactor Nx1 (D4), splittower narrow (F3, 
   Red: blurz, scan, power, flame, tunnel, vortex, strobe tint.
 - [~] X6 Degenerate geometry under loud input (1xN, Nx1, narrow): lit and not uniform where the effect has a spatial axis.
 
-Per group (agents): one parametrized test per bug in the group sections below.
+- [x] H1 `mod1(-1e-20)` returns 1; H2 `gradientAt(NaN)` throws (`assertSharedHelperBugs`, red, 69c85d855).
+
+Per group (agents): one parametrized test per bug in the group sections below, inside `assertGroupABugs`..
+`assertGroupFBugs` (stubs committed in 9531f83b5 so parallel agents never touch the same lines).
 
 ## Phase 4: bug fixes
 
@@ -258,3 +261,6 @@ Group F
   harness frames), spotlight stops[0] per frame (spots keep spawn-time color). Proposed: eventCount helper.
 - 2026-10-24 Phase 2 groups merged (ad10b0993): equivalence 63/63 exact vs 90447f48c, harness 63/63, engine
   tests green apart from the new red ones. Scripts: 1137+/2741-. Cross-cutting red tests committed next.
+- 2026-10-24 Red tests committed (f6497ece6, 69c85d855). Running in parallel: phase 2 round 2 (cross-file
+  helpers proposed by the group agents, fix/hue-audio-scripts-shared-helpers) and group red tests
+  (fix/hue-audio-scripts-red-a..f).
