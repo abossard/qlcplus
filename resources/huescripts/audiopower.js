@@ -27,14 +27,6 @@ var testAlgo;
     algo.setMode = function(v) { algo.presetMode = v === "LedFx Power" ? v : "Artistic"; };
     algo.getMode = function() { return algo.presetMode; };
 
-    var DEFAULT_GRADIENT = [
-        {h: 0.0,   s: 1.0, v: 1.0},
-        {h: 0.078, s: 1.0, v: 1.0},
-        {h: 0.131, s: 1.0, v: 1.0},
-        {h: 0.333, s: 1.0, v: 1.0},
-        {h: 0.611, s: 0.75, v: 1.0}
-    ];
-
     algo.blur = 0.0;
     algo.bass_decay_rate = 0.05;
     algo.sparks_decay_rate = 0.15;
@@ -65,24 +57,12 @@ var testAlgo;
     algo.properties.push("name:presetSmoothing|type:range|display:Smoothing|values:1,10|write:setSmoothing|read:getSmoothing");
     algo.setSmoothing = function(v) { algo.presetSmoothing = parseInt(v); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
-    var readOutputControls = HSVUtil.attachStripTransformControls(algo, {
-        display: "",
-        defaults: {
-            flip: "Off",
-            mirror: "Off",
-            backgroundMode: "Off",
-            backgroundColor: "#000000",
-            backgroundBrightness: 1,
-            brightness: 1
-        }
-    });
+    var readOutputControls = HSVUtil.attachStripTransformControls(algo);
 
     var smoothBands = [0, 0, 0, 0, 0];
 
     // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
+    var barState = {bar: 0, flash: 0};
 
     var sparksV = null;
     var bassV = null;
@@ -120,10 +100,6 @@ var testAlgo;
         for (var i = 0; i < arr.length; i++) arr[i] *= factor;
     }
 
-    function gradientStops() {
-        return (algo.colors && algo.colors.length >= 3) ? algo.colors : DEFAULT_GRADIENT;
-    }
-
     function boxBlur(strip, radius) {
         if (radius < 0.5) return strip;
         var n = strip.length;
@@ -154,9 +130,7 @@ var testAlgo;
         lastIdentityKey = identityKey;
         if (identityChanged) {
             smoothBands = [0, 0, 0, 0, 0];
-            barEnergy = 0;
-            peakEnergy = 0;
-            releaseFlash = 0;
+            barState = {bar: 0, flash: 0};
             lastW = 0;
             sparksV = null;
             bassV = null;
@@ -169,10 +143,10 @@ var testAlgo;
             lastMode = algo.presetMode;
             lastLedN = 0;
         }
+        var stops = algo.colors;
         if (ledFxMode) {
             var n = width * height;
             ensureLed(n);
-            var stops = gradientStops();
             var sparkRgb = HSVUtil.parseHexRgb(algo.sparks_color);
             var elapsed = HSVUtil.audioSeconds(audio);
             var elapsedSteps = elapsed * 60;
@@ -223,12 +197,9 @@ var testAlgo;
                 ledBass[b][2] = bassColor[2];
             }
 
-            var novelty = [];
-            var bank = audio && audio.banks && audio.banks.full;
-            if (bank && bank.count && Array.isArray(bank.novelty))
-                novelty = HSVUtil.interpolate(bank.novelty, n);
-            else
-                novelty = new Array(n).fill(0);
+            var bank = audio.banks && audio.banks.full;
+            var novelty = bank && bank.count && Array.isArray(bank.novelty)
+                ? HSVUtil.interpolate(bank.novelty, n) : new Array(n).fill(0);
 
             for (var x = 0; x < n; x++) {
                 var spatial = n <= 1 ? 0 : x / (n - 1);
@@ -254,7 +225,6 @@ var testAlgo;
         // Sparks on onset
         if (audio.onset) {
             var numSparks = Math.floor(width / 20);
-            var stops = gradientStops();
             sparkColor = stops[stops.length - 1];
             for (var s = 0; s < numSparks; s++) {
                 var sx = Math.floor(Math.random() * width);
@@ -263,35 +233,21 @@ var testAlgo;
         }
 
         // Bass fill from left
-        var bassRaw = audio.low;
-        var bass = Math.max(0, Math.min(1, bassRaw));
+        var bass = Math.max(0, Math.min(1, audio.low));
         var bassIdx = Math.floor(bass * width);
-        var bassHsv = HSVUtil.gradientAt(gradientStops(), bass);
+        var bassHsv = HSVUtil.gradientAt(stops, bass);
         for (var i = 0; i < bassIdx && i < width; i++)
             bassV[i] = bassHsv.v;
 
         // Build 5-band interpolated power strip
         var rawBands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
-        // Asymmetric EMA per bin (fast attack, slow decay)
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        for (var sb = 0; sb < 5; sb++) {
-            var sa = rawBands[sb] > smoothBands[sb] ? riseAlpha : decayAlpha;
-            smoothBands[sb] += sa * (rawBands[sb] - smoothBands[sb]);
-        }
+        for (var sb = 0; sb < 5; sb++)
+            smoothBands[sb] = HSVUtil.smoothFollow(smoothBands[sb], rawBands[sb], algo.presetSmoothing);
         var bands = smoothBands;
 
         // --- Bar-level build-up ---
         var rawEnergy = (audio.low + audio.mid * 0.5 + audio.high * 0.3) / 1.8;
-        barEnergy += rawEnergy * audio.dt;
-        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-        if (audio.downbeat) {
-            releaseFlash = Math.min(1, peakEnergy * 0.5);
-            barEnergy = 0;
-            peakEnergy = 0;
-        }
-        releaseFlash *= 0.85;
+        HSVUtil.barEnvelope(barState, rawEnergy, audio.dt, audio.downbeat, 0.85);
 
         var strip = new Array(width);
         for (var x = 0; x < width; x++) {
@@ -303,9 +259,9 @@ var testAlgo;
             var frac = bandPos - lo;
             var melVal = bands[lo] * (1 - frac) + bands[hi] * frac;
 
-            var gradHsv = HSVUtil.gradientAt(gradientStops(), spatial);
+            var gradHsv = HSVUtil.gradientAt(stops, spatial);
             // Release briefly expands all bars toward peak
-            var baseV = gradHsv.v * Math.min(1, melVal + releaseFlash * 0.3);
+            var baseV = gradHsv.v * Math.min(1, melVal + barState.flash * 0.3);
             var bV = bassV[x];
             var spV = sparksV[x];
             var totalV = Math.max(0, Math.min(1, baseV + bV + spV));

@@ -32,17 +32,6 @@ var testAlgo;
     };
     algo.getMode = function() { return algo.presetMode; };
 
-    var DEFAULT_HSV_STOPS = [
-        { h: 0.000, s: 1.0, v: 1.0 },  // red
-        { h: 0.078, s: 1.0, v: 1.0 },  // orange
-        { h: 0.137, s: 1.0, v: 1.0 },  // yellow
-        { h: 0.333, s: 1.0, v: 1.0 },  // green
-        { h: 0.444, s: 1.0, v: 0.78 },
-        { h: 0.667, s: 1.0, v: 1.0 },  // blue
-        { h: 0.833, s: 1.0, v: 0.50 }, // purple
-        { h: 0.917, s: 1.0, v: 1.0 }   // magenta
-    ];
-
     algo.density = 0.5;
     algo.lower = 0.01;
     algo.density_vertical = 0.1;
@@ -101,8 +90,8 @@ var testAlgo;
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPower = 0;
+    var position = 0;
 
-    var timeState = { position: 0 };
     var sourceModeState = {
         mode: "",
         audioIdentity: "",
@@ -118,17 +107,31 @@ var testAlgo;
         COS8[lut] = Math.max(0, Math.min(255, Math.floor(Math.cos(lut * (2 * Math.PI / 255)) * 127.5 + 127.5)));
     }
 
-    function gradientStops() {
-        return (algo.colors && algo.colors.length > 0)
-            ? algo.colors : DEFAULT_HSV_STOPS;
-    }
-
     function powerFor(audio) {
         if (algo.frequency_range === "Beat") return audio.beat;
         if (algo.frequency_range === "Bass") return audio.bass;
         if (algo.frequency_range === "Mids") return audio.mid;
         if (algo.frequency_range === "High") return audio.high;
         return audio.low; // Lows (beat+bass)
+    }
+
+    // Coordinate ranges match np.ogrid[0:min(W,W*scale):complex(W)].
+    function plasmaValues(width, height, power, time) {
+        var scale = algo.lower + (power * algo.density);
+        var xStep = (width > 1) ? Math.min(width, width * scale) / (width - 1) : 0;
+        var yStep = (height > 1) ? Math.min(height, height * scale) / (height - 1) : 0;
+        var values = new Array(width * height);
+        for (var iy = 0; iy < height; iy++) {
+            var y = iy * yStep;
+            for (var ix = 0; ix < width; ix++) {
+                var x = ix * xStep;
+                values[iy * width + ix] =
+                    Math.sin(x * 0.1 + time) * Math.cos(y * 0.1 - time) +
+                    Math.sin((x * algo.density_vertical + y * algo.twist + time) * 2.5) +
+                    Math.sin(Math.sqrt(x * x + y * y) * algo.radius - time);
+            }
+        }
+        return values;
     }
 
     function resetSourceModeState() {
@@ -183,46 +186,23 @@ var testAlgo;
         if (width <= 0 || height <= 0) return map;
         var mode = algo.presetMode;
         var dtSeconds = HSVUtil.audioSeconds(audio);
-        var dtBeats = isFinite(audio.dt) ? audio.dt : (dtSeconds * (audio.bpm > 0 ? audio.bpm : 120) / 60);
-        var selectedPower = HSVUtil.clamp01(isFinite(powerFor(audio)) ? powerFor(audio) : 0);
+        var rawPower = powerFor(audio);
+        var power = HSVUtil.clamp01(isFinite(rawPower) ? rawPower : 0);
 
         if (mode === "Plasma2d") {
             syncSourceModeState(mode, width, height, audio);
             sourceModeState.seconds += dtSeconds;
-            var plasmaTime = sourceModeState.seconds;
-            var densityP = algo.density;
-            var lowerP = algo.lower;
-            var densityVerticalP = algo.density_vertical;
-            var twistP = algo.twist;
-            var radiusP = algo.radius;
-            var scaleP = lowerP + (selectedPower * densityP);
-            var xExtentP = Math.min(width, width * scaleP);
-            var yExtentP = Math.min(height, height * scaleP);
-            var xStepP = (width > 1) ? xExtentP / (width - 1) : 0;
-            var yStepP = (height > 1) ? yExtentP / (height - 1) : 0;
-            var hsvStopsP = gradientStops();
-            var values = new Array(width * height);
+            var values = plasmaValues(width, height, power, sourceModeState.seconds);
             var minV = Infinity;
             var maxV = -Infinity;
-            for (var iyP = 0; iyP < height; iyP++) {
-                var yP = iyP * yStepP;
-                for (var ixP = 0; ixP < width; ixP++) {
-                    var xP = ixP * xStepP;
-                    var rawV = (
-                        Math.sin(xP * 0.1 + plasmaTime) * Math.cos(yP * 0.1 - plasmaTime) +
-                        Math.sin((xP * densityVerticalP + yP * twistP + plasmaTime) * 2.5) +
-                        Math.sin(Math.sqrt(xP * xP + yP * yP) * radiusP - plasmaTime)
-                    );
-                    values[iyP * width + ixP] = rawV;
-                    if (rawV < minV) minV = rawV;
-                    if (rawV > maxV) maxV = rawV;
-                }
+            for (var m = 0; m < values.length; m++) {
+                if (values[m] < minV) minV = values[m];
+                if (values[m] > maxV) maxV = values[m];
             }
+            var span = maxV - minV;
             for (var p = 0; p < values.length; p++) {
-                var tP = 0;
-                var span = maxV - minV;
-                if (span > 0) tP = HSVUtil.clamp01((values[p] - minV) / span);
-                var hsvP = HSVUtil.gradientLedfxAt(hsvStopsP, tP);
+                var tP = span > 0 ? HSVUtil.clamp01((values[p] - minV) / span) : 0;
+                var hsvP = HSVUtil.gradientLedfxAt(algo.colors, tP);
                 map[p * 3] = hsvP.h;
                 map[p * 3 + 1] = hsvP.s;
                 map[p * 3 + 2] = hsvP.v;
@@ -232,13 +212,11 @@ var testAlgo;
 
         if (mode === "PlasmaWled2d") {
             syncSourceModeState(mode, width, height, audio);
-            var hsvStopsW = gradientStops();
-            var powerW = selectedPower * 2;
-            var sizeb = powerW * Math.max(0, algo.presetSizeMultiplier);
-            var speedb = powerW * Math.max(0, algo.presetSpeedMultiplier);
-            var speedDivisor = parseByteControl(algo.presetSpeedDivisor, 32);
+            var powerW = power * 2;
+            var sizeb = powerW * algo.presetSizeMultiplier;
+            var speedb = powerW * algo.presetSpeedMultiplier;
             // Source control allows 0. Use +1 as the safe effective denominator.
-            var speedDenominator = speedDivisor + 1;
+            var speedDenominator = algo.presetSpeedDivisor + 1;
             var a;
             if (algo.presetSpeedMultiplier > 0) {
                 sourceModeState.motion += speedb * dtSeconds * 60;
@@ -247,8 +225,8 @@ var testAlgo;
                 sourceModeState.freeSeconds += dtSeconds;
                 a = Math.floor(sourceModeState.freeSeconds * 1000) / speedDenominator;
             }
-            var baseHStretch = parseByteControl(algo.presetHorizontalStretch, 100);
-            var baseVStretch = parseByteControl(algo.presetVerticalStretch, 100);
+            var baseHStretch = algo.presetHorizontalStretch;
+            var baseVStretch = algo.presetVerticalStretch;
             var hStretch = Math.max(0, baseHStretch - (sizeb * baseHStretch / 3));
             var vStretch = Math.max(0, baseVStretch - (sizeb * baseVStretch / 3));
             for (var iyW = 0; iyW < height; iyW++) {
@@ -256,60 +234,26 @@ var testAlgo;
                     var xVal = iyW * hStretch / 16 + a / 3;
                     var yVal = ixW * vStretch / 16 + a / 4;
                     var wave = sin8(cos8(xVal) + sin8(yVal) + a) / 255;
-                    var hsvW = HSVUtil.gradientLedfxAt(hsvStopsW, HSVUtil.clamp01(wave));
+                    var hsvW = HSVUtil.gradientLedfxAt(algo.colors, HSVUtil.clamp01(wave));
                     HSVUtil.setPixel(map, width, ixW, iyW, hsvW.h, hsvW.s, hsvW.v);
                 }
             }
             return map;
         }
 
-        var rawPower = powerFor(audio);
-        // Asymmetric EMA smoothing (fast attack, slow decay)
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        smoothPower += (rawPower > smoothPower ? riseAlpha : decayAlpha) * (rawPower - smoothPower);
-        var power = smoothPower;
+        smoothPower = HSVUtil.smoothFollow(smoothPower, rawPower, algo.presetSmoothing);
 
-        var dt = dtBeats;
         // BPM-scaled free-running time replaces LedFX's wall-clock self.now.
         // One unit of "time" advances per beat (matches LedFX seconds at 60 BPM).
-        var time = ((timeState.position = (timeState.position || 0) + dt) && timeState.position);
+        position += isFinite(audio.dt) ? audio.dt : (dtSeconds * (audio.bpm > 0 ? audio.bpm : 120) / 60);
 
-        var density = algo.density;
-        var lower = algo.lower;
-        var density_vertical = algo.density_vertical;
-        var twist = algo.twist;
-        var radius = algo.radius;
-
-        // scale = lower + (power * density)
-        var scale = lower + (power * density);
-
-        // Coordinate ranges, matching np.ogrid[0:min(W,W*scale):complex(W)]
-        var xExtent = Math.min(width,  width  * scale);
-        var yExtent = Math.min(height, height * scale);
-        var xStep = (width  > 1) ? xExtent / (width  - 1) : 0;
-        var yStep = (height > 1) ? yExtent / (height - 1) : 0;
-
-        var hsvStops = gradientStops();
-
-        for (var iy = 0; iy < height; iy++) {
-            var y = iy * yStep;
-            for (var ix = 0; ix < width; ix++) {
-                var x = ix * xStep;
-
-                var v1 = Math.sin(x * 0.1 + time) * Math.cos(y * 0.1 - time);
-                var v2 = Math.sin((x * density_vertical + y * twist + time) * 2.5);
-                var v3 = Math.sin(Math.sqrt(x * x + y * y) * radius - time);
-
-                // No per-frame normalization. Map raw sum into [0,1].
-                var t = (v1 + v2 + v3 + 3) / 6.0;
-                if (t < 0) t = 0; else if (t > 1) t = 1;
-
-                var hsv = HSVUtil.gradientAt(hsvStops, t);
-                var i = (iy * width + ix) * 3;
-                map[i] = hsv.h; map[i+1] = hsv.s; map[i+2] = hsv.v;
-            }
+        var plasma = plasmaValues(width, height, smoothPower, position);
+        for (var i = 0; i < plasma.length; i++) {
+            // No per-frame normalization. Map raw sum into [0,1].
+            var hsv = HSVUtil.gradientAt(algo.colors, HSVUtil.clamp01((plasma[i] + 3) / 6.0));
+            map[i * 3] = hsv.h;
+            map[i * 3 + 1] = hsv.s;
+            map[i * 3 + 2] = hsv.v;
         }
 
         return map;
