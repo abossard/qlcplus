@@ -2424,6 +2424,333 @@ function assertGroupBBugs() {
 
 // Group C bugs from .session-notes/hue-audio-scripts-plan.md: one parametrized test per bug.
 function assertGroupCBugs() {
+    const rgbAt = (map, i) => engineRgb(map[i * 3], map[i * 3 + 1], map[i * 3 + 2]);
+    const chroma = rgb => Math.max(...rgb) > 0 ? 1 - Math.min(...rgb) / Math.max(...rgb) : 0;
+    const showRgb = rgb => rgb.map(channel => channel.toFixed(2)).join(',');
+    const maxRgbDiff = (a, b) => {
+        let worst = 0;
+        for (let i = 0; i < a.length / 3; i++) {
+            const left = rgbAt(a, i), right = rgbAt(b, i);
+            worst = Math.max(worst, ...left.map((channel, k) => Math.abs(channel - right[k])));
+        }
+        return worst;
+    };
+    const circularDistance = (a, b) => {
+        const d = Math.abs(a - b) % 1;
+        return Math.min(d, 1 - d);
+    };
+    const configured = (file, settings, seed) => {
+        const context = sharedScriptContext();
+        const instance = context.load(file, seed);
+        for (const [name, value] of settings)
+            setProperty(instance.algo, name, value);
+        return { context, instance };
+    };
+    const loudFlame = n => loudFrame(n, { beat: 1, bass: 1, mid: 1, high: 1 });
+    const onlyLowFlame = color => [['colorLow', color], ['colorMid', '#000000'], ['colorHigh', '#000000']];
+
+    // LedFx equalizer2d.py _draw_normal_peaks() draws two markers at +-peak around the center.
+    runCases('C2 equalizer2d centered bars keep the band color between the peak markers', [
+        { label: '1x10 level 0.6', height: 10, level: 0.6, thickness: '1' },
+        { label: '1x16 level 0.7', height: 16, level: 0.7, thickness: '1' },
+        { label: '1x20 level 0.9, thickness 2', height: 20, level: 0.9, thickness: '2' }
+    ], c => {
+        const { context, instance } = configured('audioequalizer2d.js',
+            [['center', 'On'], ['bandCount', '1'], ['peakThickness', c.thickness]]);
+        const map = context.render(instance, 1, c.height, engineAudio({ bins: Array(24).fill(c.level) }));
+        const center = Math.floor(c.height / 2);
+        const rgb = rgbAt(map, center);
+        assert(chroma(rgb) > 0.3, `center row ${center} shows the white peak color ${showRgb(rgb)}, not the band color`);
+    });
+
+    // LedFx game_of_life.py HEALTH_CHECK_OPTIONS_VALUES: "All" checks for a dead and for an oscillating board.
+    runCases('C3 gameoflife health check All restarts dead and frozen boards', [
+        { label: '4x4 board dies', size: [4, 4], seed: 1 },
+        { label: '8x8 board dies', size: [8, 8], seed: 2 },
+        { label: '4x3 board settles into a still life', size: [4, 3], seed: 3 }
+    ], c => {
+        const { context, instance } = configured('audiogameoflife.js',
+            [['healthCheck', 'All'], ['rate', '20'], ['source', 'Mids']], c.seed);
+        let previous = null, frozen = 0, longest = 0;
+        for (let n = 1; n <= 300; n++) {
+            const map = Array.from(context.render(instance, c.size[0], c.size[1], engineAudio({ mid: 1, frameSequence: n })));
+            frozen = previous && map.every((value, i) => value === previous[i]) ? frozen + 1 : 0;
+            longest = Math.max(longest, frozen);
+            previous = map;
+        }
+        assert(longest * 0.02 < 1.5, `board stays frozen for ${(longest * 0.02).toFixed(2)} s with a health check every 1 s`);
+    });
+
+    // LedFx hsv_effect.py triangle(x) = 1 - 2|x - 0.5|; glitch.py render_hsv() builds m, c, s1, s2 and the
+    // saturation from it. Hue and saturation follow glitch.py; the gradient lookup is the port's own.
+    runCases('C4 glitch LedFx mode follows the LedFx triangle wave', [
+        { label: '8x1 after 3.3 s', size: [8, 1], seconds: 3.3, saturation: 1 },
+        { label: '12x1 after 1 s, saturation threshold 0', size: [12, 1], seconds: 1, saturation: 0 },
+        { label: '6x2 after 20 s, saturation threshold 0.5', size: [6, 2], seconds: 20, saturation: 0.5 }
+    ], c => {
+        const { context, instance } = configured('audioglitch.js',
+            [['mode', 'LedFx Glitch'], ['presetSaturation', String(c.saturation)]]);
+        const frames = Math.round(c.seconds * 50);
+        let map;
+        for (let n = 1; n <= frames; n++)
+            map = context.render(instance, c.size[0], c.size[1], engineAudio({ frameSequence: n }));
+        const util = context.sandbox.HSVUtil;
+        const speed = instance.algo.getSpeed();
+        const time = modifier => ((frames * 20) % (65536 / modifier)) / (65536 / modifier);
+        const triangle = x => 1 - 2 * Math.abs(x - 0.5);
+        const mod = (x, m) => ((x % m) + m) % m;
+        const count = c.size[0] * c.size[1];
+        const m = 0.3 + triangle(time(speed * 0.5)) * 0.2;
+        const k = triangle(time(speed * 2.5)) * 10 + 4 * Math.sin(time(speed) * Math.PI * 2);
+        const stops = util.ledFxGradientStops(instance.algo);
+        for (let i = 0; i < count; i++) {
+            const h = mod((i - count / 2) / count * k, m) + Math.sin(time(speed * 0.5) * Math.PI * 2);
+            const s1 = Math.pow(triangle(mod(time(speed * 0.25) + 5 * i / (count - 1), 1)), 2);
+            const s2 = Math.pow(triangle(mod(time(speed * 10) + 1 - i / (count - 1), 1)), 4);
+            const sat = Math.min(1, Math.max(c.saturation, 1 - triangle(s1 * s2)));
+            const base = util.gradientRgbAt(stops, util.mod1(h));
+            const expected = base.map(channel => channel + (Math.max(...base) - channel) * (1 - sat));
+            const actual = rgbAt(map, i);
+            assert(Math.max(...expected.map((channel, j) => Math.abs(channel - actual[j]))) < 0.02,
+                `pixel ${i}: rgb ${showRgb(actual)}, LedFx gives ${showRgb(expected)}`);
+        }
+    });
+
+    runCases('C5 flame spawns at low power', [
+        { label: 'power 0.2', power: 0.2, intensity: '1' },
+        { label: 'power 0.5', power: 0.5, intensity: '1' },
+        { label: 'power 1, intensity 0.5', power: 1, intensity: '0.5' }
+    ], c => {
+        const { context, instance } = configured('audioflame.js', [['intensity', c.intensity]]);
+        const p = c.power;
+        let peak = 0;
+        for (let n = 1; n <= 150; n++)
+            peak = Math.max(peak, meanV(context.render(instance, 8, 6,
+                engineAudio({ beat: p, bass: p, mid: p, high: p, frameSequence: n }))));
+        assert(peak > 0.001, `no flame in 3 s at power x intensity ${(p * Number(c.intensity)).toFixed(2)}`);
+    });
+
+    runCases('C6 flame keeps an achromatic color achromatic', [
+        { label: 'High #ffffff (its default)', property: 'colorHigh', color: '#ffffff' },
+        { label: 'Low #ffffff', property: 'colorLow', color: '#ffffff' },
+        { label: 'Mid #c0c0c0', property: 'colorMid', color: '#c0c0c0' }
+    ], c => {
+        const { context, instance } = configured('audioflame.js', ['colorLow', 'colorMid', 'colorHigh']
+            .map(name => [name, name === c.property ? c.color : '#000000']));
+        for (let n = 0; n < 100; n++) {
+            const map = context.render(instance, 8, 6, loudFlame(n));
+            for (let i = 0; i < map.length / 3; i++) {
+                const rgb = rgbAt(map, i);
+                assert(Math.max(...rgb) < 0.05 || chroma(rgb) <= 0.15,
+                    `frame ${n} pixel ${i}: rgb ${showRgb(rgb)} from ${c.color}`);
+            }
+        }
+    });
+
+    runCases('C8 flame top trip dims only the brightness', [
+        { label: 'defaults 8x4', size: [8, 4], trips: '2', colors: [] },
+        { label: 'blue flame 8x4, 10 trips/s', size: [8, 4], trips: '10', colors: onlyLowFlame('#0000ff') },
+        { label: 'green flame 6x1, 5 trips/s', size: [6, 1], trips: '5', colors: onlyLowFlame('#00ff00') }
+    ], c => {
+        const run = trips => {
+            const { context, instance } = configured('audioflame.js', [['blur', '0'], ['topTrips', trips]].concat(c.colors));
+            return Array.from({ length: 150 }, (_, n) =>
+                Array.from(context.render(instance, c.size[0], c.size[1], loudFlame(n))));
+        };
+        const tripped = run(c.trips), plain = run('0');
+        const unit = rgb => rgb.map(channel => channel / Math.max(...rgb));
+        let trips = 0;
+        for (let n = 0; n < plain.length; n++) {
+            for (let x = 0; x < c.size[0]; x++) {
+                const before = rgbAt(plain[n], x), after = rgbAt(tripped[n], x);
+                if (Math.max(...before) < 0.02 || Math.max(...after) >= Math.max(...before) - 1e-6)
+                    continue;
+                trips++;
+                const shift = Math.max(...unit(before).map((channel, k) => Math.abs(channel - unit(after)[k])));
+                assert(shift < 0.01, `frame ${n} pixel ${x}: the trip turns rgb ${showRgb(before)} into ${showRgb(after)}`);
+            }
+        }
+        assert(trips > 0, 'no top trip seen');
+    });
+
+    // Each blurred flame pixel must keep a hue of the flame pixels it blends (D3); black carries no hue.
+    runCases('C9 flame blur keeps the flame hue', [
+        { label: 'blue flame 8x6, blur 0.3', color: '#0000ff', blur: '0.3', size: [8, 6] },
+        { label: 'red flame across hue 0, 12x8, blur 1', color: '#ff0033', blur: '1', size: [12, 8] },
+        { label: 'blue flame 4x4, blur 1', color: '#0000ff', blur: '1', size: [4, 4] }
+    ], c => {
+        const run = blur => {
+            const { context, instance } = configured('audioflame.js',
+                [['blur', blur], ['topTrips', '0']].concat(onlyLowFlame(c.color)));
+            return Array.from({ length: 100 }, (_, n) =>
+                Array.from(context.render(instance, c.size[0], c.size[1], loudFlame(n))));
+        };
+        const blurred = run(c.blur), sharp = run('0');
+        for (let n = 0; n < sharp.length; n++) {
+            const hues = [];
+            for (let i = 0; i < sharp[n].length; i += 3)
+                if (sharp[n][i + 2] > 0.02) hues.push(sharp[n][i]);
+            for (let i = 0; i < blurred[n].length; i += 3) {
+                const [h, s, v] = blurred[n].slice(i, i + 3);
+                if (v < 0.02 || s < 0.1) continue;
+                const nearest = Math.min(...hues.map(hue => circularDistance(h, hue)));
+                assert(nearest < 0.06,
+                    `frame ${n} pixel ${i / 3}: hue ${h.toFixed(3)} is ${nearest.toFixed(3)} away from every flame hue`);
+            }
+        }
+    });
+
+    // The reference is a fresh instance that sees only the current level, so its peak equals that level.
+    runCases('C10 equalizer2d peak marker never drops below the current level', [
+        { label: '1x20 level 0.5 then 0.49', height: 20, levels: [0.5, 0.49], decay: '0.15' },
+        { label: '1x20 level 0.8 then 0.75', height: 20, levels: [0.8, 0.75], decay: '0.15' },
+        { label: '1x32 level 0.6 then 0.55, peak decay 0.5', height: 32, levels: [0.6, 0.55], decay: '0.5' }
+    ], c => {
+        const markerRow = levels => {
+            const { context, instance } = configured('audioequalizer2d.js', [['bandCount', '1'], ['peakDecay', c.decay]]);
+            let map;
+            for (const level of levels)
+                map = context.render(instance, 1, c.height, engineAudio({ bins: Array(24).fill(level) }));
+            const rows = Array.from({ length: c.height }, (_, y) => rgbAt(map, y));
+            const markers = rows.map((rgb, y) => chroma(rgb) < 0.05 && Math.max(...rgb) > 0.9 ? y : -1).filter(y => y >= 0);
+            assert(markers.length > 0, `no peak marker drawn for levels ${levels}`);
+            return Math.max(...markers);
+        };
+        const decayed = markerRow(c.levels), current = markerRow(c.levels.slice(-1));
+        assert(decayed <= current, `peak marker at row ${decayed}, below row ${current} where the current level alone puts it`);
+    });
+
+    // rgbMapStepCount() is 1, so the engine passes step 0 on every render.
+    runCases('C12 hueshift wave moves with step fixed at 0', [
+        { label: '8x1 silence', size: [8, 1], levels: {} },
+        { label: '6x4 steady music', size: [6, 4], levels: { beat: 0.6, bass: 0.6, mid: 0.3, high: 0.2 } }
+    ], c => {
+        const { context, instance } = configured('audiohueshift.js', []);
+        const maps = [];
+        for (let n = 1; n <= 300; n++)
+            maps.push(Array.from(context.render(instance, c.size[0], c.size[1],
+                engineAudio(Object.assign({ frameSequence: n }, c.levels)))));
+        const motion = Math.max(...maps.slice(100).map(map => maxRgbDiff(maps[99], map)));
+        assert(motion > 0.01, `the wave stands still from 2 s to 6 s (largest change ${motion.toFixed(4)})`);
+    });
+
+    runCases('C13 flowfield trail halves after one half-life', [
+        { label: '300 ms at 50 Hz', trail: 300, hz: 50 },
+        { label: '1000 ms at 50 Hz', trail: 1000, hz: 50 },
+        { label: '150 ms at 25 Hz', trail: 150, hz: 25 }
+    ], c => {
+        const { context, instance } = configured('audioflowfield.js', [['presetTrailMs', String(c.trail)]]);
+        let previous = null, ratio = 0;
+        for (let n = 1; n <= 100; n++) {
+            const map = context.render(instance, 16, 8, engineAudio({ deltaSeconds: 1 / c.hz,
+                beat: 0.5, bass: 0.5, mid: 0.4, high: 0.3, frameSequence: n }));
+            if (previous)
+                for (let i = 2; i < map.length; i += 3)
+                    if (previous[i] > 0.05 && map[i] < previous[i]) ratio = Math.max(ratio, map[i] / previous[i]);
+            previous = map;
+        }
+        const left = Math.pow(ratio, c.trail / 1000 * c.hz);
+        assert(Math.abs(left - 0.5) < 0.01, `an untouched trail keeps ${left.toFixed(3)} of its brightness after one half-life`);
+    });
+
+    // With no field or morph speed the field is still and every particle moves straight along +x,
+    // so every column sees the same traffic.
+    runCases('C14 flowfield covers the edge columns like the interior', [
+        { label: '10x10, 20 particles', size: [10, 10], particles: '20', seed: 1 },
+        { label: '8x8, 10 particles', size: [8, 8], particles: '10', seed: 3 },
+        { label: '12x6, 15 particles', size: [12, 6], particles: '15', seed: 4 }
+    ], c => {
+        const { context, instance } = configured('audioflowfield.js', [['presetParticleCount', c.particles],
+            ['presetTrailMs', '50'], ['presetFieldSpeed', '0'], ['presetMorphSpeed', '0']], c.seed);
+        const [w, h] = c.size;
+        const columns = new Array(w).fill(0);
+        for (let n = 1; n <= 3000; n++) {
+            const map = context.render(instance, w, h, engineAudio({ beat: 0.5, bass: 0.5, mid: 0.4, frameSequence: n }));
+            for (let i = 0; i < w * h; i++) columns[i % w] += map[i * 3 + 2];
+        }
+        const interior = columns.slice(1, -1).reduce((sum, value) => sum + value, 0) / (w - 2);
+        for (const x of [0, w - 1])
+            assert(columns[x] / interior > 0.85,
+                `column ${x} gets ${(columns[x] / interior).toFixed(2)} of the interior coverage`);
+    });
+
+    // Both stalls exceed the per-render step cap; once the backlog is dropped both continue alike.
+    runCases('C15 fire drops the step backlog after a stall', [
+        { label: '16x1, 60 s stall vs 5 s stall', size: [16, 1], stalls: [60, 5] },
+        { label: '8x4, 600 s stall vs 10 s stall', size: [8, 4], stalls: [600, 10] }
+    ], c => {
+        const afterStall = stall => {
+            const { context, instance } = configured('audiofire.js', [['mode', 'LedFx Fire']]);
+            const frame = (n, seconds) => engineAudio({ deltaSeconds: seconds, beat: 0.4, bass: 0.4, frameSequence: n });
+            for (let n = 1; n <= 50; n++)
+                context.render(instance, c.size[0], c.size[1], frame(n, 0.02));
+            context.render(instance, c.size[0], c.size[1], frame(51, stall));
+            return Array.from({ length: 60 }, (_, k) =>
+                Array.from(context.render(instance, c.size[0], c.size[1], frame(52 + k, 0.02))));
+        };
+        const [long, short] = c.stalls.map(afterStall);
+        const alike = long.filter((map, k) => maxRgbDiff(map, short[k]) < 1e-6).length;
+        assert(alike >= 30, `only ${alike}/60 frames after a ${c.stalls[0]} s stall match those after a ${c.stalls[1]} s stall`);
+    });
+
+    // LedFx hierarchy.py keeps last_mid while the lows play, so High follows one switch_time after the lows stop.
+    runCases('C16 hierarchy switches to High one switch time after the lows stop',
+        [0.1, 0.3, 0.5].map(time => ({ label: `switch time ${time} s`, time })), c => {
+            const { context, instance } = configured('audiohierarchy.js', [['switchTime', String(c.time)]]);
+            for (let n = 1; n <= 50; n++)
+                context.render(instance, 4, 1, engineAudio({ beat: 0.6, bass: 0.6, high: 0.5, frameSequence: n }));
+            let switched = null;
+            for (let k = 1; k <= 100 && switched === null; k++) {
+                const rgb = rgbAt(context.render(instance, 4, 1, engineAudio({ high: 0.5, frameSequence: 50 + k })), 0);
+                if (rgb[2] > 0.3 && rgb[0] < 0.1 && rgb[1] < 0.1) switched = k * 0.02;
+            }
+            assert(switched !== null && switched <= c.time + 0.045,
+                `High takes over ${switched === null ? 'never' : `${switched.toFixed(2)} s`} after the lows stop`);
+        });
+
+    // Per-render steps (D1) that X4 does not see. Frame n of a case plays at n / hz seconds; n <= 0 is the
+    // run-up, and the map at `seconds` is compared between 25 and 100 Hz.
+    const ringAngle = (map, w, h) => {
+        let sx = 0, sy = 0;
+        for (let i = 0; i < w * h; i++) {
+            sx += ((i % w) + 0.5 - w / 2) * map[i * 3 + 2];
+            sy += (Math.floor(i / w) + 0.5 - h / 2) * map[i * 3 + 2];
+        }
+        return Math.atan2(sy, sx) / (2 * Math.PI);
+    };
+    const lopsidedBins = Array.from({ length: 24 }, (_, i) => i < 6 ? 0.9 : 0.25);
+    const pale = [{ h: 0.6, s: 0.3, v: 1 }, { h: 0.3, s: 0.3, v: 1 }, { h: 0.1, s: 0.3, v: 1 }];
+    runCases('C18 per-render steps do not depend on the render rate', [
+        { label: 'glitch Artistic flash decay', file: 'audioglitch.js', size: [8, 1], seconds: 0.04,
+            audio: n => ({ high: 0.5, onsetIntensity: 1, delta: { onset: n === 0 ? 1 : 0 } }) },
+        { label: 'glitch Artistic low-power time boost', file: 'audioglitch.js', size: [8, 1], seconds: 0.52,
+            colors: pale, audio: () => ({ beat: 1, bass: 1 }) },
+        { label: 'glitch2 low-power time boost', file: 'audioglitch2.js', size: [8, 1], seconds: 0.52,
+            audio: () => ({ beat: 1, bass: 1 }) },
+        { label: 'hueshift hue follow', file: 'audiohueshift.js', size: [4, 1], seconds: 0.12,
+            settings: [['presetWaveScale', '0']], audio: n => n <= 0 ? { mid: 0.8 } : { high: 0.8 } },
+        { label: 'hueshift volume smoothing', file: 'audiohueshift.js', size: [4, 1], seconds: 0.4,
+            settings: [['presetWaveScale', '0'], ['presetMinBrightness', '0']],
+            audio: n => n <= 0 ? { beat: 0.9, bass: 0.9, mid: 0.9, high: 0.9 } : {} },
+        { label: 'equalizer2d Ring spin after the lows stop', file: 'audioequalizer2d.js', size: [16, 16], seconds: 1,
+            settings: [['mode', 'Ring'], ['spin', '2'], ['bandCount', '6']], tolerance: 0.03,
+            difference: (a, b) => circularDistance(ringAngle(a, 16, 16), ringAngle(b, 16, 16)),
+            audio: n => n <= 0 ? { beat: 1, bass: 1, bins: lopsidedBins } : { bins: lopsidedBins } }
+    ], c => {
+        const sample = hz => {
+            const { context, instance } = configured(c.file, c.settings || []);
+            if (c.colors) instance.algo.colors = c.colors;
+            let map;
+            for (let n = 1 - hz; n <= Math.round(c.seconds * hz); n++)
+                map = context.render(instance, c.size[0], c.size[1], engineAudio(Object.assign(
+                    { tempoValid: true, deltaSeconds: 1 / hz, frameSequence: n + hz }, c.audio(n))));
+            return Array.from(map);
+        };
+        const tolerance = c.tolerance || 0.02;
+        const difference = (c.difference || maxRgbDiff)(sample(25), sample(100));
+        assert(difference <= tolerance,
+            `25 Hz and 100 Hz differ by ${difference.toFixed(3)} after ${c.seconds} s (limit ${tolerance})`);
+    });
 }
 
 
