@@ -90,13 +90,15 @@ var testAlgo;
             if (volume < state.trough) state.trough = volume;
             else state.trough += (volume - state.trough) * alphaDecay;
         }
-        var volumePixels = Math.floor(width * volume);
-        var minPixels = Math.floor(width * algo.presetMinVolume);
-        var maxPixels = Math.floor(width * algo.presetMaxVolume);
-        var peakSize = Math.floor(algo.presetPeakPercent * (width / 100));
-        var peakStart = Math.floor(width * state.peak);
+        // A single column is a meter along its height.
+        var length = width === 1 ? height : width;
+        var volumePixels = Math.floor(length * volume);
+        var minPixels = Math.floor(length * algo.presetMinVolume);
+        var maxPixels = Math.floor(length * algo.presetMaxVolume);
+        var peakSize = Math.floor(algo.presetPeakPercent * (length / 100));
+        var peakStart = Math.floor(length * state.peak);
         var peakEnd = peakStart + peakSize;
-        var troughEnd = Math.min(Math.floor(width * state.trough), width);
+        var troughEnd = Math.min(Math.floor(length * state.trough), length);
         var troughStart = troughEnd - peakSize;
         var colorMin = HSVUtil.hexToHsv(algo.presetColorMin);
         var colorMid = HSVUtil.hexToHsv(algo.presetColorMid);
@@ -104,12 +106,13 @@ var testAlgo;
         var colorPeak = HSVUtil.hexToHsv(algo.presetColorPeak);
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
+                var p = width === 1 ? y : x;
                 var c = {h: 0, s: 0, v: 0};
-                if (x >= peakStart && x < peakEnd) c = colorPeak;
-                else if (x >= troughStart && x < troughEnd) c = colorPeak;
-                else if (x < volumePixels && x < minPixels) c = colorMin;
-                else if (x < volumePixels && x < maxPixels) c = colorMid;
-                else if (x < volumePixels) c = colorMax;
+                if (p >= peakStart && p < peakEnd) c = colorPeak;
+                else if (p >= troughStart && p < troughEnd) c = colorPeak;
+                else if (p < volumePixels && p < minPixels) c = colorMin;
+                else if (p < volumePixels && p < maxPixels) c = colorMid;
+                else if (p < volumePixels) c = colorMax;
                 var i = (y * width + x) * 3;
                 map[i] = c.h;
                 map[i + 1] = c.s;

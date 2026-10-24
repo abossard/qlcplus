@@ -40,9 +40,9 @@ var testAlgo;
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, -10, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setRings = function(_v) { algo.presetRings = parseInt(_v); };
+    algo.setRings = function(_v) { algo.presetRings = Math.round(HSVUtil.parseNumber(_v, algo.presetRings, 2, 10)); };
     algo.getRings = function() { return algo.presetRings; };
     algo.setShape = function(_v) {
         if (_v === "Diamond") algo.presetShape = 1;
@@ -52,13 +52,13 @@ var testAlgo;
     algo.getShape = function() {
         return ["Circle", "Diamond", "Square"][algo.presetShape];
     };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = HSVUtil.parseNumber(_v, algo.presetReactivity, 0, 10); };
     algo.getReactivity = function() { return algo.presetReactivity; };
     algo.presetSmoothing = 5;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     // --- State ---
@@ -76,14 +76,15 @@ var testAlgo;
         if (!audio) return map;
 
         var dt = audio.dt;
+        var frames = HSVUtil.elapsedFrames(audio);
         var reactivity = algo.presetReactivity;
 
         // --- Envelope followers (smooth, stateful) ---
         var rawEnergy = (audio.low + audio.mid * 0.5 + audio.high * 0.3) / 1.8;
-        energy = HSVUtil.smoothFollow(energy, rawEnergy, algo.presetSmoothing);
+        energy = HSVUtil.smoothFollow(energy, rawEnergy, algo.presetSmoothing, frames);
 
         // --- Bar-level build-up, released on the downbeat; the flash decays over ~8 frames ---
-        HSVUtil.barEnvelope(envelope, rawEnergy, dt, audio.downbeat, 0.85);
+        HSVUtil.barEnvelope(envelope, rawEnergy, dt, audio.downbeat, Math.pow(0.85, frames));
 
         // --- Phase accumulation (flow) ---
         var speedMod = 1 + energy * reactivity;
@@ -120,24 +121,17 @@ var testAlgo;
                 var ringPhase = HSVUtil.mod1(normDist * ringCount - phase);
                 var ringVal = Math.sin(ringPhase * Math.PI * 2) * 0.5 + 0.5;
 
-                // Color: walk through user's 3 colors by distance from center
-                var t = normDist * 2; // 0→2 across the 3 stops
-                var ci = Math.min(1, Math.floor(t));
-                var cf = t - ci;
-                var ca = colors[ci];
-                var cb = colors[ci + 1];
-                var h = ca.h + (cb.h - ca.h) * cf;
-                var s = ca.s + (cb.s - ca.s) * cf;
-                var baseV = ca.v + (cb.v - ca.v) * cf;
+                // Color: walk through user's colors by distance from center; Diamond corners keep the last
+                var color = HSVUtil.gradientAt(colors, normDist);
 
                 // Brightness: smooth energy envelope + gentle beat + release burst
-                var bright = ringVal * energy * (1 + beatGlow) + envelope.flash * (1 - normDist);
+                var bright = ringVal * energy * (1 + beatGlow) + envelope.flash * Math.max(0, 1 - normDist);
                 bright = Math.min(1, bright);
 
                 var i3 = (y * width + x) * 3;
-                map[i3] = h;
-                map[i3 + 1] = s;
-                map[i3 + 2] = baseV * bright;
+                map[i3] = color.h;
+                map[i3 + 1] = color.s;
+                map[i3 + 2] = color.v * bright;
             }
         }
 
