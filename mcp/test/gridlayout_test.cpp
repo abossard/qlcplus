@@ -1006,6 +1006,16 @@ void GridLayout_Test::arrange_data()
                                       << QList<QRectF>{QRectF(10, 10, 22, 20), QRectF(42, 10, 21, 20), QRectF(73, 10, 22, 20)};
     QTest::newRow("flow") << int(M::Flow) << false << 0 << QRectF(0, 0, 200, 200) << QList<QSizeF>(3, QSizeF(80, 40))
                           << QList<QRectF>{QRectF(10, 10, 80, 40), QRectF(100, 10, 80, 40), QRectF(10, 60, 80, 40)};
+    // a frame header is screen density * 7 high, 26.46 px at 96 dpi: rounded edges stay inside the content
+    QTest::newRow("row-header-96dpi") << int(M::Row) << false << 0 << QRectF(0, 26.46, 500, 200) << two
+                                      << QList<QRectF>{QRectF(10, 37, 100, 80), QRectF(120, 37, 50, 60)};
+    QTest::newRow("row-fill-header-96dpi") << int(M::Row) << true << 0 << QRectF(0, 26.46, 500, 200) << two
+                                           << QList<QRectF>{QRectF(10, 37, 235, 179), QRectF(255, 37, 235, 179)};
+    QTest::newRow("grid-fill-fractional") << int(M::Grid) << true << 2 << QRectF(0, 34.36, 210.6, 110) << four
+                                          << QList<QRectF>{QRectF(10, 45, 90, 40), QRectF(110, 45, 90, 40),
+                                                           QRectF(10, 95, 90, 39), QRectF(110, 95, 90, 39)};
+    QTest::newRow("flow-header-96dpi") << int(M::Flow) << false << 0 << QRectF(0, 26.46, 200, 200) << QList<QSizeF>(3, QSizeF(80, 40))
+                                       << QList<QRectF>{QRectF(10, 37, 80, 40), QRectF(100, 37, 80, 40), QRectF(10, 87, 80, 40)};
     QTest::newRow("too-small-fill") << int(M::Row) << true << 0 << QRectF(0, 0, 60, 100) << two << QList<QRectF>();
     QTest::newRow("too-wide") << int(M::Row) << false << 0 << QRectF(0, 0, 150, 100) << two << QList<QRectF>();
     QTest::newRow("too-tall-flow") << int(M::Flow) << false << 0 << QRectF(0, 0, 100, 100) << two << QList<QRectF>();
