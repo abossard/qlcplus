@@ -472,6 +472,8 @@ private:
     /** After a live edit, align replay-owned hold effects with the authored
      *  state at the current playhead so moved/deleted holds release at once. */
     void reconcileReplayOwnedHoldsAtCursor(Show *show);
+    /** Release the holds showId's replay owns and return what its timeline changed */
+    void releaseReplayOwned(quint32 showId);
     /** Replace one command, for the value and state edits */
     bool replaceCommand(quint32 showId, quint32 id, const std::function<QString(ShowCommand &)> &change);
     /** Move the events by delta ms, keeping their order among themselves */

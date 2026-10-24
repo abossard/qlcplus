@@ -415,6 +415,12 @@ private slots:
     void holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem();
     void holdPairs_showSurvivesSaveAndReload_data();
     void holdPairs_showSurvivesSaveAndReload();
+    void replayedHold_survivesEditAtCursor_data();
+    void replayedHold_survivesEditAtCursor();
+    void replayedHold_historyEditReleasesIt_data();
+    void replayedHold_historyEditReleasesIt();
+    void replayedHold_releasedWhenAShowIsDeleted_data();
+    void replayedHold_releasedWhenAShowIsDeleted();
     void recordingsEditor_holdPairPasteUndoRedoKeepsFreshPairIds();
     void patchedInput_recordsOnlyUserRoutes_data();
     void patchedInput_recordsOnlyUserRoutes();

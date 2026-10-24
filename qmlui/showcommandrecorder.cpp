@@ -153,6 +153,16 @@ ShowCommandRecorder::ShowCommandRecorder(Doc *doc, QObject *parent)
     // a new workspace starts a new undo history and an empty clipboard
     connect(m_doc, &Doc::clearing, this, [this]()
     {
+        // the Shows go with the workspace: what they replayed is neither released nor restored
+        m_timeline.clear();
+        m_userFreezeIntent.clear();
+        m_userBlackoutIntent.clear();
+        m_replayFreezeHolds.clear();
+        m_replayFlashButtons.clear();
+        m_replaySliderFlashes.clear();
+        m_userFreezeHolds.clear();
+        m_userFlashHolds.clear();
+        m_userSliderFlashHolds.clear();
         m_eventIdFloors.clear();
         m_clipboardDeletedTargets.clear();
         endEditSession(tr("The workspace was replaced during this edit"));
@@ -895,12 +905,6 @@ void ShowCommandRecorder::dropUserRequests()
 {
     m_requestEpoch++;
     m_userRequests.clear();
-    m_replayFreezeHolds.clear();
-    m_replayFlashButtons.clear();
-    m_replaySliderFlashes.clear();
-    m_userFreezeHolds.clear();
-    m_userFlashHolds.clear();
-    m_userSliderFlashHolds.clear();
 }
 
 void ShowCommandRecorder::slotFunctionRemoved(quint32 id)
@@ -913,26 +917,22 @@ void ShowCommandRecorder::slotFunctionRemoved(quint32 id)
         m_clipboardDeletedTargets.insert(id);
         break;
     }
+    const bool attached = std::any_of(m_attachedShows.cbegin(), m_attachedShows.cend(),
+                                      [id](const QPointer<Show> &show) { return show != nullptr && show->id() == id; });
+    // its queued stop arrives without it: release what it replayed while that is still known
+    if (attached)
+        releaseReplayOwned(id);
     m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
                                     [id](const TimelineFact &fact) { return fact.showId == id; }),
                      m_timeline.end());
-    m_replayFreezeHolds.remove(id);
-    m_replayFlashButtons.remove(id);
-    m_replaySliderFlashes.remove(id);
     m_userFreezeIntent.remove(id);
     m_userBlackoutIntent.remove(id);
     // accepted input goes with the Show that owned it
     m_unpublished.erase(std::remove_if(m_unpublished.begin(), m_unpublished.end(),
                                        [id](const Unpublished &accepted) { return accepted.showId == id; }),
                         m_unpublished.end());
-    for (Show *show : std::as_const(m_attachedShows))
-    {
-        if (show != nullptr && show->id() == id)
-        {
-            dropUserRequests();
-            return;
-        }
-    }
+    if (attached)
+        dropUserRequests();
 }
 
 /*********************************************************************
@@ -1987,6 +1987,7 @@ bool ShowCommandRecorder::applyHistoryEdit(const QVariant &value, bool undo)
     if (replayDelta(&edited, edit.entries, undo, &error) == false ||
         publishTrack(edited, QSet<quint32>(), show->commandTraversal(), show, &error) == false)
         return editFailed(error);
+    reconcileReplayOwnedHoldsAtCursor(show);
     if (ShowEventLog::generation() != 0)
         traceTrackDelta(newCause(), before, show->commandTrack(), edit.showId, undo ? tr("undo") : tr("redo"));
 
@@ -2181,7 +2182,8 @@ void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
 
     const quint32 showId = show->id();
     const FunctionParent replayOwner(FunctionParent::Function, showId);
-    const quint32 cursor = show->elapsed();
+    // elapsed() of a Show is only where its Play started
+    const quint32 cursor = show->commandPosition();
     const QVector<ShowCommand> commands = show->commandTrack().commands();
     const auto holdStateAt = [&commands, cursor](const QUuid &controlId,
                                                  const std::function<bool(ShowControlRole)> &acceptRole) {
@@ -2671,20 +2673,24 @@ void ShowCommandRecorder::slotShowStopped(quint32)
     if (show == nullptr)
         return;
     drainUserRequests();
+    releaseReplayOwned(show->id());
+}
 
+void ShowCommandRecorder::releaseReplayOwned(quint32 showId)
+{
     ShowControlAction::Stop state;
-    state.owner = FunctionParent(FunctionParent::Function, show->id());
-    state.freeze = m_replayFreezeHolds.value(show->id());
-    state.flash = m_replayFlashButtons.value(show->id());
-    state.sliderFlash = m_replaySliderFlashes.value(show->id());
+    state.owner = FunctionParent(FunctionParent::Function, showId);
+    state.freeze = m_replayFreezeHolds.value(showId);
+    state.flash = m_replayFlashButtons.value(showId);
+    state.sliderFlash = m_replaySliderFlashes.value(showId);
     state.user = {m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
-    if (m_userFreezeIntent.contains(show->id()))
-        state.freezeIntent = m_userFreezeIntent.value(show->id());
-    if (m_userBlackoutIntent.contains(show->id()))
-        state.blackoutIntent = m_userBlackoutIntent.value(show->id());
+    if (m_userFreezeIntent.contains(showId))
+        state.freezeIntent = m_userFreezeIntent.value(showId);
+    if (m_userBlackoutIntent.contains(showId))
+        state.blackoutIntent = m_userBlackoutIntent.value(showId);
     for (const TimelineFact &fact : std::as_const(m_timeline))
     {
-        if (fact.showId != show->id() || !(fact.owner == state.owner))
+        if (fact.showId != showId || !(fact.owner == state.owner))
             continue;
         ShowControlAction::Restoration effect;
         effect.control = fact.control;
@@ -2697,9 +2703,9 @@ void ShowCommandRecorder::slotShowStopped(quint32)
     m_userFreezeHolds = retained.freeze;
     m_userFlashHolds = retained.flash;
     m_userSliderFlashHolds = retained.sliderFlash;
-    m_replayFreezeHolds.remove(show->id());
-    m_replayFlashButtons.remove(show->id());
-    m_replaySliderFlashes.remove(show->id());
+    m_replayFreezeHolds.remove(showId);
+    m_replayFlashButtons.remove(showId);
+    m_replaySliderFlashes.remove(showId);
 }
 
 void ShowCommandRecorder::setRowsObserved(bool observed)

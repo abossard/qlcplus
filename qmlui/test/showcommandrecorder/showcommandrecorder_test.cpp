@@ -15153,6 +15153,164 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QCOMPARE(holdSpans(show->commandTrack()), live);
 }
 
+namespace
+{
+/** A flash button whose recorded hold [1000, 5000] the Show replays at 2000 */
+struct ReplayedHoldRig
+{
+    Doc doc{nullptr, 1};
+    UiFixture ui{&doc};
+    ShowCommandRecorder recorder{&doc};
+    Scene *target = addTarget(&doc);
+    Scene *other = new Scene(&doc);
+    Show *show = new Show(&doc);
+    quint32 showId = ShowCommand::InvalidId;
+    VCButton *button = nullptr;
+    QVector<ShowCommand> hold;
+
+    bool setUp(bool external)
+    {
+        recorder.setVirtualConsole(ui.vc());
+        if (!doc.addFunction(other) || !doc.addFunction(show))
+            return false;
+        showId = show->id();
+        VCBridgeV5 bridge(&doc, ui.vc());
+        const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Replayed hold"), false);
+        button = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"),
+                             QStringLiteral("flash"))));
+        if (button == nullptr)
+            return false;
+        ShowCommand on = ShowCommand::setButtonState(1, 1000, button->ensureRecordingId(), true);
+        on.role = ShowControlRole::FlashButton;
+        on.pairId = 1;
+        ShowCommand off = on;
+        off.id = 2;
+        off.time = 5000;
+        off.on = false;
+        ShowCommandTrack track;
+        if (!track.insert(on) || !track.insert(off) || !track.insert(ShowCommand::start(3, 8000, other->id())) ||
+            !track.setExtent(60000) || !show->setCommandTrack(track))
+            return false;
+        hold = { show->commandTrack().commands().at(0), show->commandTrack().commands().at(1) };
+        recorder.setResolvedShow(show->id());
+        if (external)
+        {
+            show->setSyncSource(ShowRunner::External);
+            playExternalFromZero(show, &doc);
+            show->setExternalElapsedTime(2000);
+        }
+        else
+        {
+            show->start(doc.masterTimer(), FunctionParent::master());
+        }
+        for (int i = 0; i < 200 && (show->commandPosition() < 2000 || button->state() != VCButton::Active); i++)
+            tickAndDeliver(&doc);
+        return button->state() == VCButton::Active && show->elapsed() == 0;
+    }
+
+    ~ReplayedHoldRig()
+    {
+        // the timer still lists a Show deleted while playing: it must not tick again
+        if (doc.function(showId) == nullptr)
+            return;
+        show->stop(FunctionParent::master());
+        for (Scene *f : {target, other})
+            f->stop(FunctionParent::master());
+        tickAndDeliver(&doc, 5);
+    }
+};
+}
+
+void ShowCommandRecorder_Test::replayedHold_survivesEditAtCursor_data()
+{
+    QTest::addColumn<bool>("external");
+
+    QTest::newRow("external clock") << true;
+    QTest::newRow("autonomous clock") << false;
+}
+
+void ShowCommandRecorder_Test::replayedHold_survivesEditAtCursor()
+{
+    QFETCH(bool, external);
+
+    ReplayedHoldRig r;
+    QVERIFY(r.setUp(external));
+
+    // an edit elsewhere keeps the hold the cursor is inside
+    QVERIFY2(r.recorder.retimeCommand(r.show->id(), 3, 8500), qPrintable(r.recorder.lastError()));
+    tickAndDeliver(&r.doc, 2);
+    QCOMPARE(r.button->state(), VCButton::Active);
+}
+
+void ShowCommandRecorder_Test::replayedHold_historyEditReleasesIt_data()
+{
+    QTest::addColumn<bool>("undo");
+
+    QTest::newRow("redo its deletion") << false;
+    QTest::newRow("undo its recording") << true;
+}
+
+void ShowCommandRecorder_Test::replayedHold_historyEditReleasesIt()
+{
+    QFETCH(bool, undo);
+
+    ReplayedHoldRig r;
+    QVERIFY(r.setUp(true));
+
+    // either way the step takes the hold out of the track
+    ShowCommandEdit edit;
+    edit.showId = r.show->id();
+    for (const ShowCommand &edge : std::as_const(r.hold))
+    {
+        ShowCommandEditEntry entry;
+        entry.id = edge.id;
+        entry.hasBefore = !undo;
+        entry.hasAfter = undo;
+        (undo ? entry.after : entry.before) = edge;
+        edit.entries.append(entry);
+    }
+    QVERIFY2(r.recorder.applyHistoryEdit(QVariant::fromValue(edit), undo), qPrintable(r.recorder.lastError()));
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.button->state(), VCButton::Inactive);
+}
+
+void ShowCommandRecorder_Test::replayedHold_releasedWhenAShowIsDeleted_data()
+{
+    QTest::addColumn<bool>("itsOwn");
+
+    QTest::newRow("its own Show") << true;
+    QTest::newRow("another Show") << false;
+}
+
+void ShowCommandRecorder_Test::replayedHold_releasedWhenAShowIsDeleted()
+{
+    QFETCH(bool, itsOwn);
+
+    ReplayedHoldRig r;
+    Show *other = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(other));
+    QVERIFY(r.setUp(true));
+
+    if (itsOwn)
+    {
+        // like the Function Manager: a stop request, then the deletion before the timer ran it
+        r.show->stop(FunctionParent::master());
+        QVERIFY(r.doc.deleteFunction(r.show->id()));
+        QCoreApplication::processEvents();
+    }
+    else
+    {
+        // deleting an unrelated Show leaves the playing one able to release its hold
+        QVERIFY(r.doc.deleteFunction(other->id()));
+        QCOMPARE(r.button->state(), VCButton::Active);
+        r.show->stop(FunctionParent::master());
+        tickAndDeliver(&r.doc, 3);
+    }
+    QCOMPARE(r.button->state(), VCButton::Inactive);
+}
+
 void ShowCommandRecorder_Test::patchedInput_recordsOnlyUserRoutes_data()
 {
     QTest::addColumn<QString>("plugin");
