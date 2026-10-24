@@ -643,11 +643,15 @@ private:
     /** Function targets of copied commands deleted since, or already absent
      *  at, the Copy: the Doc may give their ids to other Functions */
     QSet<quint32> m_clipboardDeletedTargets;
-    /** Per Show ID, the event ids and equal-time orders issued in this
-     *  workspace so far: a Show restored from XML (native undo of its
+    /** Per Show ID, the event ids, equal-time orders and hold pair ids issued
+     *  in this workspace so far: a Show restored from XML (native undo of its
      *  deletion) keeps them unissued, since the editor's undo history may
      *  still name them */
-    QHash<quint32, QPair<quint32, quint32>> m_eventIdFloors;
+    struct IdFloor
+    {
+        quint32 event = 0, order = 0, pair = 0;
+    };
+    QHash<quint32, IdFloor> m_eventIdFloors;
     /** Replay-owned FreezeHold controls currently active per show. */
     QHash<quint32, QSet<QUuid>> m_replayFreezeHolds;
     /** Replay-owned Flash button controls currently active per show. */

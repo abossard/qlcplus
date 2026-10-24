@@ -411,8 +411,10 @@ private slots:
     void editingPlayedGlobalLatchEvents_areDataOnlyUntilBoundary();
     void holdPairSelection_requiresWholePair_data();
     void holdPairSelection_requiresWholePair();
-    void holdPairSelection_refusesMalformedPair();
+    void holdPairSelection_deletesHoldInProgress();
     void holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem();
+    void holdPairs_showSurvivesSaveAndReload_data();
+    void holdPairs_showSurvivesSaveAndReload();
     void recordingsEditor_holdPairPasteUndoRedoKeepsFreshPairIds();
     void patchedInput_recordsOnlyUserRoutes_data();
     void patchedInput_recordsOnlyUserRoutes();

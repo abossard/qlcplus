@@ -424,30 +424,9 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString
         if (accepted.traversal == latest)
             executed.insert(accepted.command.id);
     }
-    if (disarming && show->id() == m_state.boundShowId)
-    {
-        QHash<QUuid, ShowCommand> openHolds;
-        for (const ShowCommand &cmd : candidate.commands())
-        {
-            if (cmd.action != ShowCommandAction::SetButtonState || !isHoldRole(cmd.role))
-                continue;
-            if (cmd.on)
-                openHolds.insert(cmd.controlId, cmd);
-            else
-                openHolds.remove(cmd.controlId);
-        }
-
-        const quint32 closeTime = qMin(acceptancePosition(show), ShowCommand::MaxTime);
-        for (const ShowCommand &open : std::as_const(openHolds))
-        {
-            ShowCommand close = ShowCommand::setButtonState(candidate.nextEventId(), closeTime,
-                                                            open.controlId, false);
-            close.role = open.role;
-            close.pairId = open.pairId;
-            if (candidate.insert(close, error) == false)
-                return false;
-        }
-    }
+    if (disarming && show->id() == m_state.boundShowId &&
+        candidate.closeOpenHolds(qMin(acceptancePosition(show), ShowCommand::MaxTime), error) == false)
+        return false;
     // nothing new and already ending at its content: nothing to publish
     if (candidate.count() == show->commandTrack().count() && candidate.extent() == candidate.lastCommandTime())
         return true;
@@ -492,29 +471,9 @@ ShowCommandTrack ShowCommandRecorder::projectedCheckpointTrack(Show *show, bool 
     bool hasProjection = false;
     if (show->id() == m_state.boundShowId && m_state.recording)
     {
-        QHash<QUuid, ShowCommand> openHolds;
-        for (const ShowCommand &cmd : candidate.commands())
-        {
-            if (cmd.action != ShowCommandAction::SetButtonState || !isHoldRole(cmd.role))
-                continue;
-            if (cmd.on)
-                openHolds.insert(cmd.controlId, cmd);
-            else
-                openHolds.remove(cmd.controlId);
-        }
-
-        const quint32 closeTime = qMin(acceptancePosition(show), ShowCommand::MaxTime);
-        for (const ShowCommand &open : std::as_const(openHolds))
-        {
-            ShowCommand close = ShowCommand::setButtonState(candidate.nextEventId(), closeTime,
-                                                            open.controlId, false);
-            close.role = open.role;
-            close.pairId = open.pairId;
-            QString error;
-            if (!candidate.insert(close, &error))
-                continue;
-            hasProjection = true;
-        }
+        const int before = candidate.count();
+        hasProjection = candidate.closeOpenHolds(qMin(acceptancePosition(show), ShowCommand::MaxTime)) &&
+                        candidate.count() != before;
         if (hasProjection)
             candidate.setExtent(candidate.lastCommandTime());
     }
@@ -1093,14 +1052,12 @@ QString validateWholeHoldSelection(const ShowCommandTrack &track, const QVector<
         if (!isPairedHoldCommand(cmd))
             continue;
 
-        const QVector<const ShowCommand *> edges = pairEdges.value(cmd.pairId);
-        if (edges.count() != 2 || edges.at(0)->controlId != edges.at(1)->controlId ||
-            edges.at(0)->role != edges.at(1)->role || edges.at(0)->on == edges.at(1)->on)
+        // a published track keeps every pair valid, a hold in progress has one edge
+        for (const ShowCommand *edge : pairEdges.value(cmd.pairId))
         {
-            return ShowCommandRecorder::tr("Hold pair %1 is malformed").arg(cmd.pairId);
+            if (!selectedIds.contains(edge->id))
+                return ShowCommandRecorder::tr("Select both edges of each hold pair");
         }
-        if (!selectedIds.contains(edges.at(0)->id) || !selectedIds.contains(edges.at(1)->id))
-            return ShowCommandRecorder::tr("Select both edges of each hold pair");
     }
     return QString();
 }
@@ -1125,18 +1082,6 @@ QString validateClipboardHoldPairs(const QVector<ShowCommand> &copied)
     return QString();
 }
 
-quint32 nextHoldPairId(const ShowCommandTrack &track)
-{
-    quint32 top = 0;
-    for (const ShowCommand &cmd : track.commands())
-    {
-        if (cmd.pairId != ShowCommand::InvalidId)
-            top = qMax(top, cmd.pairId);
-    }
-    if (top == std::numeric_limits<quint32>::max())
-        return ShowCommand::InvalidId;
-    return top + 1;
-}
 } // namespace
 
 QVariantList ShowCommandRecorder::commands() const
@@ -1971,9 +1916,10 @@ QVariantList ShowCommandRecorder::pasteCommands(quint32 showId, qreal atMs)
 
     // above every id the Show, its input not taken yet and its history hold
     ShowCommandTrack candidate = show->commandTrack();
-    candidate.reserve(withUnpublished(show).nextEventId(), 0);
+    const ShowCommandTrack accepted = withUnpublished(show);
+    candidate.reserve(accepted.nextEventId(), 0, accepted.nextPairId());
     const qint64 delta = qRound64(atMs) - qint64(m_clipboard.first().time);
-    quint32 nextPair = nextHoldPairId(candidate);
+    quint32 nextPair = candidate.nextPairId();
     QHash<quint32, quint32> pairRemap;
     QVector<quint32> added;
     QString error;
@@ -2650,12 +2596,13 @@ void ShowCommandRecorder::traceInput(VCWidget *control, ShowCommandOrigin origin
 void ShowCommandRecorder::slotFunctionAdded(quint32 id)
 {
     Show *show = qobject_cast<Show *>(m_doc->function(id));
-    const QPair<quint32, quint32> floor = m_eventIdFloors.value(id, qMakePair(0U, 0U));
+    const IdFloor floor = m_eventIdFloors.value(id);
     if (show != nullptr &&
-        (floor.first > show->commandTrack().nextEventId() || floor.second > show->commandTrack().nextOrder()))
+        (floor.event > show->commandTrack().nextEventId() || floor.order > show->commandTrack().nextOrder() ||
+         floor.pair > show->commandTrack().nextPairId()))
     {
         ShowCommandTrack restored = show->commandTrack();
-        restored.reserve(floor.first, floor.second);
+        restored.reserve(floor.event, floor.order, floor.pair);
         show->setCommandTrack(restored);
     }
     attachShow(show);
@@ -2663,9 +2610,11 @@ void ShowCommandRecorder::slotFunctionAdded(quint32 id)
 
 void ShowCommandRecorder::rememberEventIds(const Show *show)
 {
-    QPair<quint32, quint32> &floor = m_eventIdFloors[show->id()];
-    floor.first = qMax(floor.first, show->commandTrack().nextEventId());
-    floor.second = qMax(floor.second, show->commandTrack().nextOrder());
+    IdFloor &floor = m_eventIdFloors[show->id()];
+    const ShowCommandTrack track = show->commandTrack();
+    floor.event = qMax(floor.event, track.nextEventId());
+    floor.order = qMax(floor.order, track.nextOrder());
+    floor.pair = qMax(floor.pair, track.nextPairId());
 }
 
 void ShowCommandRecorder::attachShow(Show *show)

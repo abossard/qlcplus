@@ -2013,10 +2013,11 @@ void ShowCommandRecorder_Test::failedFinalization_keepsRecording()
     QVERIFY(recorder.submitUserInput(start));
     QCOMPARE(recorder.track().count(), 1);
 
-    // The recorded target disappears, so the take can no longer be published:
-    // accepted input waits unpublished.
+    // Input accepted for a target that is gone cannot be published: it waits
+    // unpublished, and so does everything after it
     QVERIFY(doc.deleteFunction(scene->id()));
     show->setExternalElapsedTime(15000);
+    QVERIFY(!recorder.submitUserInput(start));
     rig.fader->setSliderMode(VCSlider::Level);
     rig.fader->requestUserValue(90);
     QCOMPARE(show->commandTrack().count(), 1);
@@ -14110,8 +14111,9 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
     start.origin = ShowCommandOrigin::Pointer;
     start.action = ShowCommandAction::Start;
     start.functionId = goneId;
-    QVERIFY(r.recorder.submitUserInput(start));
+    // accepted for a target that is gone: it and what follows wait unpublished
     QVERIFY(r.doc.deleteFunction(goneId));
+    QVERIFY(!r.recorder.submitUserInput(start));
     r.show->setExternalElapsedTime(11500);
     r.slider->requestUserValue(77);
     const QVector<ShowCommand> beforeFailure = r.show->commandTrack().commands();
@@ -14127,7 +14129,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
             sawMissingStart = true;
     }
     QVERIFY(holdOnIndex >= 0);
-    QVERIFY(sawMissingStart);
+    QVERIFY(!sawMissingStart);
     const quint32 pairId = beforeFailure.at(holdOnIndex).pairId;
 
     r.show->setExternalElapsedTime(12000);
@@ -14140,7 +14142,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
     QVERIFY(r.recorder.checkpoint());
     const QVector<ShowCommand> liveAfterRetry = r.show->commandTrack().commands();
     QVERIFY(!liveAfterRetry.isEmpty());
-    QCOMPARE(liveAfterRetry.count(), beforeFailure.count() + 1);
+    QCOMPARE(liveAfterRetry.count(), beforeFailure.count() + 2);
     for (int i = 0; i < beforeFailure.count(); ++i)
     {
         QCOMPARE(liveAfterRetry[i], beforeFailure[i]);
@@ -14926,32 +14928,31 @@ void ShowCommandRecorder_Test::holdPairSelection_requiresWholePair()
     }
 }
 
-void ShowCommandRecorder_Test::holdPairSelection_refusesMalformedPair()
+void ShowCommandRecorder_Test::holdPairSelection_deletesHoldInProgress()
 {
     RequestRig r;
     r.show->setSyncSource(ShowRunner::External);
-    const int frame = addFrame(r.bridge, 0, QRect(0, 310, 500, 200), QStringLiteral("Malformed hold"), false);
+    const int frame = addFrame(r.bridge, 0, QRect(0, 310, 500, 200), QStringLiteral("Open hold"), false);
     auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
         r.bridge.addButton(frame, QRect(10, 10, 90, 48), r.a->id(), QStringLiteral("Flash"),
                            QStringLiteral("flash"))));
     QVERIFY(button);
 
-    ShowCommandTrack malformed;
+    ShowCommandTrack open;
     ShowCommand on = ShowCommand::setButtonState(10, 1000, button->ensureRecordingId(), true);
     on.role = ShowControlRole::FlashButton;
     on.pairId = 77;
-    QVERIFY(malformed.insert(on));
-    QVERIFY(malformed.setExtent(1000));
-    QVERIFY(r.show->setCommandTrack(malformed));
+    QVERIFY(open.insert(on));
+    QVERIFY(open.setExtent(1000));
+    QVERIFY(r.show->setCommandTrack(open));
 
-    QVERIFY(!r.recorder.removeCommands(r.show->id(), {10u}));
-    QVERIFY(!r.recorder.lastError().isEmpty());
+    // a copy needs the whole hold, an edit of the press alone is the whole hold
     QVERIFY(!r.recorder.copyCommands(r.show->id(), {10u}));
     QVERIFY(!r.recorder.lastError().isEmpty());
-    QVERIFY(!r.recorder.beginEditSession(r.show->id(), {10u}));
-    QVERIFY(!r.recorder.lastError().isEmpty());
-    QCOMPARE(r.show->commandTrack().count(), 1);
-    QCOMPARE(r.show->commandTrack().commands().at(0).pairId, 77u);
+    QVERIFY2(r.recorder.beginEditSession(r.show->id(), {10u}), qPrintable(r.recorder.lastError()));
+    r.recorder.cancelEditSession();
+    QVERIFY2(r.recorder.removeCommands(r.show->id(), {10u}), qPrintable(r.recorder.lastError()));
+    QVERIFY(r.show->commandTrack().isEmpty());
 }
 
 void ShowCommandRecorder_Test::holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem()
@@ -14996,6 +14997,160 @@ void ShowCommandRecorder_Test::holdPairPaste_assignsFreshPairIdsAndUndoRedoKeeps
 
     QCOMPARE(pasted.at(2).id, pastedOnId);
     QCOMPARE(pasted.at(3).id, pastedOffId);
+}
+
+/** The hold pairs in track order as "press-release", an open one as "press-" */
+static QString holdSpans(const ShowCommandTrack &track)
+{
+    QStringList spans;
+    QHash<quint32, int> at;
+    for (const ShowCommand &cmd : track.commands())
+    {
+        if (cmd.action != ShowCommandAction::SetButtonState || cmd.pairId == ShowCommand::InvalidId)
+            continue;
+        if (cmd.on)
+        {
+            at.insert(cmd.pairId, spans.count());
+            spans.append(QString::number(cmd.time) + QLatin1Char('-'));
+        }
+        else
+        {
+            spans[at.value(cmd.pairId)] += QString::number(cmd.time);
+        }
+    }
+    return spans.join(QLatin1Char(' '));
+}
+
+void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
+{
+    QTest::addColumn<QString>("steps");
+    QTest::addColumn<QString>("live");
+    QTest::addColumn<QString>("saved");
+
+    const QString take = QStringLiteral("rec on, at 10000, press, at 12000, release, at 5000, ");
+    const QString both = QStringLiteral("6000-7000 10000-12000");
+    QTest::newRow("record pair") << QStringLiteral("rec on, at 1000, press, at 2000, release, rec off")
+                                 << QStringLiteral("1000-2000") << QStringLiteral("1000-2000");
+    QTest::newRow("seek back, earlier pair") << take + QStringLiteral("at 6000, press, at 7000, release, rec off")
+                                             << both << both;
+    // a hold ends where the next recorded hold of its control begins
+    QTest::newRow("seek back, held into a later pair")
+        << take + QStringLiteral("at 6000, press, at 11000, release, rec off")
+        << QStringLiteral("6000-9999 10000-12000") << QStringLiteral("6000-9999 10000-12000");
+    // the recording already holds the control there: the press and its release add nothing
+    QTest::newRow("seek back, press inside a recorded hold")
+        << take + QStringLiteral("at 11000, press, at 13000, release, rec off")
+        << QStringLiteral("10000-12000") << QStringLiteral("10000-12000");
+    QTest::newRow("seek back, REC off while held") << take + QStringLiteral("at 6000, press, at 8000, rec off")
+                                                   << QStringLiteral("6000-8000 10000-12000")
+                                                   << QStringLiteral("6000-8000 10000-12000");
+    QTest::newRow("seek back, save while held") << take + QStringLiteral("at 6000, press, at 8000")
+                                                << QStringLiteral("6000- 10000-12000")
+                                                << QStringLiteral("6000-8000 10000-12000");
+    // REC off never closes a hold before its own press
+    QTest::newRow("loop back while held, REC off")
+        << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
+        << QStringLiteral("10000-10000") << QStringLiteral("10000-10000");
+    const QString deleted = QStringLiteral("rec on, at 1000, press, at 2000, release, rec off, delete, ");
+    const QString again = QStringLiteral("rec on, at 3000, press, at 4000, release, rec off, ");
+    QTest::newRow("undo a deletion after a new hold") << deleted + again + QStringLiteral("undo")
+                                                      << QStringLiteral("1000-2000 3000-4000")
+                                                      << QStringLiteral("1000-2000 3000-4000");
+    QTest::newRow("redo the deletion") << deleted + again + QStringLiteral("undo, redo")
+                                       << QStringLiteral("3000-4000") << QStringLiteral("3000-4000");
+    QTest::newRow("undo a deletion after the Show was restored")
+        << deleted + QStringLiteral("restore, ") + again + QStringLiteral("undo")
+        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000");
+}
+
+void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
+{
+    QFETCH(QString, steps);
+    QFETCH(QString, live);
+    QFETCH(QString, saved);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    const quint32 showId = show->id();
+    show->setSyncSource(ShowRunner::External);
+    recorder.setResolvedShow(showId);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Hold pairs"), false);
+    auto *button = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
+    QVERIFY(button);
+
+    const auto saveShow = [](const Show *saving) {
+        QBuffer buffer;
+        buffer.open(QIODevice::WriteOnly);
+        QXmlStreamWriter writer(&buffer);
+        saving->saveXML(&writer);
+        return buffer.data();
+    };
+    const auto loadShow = [](const QByteArray &xml, Doc *into) {
+        QXmlStreamReader reader(xml);
+        reader.readNextStartElement();
+        return Function::loader(reader, into);
+    };
+    ShowCommandEdit deletion;
+    deletion.showId = showId;
+    for (const QString &step : steps.split(QStringLiteral(", ")))
+    {
+        if (step.startsWith(QLatin1String("at ")))
+            show->setExternalElapsedTime(step.mid(3).toUInt());
+        else if (step == QLatin1String("press") || step == QLatin1String("release"))
+            button->requestUserStateChange(step == QLatin1String("press"));
+        else if (step.startsWith(QLatin1String("rec ")))
+            QVERIFY2(recorder.setRecording(step == QLatin1String("rec on")), qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("delete"))
+        {
+            // the first hold, as one editor step
+            QVariantList ids;
+            for (const ShowCommand &cmd : show->commandTrack().commands())
+            {
+                if (cmd.pairId != show->commandTrack().commands().first().pairId)
+                    continue;
+                ids.append(cmd.id);
+                ShowCommandEditEntry entry;
+                entry.id = cmd.id;
+                entry.hasBefore = true;
+                entry.before = cmd;
+                deletion.entries.append(entry);
+            }
+            QVERIFY2(recorder.removeCommands(showId, ids), qPrintable(recorder.lastError()));
+        }
+        else if (step == QLatin1String("undo") || step == QLatin1String("redo"))
+            QVERIFY2(recorder.applyHistoryEdit(QVariant::fromValue(deletion), step == QLatin1String("undo")),
+                     qPrintable(recorder.lastError()));
+        else
+        {
+            // native undo of its deletion brings the Show back from its XML
+            const QByteArray xml = saveShow(show);
+            QVERIFY(doc.deleteFunction(showId));
+            QVERIFY(loadShow(xml, &doc));
+            show = qobject_cast<Show *>(doc.function(showId));
+            QVERIFY(show);
+            show->setSyncSource(ShowRunner::External);
+        }
+        tickAndDeliver(&doc);
+    }
+    QCOMPARE(holdSpans(show->commandTrack()), live);
+    QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
+
+    // the workspace save: an open hold is closed in the saved snapshot only
+    QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+    Doc reloaded(nullptr, 1);
+    QVERIFY(loadShow(saveShow(show), &reloaded));
+    auto *copy = qobject_cast<Show *>(reloaded.function(showId));
+    QVERIFY(copy);
+    QCOMPARE(holdSpans(copy->commandTrack()), saved);
+    QVERIFY(copy->commandTrack().malformedHoldPairs().isEmpty());
+    QCOMPARE(holdSpans(show->commandTrack()), live);
 }
 
 void ShowCommandRecorder_Test::patchedInput_recordsOnlyUserRoutes_data()
@@ -15345,7 +15500,7 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd_data()
     QTest::newRow("disarm") << QStringLiteral("disarm") << 2 << 40000u;
     QTest::newRow("shorter loop pass") << QStringLiteral("loop") << 2 << 40000u;
     QTest::newRow("retry after failure") << QStringLiteral("retry") << 3 << 40000u;
-    QTest::newRow("discard after failure") << QStringLiteral("discard") << 1 << 5000u;
+    QTest::newRow("discard after failure") << QStringLiteral("discard") << 0 << 0u;
     // accepted capture is not native execution: nothing waits for the queued request
     QTest::newRow("queued request") << QStringLiteral("queued") << 3 << 40000u;
 }
@@ -15388,14 +15543,14 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
     const quint32 goneId = gone->id();
     if (failing)
     {
-        // a function command whose target then disappears makes every publication fail
+        // a function command accepted for a target that is gone makes every publication fail
         r.show->setExternalElapsedTime(5000);
         ShowCommandInput start;
         start.origin = ShowCommandOrigin::Pointer;
         start.action = ShowCommandAction::Start;
         start.functionId = goneId;
-        QVERIFY(r.recorder.submitUserInput(start));
         QVERIFY(r.doc.deleteFunction(goneId));
+        QVERIFY(!r.recorder.submitUserInput(start));
     }
 
     r.show->setExternalElapsedTime(12000);
@@ -15423,7 +15578,7 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
     }
     else
     {
-        QCOMPARE(r.show->commandTrack().count(), 1);
+        QCOMPARE(r.show->commandTrack().count(), 0);
         QVERIFY(!r.recorder.checkpoint());
         QVERIFY(!r.recorder.lastError().isEmpty());
         QVERIFY(r.recorder.isAuthoring());
@@ -15619,15 +15774,15 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
         QVERIFY(r.recorder.checkpoint());
     if (setup == QLatin1String("failing"))
     {
-        // a published command whose target then disappears: later input stays pending
+        // a command accepted for a target that is gone: it and later input stay pending
         Scene *gone = new Scene(&r.doc);
         QVERIFY(r.doc.addFunction(gone));
         ShowCommandInput start;
         start.origin = ShowCommandOrigin::Pointer;
         start.action = ShowCommandAction::Start;
         start.functionId = gone->id();
-        QVERIFY(r.recorder.submitUserInput(start));
         QVERIFY(r.doc.deleteFunction(gone->id()));
+        QVERIFY(!r.recorder.submitUserInput(start));
         r.slider->requestUserValue(51);
         QVERIFY(!r.recorder.checkpoint());
     }
@@ -15652,7 +15807,6 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
     QCOMPARE(after != before, changed);
     QCOMPARE(savedCommandTrack(&r.doc, r.show).extent(),
              changed || setup == QLatin1String("normalized") || setup == QLatin1String("repeat") ? 40000u
-             : setup == QLatin1String("failing")                                               ? 55000u
                                                                                                : 60000u);
     QCOMPARE(r.doc.isModified(), dirtyBefore || changed);
     QCOMPARE(dirtied.count(), changed ? 1 : 0);
@@ -15707,13 +15861,13 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
     const bool failing = change.startsWith(QLatin1String("previous cannot finalize"));
     if (failing)
     {
-        // a function command whose target then disappears makes A's publication fail
+        // a function command accepted for a target that is gone makes A's publication fail
         ShowCommandInput start;
         start.origin = ShowCommandOrigin::Pointer;
         start.action = ShowCommandAction::Start;
         start.functionId = goneId;
-        QVERIFY(r.recorder.submitUserInput(start));
         QVERIFY(r.doc.deleteFunction(goneId));
+        QVERIFY(!r.recorder.submitUserInput(start));
         // B has a minute to play
         ShowCommandTrack minute;
         QVERIFY(minute.setExtent(60000));
@@ -15724,8 +15878,8 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
     }
     a->setExternalElapsedTime(4700);
     r.slider->requestUserValue(51);
-    // failing: the function command alone, the slider input waits unpublished
-    QCOMPARE(a->commandTrack().count(), 1);
+    // failing: the function command and the slider input wait unpublished
+    QCOMPARE(a->commandTrack().count(), failing ? 0 : 1);
     if (change.endsWith(QLatin1String("after another report")))
         r.recorder.reportUnsupported(QStringLiteral("flash button"), ShowCommandOrigin::Pointer);
 
@@ -15963,13 +16117,13 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     const bool failing = change == QLatin1String("previous cannot finalize");
     if (failing)
     {
-        // a published command whose target then disappears: A's later input
-        // stays unpublished, and so A cannot close
-        QVERIFY(start(goneId));
+        // a command accepted for a target that is gone: it and A's later input
+        // stay unpublished, and so A cannot close
         QVERIFY(doc->deleteFunction(goneId));
+        QVERIFY(!start(goneId));
         a->setExternalElapsedTime(4700);
         QVERIFY(!start(target->id()));
-        QCOMPARE(a->commandTrack().count(), 1);
+        QCOMPARE(a->commandTrack().count(), 0);
         ShowCommandTrack minute;
         QVERIFY(minute.setExtent(60000));
         QVERIFY(b->setCommandTrack(minute));
@@ -16209,8 +16363,9 @@ SavedTake recordPendingTake(AppRig &rig, const QString &transport)
         }
     }
     take.show->setExternalElapsedTime(20000);
-    rig.start(take.goneId);
+    // accepted for a target that is gone: it and what follows stay pending
     rig.doc->deleteFunction(take.goneId);
+    rig.start(take.goneId);
     take.show->setExternalElapsedTime(30000);
     rig.start(take.target->id());
     take.show->setExternalElapsedTime(55000);
@@ -16260,7 +16415,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
     const QByteArray originalBytes = fileBytes(original);
     const QString workspacePath = rig.doc->workspacePath();
     const SavedTake take = recordPendingTake(rig, transport);
-    QVERIFY(take.show->commandTrack().count() == 2);
+    QVERIFY(take.show->commandTrack().count() == 1);
     QVERIFY(rig.doc->isModified());
     if (failure != QLatin1String("checkpoint"))
     {
@@ -16297,7 +16452,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
         if (failure == QLatin1String("checkpoint"))
         {
             QVERIFY(!rig.recorder->lastError().isEmpty());
-            QCOMPARE(take.show->commandTrack().count(), 2);
+            QCOMPARE(take.show->commandTrack().count(), 1);
             Scene *back = new Scene(rig.doc);
             QVERIFY(rig.doc->addFunction(back, take.goneId));
         }
@@ -20282,7 +20437,8 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
 namespace
 {
 /** A take whose accepted slider input is kept unpublished: its Show refused
- *  it while a legacy target was missing, then the target came back */
+ *  a Start accepted for a missing target, and so the input behind it, then
+ *  the target came back */
 struct PendingTake
 {
     Show *show = nullptr;
@@ -20309,6 +20465,11 @@ PendingTake pendingTake(Doc *doc, UiFixture *ui, ShowCommandRecorder *recorder, 
     recorder->setRecording(true);
     doc->deleteFunction(goneId);
     model->setOpen(openAtAcceptance);
+    ShowCommandInput start;
+    start.origin = ShowCommandOrigin::Pointer;
+    start.action = ShowCommandAction::Start;
+    start.functionId = goneId;
+    recorder->submitUserInput(start);
     take.slider->requestUserValue(133);
     Scene *restored = new Scene(doc);
     doc->addFunction(restored, goneId);
@@ -20356,7 +20517,7 @@ void ShowCommandRecorder_Test::recordingsEditor_editKeepsPendingCapture()
     QVERIFY(recorder.checkpoint());
     QCoreApplication::processEvents();
     const ShowCommandTrack published = take.show->commandTrack();
-    QCOMPARE(published.count(), edited.count() + 1);
+    QCOMPARE(published.count(), edited.count() + 2);
     QSet<quint32> ids;
     int sliderSamples = 0;
     for (const ShowCommand &cmd : published.commands())
@@ -20400,7 +20561,7 @@ void ShowCommandRecorder_Test::debugPanel_closedPendingOutcomeIsNotBackfilled()
     model.setOpen(true);
     QVERIFY(recorder.checkpoint());
     QCoreApplication::processEvents();
-    QCOMPARE(take.show->commandTrack().count(), 2);
+    QCOMPARE(take.show->commandTrack().count(), 3);
     QCOMPARE(take.show->commandTrack().extent(), quint32(3000));
 
     // owner decision: no row of the old input, nor the extent it derives;
@@ -27877,8 +28038,8 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
     }
     else if (source == QLatin1String("unpublished"))
     {
-        // a Function deleted under its Start leaves the take unpublishable:
-        // the next input waits unpublished with id 42 when the take closes
+        // a Start accepted for a Function deleted under it leaves the take
+        // unpublishable: it waits with id 42, the next input with 43
         later = new Scene(ed.rig.doc);
         QVERIFY(ed.rig.doc->addFunction(later));
         const quint32 laterId = later->id();
@@ -27890,6 +28051,11 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
         QVERIFY(ed.show->setCommandTrack(with));
         QVERIFY(ed.rig.doc->deleteFunction(laterId));
         QVERIFY(ed.rig.recorder->setRecording(true));
+        ShowCommandInput start;
+        start.origin = ShowCommandOrigin::Pointer;
+        start.action = ShowCommandAction::Start;
+        start.functionId = laterId;
+        QVERIFY(!ed.rig.recorder->submitUserInput(start));
         ed.rig.manager->setCurrentTime(3000);
         ed.fader->requestUserValue(128);
         QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20}));
@@ -27909,11 +28075,12 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
 
     if (source == QLatin1String("unpublished"))
     {
-        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20, 43, 44, 45}));
-        // the waiting input keeps its id, which nothing else took
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20, 44, 45, 46}));
+        // the waiting input keeps its ids, which nothing else took
         QVERIFY(ed.rig.recorder->checkpoint());
-        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 42, 20, 43, 44, 45}));
-        QCOMPARE(ed.command(42).action, ShowCommandAction::SetSliderPosition);
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{42, 12, 40, 31, 7, 41, 43, 20, 44, 45, 46}));
+        QCOMPARE(ed.command(42).action, ShowCommandAction::Start);
+        QCOMPARE(ed.command(43).action, ShowCommandAction::SetSliderPosition);
         return;
     }
     QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 31, 7, 20, 41, 42, 43}));
