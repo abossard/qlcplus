@@ -834,7 +834,6 @@ void DjManager_Test::deckTablePositionReflectsActiveDeck()
     // notify QML via activePositionChanged.
     QVERIFY(qFuzzyCompare(mgr.activeBeatPos(), 16.05));
     QCOMPARE(mgr.activeElapsedMs(), 7602);
-    QCOMPARE(mgr.activeRemainingMs(), 351883);
     QVERIFY(posSpy.count() > 0);
 
     // A non-active deck's position must NOT move the active-position display.

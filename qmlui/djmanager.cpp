@@ -57,7 +57,6 @@ QHash<int, QByteArray> DjSongModel::roleNames() const
         { TitleRole,      "title" },
         { ArtistRole,     "artist" },
         { BpmRole,        "bpm" },
-        { KeyRole,        "key" },
         { DurationRole,   "duration" },
         { ShowIdRole,     "showId" },
         { HasShowRole,    "hasShow" },
@@ -81,7 +80,6 @@ QVariant DjSongModel::data(const QModelIndex &index, int role) const
     case TitleRole:     return row.title;
     case ArtistRole:    return row.artist;
     case BpmRole:       return row.bpm;
-    case KeyRole:       return row.key;
     case ShowIdRole:    return row.showId;
     case HasShowRole:   return row.showId != Function::invalidId();
     case IsPlayingRole: return row.isPlaying;
@@ -206,11 +204,10 @@ bool DjSongModel::upsertSong(const DjFsm::DeckSong &song)
         bool changed = false;
         if (!song.title.isEmpty() && row.title != song.title)   { row.title = song.title; changed = true; }
         if (!song.artist.isEmpty() && row.artist != song.artist) { row.artist = song.artist; changed = true; }
-        if (!song.key.isEmpty() && row.key != song.key)         { row.key = song.key; changed = true; }
         if (song.bpm > 0.0 && !qFuzzyCompare(row.bpm, song.bpm)) { row.bpm = song.bpm; changed = true; }
         if (song.totalMs > 0 && row.durationMs != song.totalMs) { row.durationMs = song.totalMs; changed = true; }
         if (changed)
-            emitRow(idx, { TitleRole, ArtistRole, KeyRole, BpmRole, DurationRole });
+            emitRow(idx, { TitleRole, ArtistRole, BpmRole, DurationRole });
         return false;
     }
 
@@ -220,7 +217,6 @@ bool DjSongModel::upsertSong(const DjFsm::DeckSong &song)
     row.filepath = song.filepath;
     row.title = song.title.isEmpty() ? QFileInfo(song.filepath).completeBaseName() : song.title;
     row.artist = song.artist;
-    row.key = song.key;
     row.bpm = song.bpm;
     row.durationMs = song.totalMs;
     row.showId = Function::invalidId();
@@ -275,7 +271,6 @@ DjFsm::DeckSong DjSongModel::songForFilepath(const QString &filepath) const
     song.filepath = row.filepath;
     song.title = row.title;
     song.artist = row.artist;
-    song.key = row.key;
     song.bpm = row.bpm;
     song.totalMs = row.durationMs;
     return song;
@@ -668,7 +663,6 @@ void DjManager::setSortMode(int mode)
     if (m_proxy->sortMode() == m)
         return;
     m_proxy->setSortMode(m);
-    m_proxy->sort(0, m_proxy->sortAscending() ? Qt::AscendingOrder : Qt::DescendingOrder);
     emit sortModeChanged();
 }
 
@@ -697,11 +691,6 @@ void DjManager::setSearchFilter(const QString &text)
     if (m_proxy->searchFilter() == prev)
         return;
     emit searchFilterChanged();
-}
-
-int DjManager::songCount() const
-{
-    return m_proxy->rowCount();
 }
 
 bool DjManager::performMode() const
@@ -737,13 +726,6 @@ int DjManager::activeElapsedMs() const
     if (!m_fsm || m_fsm->activeDeck() < 1)
         return 0;
     return m_fsm->deckAt(m_fsm->activeDeck() - 1).elapsedMs;
-}
-
-int DjManager::activeRemainingMs() const
-{
-    if (!m_fsm || m_fsm->activeDeck() < 1)
-        return 0;
-    return m_fsm->deckAt(m_fsm->activeDeck() - 1).remainingMs;
 }
 
 double DjManager::activeBeatPos() const
@@ -809,9 +791,8 @@ void DjManager::createShow(const QString &filepath)
     DjFsm::DeckSong song = m_model->songForFilepath(filepath);
     if (!song.isValid())
         return;
-    quint32 showId = m_factory->buildShow(song);
-    if (showId != Function::invalidId())
-        m_model->setShow(filepath, showId);
+    // showCreatedForSong assigns the row
+    m_factory->buildShow(song);
 }
 
 QVariantList DjManager::availableShows() const
@@ -838,12 +819,9 @@ void DjManager::onSongChanged(int deck, const DjFsm::DeckSong &song)
     const bool isNew = !m_model->hasFilepath(song.filepath);
     m_model->upsertSong(song);
 
+    // Only newly-seen songs trigger a show existence check / creation.
     if (isNew)
-    {
-        // Only newly-seen songs trigger a show existence check / creation.
         ensureShowForSong(song);
-        emit songCountChanged();
-    }
 
     // A song row may have just been added for a deck that is already playing —
     // reflect the playing state immediately.
@@ -939,7 +917,6 @@ void DjManager::onShowCreatedForSong(const QString &filepath, quint32 showId)
         DjFsm::DeckSong song;
         song.filepath = filepath;
         m_model->upsertSong(song);
-        emit songCountChanged();
     }
     m_model->setShow(filepath, showId);
 }
@@ -948,7 +925,6 @@ void DjManager::onDocCleared()
 {
     m_model->clear();
     m_lastPlayingPaths.clear();
-    emit songCountChanged();
 }
 
 void DjManager::onFunctionAdded(quint32 fid)
@@ -1014,7 +990,6 @@ void DjManager::mergeShowFromDoc(quint32 showId)
         song.title = f->name();
         song.totalMs = durationMs;
         m_model->upsertSong(song);
-        emit songCountChanged();
     }
     m_model->setShow(filepath, showId);
 

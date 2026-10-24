@@ -49,7 +49,6 @@ public:
         TitleRole,
         ArtistRole,
         BpmRole,
-        KeyRole,
         DurationRole,
         ShowIdRole,
         HasShowRole,
@@ -64,7 +63,6 @@ public:
         QString filepath;       //!< identity
         QString title;
         QString artist;
-        QString key;
         double  bpm = 0.0;
         int     durationMs = 0;
         quint32 showId = 0;     //!< Function::invalidId() when unassigned
@@ -219,13 +217,11 @@ class DjManager final : public PreviewContext
     Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode NOTIFY sortModeChanged)
     Q_PROPERTY(bool sortAscending READ sortAscending WRITE setSortAscending NOTIFY sortAscendingChanged)
     Q_PROPERTY(QString searchFilter READ searchFilter WRITE setSearchFilter NOTIFY searchFilterChanged)
-    Q_PROPERTY(int songCount READ songCount NOTIFY songCountChanged)
     Q_PROPERTY(bool performMode READ performMode WRITE setPerformMode NOTIFY performModeChanged)
     Q_PROPERTY(int activeDeck READ activeDeck NOTIFY activeChanged)
     Q_PROPERTY(QString activeTitle READ activeTitle NOTIFY activeChanged)
     Q_PROPERTY(QString activeArtist READ activeArtist NOTIFY activeChanged)
     Q_PROPERTY(int activeElapsedMs READ activeElapsedMs NOTIFY activePositionChanged)
-    Q_PROPERTY(int activeRemainingMs READ activeRemainingMs NOTIFY activePositionChanged)
     Q_PROPERTY(double activeBeatPos READ activeBeatPos NOTIFY activePositionChanged)
     Q_PROPERTY(int deckCount READ deckCount WRITE setDeckCount NOTIFY deckCountChanged)
     Q_PROPERTY(QString vdjDatabasePath READ vdjDatabasePath NOTIFY vdjDatabasePathChanged)
@@ -247,8 +243,6 @@ public:
     QString searchFilter() const;
     void setSearchFilter(const QString &text);
 
-    int songCount() const;
-
     bool performMode() const;
     void setPerformMode(bool on);
 
@@ -256,7 +250,6 @@ public:
     QString activeTitle() const;
     QString activeArtist() const;
     int activeElapsedMs() const;
-    int activeRemainingMs() const;
     double activeBeatPos() const;
 
     int deckCount() const;
@@ -291,7 +284,6 @@ signals:
     void sortModeChanged();
     void sortAscendingChanged();
     void searchFilterChanged();
-    void songCountChanged();
     void performModeChanged();
     void activeChanged();
     void activePositionChanged();

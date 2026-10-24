@@ -219,7 +219,6 @@ void ShowFactory_Test::emptyFilepathRejected()
     // No timer should fire — wait briefly to confirm
     QTest::qWait(500);
     QCOMPARE(spy.count(), 0);
-    QVERIFY(factory.createdShows().isEmpty());
 
     delete doc;
 }

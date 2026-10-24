@@ -50,9 +50,6 @@ class ShowFactory : public QObject
 public:
     explicit ShowFactory(Doc *doc, QObject *parent = nullptr);
 
-    /** Returns the set of filepaths for which shows were created this session. */
-    const QSet<QString> &createdShows() const { return m_createdShows; }
-
     /** Lookup the showID created for a given filepath, or Function::invalidId() if absent. */
     quint32 showIdForFilepath(const QString &filepath) const;
 
