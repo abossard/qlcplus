@@ -1737,6 +1737,18 @@ int Tardis::processAction(TardisAction &action, bool undo)
             member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
         }
         break;
+        case VCFrameArrangeMode:
+            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeMode(VCFrame::ArrangeMode(value->toInt()));
+        break;
+        case VCFrameArrangeGap:
+            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeGap(value->toReal());
+        break;
+        case VCFrameArrangeColumns:
+            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeColumns(value->toInt());
+        break;
+        case VCFrameArrangeFill:
+            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeFill(value->toBool());
+        break;
         case VCPageAdd:
         case VCPageDelete:
         {

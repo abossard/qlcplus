@@ -248,6 +248,14 @@ static QMap<QString, ConsoleEdit> consoleEdits()
             frame->setPagesLoop(true);
             return QVariantMap();
         }},
+        {"arrangeSettings", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.empty));
+            frame->setArrangeMode(VCFrame::ArrangeGrid);
+            frame->setArrangeGap(5);
+            frame->setArrangeColumns(3);
+            frame->setArrangeFill(true);
+            return QVariantMap();
+        }},
         {"cloneFirstPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
             frame->setMultiPageMode(true);
@@ -1028,6 +1036,29 @@ void VCEditor_Test::frameCheckboxes()
         QVERIFY(box->setProperty("checked", value));
         QCOMPARE(frame->property(qPrintable(property)).toBool(), value);
     }
+}
+
+void VCEditor_Test::arrangeSettingsPersist()
+{
+    const ConsoleIds ids = buildConsole();
+    auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.empty));
+    frame->setArrangeMode(VCFrame::ArrangeFlow);
+    frame->setArrangeGap(7);
+    frame->setArrangeColumns(5);
+    frame->setArrangeFill(true);
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString workspace = files.filePath("arranged.qxw");
+    QCOMPARE(m_app->saveXML(workspace), QFile::NoError);
+
+    QVERIFY(m_app->loadWorkspace(workspace));
+    m_app->doc()->masterTimer()->stop();
+    frame = qobject_cast<VCFrame *>(vc()->widget(ids.empty));
+    QVERIFY(frame);
+    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeFlow);
+    QCOMPARE(frame->arrangeGap(), qreal(7));
+    QCOMPARE(frame->arrangeColumns(), 5);
+    QCOMPARE(frame->arrangeFill(), true);
 }
 
 /*********************************************************************

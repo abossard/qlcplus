@@ -169,6 +169,10 @@ bool VCFrame::copyFrom(const VCWidget *widget)
     setMultiPageMode(frame->multiPageMode());
     setTotalPagesNumber(frame->totalPagesNumber());
     setPagesLoop(frame->pagesLoop());
+    m_arrangeMode = frame->m_arrangeMode;
+    m_arrangeGap = frame->m_arrangeGap;
+    m_arrangeColumns = frame->m_arrangeColumns;
+    m_arrangeFill = frame->m_arrangeFill;
 
     setLayoutMode(frame->layoutMode());
     setGridColumns(frame->gridColumns());
@@ -1322,6 +1326,70 @@ void VCFrame::applySubmasterValue(qreal submasterValue, VCWidget *submaster)
 }
 
 /*********************************************************************
+ * Arrangement
+ *********************************************************************/
+
+VCFrame::ArrangeMode VCFrame::arrangeMode() const
+{
+    return m_arrangeMode;
+}
+
+void VCFrame::setArrangeMode(ArrangeMode mode)
+{
+    if (m_arrangeMode == mode)
+        return;
+    enqueueTardisAction(Tardis::VCFrameArrangeMode, int(m_arrangeMode), int(mode));
+    m_arrangeMode = mode;
+    setDocModified();
+    emit arrangeChanged();
+}
+
+qreal VCFrame::arrangeGap() const
+{
+    return m_arrangeGap;
+}
+
+void VCFrame::setArrangeGap(qreal gap)
+{
+    if (m_arrangeGap == gap || gap < 0)
+        return;
+    enqueueTardisAction(Tardis::VCFrameArrangeGap, m_arrangeGap, gap);
+    m_arrangeGap = gap;
+    setDocModified();
+    emit arrangeChanged();
+}
+
+int VCFrame::arrangeColumns() const
+{
+    return m_arrangeColumns;
+}
+
+void VCFrame::setArrangeColumns(int columns)
+{
+    if (m_arrangeColumns == columns || columns < 1)
+        return;
+    enqueueTardisAction(Tardis::VCFrameArrangeColumns, m_arrangeColumns, columns);
+    m_arrangeColumns = columns;
+    setDocModified();
+    emit arrangeChanged();
+}
+
+bool VCFrame::arrangeFill() const
+{
+    return m_arrangeFill;
+}
+
+void VCFrame::setArrangeFill(bool fill)
+{
+    if (m_arrangeFill == fill)
+        return;
+    enqueueTardisAction(Tardis::VCFrameArrangeFill, m_arrangeFill, fill);
+    m_arrangeFill = fill;
+    setDocModified();
+    emit arrangeChanged();
+}
+
+/*********************************************************************
  * Grid Layout
  *********************************************************************/
 
@@ -1792,6 +1860,18 @@ bool VCFrame::loadXML(QXmlStreamReader &root)
 
             //root.skipCurrentElement();
         }
+        else if (root.name() == KXMLQLCVCFrameArrange)
+        {
+            const QXmlStreamAttributes attrs = root.attributes();
+            const QStringList modes {"None", "Row", "Column", "Grid", "Flow"};
+            m_arrangeMode = ArrangeMode(qMax(0, int(modes.indexOf(attrs.value(KXMLQLCVCFrameArrangeMode).toString()))));
+            if (attrs.hasAttribute(KXMLQLCVCFrameArrangeGap))
+                m_arrangeGap = qMax(qreal(0), attrs.value(KXMLQLCVCFrameArrangeGap).toDouble());
+            if (attrs.hasAttribute(KXMLQLCVCFrameArrangeColumns))
+                m_arrangeColumns = qMax(1, attrs.value(KXMLQLCVCFrameArrangeColumns).toInt());
+            m_arrangeFill = attrs.value(KXMLQLCVCFrameArrangeFill).toString() == KXMLQLCTrue;
+            root.skipCurrentElement();
+        }
         else if (root.name() == KXMLQLCVCFrameGridLayout)
         {
             QXmlStreamAttributes attrs = root.attributes();
@@ -1924,6 +2004,18 @@ bool VCFrame::saveXML(QXmlStreamWriter *doc) const
         doc->writeAttribute(KXMLQLCVCFrameGridColumns, QString::number(m_gridColumns));
         doc->writeAttribute(KXMLQLCVCFrameGridRowHeight, QString::number(m_gridRowHeight));
         doc->writeAttribute(KXMLQLCVCFrameGridCompact, m_gridCompact ? KXMLQLCTrue : KXMLQLCFalse);
+        doc->writeEndElement();
+    }
+
+    /* Arrangement, only when the frame arranges its children */
+    if (m_arrangeMode != ArrangeNone)
+    {
+        const QStringList modes {"None", "Row", "Column", "Grid", "Flow"};
+        doc->writeStartElement(KXMLQLCVCFrameArrange);
+        doc->writeAttribute(KXMLQLCVCFrameArrangeMode, modes.value(int(m_arrangeMode)));
+        doc->writeAttribute(KXMLQLCVCFrameArrangeGap, QString::number(m_arrangeGap));
+        doc->writeAttribute(KXMLQLCVCFrameArrangeColumns, QString::number(m_arrangeColumns));
+        doc->writeAttribute(KXMLQLCVCFrameArrangeFill, m_arrangeFill ? KXMLQLCTrue : KXMLQLCFalse);
         doc->writeEndElement();
     }
 

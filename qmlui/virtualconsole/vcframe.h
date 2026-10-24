@@ -53,6 +53,12 @@
 #define KXMLQLCVCFrameGridModeGrid  QStringLiteral("Grid")
 #define KXMLQLCVCFrameGridModeFree  QStringLiteral("Free")
 
+#define KXMLQLCVCFrameArrange         QStringLiteral("Arrange")
+#define KXMLQLCVCFrameArrangeMode     QStringLiteral("Mode")
+#define KXMLQLCVCFrameArrangeGap      QStringLiteral("Gap")
+#define KXMLQLCVCFrameArrangeColumns  QStringLiteral("Columns")
+#define KXMLQLCVCFrameArrangeFill     QStringLiteral("Fill")
+
 #define INPUT_NEXT_PAGE_ID      0
 #define INPUT_PREVIOUS_PAGE_ID  1
 #define INPUT_ENABLE_ID         2
@@ -80,6 +86,10 @@ class VCFrame : public VCWidget
     Q_PROPERTY(int gridColumns READ gridColumns WRITE setGridColumns NOTIFY gridColumnsChanged)
     Q_PROPERTY(int gridRowHeight READ gridRowHeight WRITE setGridRowHeight NOTIFY gridRowHeightChanged)
     Q_PROPERTY(bool gridCompact READ gridCompact WRITE setGridCompact NOTIFY gridCompactChanged)
+    Q_PROPERTY(ArrangeMode arrangeMode READ arrangeMode WRITE setArrangeMode NOTIFY arrangeChanged)
+    Q_PROPERTY(qreal arrangeGap READ arrangeGap WRITE setArrangeGap NOTIFY arrangeChanged)
+    Q_PROPERTY(int arrangeColumns READ arrangeColumns WRITE setArrangeColumns NOTIFY arrangeChanged)
+    Q_PROPERTY(bool arrangeFill READ arrangeFill WRITE setArrangeFill NOTIFY arrangeChanged)
 
     /*********************************************************************
      * Initialization
@@ -87,6 +97,9 @@ class VCFrame : public VCWidget
 public:
     enum LayoutMode { LayoutFree = 0, LayoutGrid = 1 };
     Q_ENUM(LayoutMode)
+    /** Same values as GridLayout::ArrangeMode */
+    enum ArrangeMode { ArrangeNone = 0, ArrangeRow, ArrangeColumn, ArrangeGrid, ArrangeFlow };
+    Q_ENUM(ArrangeMode)
 
     VCFrame(Doc* doc = nullptr, VirtualConsole *vc = nullptr, QObject *parent = nullptr);
     virtual ~VCFrame();
@@ -384,6 +397,34 @@ protected:
     int m_gridColumns = 12;
     int m_gridRowHeight = 0;
     bool m_gridCompact = true;
+
+    /*********************************************************************
+     * Arrangement: the frame places its children on its own
+     *********************************************************************/
+public:
+    ArrangeMode arrangeMode() const;
+    void setArrangeMode(ArrangeMode mode);
+
+    /** Pixels between the children and around them */
+    qreal arrangeGap() const;
+    void setArrangeGap(qreal gap);
+
+    /** Columns of the Grid arrangement */
+    int arrangeColumns() const;
+    void setArrangeColumns(int columns);
+
+    /** Children share the frame content instead of keeping their size */
+    bool arrangeFill() const;
+    void setArrangeFill(bool fill);
+
+signals:
+    void arrangeChanged();
+
+protected:
+    ArrangeMode m_arrangeMode = ArrangeNone;
+    qreal m_arrangeGap = 10;
+    int m_arrangeColumns = 4;
+    bool m_arrangeFill = false;
 
     /*********************************************************************
      * Load & Save

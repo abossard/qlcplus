@@ -239,6 +239,10 @@ public:
         VCFramePagesLoop,
         VCPageAdd,
         VCPageDelete,
+        VCFrameArrangeMode,
+        VCFrameArrangeGap,
+        VCFrameArrangeColumns,
+        VCFrameArrangeFill,
 
         /* Live actions */
         FixtureSetDumpValue = LIVE_ACTIONS_START_CODE,
