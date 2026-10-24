@@ -461,6 +461,7 @@ private slots:
     void appRecordControls_followTargetRename();
     void appPerformEnd_selectionResolvesAgain_data();
     void appPerformEnd_selectionResolvesAgain();
+    void editGate_followsPerformEngagement();
     void appShowDeletion_undoRestoresSelectionAndTake_data();
     void appShowDeletion_undoRestoresSelectionAndTake();
     void appMcpReplacement_needsDiscardWhileRecording_data();

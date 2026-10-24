@@ -348,6 +348,7 @@ bool ShowCommandRecorder::dispatchNow(const ShowRecordEvent &event)
     {
         m_takeId++;
         emit stateChanged();
+        emit editGateChanged();
     }
     return saved && refused == false;
 }
@@ -2002,6 +2003,7 @@ void ShowCommandRecorder::reloadTrack()
 
     emit commandsChanged();
     emit targetNameChanged();
+    emit editGateChanged();
 }
 
 bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *show)

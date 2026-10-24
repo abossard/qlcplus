@@ -150,7 +150,7 @@ class ShowCommandRecorder : public QObject
     Q_PROPERTY(QVariantList commands READ commands NOTIFY commandsChanged)
     Q_PROPERTY(QVariantList groups READ groups NOTIFY commandsChanged)
     Q_PROPERTY(int extent READ extent NOTIFY commandsChanged)
-    Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY targetNameChanged)
+    Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY editGateChanged)
     Q_PROPERTY(int lastEditSerial READ lastEditSerial NOTIFY commandsChanged)
     Q_PROPERTY(bool editSessionActive READ editSessionActive NOTIFY editSessionChanged)
     Q_PROPERTY(QString editSessionEndReason READ editSessionEndReason NOTIFY editSessionChanged)
@@ -386,6 +386,8 @@ signals:
     void stateChanged();
     /** The tracked Show changed or was renamed */
     void targetNameChanged();
+    /** The tracked Show, or what resolves one, changed: editBlockedReason() may have */
+    void editGateChanged();
     void lastErrorChanged();
     void commandsChanged();
     void referencesChanged();

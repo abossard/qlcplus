@@ -30,6 +30,7 @@
 #undef private
 
 #include <QtTest>
+#include <QMetaProperty>
 #include <QAccessible>
 #include <QStyleHints>
 #include <QBuffer>
@@ -16102,6 +16103,26 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
         QVERIFY(r.recorder.isRecording());
         QCOMPARE(r.show->commandTrack().count(), 2);
     }
+}
+
+void ShowCommandRecorder_Test::editGate_followsPerformEngagement()
+{
+    RequestRig r;
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId()));
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("No Show to edit"));
+
+    // Perform engaged on nothing tracks nothing new, yet the reason changes: QML must hear it
+    const QMetaObject *meta = r.recorder.metaObject();
+    const QMetaProperty reason = meta->property(meta->indexOfProperty("editBlockedReason"));
+    QVERIFY(reason.hasNotifySignal());
+    QSignalSpy gate(&r.recorder, reason.notifySignal());
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId(), ShowRecordSource::Perform));
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
+    QVERIFY(gate.count() >= 1);
+    const int engaged = gate.count();
+    r.recorder.releasePerform();
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("No Show to edit"));
+    QVERIFY(gate.count() > engaged);
 }
 
 void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver_data()
