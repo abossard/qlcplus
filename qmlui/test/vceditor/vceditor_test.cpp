@@ -35,6 +35,7 @@
 #include "contextmanager.h"
 #include "doc.h"
 #include "mastertimer.h"
+#include "scene.h"
 #include "uimanager.h"
 #include "vcframe.h"
 #include "vcpage.h"
@@ -43,7 +44,7 @@
 /* Tardis merges actions closer than this into one undo step */
 static const int kUndoStepGapMs = 200;
 
-using ConsoleEdit = std::function<QVariantMap(VirtualConsole *, const ConsoleIds &)>;
+using ConsoleEdit = std::function<QVariantMap(VirtualConsole *, Doc *, const ConsoleIds &)>;
 
 static QString editError(const QVariantMap &result)
 {
@@ -82,71 +83,151 @@ static void saveArtifact(const QString &name, const QByteArray &data)
 static QMap<QString, ConsoleEdit> consoleEdits()
 {
     return {
-        {"move", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"move", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->editGeometry(ids.loose, QRectF(600, 120, 100, 80), false);
         }},
-        {"resize", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"resize", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->editGeometry(ids.loose, QRectF(600, 20, 140, 100), false);
         }},
-        {"resizeFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"resizeFrame", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->editGeometry(ids.frame, QRectF(20, 20, 540, 440), false);
         }},
-        {"create", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"create", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->createWidgetGeometry(ids.page, "Button", QRectF(1200, 20, 100, 80));
         }},
-        {"createInFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"createInFrame", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->createWidgetGeometry(ids.empty, "Slider", QRectF(20, 60, 60, 150));
         }},
-        {"deleteButton", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"deleteButton", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.loose});
         }},
-        {"deleteFirstChild", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"deleteFirstChild", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.a});
         }},
-        {"deleteSelection", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"deleteSelection", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.b, ids.a});
         }},
-        {"deleteFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"deleteFrame", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.frame});
         }},
-        {"deleteNestedFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"deleteNestedFrame", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.nested});
         }},
-        {"dropIntoFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"dropIntoFrame", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->editDrop(ids.loose, ids.empty, 0, QRectF(20, 60, 100, 80));
         }},
-        {"dropOutOfFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"dropOutOfFrame", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->editDrop(ids.a, ids.page, 0, QRectF(1200, 300, 100, 80));
         }},
-        {"reorder", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"reorder", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->editStructure({ids.b}, ids.frame, 0, 0);
         }},
-        {"selectionDrop", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"selectionDrop", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             return vc->editSelectionDrop({ids.a, ids.b}, ids.a, ids.page, 0, QPointF(1200, 600));
         }},
-        {"nudge", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"nudge", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             vc->setSelectedWidgetIDs({ids.loose});
             vc->nudgeWidgets(1, 0);
             return QVariantMap();
         }},
-        {"paste", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"paste", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             vc->setSelectedWidgetIDs({ids.loose});
             vc->copyToClipboard();
             vc->setSelectedWidgetIDs({ids.empty});
             vc->pasteFromClipboard();
             return QVariantMap();
         }},
-        {"alignLeft", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"alignLeft", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             vc->setSelectedWidgetIDs({ids.loose, ids.empty});
             vc->setWidgetsAlignment(vc->widget(ids.loose), Qt::AlignLeft);
             return QVariantMap();
         }},
-        {"caption", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"caption", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             vc->setSelectedWidgetIDs({ids.loose});
             vc->setWidgetsCaption("Renamed");
             return QVariantMap();
         }},
-        {"collapse", [](VirtualConsole *vc, const ConsoleIds &ids) {
+        {"cutPaste", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            vc->setSelectedWidgetIDs({ids.loose});
+            vc->cutToClipboard();
+            vc->setSelectedWidgetIDs({ids.empty});
+            vc->pasteFromClipboard();
+            return QVariantMap();
+        }},
+        {"alignTop", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            vc->setSelectedWidgetIDs({ids.empty, ids.loose});
+            vc->setWidgetsAlignment(vc->widget(ids.loose), Qt::AlignTop);
+            return QVariantMap();
+        }},
+        {"distribute", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            vc->setSelectedWidgetIDs({ids.frame, ids.loose, ids.empty});
+            vc->setWidgetsDistribution(Qt::Horizontal);
+            return QVariantMap();
+        }},
+        {"background", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            vc->setSelectedWidgetIDs({ids.loose, ids.a});
+            vc->setWidgetsBackgroundColor(Qt::red);
+            return QVariantMap();
+        }},
+        {"font", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            vc->setSelectedWidgetIDs({ids.loose});
+            vc->setWidgetsFont(QFont("Arial", 20));
+            return QVariantMap();
+        }},
+        {"zIndex", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            vc->widget(ids.loose)->setZIndex(5);
+            return QVariantMap();
+        }},
+        {"hideHeader", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            qobject_cast<VCFrame *>(vc->widget(ids.empty))->setShowHeader(false);
+            return QVariantMap();
+        }},
+        {"hideEnableButton", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            qobject_cast<VCFrame *>(vc->widget(ids.frame))->setShowEnable(false);
+            return QVariantMap();
+        }},
+        {"disableFrame", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            vc->widget(ids.frame)->setDisabled(true);
+            return QVariantMap();
+        }},
+        {"multiPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
+            frame->setMultiPageMode(true);
+            frame->setTotalPagesNumber(3);
+            return QVariantMap();
+        }},
+        {"cloneFirstPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
+            frame->setMultiPageMode(true);
+            frame->setTotalPagesNumber(2);
+            frame->cloneFirstPage();
+            return QVariantMap();
+        }},
+        {"buttonMatrix", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            VCWidget *page = vc->widget(ids.page);
+            qobject_cast<VCFrame *>(page)->addWidgetMatrix(page->renderItem(), "buttonmatrix",
+                                                           QPoint(1200, 20), QSize(2, 2), QSize(60, 60));
+            return QVariantMap();
+        }},
+        {"functionDrop", [](VirtualConsole *vc, Doc *doc, const ConsoleIds &ids) {
+            auto *scene = new Scene(doc);
+            scene->setName("Dropped scene");
+            doc->addFunction(scene);
+            return vc->createFunctions(ids.page, {scene->id()}, QPointF(1200, 20), 0);
+        }},
+        {"confirmLayout", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            const QVariantMap preview = vc->previewLayout(ids.frame, {{"allowGrowth", true}});
+            return preview.value("accepted").toBool() ? vc->confirmLayout() : preview;
+        }},
+        {"addPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &) {
+            vc->addPage(1);
+            return QVariantMap();
+        }},
+        {"deletePage", [](VirtualConsole *vc, Doc *, const ConsoleIds &) {
+            vc->deletePage(3);
+            return QVariantMap();
+        }},
+        {"collapse", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             qobject_cast<VCFrame *>(vc->widget(ids.frame))->setCollapsed(true);
             return QVariantMap();
         }},
@@ -266,7 +347,7 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     const QByteArray before = consoleXML();
 
     QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
-    const QString error = editError(consoleEdits().value(edit)(vc(), ids));
+    const QString error = editError(consoleEdits().value(edit)(vc(), m_app->doc(), ids));
     QVERIFY2(error.isEmpty(), qPrintable(error));
     QVERIFY2(rejected.isEmpty(), qPrintable(rejected.value(0).value(0).toString()));
     vc()->resetWidgetSelection();
@@ -280,12 +361,21 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
+    QEXPECT_FAIL("hideHeader", "Not recorded", Abort);
+    QEXPECT_FAIL("hideEnableButton", "Not recorded", Abort);
+    QEXPECT_FAIL("disableFrame", "Not recorded", Abort);
+    QEXPECT_FAIL("multiPage", "Not recorded", Abort);
+    QEXPECT_FAIL("cloneFirstPage", "Not recorded", Abort);
+    QEXPECT_FAIL("addPage", "Not recorded", Abort);
+    QEXPECT_FAIL("deletePage", "Not recorded", Abort);
+    QEXPECT_FAIL("font", "Undo stores the default font as an explicit one", Abort);
     QVERIFY2(actual == before, qPrintable("Undo: " + firstDifference(before, actual)));
 
     Tardis::instance()->redoAction();
     settleHistory();
     actual = consoleXML();
     saveArtifact("redone.xml", actual);
+    QEXPECT_FAIL("buttonMatrix", "Hiding the matrix frame header is not recorded", Abort);
     QVERIFY2(actual == after, qPrintable("Redo: " + firstDifference(after, actual)));
 }
 
