@@ -23,6 +23,7 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    var referenceState = null;
     algo.presetMode = "Artistic";
     algo.properties.push("name:mode|type:list|display:Response|values:Artistic,Reference,LedFx Energy 2|write:setMode|read:getMode");
     algo.setMode = function(v) {
@@ -174,7 +175,7 @@ var testAlgo;
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 1); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
@@ -183,7 +184,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) {
+        algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10));
+    };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothLow = 0;
@@ -218,7 +221,9 @@ var testAlgo;
         }
         var lowPower = smoothLow;
 
-        algo.phase = HSVUtil.mod1(algo.phase + dt * speed);
+        // Artistic speed is cycles per beat while a tempo is detected; LedFx counts seconds
+        var cycleTime = !ledFxMode && audio.tempo && audio.tempo.valid ? audio.dt : dt;
+        algo.phase = HSVUtil.mod1(algo.phase + cycleTime * speed);
 
         var hue = HSVUtil.mod1(lowPower + algo.phase);
         var satThreshold = SAT_BASE - (reactivity01 + SAT_REACT_ADD) * lowPower;

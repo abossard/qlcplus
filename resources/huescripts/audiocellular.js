@@ -73,7 +73,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetScrollHz|type:float|display:Scroll Rate (rows/beat)|" +
       "write:setScrollHz|read:getScrollHz");
-    algo.setScrollHz = function(_v) { algo.presetScrollHz = parseFloat(_v); };
+    algo.setScrollHz = function(_v) { algo.presetScrollHz = HSVUtil.parseNumber(_v, algo.presetScrollHz, 0, 32); };
     algo.getScrollHz = function() { return algo.presetScrollHz; };
 
     algo.history = null;

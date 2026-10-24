@@ -40,15 +40,16 @@ var testAlgo;
     algo.properties.push("name:chop|type:float|display:Chop|write:setChop|read:getChop");
     algo.properties.push("name:stretch|type:float|display:Stretch|write:setStretch|read:getStretch");
 
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    // Upper bounds from the LedFx Crawler schema
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 1); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setReactivity = function(v) { algo.reactivity = parseFloat(v); };
+    algo.setReactivity = function(v) { algo.reactivity = HSVUtil.parseNumber(v, algo.reactivity, 0, 1); };
     algo.getReactivity = function() { return algo.reactivity; };
-    algo.setSway = function(v) { algo.sway = parseFloat(v); };
+    algo.setSway = function(v) { algo.sway = HSVUtil.parseNumber(v, algo.sway, 0, 50); };
     algo.getSway = function() { return algo.sway; };
-    algo.setChop = function(v) { algo.chop = parseFloat(v); };
+    algo.setChop = function(v) { algo.chop = HSVUtil.parseNumber(v, algo.chop, 0, 100); };
     algo.getChop = function() { return algo.chop; };
-    algo.setStretch = function(v) { algo.stretch = parseFloat(v); };
+    algo.setStretch = function(v) { algo.stretch = HSVUtil.parseNumber(v, algo.stretch, 0, 10); };
     algo.getStretch = function() { return algo.stretch; };
 
     var timePosition = 0;
@@ -117,7 +118,7 @@ var testAlgo;
             t1 = HSVUtil.time01(speed * sway, ledFxTimestepMs);
             t3 = HSVUtil.time01(speed * chop + lows * reactivity, ledFxFieldMs);
         } else {
-            emaLows = 0.1 * audio.low + 0.9 * emaLows;
+            emaLows = HSVUtil.attackRelease(emaLows, audio.low, 0.1, 0.1, HSVUtil.elapsedFrames(audio));
             lows = emaLows;
             timePosition = (timePosition || 0) + audio.dt;
             t1 = hsvTime(speed * sway, timePosition + lows * reactivity * speed);

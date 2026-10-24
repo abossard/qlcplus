@@ -57,17 +57,19 @@ var testAlgo;
       "name:presetPeakDecay|type:float|display:Peak Decay|" +
       "write:setPeakDecay|read:getPeakDecay");
 
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 1, 10); };
     algo.getDecay = function() { return algo.presetDecay; };
     algo.setPeaks = function(_v) { algo.presetPeaks = (_v === "On") ? 1 : 0; };
     algo.getPeaks = function() { return algo.presetPeaks ? "On" : "Off"; };
     algo.setCenter = function(_v) { algo.presetCenter = (_v === "On") ? 1 : 0; };
     algo.getCenter = function() { return algo.presetCenter ? "On" : "Off"; };
-    algo.setDownbeatDrop = function(_v) { algo.presetDownbeatDrop = parseFloat(_v); };
+    algo.setDownbeatDrop = function(_v) {
+        algo.presetDownbeatDrop = HSVUtil.parseNumber(_v, algo.presetDownbeatDrop, 0, 1);
+    };
     algo.getDownbeatDrop = function() { return algo.presetDownbeatDrop; };
     algo.setPeakHold = function(_v) { algo.presetPeakHold = parseInt(_v); };
     algo.getPeakHold = function() { return algo.presetPeakHold; };
-    algo.setPeakDecay = function(_v) { algo.presetPeakDecay = parseFloat(_v); };
+    algo.setPeakDecay = function(_v) { algo.presetPeakDecay = HSVUtil.parseNumber(_v, algo.presetPeakDecay, 0, 1); };
     algo.getPeakDecay = function() { return algo.presetPeakDecay; };
 
     algo.presetSegmentCount = 5;
@@ -183,8 +185,9 @@ var testAlgo;
 
         var rawBands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
 
-        // EMA smoothing
-        var decayAlpha = algo.presetDecay / 20.0;
+        // EMA smoothing; Decay, Peak Hold and Peak Decay count 20 ms frames
+        var frames = HSVUtil.elapsedFrames(audio);
+        var decayAlpha = 1 - Math.pow(1 - algo.presetDecay / 20.0, frames);
         for (var b = 0; b < BAND_COUNT; b++) {
             var raw = Math.max(0, rawBands[b]);
             if (raw >= smoothed[b])
@@ -212,9 +215,9 @@ var testAlgo;
                     peakValues[band] = magnitude;
                     peakHolds[band] = algo.presetPeakHold;
                 } else if (peakHolds[band] > 0) {
-                    peakHolds[band]--;
+                    peakHolds[band] -= frames;
                 } else {
-                    peakValues[band] *= algo.presetPeakDecay;
+                    peakValues[band] *= Math.pow(algo.presetPeakDecay, frames);
                 }
             }
 

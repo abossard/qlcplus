@@ -23,24 +23,18 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    var DEFAULT_BAND_COLORS = [
-      {h: 0.958, s: 1.0, v: 1.0},
-      {h: 0.167, s: 1.0, v: 1.0},
-      {h: 0.611, s: 0.75, v: 1.0}
-    ];
-
     algo.presetBlobWidth = 6;
     algo.properties.push(
       "name:presetBlobWidth|type:range|display:Blob Width (sigma px)|" +
       "values:1,40|write:setBlobWidth|read:getBlobWidth");
-    algo.setBlobWidth = function(_v) { algo.presetBlobWidth = parseFloat(_v); };
+    algo.setBlobWidth = function(_v) { algo.presetBlobWidth = HSVUtil.parseNumber(_v, algo.presetBlobWidth, 1, 40); };
     algo.getBlobWidth = function() { return algo.presetBlobWidth; };
 
     algo.presetSpeed = 0.25;
     algo.properties.push(
       "name:presetSpeed|type:float|display:Speed (cyc/beat)|" +
       "write:setSpeed|read:getSpeed");
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, -100, 100); };
     algo.getSpeed = function() { return algo.presetSpeed; };
 
     algo.presetAxis = "Horizontal";
@@ -54,7 +48,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) {
+      algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10));
+    };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPow = [0, 0, 0];
@@ -72,28 +68,28 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-      return (algo.colors && algo.colors.length >= 3)
-        ? algo.colors.slice() : DEFAULT_BAND_COLORS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
       var horizontal = (algo.presetAxis === "Horizontal");
       var N = horizontal ? width : height;
       ensureBlobs(N);
 
+      // Bounce off both ends: fold the travelled position into [0, 1], period 2
       for (var i = 0; i < 3; i++) {
-        algo.pos[i] += algo.vel[i] * algo.presetSpeed * audio.dt;
-        if (algo.pos[i] < 0) { algo.pos[i] = -algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
-        if (algo.pos[i] > 1) { algo.pos[i] = 2 - algo.pos[i]; algo.vel[i] = -algo.vel[i]; }
+        var p = algo.pos[i] + algo.vel[i] * algo.presetSpeed * audio.dt;
+        p -= 2 * Math.floor(p / 2);
+        if (p > 1) { p = 2 - p; algo.vel[i] = -algo.vel[i]; }
+        algo.pos[i] = p;
       }
 
       var map = HSVUtil.createMap(width, height);
 
       // Asymmetric EMA smoothing of band powers (fast attack, slow decay)
       var rawPows = [audio.low, audio.mid, audio.high];
+      var frames = HSVUtil.elapsedFrames(audio);
       for (var sb = 0; sb < 3; sb++)
-        smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing);
+        smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing, frames);
       var sigma = Math.max(1, algo.presetBlobWidth);
       var twoSigSq = 2 * sigma * sigma;
       var centers = [algo.pos[0] * (N - 1), algo.pos[1] * (N - 1), algo.pos[2] * (N - 1)];
