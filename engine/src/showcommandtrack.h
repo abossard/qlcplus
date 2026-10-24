@@ -28,6 +28,7 @@
 #include <QSet>
 #include <QUuid>
 #include <QMap>
+#include <optional>
 #include <variant>
 
 class QXmlStreamReader;
@@ -533,9 +534,9 @@ struct ShowRecordSelection
 struct ShowRecordState
 {
     bool recording = false;
-    bool performEngaged = false;
     ShowRecordSelection manual;
-    ShowRecordSelection perform;
+    /** Perform's Show while Perform is engaged */
+    std::optional<ShowRecordSelection> perform;
 
     /** The engaged source's Show, InvalidId when it names none or a deleted one */
     quint32 resolvedShowId() const;

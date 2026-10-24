@@ -2210,10 +2210,7 @@ ShowRecordState recordState(const QString &text)
         else if (token.startsWith(QLatin1String("m=")))
             state.manual = recordSelection(token.mid(2));
         else if (token.startsWith(QLatin1String("p=")))
-        {
-            state.performEngaged = true;
             state.perform = recordSelection(token.mid(2));
-        }
     }
     return state;
 }
@@ -2223,8 +2220,8 @@ QString recordStateText(const ShowRecordState &state)
     QStringList tokens{ state.recording ? QStringLiteral("rec") : QStringLiteral("off") };
     if (!(state.manual == ShowRecordSelection()))
         tokens << QStringLiteral("m=") + recordSelectionText(state.manual);
-    if (state.performEngaged)
-        tokens << QStringLiteral("p=") + recordSelectionText(state.perform);
+    if (state.perform)
+        tokens << QStringLiteral("p=") + recordSelectionText(*state.perform);
     return tokens.join(QLatin1Char(' '));
 }
 

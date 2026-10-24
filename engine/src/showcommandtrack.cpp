@@ -1874,7 +1874,7 @@ bool ShowCommandState::operator==(const ShowCommandState &other) const
 
 quint32 ShowRecordState::resolvedShowId() const
 {
-    const ShowRecordSelection &source = performEngaged ? perform : manual;
+    const ShowRecordSelection &source = perform ? *perform : manual;
     return source.removed ? ShowCommand::InvalidId : source.showId;
 }
 
@@ -1892,8 +1892,7 @@ quint32 ShowRecordState::boundShowId() const
 
 bool ShowRecordState::operator==(const ShowRecordState &other) const
 {
-    return recording == other.recording && performEngaged == other.performEngaged && manual == other.manual
-        && perform == other.perform;
+    return recording == other.recording && manual == other.manual && perform == other.perform;
 }
 
 /************************************************************************
@@ -1918,10 +1917,9 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
         case Kind::Resolved:
             if (event.source == ShowRecordSource::Perform)
             {
-                next.performEngaged = true;
-                next.perform = { event.showId, false };
+                next.perform = ShowRecordSelection{ event.showId, false };
             }
-            else if (state.performEngaged == false && bound != ShowCommand::InvalidId && event.showId != bound)
+            else if (!state.perform && bound != ShowCommand::InvalidId && event.showId != bound)
             {
                 // only an automatic source moves a bound take
                 result.effects.append({ Effect::RefuseSelection });
@@ -1935,14 +1933,13 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
             }
         break;
         case Kind::PerformEnded:
-            next.performEngaged = false;
-            next.perform = ShowRecordSelection();
+            next.perform.reset();
         break;
         case Kind::Removed:
         case Kind::Restored:
-            for (ShowRecordSelection *selection : { &next.manual, &next.perform })
+            for (ShowRecordSelection *selection : { &next.manual, next.perform ? &*next.perform : nullptr })
             {
-                if (selection->showId == event.showId)
+                if (selection != nullptr && selection->showId == event.showId)
                     selection->removed = event.kind == Kind::Removed;
             }
             if (event.kind == Kind::Removed)
@@ -1951,7 +1948,9 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
         case Kind::Discard:
             next.recording = false;
             next.manual = ShowRecordSelection();
-            next.perform = ShowRecordSelection();
+            // Perform stays engaged, on nothing, until it says otherwise
+            if (next.perform)
+                next.perform = ShowRecordSelection();
             result.effects.append({ Effect::DropUnpublished });
         break;
     }
