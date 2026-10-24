@@ -2512,8 +2512,33 @@ void VirtualConsole::duplicateSelection()
     if (m_itemsMap.isEmpty())
         return;
 
-    copyToClipboard();
-    pasteFromClipboard();
+    /* Copies go right of the originals, in the same frame, and leave the clipboard alone */
+    QString error;
+    const QList<VCWidget *> roots = selectedRoots(selectedWidgetIDs(), &error);
+    if (!error.isEmpty() || roots.isEmpty())
+    {
+        reportEdit(editResult(false, false, error.isEmpty() ? tr("No widgets selected") : error));
+        return;
+    }
+    VCFrame *parent = qobject_cast<VCFrame *>(roots.first()->parent());
+    QRectF bounds;
+    QVariantList ids;
+    for (VCWidget *root : roots)
+    {
+        if (root->parent() != parent)
+        {
+            reportEdit(editResult(false, false, tr("Duplicate a selection from one parent at a time")));
+            return;
+        }
+        bounds = bounds.united(root->logicalGeometry());
+        ids.append(root->id());
+    }
+    const QVariantMap guide = snapGuide(parent->id());
+    const qreal gap = guide.value("enabled").toBool() ? guide.value("step").toSizeF().width() : 10;
+    QQuickItem *area = parent->renderItem() ?
+        parent->renderItem()->findChild<QQuickItem *>(QString("frameDropArea%1").arg(parent->id())) : nullptr;
+    QScopedValueRollback<bool> keepCut(m_clipboardIsCut, false);
+    reportEdit(pasteWidgets(ids, parent->id(), bounds.topRight() + QPointF(gap, 0), area, true));
 }
 
 void VirtualConsole::nudgeWidgets(int dx, int dy)
@@ -2762,11 +2787,11 @@ void VirtualConsole::pasteFromClipboard()
     QQuickItem *renderParent = frame->renderItem() ?
         frame->renderItem()->findChild<QQuickItem *>(QString("frameDropArea%1").arg(frame->id())) : nullptr;
 
-    reportEdit(pasteWidgets(m_clipboardIDList, frame->id(), frame->contentRect().topLeft(), renderParent));
+    reportEdit(pasteWidgets(m_clipboardIDList, frame->id(), frame->contentRect().topLeft(), renderParent, true));
 }
 
 QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 targetID,
-                                         QPointF logicalPosition, QQuickItem *renderParent)
+                                         QPointF logicalPosition, QQuickItem *renderParent, bool nearPosition)
 {
     if (m_authoringBusy)
         return editResult(false, false, tr("Another console edit is being committed"));
@@ -2830,6 +2855,49 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
         }
     }
     error = geometryError(rectangles, target, subpage, true);
+    if (!error.isEmpty() && nearPosition)
+    {
+        /* Take the first free spot in reading order from the requested position */
+        QRectF group;
+        for (const QRectF &rect : std::as_const(rectangles))
+            group = group.united(rect);
+        QList<QRectF> siblings;
+        for (VCWidget *child : target->children(false))
+            if (child->page() == subpage)
+                siblings.append(child->logicalGeometry());
+        const qreal stride = step > 0 ? step : 10;
+        const auto aligned = [stride, step](qreal value) { return step > 0 ? std::ceil(value / stride) * stride : value; };
+        const QPointF start(qBound(bounds.left(), group.left(), bounds.right()), qBound(bounds.top(), group.top(), bounds.bottom()));
+        QList<qreal> rows;
+        for (qreal y = aligned(start.y()); y + group.height() <= bounds.bottom(); y += stride)
+            rows.append(y);
+        for (qreal y = aligned(bounds.top()); y < start.y(); y += stride)
+            rows.append(y);
+        bool placed = false;
+        for (int row = 0; row < rows.size() && !placed; row++)
+            for (qreal x = aligned(row == 0 ? start.x() : bounds.left()); x + group.width() <= bounds.right(); x += stride)
+            {
+                const QPointF offset = QPointF(x, rows.at(row)) - group.topLeft();
+                bool free = true;
+                for (int i = 0; i < siblings.size() && free; i++)
+                {
+                    const QRectF overlap = group.translated(offset).intersected(siblings.at(i));
+                    free = overlap.width() <= 0 || overlap.height() <= 0;
+                }
+                if (!free)
+                    continue;
+                QMap<quint32, QRectF> moved;
+                for (auto it = rectangles.constBegin(); it != rectangles.constEnd(); ++it)
+                    moved.insert(it.key(), it.value().translated(offset));
+                if (geometryError(moved, target, subpage, true).isEmpty())
+                {
+                    rectangles = moved;
+                    error.clear();
+                    placed = true;
+                    break;
+                }
+            }
+    }
     if (!error.isEmpty())
         return editResult(false, false, error);
 
@@ -2935,6 +3003,8 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
         emit selectedWidgetChanged();
         emit selectedWidgetsCountChanged();
     }
+    /* go on working with what was pasted */
+    setSelectedWidgetIDs(QVariantList(copies.keyBegin(), copies.keyEnd()));
     emit clipboardItemsCountChanged();
     emit widgetsChanged();
     QVariantMap result = editResult(true, true, {}, copies);

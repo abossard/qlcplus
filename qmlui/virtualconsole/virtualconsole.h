@@ -307,8 +307,9 @@ private:
     VCFrame *targetFrame(quint32 id) const;
     QString geometryError(const QMap<quint32, QRectF> &rectangles,
                           VCFrame *destination = nullptr, int subpage = -1, bool copying = false) const;
+    /** With $nearPosition, an occupied $logicalPosition moves the copies to the next free spot */
     QVariantMap pasteWidgets(const QVariantList &ids, quint32 targetID,
-                              QPointF logicalPosition, QQuickItem *renderParent);
+                              QPointF logicalPosition, QQuickItem *renderParent, bool nearPosition = false);
     void commitWidgetDeletion(const QVariantList &ids);
     QRectF admittedRectangle(VCWidget *widget, VCFrame *parent, QRectF request,
                              bool snap, QString *error) const;

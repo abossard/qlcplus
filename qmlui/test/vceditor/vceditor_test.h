@@ -65,6 +65,9 @@ private slots:
     void keysIgnoredWhileTyping_data();
     void keysIgnoredWhileTyping();
     void pasteRendersIntoFrame();
+    void pastePlacement_data();
+    void pastePlacement();
+    void duplicateKeepsClipboard();
     void nudgeStep_data();
     void nudgeStep();
     void alignToLastSelected_data();

@@ -82,6 +82,8 @@ static void saveArtifact(const QString &name, const QByteArray &data)
         file.write(data);
 }
 
+static QString structureError(VCFrame *frame);
+
 static QMap<QString, ConsoleEdit> consoleEdits()
 {
     return {
@@ -720,6 +722,68 @@ void VCEditor_Test::pasteRendersIntoFrame()
     QTRY_VERIFY(copy->renderItem());
     // only the drop area keeps the copy above the frame chrome, so it can be clicked
     QCOMPARE(copy->renderItem()->parentItem()->objectName(), QString("frameDropArea%1").arg(ids.empty));
+}
+
+void VCEditor_Test::pastePlacement_data()
+{
+    QTest::addColumn<QString>("edit");
+    QTest::addColumn<QString>("source");
+    QTest::addColumn<QString>("target");
+    QTest::addColumn<QRectF>("expected"); // empty: anywhere free
+    QTest::newRow("paste-page") << "paste" << "loose" << "page" << QRectF();
+    QTest::newRow("paste-frame") << "paste" << "a" << "frame" << QRectF();
+    QTest::newRow("duplicate-page") << "duplicate" << "loose" << "page" << QRectF(710, 20, 100, 80);
+    QTest::newRow("duplicate-frame-child") << "duplicate" << "a" << "frame" << QRectF();
+    QTest::newRow("duplicate-frame") << "duplicate" << "empty" << "page" << QRectF();
+}
+
+void VCEditor_Test::pastePlacement()
+{
+    QFETCH(QString, edit);
+    QFETCH(QString, source);
+    QFETCH(QString, target);
+    QFETCH(QRectF, expected);
+    const ConsoleIds ids = buildConsole();
+    const QMap<QString, quint32> named {{"loose", ids.loose}, {"a", ids.a}, {"empty", ids.empty},
+                                        {"frame", ids.frame}, {"page", ids.page}};
+    auto *parent = qobject_cast<VCFrame *>(vc()->widget(named.value(target)));
+    const QList<VCWidget *> before = parent->children(false);
+    QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
+
+    vc()->setSelectedWidgetIDs({named.value(source)});
+    if (edit == "paste")
+    {
+        vc()->copyToClipboard();
+        vc()->setSelectedWidgetIDs(target == "page" ? QVariantList() : QVariantList{named.value(target)});
+        vc()->pasteFromClipboard();
+    }
+    else
+    {
+        vc()->duplicateSelection();
+    }
+    QVERIFY2(rejected.isEmpty(), qPrintable(rejected.value(0).value(0).toString()));
+    QList<VCWidget *> added = parent->children(false);
+    for (VCWidget *widget : before)
+        added.removeAll(widget);
+    QCOMPARE(added.size(), 1);
+    QCOMPARE(added.first()->caption(), vc()->widget(named.value(source))->caption());
+    if (!expected.isEmpty())
+        QCOMPARE(added.first()->logicalGeometry(), expected);
+    QCOMPARE(vc()->selectedWidgetIDs(), QVariantList{added.first()->id()});
+    const QString structure = structureError(vc()->page(0));
+    QVERIFY2(structure.isEmpty(), qPrintable(structure));
+}
+
+void VCEditor_Test::duplicateKeepsClipboard()
+{
+    const ConsoleIds ids = buildConsole();
+    vc()->setSelectedWidgetIDs({ids.a});
+    vc()->copyToClipboard();
+    vc()->setSelectedWidgetIDs({ids.loose});
+
+    vc()->duplicateSelection();
+    QCOMPARE(vc()->clipboardItemsList().size(), 1);
+    QCOMPARE(vc()->clipboardItemsList().first().toUInt(), ids.a);
 }
 
 void VCEditor_Test::nudgeStep_data()
