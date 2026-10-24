@@ -245,28 +245,28 @@ var testAlgo;
     algo.properties.push(
       "name:presetLineWidth|type:range|display:Line Width (px)|" +
       "values:1,8|write:setLineWidth|read:getLineWidth");
-    algo.setLineWidth = function(_v) { algo.presetLineWidth = parseInt(_v); };
+    algo.setLineWidth = function(_v) { algo.presetLineWidth = Math.round(HSVUtil.parseNumber(_v, algo.presetLineWidth, 1, 8)); };
     algo.getLineWidth = function() { return algo.presetLineWidth; };
 
     algo.presetScrollSpeed = 25;
     algo.properties.push(
       "name:presetScrollSpeed|type:range|display:Scroll Speed (px/s)|" +
       "values:1,100|write:setScrollSpeed|read:getScrollSpeed");
-    algo.setScrollSpeed = function(_v) { algo.presetScrollSpeed = parseFloat(_v); };
+    algo.setScrollSpeed = function(_v) { algo.presetScrollSpeed = Math.round(HSVUtil.parseNumber(_v, algo.presetScrollSpeed, 1, 100)); };
     algo.getScrollSpeed = function() { return algo.presetScrollSpeed; };
 
     algo.presetDecayMs = 1500;
     algo.properties.push(
       "name:presetDecayMs|type:range|display:Brightness Decay (ms)|" +
       "values:100,8000|write:setDecayMs|read:getDecayMs");
-    algo.setDecayMs = function(_v) { algo.presetDecayMs = parseFloat(_v); };
+    algo.setDecayMs = function(_v) { algo.presetDecayMs = Math.round(HSVUtil.parseNumber(_v, algo.presetDecayMs, 100, 8000)); };
     algo.getDecayMs = function() { return algo.presetDecayMs; };
 
     algo.presetMinIntensity = 15;
     algo.properties.push(
       "name:presetMinIntensity|type:range|display:Min Intensity (%)|" +
       "values:0,100|write:setMinIntensity|read:getMinIntensity");
-    algo.setMinIntensity = function(_v) { algo.presetMinIntensity = parseFloat(_v); };
+    algo.setMinIntensity = function(_v) { algo.presetMinIntensity = Math.round(HSVUtil.parseNumber(_v, algo.presetMinIntensity, 0, 100)); };
     algo.getMinIntensity = function() { return algo.presetMinIntensity; };
 
     algo.presetTrigger = "Onset";
@@ -280,28 +280,28 @@ var testAlgo;
     algo.properties.push(
       "name:presetFluxThreshold|type:range|display:Flux Threshold (%)|" +
       "values:0,100|write:setFluxThreshold|read:getFluxThreshold");
-    algo.setFluxThreshold = function(_v) { algo.presetFluxThreshold = parseFloat(_v); };
+    algo.setFluxThreshold = function(_v) { algo.presetFluxThreshold = Math.round(HSVUtil.parseNumber(_v, algo.presetFluxThreshold, 0, 100)); };
     algo.getFluxThreshold = function() { return algo.presetFluxThreshold; };
 
     algo.presetHfcScale = 100;
     algo.properties.push(
       "name:presetHfcScale|type:range|display:HFC Scale (%=1.0)|" +
       "values:10,400|write:setHfcScale|read:getHfcScale");
-    algo.setHfcScale = function(_v) { algo.presetHfcScale = parseFloat(_v); };
+    algo.setHfcScale = function(_v) { algo.presetHfcScale = Math.round(HSVUtil.parseNumber(_v, algo.presetHfcScale, 10, 400)); };
     algo.getHfcScale = function() { return algo.presetHfcScale; };
 
     algo.presetMaxLines = 40;
     algo.properties.push(
       "name:presetMaxLines|type:range|display:Max Active Lines|" +
       "values:4,200|write:setMaxLines|read:getMaxLines");
-    algo.setMaxLines = function(_v) { algo.presetMaxLines = parseInt(_v); };
+    algo.setMaxLines = function(_v) { algo.presetMaxLines = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxLines, 4, 200)); };
     algo.getMaxLines = function() { return algo.presetMaxLines; };
 
     algo.presetMinSpawnMs = 50;
     algo.properties.push(
       "name:presetMinSpawnMs|type:range|display:Min Spawn Interval (ms)|" +
       "values:0,500|write:setMinSpawnMs|read:getMinSpawnMs");
-    algo.setMinSpawnMs = function(_v) { algo.presetMinSpawnMs = parseFloat(_v); };
+    algo.setMinSpawnMs = function(_v) { algo.presetMinSpawnMs = Math.round(HSVUtil.parseNumber(_v, algo.presetMinSpawnMs, 0, 500)); };
     algo.getMinSpawnMs = function() { return algo.presetMinSpawnMs; };
 
     algo.presetAxis = "Horizontal";

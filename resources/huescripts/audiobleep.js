@@ -128,6 +128,8 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
         var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
+        if (audioKey !== state.audioKey)
+            state.amplitudes = [0];
         state.audioKey = audioKey;
         var k = [width, height, audioKey].join("|");
         var current = HSVUtil.powerForRange(audio, algo.presetSource, false);
@@ -193,7 +195,7 @@ var testAlgo;
             HSVUtil.walkLine(a.x, a.y, b.x, b.y, function(x2, y2) {
                 var color = stroke(a, b, x2, y2);
                 if (algo.presetMode === "Fill")
-                    for (var yy2 = 0; yy2 <= y2; yy2++) paint(map, width, height, x2, yy2, color, 1);
+                    for (var yy2 = y2; yy2 < height; yy2++) paint(map, width, height, x2, yy2, color, 1);
             });
         }
         return map;

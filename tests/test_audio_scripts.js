@@ -4298,7 +4298,7 @@ function assertWorkerBHistoryRows() {
         algo.setMode('Fill');
         algo.setLineWidth(1);
         var fillMap = render(algo, 'audiobleep.js', 9, 9, frame(0.5, 0), 'row05 fill');
-        assert(workerB_at(fillMap, 9, 0, 0).v > 0.01, 'row05 fill: must fill toward row 0');
+        assert(workerB_at(fillMap, 9, 0, 8).v > 0.01, 'row05 fill: must fill toward the bottom row');
 
         algo.setMirror('Yes');
         var mirrorFill = render(algo, 'audiobleep.js', 9, 9, frame(0.5, 0), 'row05 mirror fill');

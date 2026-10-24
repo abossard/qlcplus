@@ -40,21 +40,21 @@ var testAlgo;
       "name:presetWaveSize|type:float|display:Wave Size|" +
       "write:setWaveSize|read:getWaveSize");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setLayers = function(_v) { algo.presetLayers = parseInt(_v); };
+    algo.setLayers = function(_v) { algo.presetLayers = Math.round(HSVUtil.parseNumber(_v, algo.presetLayers, 1, 5)); };
     algo.getLayers = function() { return algo.presetLayers; };
-    algo.setWaveSize = function(_v) { algo.presetWaveSize = parseFloat(_v); };
+    algo.setWaveSize = function(_v) { algo.presetWaveSize = HSVUtil.parseNumber(_v, algo.presetWaveSize, 0, 10); };
     algo.getWaveSize = function() { return algo.presetWaveSize; };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = HSVUtil.parseNumber(_v, algo.presetReactivity, 0, 1); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
     algo.presetSmoothing = 5;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPow = [0, 0, 0];
@@ -76,8 +76,9 @@ var testAlgo;
         if (!audio) return map;
 
         var rawPows = [audio.low, audio.mid, audio.high];
+        var frames = HSVUtil.elapsedFrames(audio);
         for (var sb = 0; sb < 3; sb++)
-            smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing);
+            smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing, frames);
 
         var speed = algo.presetSpeed;
         var reactivity = algo.presetReactivity;

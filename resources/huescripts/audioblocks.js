@@ -44,9 +44,9 @@ var testAlgo;
       "name:fix_hues|type:list|display:Fix Hues|" +
       "values:No,Yes|write:setFixHues|read:getFixHues");
 
-    algo.setSpeed = function(_v) { algo.speed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.speed = HSVUtil.parseNumber(_v, algo.speed, 0, 10); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setReactivity = function(_v) { algo.reactivity = parseFloat(_v); };
+    algo.setReactivity = function(_v) { algo.reactivity = HSVUtil.parseNumber(_v, algo.reactivity, 0, 1); };
     algo.getReactivity = function() { return algo.reactivity; };
     algo.setFixHues = function(_v) { algo.fix_hues = (_v === "No") ? "No" : "Yes"; };
     algo.getFixHues = function() { return algo.fix_hues; };
@@ -103,7 +103,8 @@ var testAlgo;
 
     function renderArtistic(width, height, audio) {
         var map = HSVUtil.createMap(width, height);
-        algo.lowsPower = audio.low * 0.05 + algo.lowsPower * 0.95;
+        var keep = Math.pow(0.95, HSVUtil.elapsedFrames(audio));
+        algo.lowsPower = audio.low * (1 - keep) + algo.lowsPower * keep;
         phase1 = (phase1 + audio.dt * algo.speed) % 1.0;
         phase3 = (phase3 + audio.dt * algo.speed * T3_RATIO) % 1.0;
         phase4 = (phase4 + audio.dt * algo.speed * T4_RATIO) % 1.0;
