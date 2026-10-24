@@ -1299,12 +1299,12 @@ void ShowCommandRecorder_Test::armedRecorder_bindsFirstShowAndAuthorsWhileFrozen
     QVERIFY(stored.at(0).on);
     QVERIFY(!stored.at(1).on);
 
-    // Another Show resolving now is an automatic handover: the take on the
-    // first Show closes and recording rearms on the second.
+    // Perform resolving another Show is an automatic handover: the take on
+    // the first Show closes and recording rearms on the second.
     Show *second = new Show(&doc);
     second->setName(QStringLiteral("Other show"));
     QVERIFY(doc.addFunction(second));
-    recorder.setResolvedShow(second->id());
+    QVERIFY(recorder.setResolvedShow(second->id(), ShowRecordSource::Perform));
     QCOMPARE(recorder.phaseValue(), int(ShowRecordPhase::Bound));
     QCOMPARE(recorder.boundShowId(), second->id());
     QCOMPARE(second->commandTrack().count(), 0);
@@ -1483,7 +1483,7 @@ void ShowCommandRecorder_Test::recordRebind_finalizesPreviousShowAtLastItem()
     // The song changes while Record is still on: the take on the old Show is
     // closed at its last retained item, not where its clock had reached.
     first->setExternalElapsedTime(21000);
-    recorder.setResolvedShow(second->id());
+    QVERIFY(recorder.setResolvedShow(second->id(), ShowRecordSource::Perform));
 
     QCOMPARE(first->commandTrack().extent(), quint32(5000));
     QCOMPARE(second->commandTrack().count(), 0);
@@ -15795,7 +15795,7 @@ void ShowCommandRecorder_Test::takeBoundary_savesContentEndWithoutNewInput()
     else if (boundary == QLatin1String("disarm"))
         QVERIFY(r.recorder.setRecording(false));
     else
-        QVERIFY(r.recorder.setResolvedShow(next->id()));
+        QVERIFY(r.recorder.setResolvedShow(next->id(), ShowRecordSource::Perform));
 
     // the workspace Save and Load of the Show
     QBuffer buffer;
@@ -15904,7 +15904,7 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
     else if (boundary == QLatin1String("disarm"))
         ok = r.recorder.setRecording(false);
     else
-        ok = r.recorder.setResolvedShow(next->id());
+        ok = r.recorder.setResolvedShow(next->id(), ShowRecordSource::Perform);
     QCoreApplication::processEvents();
 
     const QByteArray after = savedShowXml(r.show);
@@ -15990,7 +15990,8 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
 
     QSignalSpy reported(&r.recorder, &ShowCommandRecorder::lastErrorChanged);
     const bool handed = r.recorder.setResolvedShow(change == QLatin1String("through a gap") ? Function::invalidId()
-                                                                                           : b->id());
+                                                                                           : b->id(),
+                                                   ShowRecordSource::Perform);
     QCOMPARE(handed, !failing);
     QVERIFY(!a->commandRecording());
 
@@ -16012,7 +16013,7 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
         QVERIFY(r.recorder.isRecording());
         r.slider->requestUserValue(153);
         QCOMPARE(a->commandTrack().count(), 1);
-        QVERIFY(r.recorder.setResolvedShow(c->id()));
+        QVERIFY(r.recorder.setResolvedShow(c->id(), ShowRecordSource::Perform));
         QVERIFY(r.recorder.isAuthoring());
         QCOMPARE(r.recorder.boundShowId(), c->id());
         r.slider->requestUserValue(204);
@@ -16033,7 +16034,7 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
         QVERIFY(b->isRunning());
         QCOMPARE(b->commandTrack().count(), 0);
         // a later automatic change reports nothing more
-        QVERIFY(r.recorder.setResolvedShow(c->id()));
+        QVERIFY(r.recorder.setResolvedShow(c->id(), ShowRecordSource::Perform));
         QCOMPARE(reported.count(), 1);
         // A's accepted input is all still there
         Scene *back = new Scene(&r.doc);
@@ -16079,7 +16080,7 @@ void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed()
         manager.setCurrentShowID(int(r.show->id()));
     QVERIFY(r.recorder.setRecording(state != QLatin1String("off")));
     if (state == QLatin1String("handed over"))
-        QVERIFY(r.recorder.setResolvedShow(b->id()));
+        QVERIFY(r.recorder.setResolvedShow(b->id(), ShowRecordSource::Perform));
     const int before = manager.currentShowID();
 
     QSignalSpy selected(&manager, &ShowManager::currentShowIDChanged);
@@ -16090,6 +16091,85 @@ void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed()
     QCOMPARE(r.recorder.isRecording(), state != QLatin1String("off"));
     if (state != QLatin1String("off"))
         QCOMPARE(r.recorder.boundShowId(), accepted ? b->id() : r.show->id());
+}
+
+void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds_data()
+{
+    QTest::addColumn<bool>("undo");
+
+    QTest::newRow("deleted") << false;
+    // native undo brings the Show back under its id, as another object
+    QTest::newRow("deletion undone") << true;
+}
+
+void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
+{
+    QFETCH(bool, undo);
+
+    RequestRig r;
+    r.show->setName(QStringLiteral("Take"));
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(1000);
+    const quint32 showId = r.show->id();
+    QVERIFY(r.recorder.setRecording(true));
+    r.slider->requestUserValue(51);
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    // accepted for a target that is gone: the Show cannot take it
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    QVERIFY(r.doc.deleteFunction(goneId));
+    ShowCommandInput start;
+    start.origin = ShowCommandOrigin::Pointer;
+    start.action = ShowCommandAction::Start;
+    start.functionId = goneId;
+    QVERIFY(!r.recorder.submitUserInput(start));
+
+    QBuffer xml;
+    xml.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(r.show->saveXML(&writer));
+    QVERIFY(r.doc.deleteFunction(showId));
+    // the rig stops its Show when it goes
+    r.show = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(r.show));
+
+    // REC waits for a Show, says why, and its unsaved input went with the Show
+    QVERIFY(r.recorder.isRecording());
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+    QCOMPARE(r.recorder.boundShowId(), quint32(Function::invalidId()));
+    QVERIFY2(r.recorder.lastError().contains(QStringLiteral("Take")), qPrintable(r.recorder.lastError()));
+    QVERIFY(r.recorder.commands().isEmpty());
+    QVERIFY2(r.recorder.checkpoint(), qPrintable(r.recorder.lastError()));
+
+    if (undo == false)
+    {
+        QVERIFY(r.recorder.setRecording(false));
+        QVERIFY(!r.recorder.isRecording());
+        return;
+    }
+
+    QXmlStreamReader reader(xml.data());
+    reader.readNextStartElement();
+    QVERIFY(Function::loader(reader, &r.doc));
+    auto *restored = qobject_cast<Show *>(r.doc.function(showId));
+    QVERIFY(restored);
+    restored->setSyncSource(ShowRunner::External);
+    restored->setExternalElapsedTime(2000);
+    // bound again, to the restored object and its signals
+    QVERIFY(r.recorder.isAuthoring());
+    QCOMPARE(r.recorder.boundShowId(), showId);
+    QVERIFY(restored->commandRecording());
+    QCOMPARE(r.recorder.commands().count(), 1);
+    QSignalSpy renamed(&r.recorder, &ShowCommandRecorder::targetNameChanged);
+    restored->setName(QStringLiteral("Take again"));
+    QCOMPARE(renamed.count(), 1);
+    QCOMPARE(r.recorder.targetName(), QStringLiteral("Take again"));
+    r.slider->requestUserValue(153);
+    QCOMPARE(restored->commandTrack().count(), 2);
+    QCOMPARE(restored->commandTrack().commands().last().time, 2000u);
+    QVERIFY2(r.recorder.setRecording(false), qPrintable(r.recorder.lastError()));
+    QVERIFY(!restored->commandRecording());
 }
 
 void ShowCommandRecorder_Test::performFollow_handsOverOnlyWhileEngaged_data()
@@ -17129,23 +17209,23 @@ void ShowCommandRecorder_Test::appRecordControls_followTargetRename()
     QVERIFY(rig.recorder->setRecording(false));
 }
 
-void ShowCommandRecorder_Test::appPerformGap_firstSelectionBinds_data()
+void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain_data()
 {
-    QTest::addColumn<QString>("selection");
+    QTest::addColumn<bool>("gap");      // Perform resolved nothing last
+    QTest::addColumn<QString>("chosen"); // the Show Manager selection while Perform is engaged
+    QTest::addColumn<bool>("rec");
 
-    // after Perform resolved nothing, the Show Manager still displays A
-    QTest::newRow("still displayed A") << QStringLiteral("A");
-    QTest::newRow("different B") << QStringLiteral("B");
-    // a bound take keeps its Show; selecting it again changes nothing
-    QTest::newRow("bound, select B") << QStringLiteral("bound B");
-    QTest::newRow("bound, select A again") << QStringLiteral("bound A");
-    // not recording: selecting the displayed Show stays a no-op
-    QTest::newRow("REC off, A again") << QStringLiteral("off A");
+    QTest::newRow("after a gap, A still displayed") << true << QStringLiteral("A") << true;
+    QTest::newRow("after a gap, B selected meanwhile") << true << QStringLiteral("B") << true;
+    QTest::newRow("on the take the Show Manager displays") << false << QStringLiteral("A") << true;
+    QTest::newRow("REC off") << true << QStringLiteral("B") << false;
 }
 
-void ShowCommandRecorder_Test::appPerformGap_firstSelectionBinds()
+void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
 {
-    QFETCH(QString, selection);
+    QFETCH(bool, gap);
+    QFETCH(QString, chosen);
+    QFETCH(bool, rec);
 
     AppRig rig;
     QVERIFY(rig.recorder && rig.manager);
@@ -17154,53 +17234,39 @@ void ShowCommandRecorder_Test::appPerformGap_firstSelectionBinds()
     PerformFsm *fsm = bridge->performFsm();
     Show *a = rig.addShow(3000);
     Show *b = rig.addShow(6000);
+    Show *selected = chosen == QLatin1String("B") ? b : a;
 
     rig.manager->setCurrentShowID(int(a->id()));
-    if (selection.startsWith(QLatin1String("off")) == false)
+    QVERIFY(rig.recorder->setRecording(rec));
+    fsm->setActiveShow(a->id());
+    fsm->setPerformEnabled(true);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? a->id() : quint32(Function::invalidId()));
+    if (gap)
     {
-        QVERIFY(rig.recorder->setRecording(true));
-        fsm->setActiveShow(a->id());
-        fsm->setPerformEnabled(true);
-        QCOMPARE(rig.recorder->boundShowId(), a->id());
-        if (selection.startsWith(QLatin1String("bound")) == false)
-        {
-            // an automatic gap: the take on A closes, REC waits armed
-            fsm->setActiveShow(PerformFsm::InvalidShowId);
-            QCOMPARE(rig.recorder->phaseValue(), int(ShowRecordPhase::Armed));
-        }
-        fsm->setPerformEnabled(false);
-        QVERIFY(!rig.manager->readOnly());
+        // the take on A closes, REC waits for Perform's next Show
+        fsm->setActiveShow(PerformFsm::InvalidShowId);
+        QCOMPARE(rig.recorder->phaseValue(), int(rec ? ShowRecordPhase::Armed : ShowRecordPhase::Off));
     }
-    QCOMPARE(rig.manager->currentShowID(), int(a->id()));
-    const quint32 boundBefore = rig.recorder->boundShowId();
+    // while Perform is engaged a selection resolves nothing
+    rig.manager->setCurrentShowID(int(selected->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(selected->id()));
+    QCOMPARE(rig.recorder->boundShowId(), rec && !gap ? a->id() : quint32(Function::invalidId()));
+
+    fsm->setPerformEnabled(false);
+    QVERIFY(!rig.manager->readOnly());
+    // the selection resolves again, and a take on it keeps it
+    QCOMPARE(rig.recorder->targetName(), selected->name());
+    QCOMPARE(rig.recorder->isAuthoring(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? selected->id() : quint32(Function::invalidId()));
+    QCOMPARE(selected->commandRecording(), rec);
     QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
-    QSignalSpy selected(rig.manager, &ShowManager::currentShowIDChanged);
-
-    Show *chosen = selection.endsWith(QLatin1String("B")) ? b : a;
-    // the public setter the function list and Show editor select through
-    rig.manager->setCurrentShowID(int(chosen->id()));
-
-    if (selection == QLatin1String("A") || selection == QLatin1String("B"))
+    Show *other = selected == a ? b : a;
+    rig.manager->setCurrentShowID(int(other->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(rec ? selected->id() : other->id()));
+    if (rec)
     {
-        // the first manual selection binds, then locks
-        QCOMPARE(rig.manager->currentShowID(), int(chosen->id()));
-        QVERIFY(rig.recorder->isAuthoring());
-        QCOMPARE(rig.recorder->boundShowId(), chosen->id());
-        QVERIFY(chosen->commandRecording());
-        rig.manager->setCurrentShowID(int((chosen == a ? b : a)->id()));
-        QCOMPARE(rig.manager->currentShowID(), int(chosen->id()));
-        const int transitions = states.count();
-        rig.manager->setCurrentShowID(int(chosen->id()));
-        QCOMPARE(states.count(), transitions);
-    }
-    else
-    {
-        // nothing moves: no selection, target or transport change
-        QCOMPARE(rig.manager->currentShowID(), int(a->id()));
-        QCOMPARE(rig.recorder->boundShowId(), boundBefore);
+        rig.manager->setCurrentShowID(int(selected->id()));
         QCOMPARE(states.count(), 0);
-        QCOMPARE(selected.count(), 0);
-        QCOMPARE(rig.recorder->isRecording(), selection.startsWith(QLatin1String("bound")));
     }
     QCOMPARE(rig.doc->masterTimer()->runningFunctions(), 0);
     rig.recorder->setRecording(false);
@@ -20505,7 +20571,7 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
     slider->requestUserValue(140);
     QCOMPARE(recorder.pendingUserRequests().count(), 1);
     const quint64 trace = recorder.pendingUserRequests().first().cause.trace;
-    QVERIFY(recorder.setResolvedShow(next->id()));
+    QVERIFY(recorder.setResolvedShow(next->id(), ShowRecordSource::Perform));
     slider->setCaption(QStringLiteral("Renamed after acceptance"));
     for (int i = 0; i < 30 && (!recorder.pendingUserRequests().isEmpty() || recorder.pendingControlRuns() > 0 ||
                                show->commandWorkPending()); i++)
@@ -28160,9 +28226,10 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
         ed.rig.manager->setCurrentTime(3000);
         ed.fader->requestUserValue(128);
         QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20}));
-        QVERIFY(!ed.rig.recorder->setResolvedShow(other->id()));
+        QVERIFY(!ed.rig.recorder->setResolvedShow(other->id(), ShowRecordSource::Perform));
         QVERIFY(!ed.rig.recorder->isRecording());
-        QVERIFY(ed.rig.recorder->setResolvedShow(a));
+        // the Show Manager selection resolves again
+        ed.rig.recorder->releasePerform();
         // the Function comes back under its id, so the take can be published again
         later = new Scene(ed.rig.doc);
         QVERIFY(ed.rig.doc->addFunction(later, laterId));

@@ -119,11 +119,9 @@ void ShowManager::setReadOnly(bool readOnly)
 
 void ShowManager::setCurrentShowID(int currentShowID)
 {
-    // while a take is bound, only the automatic handover moves the Show,
-    // and it reaches the recorder first
+    // a bound take keeps its Show until an automatic source moves it
     ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
-    if (recorder != nullptr && recorder->isRecording() && recorder->boundShowId() != Function::invalidId() &&
-        recorder->boundShowId() != quint32(currentShowID))
+    if (recorder != nullptr && recorder->selectionAllowed(quint32(currentShowID)) == false)
         return;
 
     if (m_currentShow != nullptr)
@@ -133,10 +131,6 @@ void ShowManager::setCurrentShowID(int currentShowID)
             setPlaybackState(m_currentShow->isRunning(), m_currentShow->isPaused());
             if (m_currentShow->syncSource() == ShowRunner::External)
                 slotTimeChanged(m_currentShow->externalElapsedTime());
-            // armed without a take, e.g. after an automatic gap: selecting the
-            // displayed Show is the first manual selection
-            if (recorder != nullptr && recorder->isRecording() && recorder->boundShowId() == Function::invalidId())
-                emit currentShowIDChanged(currentShowID);
             return;
         }
         disconnect(m_currentShow, SIGNAL(timeChanged(quint32)), this, SLOT(slotTimeChanged(quint32)));

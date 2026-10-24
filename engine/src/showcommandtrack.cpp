@@ -1862,52 +1862,126 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
  * ShowCommandState
  ***********************************************************************/
 
-ShowRecordPhase ShowCommandState::phase() const
+bool ShowCommandState::operator==(const ShowCommandState &other) const
+{
+    return playing == other.playing && position == other.position && consumedThrough == other.consumedThrough
+        && consumedLiveEventIds == other.consumedLiveEventIds;
+}
+
+/************************************************************************
+ * ShowRecordState
+ ***********************************************************************/
+
+quint32 ShowRecordState::resolvedShowId() const
+{
+    const ShowRecordSelection &source = performEngaged ? perform : manual;
+    return source.removed ? ShowCommand::InvalidId : source.showId;
+}
+
+ShowRecordPhase ShowRecordState::phase() const
 {
     if (!recording)
         return ShowRecordPhase::Off;
-
-    if (boundShowId == ShowCommand::InvalidId)
-        return ShowRecordPhase::Armed;
-
-    return boundShowId == resolvedShowId ? ShowRecordPhase::Bound : ShowRecordPhase::Suspended;
+    return resolvedShowId() == ShowCommand::InvalidId ? ShowRecordPhase::Armed : ShowRecordPhase::Bound;
 }
 
-bool ShowCommandState::operator==(const ShowCommandState &other) const
+quint32 ShowRecordState::boundShowId() const
 {
-    return recording == other.recording && playing == other.playing
-        && boundShowId == other.boundShowId && resolvedShowId == other.resolvedShowId
-        && position == other.position && consumedThrough == other.consumedThrough
-        && consumedLiveEventIds == other.consumedLiveEventIds;
+    return phase() == ShowRecordPhase::Bound ? resolvedShowId() : ShowCommand::InvalidId;
+}
+
+bool ShowRecordState::operator==(const ShowRecordState &other) const
+{
+    return recording == other.recording && performEngaged == other.performEngaged && manual == other.manual
+        && perform == other.perform;
 }
 
 /************************************************************************
  * ShowCommandFsm
  ***********************************************************************/
 
-ShowCommandState ShowCommandFsm::setRecording(const ShowCommandState &state, bool on)
+ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const ShowRecordEvent &event,
+                                            bool checkpointSaved)
 {
-    ShowCommandState next = state;
-    next.recording = on;
+    using Kind = ShowRecordEvent::Kind;
+    using Effect = ShowRecordEffect::Kind;
+    ShowRecordTransition result;
+    result.state = state;
+    ShowRecordState &next = result.state;
+    const quint32 bound = state.boundShowId();
 
-    if (!on)
-        next.boundShowId = ShowCommand::InvalidId;
-    else if (!state.recording)
-        next.boundShowId = state.resolvedShowId; // arming with a show already resolved binds it
+    switch (event.kind)
+    {
+        case Kind::Rec:
+            next.recording = event.on;
+        break;
+        case Kind::Resolved:
+            if (event.source == ShowRecordSource::Perform)
+            {
+                next.performEngaged = true;
+                next.perform = { event.showId, false };
+            }
+            else if (state.performEngaged == false && bound != ShowCommand::InvalidId && event.showId != bound)
+            {
+                // only an automatic source moves a bound take
+                result.effects.append({ Effect::RefuseSelection });
+                return result;
+            }
+            else
+            {
+                next.manual = { event.showId, false };
+            }
+        break;
+        case Kind::PerformEnded:
+            next.performEngaged = false;
+            next.perform = ShowRecordSelection();
+        break;
+        case Kind::Removed:
+        case Kind::Restored:
+            for (ShowRecordSelection *selection : { &next.manual, &next.perform })
+            {
+                if (selection->showId == event.showId)
+                    selection->removed = event.kind == Kind::Removed;
+            }
+            if (event.kind == Kind::Removed)
+                result.effects.append({ Effect::DropUnpublished, event.showId });
+        break;
+        case Kind::Discard:
+            next.recording = false;
+            next.manual = ShowRecordSelection();
+            next.perform = ShowRecordSelection();
+            result.effects.append({ Effect::DropUnpublished });
+        break;
+    }
 
-    return next;
-}
+    // a take leaving its Show is saved first, unless the Show or the workspace is gone
+    const bool removedBound = event.kind == Kind::Removed && event.showId == bound;
+    if (bound != ShowCommand::InvalidId && next.boundShowId() != bound && removedBound == false &&
+        event.kind != Kind::Discard)
+    {
+        result.checkpoint = true;
+        if (checkpointSaved == false && event.kind == Kind::Rec)
+        {
+            // REC off keeps a take that cannot be saved
+            result.state = state;
+            result.effects = { { Effect::ReportFailure, bound } };
+            return result;
+        }
+        // the Show moved on: the take ends there, its accepted input kept
+        if (checkpointSaved == false)
+            next.recording = false;
+    }
 
-ShowCommandState ShowCommandFsm::setResolvedShow(const ShowCommandState &state, quint32 showId)
-{
-    ShowCommandState next = state;
-    next.resolvedShowId = showId;
-
-    // an armed recorder binds the first Show it sees and keeps it afterwards
-    if (state.recording && state.boundShowId == ShowCommand::InvalidId)
-        next.boundShowId = showId;
-
-    return next;
+    const quint32 nowBound = next.boundShowId();
+    if (bound != ShowCommand::InvalidId && nowBound != bound && removedBound == false)
+        result.effects.append({ Effect::SetCommandRecording, bound, false });
+    if (next.resolvedShowId() != state.resolvedShowId())
+        result.effects.append({ Effect::Track, next.resolvedShowId() });
+    if (nowBound != ShowCommand::InvalidId && nowBound != bound)
+        result.effects.append({ Effect::SetCommandRecording, nowBound, true });
+    if (removedBound || (result.checkpoint && checkpointSaved == false))
+        result.effects.append({ Effect::ReportFailure, bound });
+    return result;
 }
 
 ShowCommandState ShowCommandFsm::setPlaying(const ShowCommandState &state, bool playing)
@@ -1963,11 +2037,6 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
 {
     ShowCommandTransition result;
     result.state = state;
-
-    // only a bound recorder authors anything; a frozen transport records at its
-    // own position, a different resolved Show does not reach this track at all
-    if (state.phase() != ShowRecordPhase::Bound)
-        return result;
 
     if (!isUserOrigin(input.origin))
         return result;

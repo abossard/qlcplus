@@ -92,12 +92,12 @@ private slots:
     void extentNeverSynthesizesEffects();
 
     // recording transitions
-    void armingBindsTheFirstResolvedShow();
-    void bindingSurvivesPauseSeekAndLoop();
+    void recordTransitions_data();
+    void recordTransitions();
     void recordsOnlyAcceptedUserInput_data();
     void recordsOnlyAcceptedUserInput();
-    void recordingIsGatedByPhaseAndTransport_data();
-    void recordingIsGatedByPhaseAndTransport();
+    void userInputAuthorsAtTheFrozenPosition_data();
+    void userInputAuthorsAtTheFrozenPosition();
     void liveCommandDoesNotEchoUntilTheNextTraversal();
     void liveInputMarksOnlyItsOwnEvent();
     void liveOccurrence_data();

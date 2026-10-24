@@ -437,6 +437,8 @@ private slots:
     void automaticShowChange_handsRecordingOver();
     void manualShowSelection_lockedWhileArmed_data();
     void manualShowSelection_lockedWhileArmed();
+    void boundShowDeletion_armsAndUndoRebinds_data();
+    void boundShowDeletion_armsAndUndoRebinds();
     void performFollow_handsOverOnlyWhileEngaged_data();
     void performFollow_handsOverOnlyWhileEngaged();
     void appPerform_handsRecordingOver_data();
@@ -451,8 +453,8 @@ private slots:
     void appRecordControls_shareOneRecorder();
     void appRecordControls_followTargetRename_data();
     void appRecordControls_followTargetRename();
-    void appPerformGap_firstSelectionBinds_data();
-    void appPerformGap_firstSelectionBinds();
+    void appPerformEnd_selectionResolvesAgain_data();
+    void appPerformEnd_selectionResolvesAgain();
     void appMcpReplacement_needsDiscardWhileRecording_data();
     void appMcpReplacement_needsDiscardWhileRecording();
     // Recordings editor in the Show editor

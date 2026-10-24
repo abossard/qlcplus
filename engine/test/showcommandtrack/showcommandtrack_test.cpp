@@ -1973,8 +1973,7 @@ void ShowCommandTrack_Test::eventIdsRunOutExplicitly(){
     QCOMPARE(track.nextEventId(), ShowCommand::InvalidId);
 
     // the recorder explains the exhaustion instead of dropping the input silently
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
 
     ShowCommandInput input;
@@ -2076,9 +2075,6 @@ void ShowCommandTrack_Test::seekRepositionsOnly()
     // a legacy-only track: Start, Stop and SetIntensity
     const ShowCommandTrack track = playbackTrack();
     ShowCommandState state = playingState();
-    state.recording = true;
-    state.boundShowId = 55;
-    state.resolvedShowId = 55;
     if (from >= 0)
         state = ShowCommandFsm::advance(track, state, quint32(from)).state;
     // a live mark of the previous pass at 3000
@@ -2091,8 +2087,6 @@ void ShowCommandTrack_Test::seekRepositionsOnly()
     QCOMPARE(sought.position, destination);
     QCOMPARE(sought.consumedThrough, destination);
     QVERIFY(sought.consumedLiveEventIds.isEmpty());
-    QVERIFY(sought.recording);
-    QCOMPARE(sought.boundShowId, 55u);
     QVERIFY(sought.playing);
 
     const ShowCommandTransition step = ShowCommandFsm::advance(track, sought, next);
@@ -2178,57 +2172,212 @@ void ShowCommandTrack_Test::extentNeverSynthesizesEffects()
     QCOMPARE(idsOf(longer.effects), QStringLiteral("1,2"));
 }
 
-void ShowCommandTrack_Test::armingBindsTheFirstResolvedShow()
+namespace
 {
-    ShowCommandState state;
-    QVERIFY(state.phase() == ShowRecordPhase::Off);
-
-    // armed before any show resolves: the recorder waits
-    state = ShowCommandFsm::setRecording(state, true);
-    QVERIFY(state.phase() == ShowRecordPhase::Armed);
-    QCOMPARE(state.boundShowId, ShowCommand::InvalidId);
-
-    state = ShowCommandFsm::setResolvedShow(state, 55);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QCOMPARE(state.boundShowId, 55u);
-
-    // another song/editor selection suspends instead of retargeting
-    state = ShowCommandFsm::setResolvedShow(state, 77);
-    QVERIFY(state.phase() == ShowRecordPhase::Suspended);
-    QCOMPARE(state.boundShowId, 55u);
-
-    state = ShowCommandFsm::setResolvedShow(state, 55);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-
-    state = ShowCommandFsm::setRecording(state, false);
-    QVERIFY(state.phase() == ShowRecordPhase::Off);
-    QCOMPARE(state.boundShowId, ShowCommand::InvalidId);
-    QCOMPARE(state.resolvedShowId, 55u);
-
-    // arming with a show already resolved binds at once
-    state = ShowCommandFsm::setRecording(state, true);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QCOMPARE(state.boundShowId, 55u);
+quint32 recordId(const QString &text)
+{
+    return text == QLatin1String("-") ? ShowCommand::InvalidId : text.toUInt();
 }
 
-void ShowCommandTrack_Test::bindingSurvivesPauseSeekAndLoop()
+QString recordIdText(quint32 id)
 {
-    const ShowCommandTrack track = playbackTrack();
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
-    state = ShowCommandFsm::setPlaying(state, true);
+    return id == ShowCommand::InvalidId ? QStringLiteral("-") : QString::number(id);
+}
 
-    state = ShowCommandFsm::advance(track, state, 2000).state;
-    state = ShowCommandFsm::setPlaying(state, false);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QCOMPARE(state.boundShowId, 55u);
+/** "1", "1x" for a deleted Show 1, "-" for none */
+ShowRecordSelection recordSelection(const QString &text)
+{
+    ShowRecordSelection selection;
+    selection.removed = text.endsWith(QLatin1Char('x'));
+    selection.showId = recordId(selection.removed ? text.chopped(1) : text);
+    return selection;
+}
 
-    state = ShowCommandFsm::seek(state, 0);
-    state = ShowCommandFsm::setPlaying(state, true);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QVERIFY(state.recording);
-    QCOMPARE(state.boundShowId, 55u);
-    QCOMPARE(state.position, 0u);
+QString recordSelectionText(const ShowRecordSelection &selection)
+{
+    return recordIdText(selection.showId) + (selection.removed ? QStringLiteral("x") : QString());
+}
+
+/** "rec m=1 p=2": REC on, the manual selection 1, Perform engaged on 2.
+ *  "off" or no "rec" is REC off, no "p=" is Perform idle. */
+ShowRecordState recordState(const QString &text)
+{
+    ShowRecordState state;
+    for (const QString &token : text.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+    {
+        if (token == QLatin1String("rec"))
+            state.recording = true;
+        else if (token.startsWith(QLatin1String("m=")))
+            state.manual = recordSelection(token.mid(2));
+        else if (token.startsWith(QLatin1String("p=")))
+        {
+            state.performEngaged = true;
+            state.perform = recordSelection(token.mid(2));
+        }
+    }
+    return state;
+}
+
+QString recordStateText(const ShowRecordState &state)
+{
+    QStringList tokens{ state.recording ? QStringLiteral("rec") : QStringLiteral("off") };
+    if (!(state.manual == ShowRecordSelection()))
+        tokens << QStringLiteral("m=") + recordSelectionText(state.manual);
+    if (state.performEngaged)
+        tokens << QStringLiteral("p=") + recordSelectionText(state.perform);
+    return tokens.join(QLatin1Char(' '));
+}
+
+/** "rec on", "manual 2", "perform -", "perform ended", "removed 1", "restored 1", "discard" */
+ShowRecordEvent recordEvent(const QString &text)
+{
+    using Kind = ShowRecordEvent::Kind;
+    const QStringList words = text.split(QLatin1Char(' '));
+    ShowRecordEvent event;
+    event.showId = recordId(words.last());
+    if (words.first() == QLatin1String("rec"))
+    {
+        event.kind = Kind::Rec;
+        event.on = words.last() == QLatin1String("on");
+    }
+    else if (text == QLatin1String("perform ended"))
+        event.kind = Kind::PerformEnded;
+    else if (words.first() == QLatin1String("manual") || words.first() == QLatin1String("perform"))
+    {
+        event.kind = Kind::Resolved;
+        event.source = words.first() == QLatin1String("manual") ? ShowRecordSource::Manual
+                                                                 : ShowRecordSource::Perform;
+    }
+    else if (words.first() == QLatin1String("removed"))
+        event.kind = Kind::Removed;
+    else if (words.first() == QLatin1String("restored"))
+        event.kind = Kind::Restored;
+    else
+        event.kind = Kind::Discard;
+    return event;
+}
+
+QString recordEffectsText(const QVector<ShowRecordEffect> &effects)
+{
+    using Kind = ShowRecordEffect::Kind;
+    QStringList parts;
+    for (const ShowRecordEffect &effect : effects)
+    {
+        switch (effect.kind)
+        {
+            case Kind::DropUnpublished:
+                parts << QStringLiteral("drop ") +
+                         (effect.showId == ShowCommand::InvalidId ? QStringLiteral("*") : recordIdText(effect.showId));
+            break;
+            case Kind::SetCommandRecording:
+                parts << (effect.on ? QStringLiteral("on ") : QStringLiteral("off ")) + recordIdText(effect.showId);
+            break;
+            case Kind::Track: parts << QStringLiteral("track ") + recordIdText(effect.showId); break;
+            case Kind::RefuseSelection: parts << QStringLiteral("refuse"); break;
+            case Kind::ReportFailure: parts << QStringLiteral("report ") + recordIdText(effect.showId); break;
+        }
+    }
+    return parts.join(QStringLiteral(", "));
+}
+}
+
+void ShowCommandTrack_Test::recordTransitions_data()
+{
+    QTest::addColumn<QString>("from");
+    QTest::addColumn<QString>("event");
+    QTest::addColumn<bool>("saved"); // the transition's checkpoint saves
+    QTest::addColumn<QString>("to");
+    QTest::addColumn<ShowRecordPhase>("phase");
+    QTest::addColumn<bool>("checkpoint");
+    QTest::addColumn<QString>("effects");
+
+    const ShowRecordPhase off = ShowRecordPhase::Off, armed = ShowRecordPhase::Armed, bound = ShowRecordPhase::Bound;
+    const auto row = [](const char *name, const char *from, const char *event, bool saved, const char *to,
+                        ShowRecordPhase phase, bool checkpoint, const char *effects) {
+        QTest::newRow(name) << QString::fromLatin1(from) << QString::fromLatin1(event) << saved
+                            << QString::fromLatin1(to) << phase << checkpoint << QString::fromLatin1(effects);
+    };
+
+    // REC
+    row("arming without a Show waits", "off", "rec on", true, "rec", armed, false, "");
+    row("arming binds the resolved Show", "off m=1", "rec on", true, "rec m=1", bound, false, "on 1");
+    row("arming again changes nothing", "rec m=1", "rec on", true, "rec m=1", bound, false, "");
+    row("arming never binds a deleted Show", "off m=1x", "rec on", true, "rec m=1x", armed, false, "");
+    row("disarming saves the take", "rec m=1", "rec off", true, "off m=1", off, true, "off 1");
+    row("disarming a take that cannot save keeps it", "rec m=1", "rec off", false, "rec m=1", bound, true,
+        "report 1");
+    row("disarming while armed", "rec", "rec off", true, "off", off, false, "");
+
+    // manual selection
+    row("a selection while off is tracked", "off m=1", "manual 2", true, "off m=2", off, false, "track 2");
+    row("armed binds the first selection", "rec", "manual 1", true, "rec m=1", bound, false, "track 1, on 1");
+    row("a bound take refuses another selection", "rec m=1", "manual 2", true, "rec m=1", bound, false, "refuse");
+    row("a bound take refuses no selection", "rec m=1", "manual -", true, "rec m=1", bound, false, "refuse");
+    row("selecting the bound Show again", "rec m=1", "manual 1", true, "rec m=1", bound, false, "");
+    row("while Perform is engaged a selection resolves nothing", "rec m=1 p=-", "manual 2", true, "rec m=2 p=-",
+        armed, false, "");
+    row("the Show Manager follows an engaged Perform", "rec p=2", "manual 2", true, "rec m=2 p=2", bound, false,
+        "");
+
+    // Perform
+    row("engaging Perform hands the take over", "rec m=1", "perform 2", true, "rec m=1 p=2", bound, true,
+        "off 1, track 2, on 2");
+    row("engaging Perform on an empty deck arms", "rec m=1", "perform -", true, "rec m=1 p=-", armed, true,
+        "off 1, track -");
+    row("a deck change hands the take over", "rec m=1 p=2", "perform 3", true, "rec m=1 p=3", bound, true,
+        "off 2, track 3, on 3");
+    row("a gap arms", "rec m=1 p=2", "perform -", true, "rec m=1 p=-", armed, true, "off 2, track -");
+    row("armed binds the next deck", "rec m=1 p=-", "perform 3", true, "rec m=1 p=3", bound, false,
+        "track 3, on 3");
+    row("a handover that cannot save ends the take", "rec m=1 p=2", "perform 3", false, "off m=1 p=3", off, true,
+        "off 2, track 3, report 2");
+    row("Perform ends: the selection resolves again", "rec m=2 p=-", "perform ended", true, "rec m=2", bound,
+        false, "track 2, on 2");
+    row("Perform ends on another Show: handed back", "rec m=1 p=2", "perform ended", true, "rec m=1", bound, true,
+        "off 2, track 1, on 1");
+    row("Perform ends where the Show Manager is", "rec m=2 p=2", "perform ended", true, "rec m=2", bound, false,
+        "");
+    row("Perform ends while it was idle", "off m=1", "perform ended", true, "off m=1", off, false, "");
+    row("Perform resolves while REC is off", "off m=1", "perform 2", true, "off m=1 p=2", off, false, "track 2");
+
+    // deletion and its undo
+    row("deleting the bound Show arms", "rec m=1", "removed 1", true, "rec m=1x", armed, false,
+        "drop 1, track -, report 1");
+    row("undo of that deletion binds again", "rec m=1x", "restored 1", true, "rec m=1", bound, false,
+        "track 1, on 1");
+    row("deleting the tracked Show while off", "off m=1", "removed 1", true, "off m=1x", off, false,
+        "drop 1, track -");
+    row("restoring the tracked Show while off", "off m=1x", "restored 1", true, "off m=1", off, false,
+        "track 1");
+    row("deleting another Show drops only its input", "rec m=1", "removed 2", true, "rec m=1", bound, false,
+        "drop 2");
+    row("restoring an unnamed Show", "rec m=1", "restored 2", true, "rec m=1", bound, false, "");
+    row("armed after a deletion binds the next selection", "rec m=1x", "manual 2", true, "rec m=2", bound,
+        false, "track 2, on 2");
+
+    // workspace replacement
+    row("discarding drops everything unsaved", "rec m=1 p=2", "discard", true, "off p=-", off, false,
+        "drop *, off 2, track -");
+}
+
+void ShowCommandTrack_Test::recordTransitions()
+{
+    QFETCH(QString, from);
+    QFETCH(QString, event);
+    QFETCH(bool, saved);
+    QFETCH(QString, to);
+    QFETCH(ShowRecordPhase, phase);
+    QFETCH(bool, checkpoint);
+    QFETCH(QString, effects);
+
+    const ShowRecordTransition step = ShowCommandFsm::record(recordState(from), recordEvent(event), saved);
+    QCOMPARE(recordStateText(step.state), recordStateText(recordState(to)));
+    QCOMPARE(step.state.phase(), phase);
+    QCOMPARE(step.checkpoint, checkpoint);
+    QCOMPARE(recordEffectsText(step.effects), effects);
+    // a bound take always records into the resolved Show
+    if (step.state.phase() == ShowRecordPhase::Bound)
+        QCOMPARE(step.state.boundShowId(), step.state.resolvedShowId());
 }
 
 void ShowCommandTrack_Test::recordsOnlyAcceptedUserInput_data()
@@ -2288,8 +2437,7 @@ void ShowCommandTrack_Test::recordsOnlyAcceptedUserInput()
     QFETCH(bool, explained);
 
     ShowCommandTrack track = playbackTrack();
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
     state = ShowCommandFsm::advance(track, state, 2600).state;
 
@@ -2321,36 +2469,20 @@ void ShowCommandTrack_Test::recordsOnlyAcceptedUserInput()
     QVERIFY(track.insert(authored));
 }
 
-void ShowCommandTrack_Test::recordingIsGatedByPhaseAndTransport_data()
+void ShowCommandTrack_Test::userInputAuthorsAtTheFrozenPosition_data()
 {
-    QTest::addColumn<bool>("recording");
-    QTest::addColumn<quint32>("boundShowId");
-    QTest::addColumn<quint32>("resolvedShowId");
     QTest::addColumn<bool>("playing");
-    QTest::addColumn<bool>("authors");
 
-    QTest::newRow("bound and playing") << true << 55u << 55u << true << true;
-    QTest::newRow("bound and paused") << true << 55u << 55u << false << true;
-    QTest::newRow("record off") << false << ShowCommand::InvalidId << 55u << true << false;
-    QTest::newRow("armed without a show")
-        << true << ShowCommand::InvalidId << ShowCommand::InvalidId << true << false;
-    QTest::newRow("suspended by another show") << true << 55u << 77u << true << false;
-    QTest::newRow("suspended while paused") << true << 55u << 77u << false << false;
+    QTest::newRow("playing") << true;
+    QTest::newRow("paused") << false;
 }
 
-void ShowCommandTrack_Test::recordingIsGatedByPhaseAndTransport()
+void ShowCommandTrack_Test::userInputAuthorsAtTheFrozenPosition()
 {
-    QFETCH(bool, recording);
-    QFETCH(quint32, boundShowId);
-    QFETCH(quint32, resolvedShowId);
     QFETCH(bool, playing);
-    QFETCH(bool, authors);
 
     const ShowCommandTrack track = playbackTrack();
     ShowCommandState state;
-    state.recording = recording;
-    state.boundShowId = boundShowId;
-    state.resolvedShowId = resolvedShowId;
     state.playing = playing;
     state.position = 2600;
     state.consumedThrough = 2601;
@@ -2361,15 +2493,8 @@ void ShowCommandTrack_Test::recordingIsGatedByPhaseAndTransport()
     input.functionId = 12;
 
     const ShowCommandTransition step = ShowCommandFsm::userInput(track, state, input);
-    QCOMPARE(step.authored.count(), authors ? 1 : 0);
+    QCOMPARE(step.authored.count(), 1);
     QVERIFY(step.effects.isEmpty());
-
-    if (!authors)
-    {
-        QVERIFY(step.state == state);
-        return;
-    }
-
     // a frozen transport records at the position it froze on
     QCOMPARE(step.authored.first().time, 2600u);
     QCOMPARE(step.state.playing, playing);
@@ -2380,8 +2505,7 @@ void ShowCommandTrack_Test::liveCommandDoesNotEchoUntilTheNextTraversal()
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::start(0, 2000, 12)));
 
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
 
     // an authored event at the very first position must not echo either
@@ -2422,8 +2546,6 @@ void ShowCommandTrack_Test::liveCommandDoesNotEchoUntilTheNextTraversal()
     state = ShowCommandFsm::seek(state, 0);
     step = ShowCommandFsm::advance(track, state, 6000);
     QCOMPARE(idsOf(step.effects), QStringLiteral("1,0,2"));
-    QVERIFY(state.recording);
-    QCOMPARE(state.boundShowId, 55u);
 }
 
 void ShowCommandTrack_Test::liveInputMarksOnlyItsOwnEvent()
@@ -2433,8 +2555,7 @@ void ShowCommandTrack_Test::liveInputMarksOnlyItsOwnEvent()
     QVERIFY(track.insert(ShowCommand::start(0, 3500, 30)));
     QVERIFY(track.insert(ShowCommand::start(1, 4200, 12)));
 
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
     state = ShowCommandFsm::advance(track, state, 3000).state;
     state.position = 4200;
@@ -2518,8 +2639,7 @@ void ShowCommandTrack_Test::liveOccurrence()
     ShowCommandState runner = ShowCommandFsm::advance(track, playingState(), 500).state;
 
     // the recorder follows the authoritative clock, which is ahead of the cursor
-    ShowCommandState recorder = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState recorder = ShowCommandState();
     recorder = ShowCommandFsm::setPlaying(recorder, true);
     recorder.position = 800;
 
@@ -2580,8 +2700,7 @@ void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::start(4, 100, 12)));
 
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
     state = ShowCommandFsm::advance(track, state, 2750).state;
 
@@ -2688,7 +2807,7 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
     QFETCH(QString, spans);
 
     ShowCommandTrack track;
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     for (const QString &step : steps.split(QStringLiteral(", ")))
     {
         const QString verb = step.section(' ', 0, 0);
@@ -2796,7 +2915,7 @@ void ShowCommandTrack_Test::pairIdsAreNeverReissued()
     if (history == QLatin1String("reserve"))
         track.reserve(highWaterMarks(1, 1, 9));
 
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state.position = 5000;
     ShowCommandInput press;
     press.origin = ShowCommandOrigin::Pointer;

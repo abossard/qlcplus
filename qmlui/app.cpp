@@ -315,9 +315,9 @@ void App::startup()
     }
 
     // Perform resolves a Show for the playing deck without the Show Manager
-    // being open, so Record follows the same target. Connected before the DJ
-    // Manager's own follower: the recorder hands a bound take over first, and
-    // the Show Manager's selection lock then lets the displayed Show follow.
+    // being open, so Record follows the same target. While Perform is
+    // engaged the recorder ignores the Show Manager selection, so the DJ
+    // Manager's own follower may run in either order.
     if (m_showCommandRecorder != nullptr)
         m_showCommandRecorder->followPerform(m_vdjBridge->performFsm());
 

@@ -207,19 +207,27 @@ public:
     /** Arm/disarm. Arming without a resolved Show waits; the first resolved
      *  Show binds and stays bound through pause, seek and loop. Binding also
      *  sets the Show's transient recording intent, so a command-only Show
-     *  keeps playing while it is being recorded. */
+     *  keeps playing while it is being recorded. Disarming saves the take
+     *  first; false, REC staying on, when it cannot. */
     bool setRecording(bool on);
 
-    /** The Show currently resolved by the host (Show Manager selection or the
-     *  Perform FSM's active show). While a take is bound, a different Show is
-     *  an automatic handover: the take checkpoints and Record rearms on the new
-     *  Show, or waits armed when none is resolved. A take that cannot be saved
-     *  disarms, keeps its accepted input and returns false. */
-    bool setResolvedShow(quint32 showId);
+    /** A Show resolved by its source: the Show Manager selection, or the Show
+     *  of an engaged Perform (InvalidId for none). While Perform is engaged
+     *  only Perform resolves, otherwise only the selection. A bound take
+     *  refuses another selection; Perform hands it over: the take is saved
+     *  and REC binds the new Show, or waits armed. False when the selection
+     *  is refused, or when the take cannot be saved: then REC is off and
+     *  keeps the take's accepted input. */
+    bool setResolvedShow(quint32 showId, ShowRecordSource source = ShowRecordSource::Manual);
 
-    /** Follow the Show an engaged Perform resolves, the automatic source of
-     *  handovers. Connect before any Show Manager follower, so a bound take
-     *  moves before the Show Manager's selection lock is asked. */
+    /** Perform disengaged: the selection resolves again, handing a bound take
+     *  over like Perform does */
+    void releasePerform();
+
+    /** Whether the Show Manager may select showId now */
+    bool selectionAllowed(quint32 showId) const;
+
+    /** Follow an engaged Perform's Show, the automatic source of handovers */
     void followPerform(PerformFsm *fsm);
 
     /** True while accepted user input is authored: recording and bound */
@@ -410,8 +418,8 @@ private slots:
     void slotShowClock();
 
 private:
-    /** The Show whose track is authored and displayed: the bound one while
-     *  recording, otherwise the resolved one. */
+    /** The Show whose track is authored and displayed: the resolved one,
+     *  which a take records into. */
     quint32 trackedShowId() const;
     Show *trackedShow() const;
     /** The Show time input on this Show is accepted at now: the host cursor
@@ -422,7 +430,7 @@ private:
     void reloadTrack();
 
     /** Author at an explicit Show time: the acceptance time of the input */
-    bool authorAt(const QVector<ShowCommandInput> &inputs, quint32 positionMs);
+    bool authorAt(const ShowCommandInput &input, quint32 positionMs);
 
     /** Commit an accepted transition: keep the authored commands and publish
      *  them with the traversal metadata that keeps live input from echoing back */
@@ -482,8 +490,9 @@ private:
                                    ShowEventLog::Outcome outcome, const QString &reason) const;
     void traceRequest(const ShowControlRequest &request, ShowEventLog::Phase phase,
                       ShowEventLog::Outcome outcome, const QString &reason) const;
-    /** The recorder's decision on the input being authored now */
-    void traceDecision(ShowEventLog::Outcome outcome, const QString &reason, const ShowCommandInput *input) const;
+    /** The recorder's decision on the input being authored now, at positionMs */
+    void traceDecision(ShowEventLog::Outcome outcome, const QString &reason, const ShowCommandInput &input,
+                       quint32 positionMs) const;
     void traceCommand(const ShowTraceCause &cause, ShowEventLog::Phase phase, ShowEventLog::Outcome outcome,
                       const ShowCommand *before, const ShowCommand *after, quint32 showId, const QString &reason,
                       const QString &action = QString()) const;
@@ -503,8 +512,11 @@ private:
     /** The request being captured, for the entries it causes */
     const ShowControlRequest *m_tracedRequest = nullptr;
 
-    /** Take a new recording state: a new take on the Show it tracks */
-    void enterRecordingState(const ShowCommandState &next);
+    /** The one REC transition: ShowCommandFsm::record() and its effects.
+     *  False when a selection is refused or the take could not be saved. */
+    bool dispatch(const ShowRecordEvent &event);
+    /** showId when it names a Show, InvalidId otherwise */
+    quint32 resolvableShowId(quint32 showId) const;
 
     /** One Show's batch while the executor works through it */
     struct ControlRun
@@ -599,9 +611,10 @@ private:
     bool m_drainingRequests = false;
     quint64 m_lastReceiptOp = 0;
     QVector<QPointer<Show>> m_attachedShows;
-    ShowCommandState m_state;
+    ShowRecordState m_rec;
     ShowCommandTrack m_track;
-    quint32 m_trackedShowId = ShowCommand::InvalidId;
+    /** The Show whose signals reloadTrack() connected */
+    QPointer<Show> m_trackedShow;
     QString m_lastError;
     bool m_publishing = false;
     /** Diagnostics only: which take an entry belongs to */
