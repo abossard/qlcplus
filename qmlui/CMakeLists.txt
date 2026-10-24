@@ -318,7 +318,7 @@ if(lupdate_only)
     )
 endif()
 
-qt_add_resources(qlcplusqmlui_resource_files qmlui.qrc ../resources/icons/svg/svgicons.qrc ../resources/fonts/fonts.qrc)
+qt_add_resources(qlcplusqmlui_resource_files qmlui.qrc vceditor.qrc ../resources/icons/svg/svgicons.qrc ../resources/fonts/fonts.qrc)
 target_sources(${module_name} PUBLIC
     ${qlcplusqmlui_resource_files}
 )

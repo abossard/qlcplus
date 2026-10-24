@@ -32,26 +32,6 @@ Rectangle
     color: "transparent"
 
     property VCWidget wObj: virtualConsole.selectedWidget
-
-    /* one side of the widget geometry, in unzoomed pixels */
-    component GeometrySpin: CustomSpinBox
-    {
-        property string side
-        Layout.fillWidth: true
-        from: 0
-        to: 100000
-        value: wObj ? Math.round(wObj.logicalGeometry[side]) : 0
-
-        onValueModified:
-        {
-            var rect = wObj.logicalGeometry
-            var edited = Qt.rect(rect.x, rect.y, rect.width, rect.height)
-            edited[side] = value
-            virtualConsole.editGeometry(wObj.id, edited, false)
-            // a refused edit leaves the widget as it was: show that again
-            value = Qt.binding(function() { return wObj ? Math.round(wObj.logicalGeometry[side]) : 0 })
-        }
-    }
     property int selectedWidgetsCount: virtualConsole.selectedWidgetsCount
     property bool presetsTabVisible: wObj && selectedWidgetsCount < 2 && wObj.supportsPresets
     property int tabsCount: presetsTabVisible ? 3 : 2
@@ -457,36 +437,6 @@ Rectangle
                             onValueChanged: if (wObj) wObj.zIndex = value
                         }
 
-                        RobotoText
-                        {
-                            height: UISettings.listItemHeight
-                            label: qsTr("Position")
-                            visible: selectedWidgetsCount === 1
-                        }
-
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            visible: selectedWidgetsCount === 1
-                            GeometrySpin { objectName: "geometryXSpin"; side: "x" }
-                            GeometrySpin { objectName: "geometryYSpin"; side: "y" }
-                        }
-
-                        RobotoText
-                        {
-                            height: UISettings.listItemHeight
-                            label: qsTr("Size")
-                            visible: selectedWidgetsCount === 1
-                        }
-
-                        RowLayout
-                        {
-                            Layout.fillWidth: true
-                            visible: selectedWidgetsCount === 1
-                            GeometrySpin { objectName: "geometryWidthSpin"; side: "width" }
-                            GeometrySpin { objectName: "geometryHeightSpin"; side: "height" }
-                        }
-
                         // row 7
                         RobotoText
                         {
@@ -494,7 +444,7 @@ Rectangle
                             label: qsTr("Alignment")
                         }
 
-                        Flow
+                        Row
                         {
                             Layout.fillWidth: true
                             visible: selectedWidgetsCount > 1 ? true: false
@@ -539,68 +489,9 @@ Rectangle
                                 tooltip: qsTr("Align the selected widgets to the bottom")
                                 onClicked: virtualConsole.setWidgetsAlignment(wObj, Qt.AlignBottom)
                             }
-                            IconButton
-                            {
-                                width: UISettings.iconSizeDefault
-                                height: width
-                                bgColor: UISettings.bgLighter
-                                imgSource: "qrc:/layout-xcenter.svg"
-                                tooltip: qsTr("Center the selected widgets horizontally")
-                                onClicked: virtualConsole.setWidgetsAlignment(wObj, Qt.AlignHCenter)
-                            }
-                            IconButton
-                            {
-                                width: UISettings.iconSizeDefault
-                                height: width
-                                bgColor: UISettings.bgLighter
-                                imgSource: "qrc:/layout-ycenter.svg"
-                                tooltip: qsTr("Center the selected widgets vertically")
-                                onClicked: virtualConsole.setWidgetsAlignment(wObj, Qt.AlignVCenter)
-                            }
                         }
 
                         // row 8
-                        RobotoText
-                        {
-                            visible: selectedWidgetsCount > 1 ? true : false
-                            label: qsTr("Same size")
-                        }
-
-                        Flow
-                        {
-                            Layout.fillWidth: true
-                            visible: selectedWidgetsCount > 1 ? true : false
-
-                            Repeater
-                            {
-                                model: [
-                                    { label: qsTr("W"), orientations: Qt.Horizontal,
-                                      tip: qsTr("Give the selected widgets the width of the last selected one") },
-                                    { label: qsTr("H"), orientations: Qt.Vertical,
-                                      tip: qsTr("Give the selected widgets the height of the last selected one") },
-                                    { label: qsTr("W+H"), orientations: Qt.Horizontal | Qt.Vertical,
-                                      tip: qsTr("Give the selected widgets the size of the last selected one") }
-                                ]
-
-                                IconButton
-                                {
-                                    width: UISettings.iconSizeDefault
-                                    height: width
-                                    bgColor: UISettings.bgLighter
-                                    tooltip: modelData.tip
-                                    onClicked: vcEditor.setWidgetsSize(wObj, modelData.orientations)
-
-                                    RobotoText
-                                    {
-                                        anchors.centerIn: parent
-                                        label: modelData.label
-                                        fontSize: UISettings.textSizeDefault * 0.8
-                                    }
-                                }
-                            }
-                        }
-
-                        // row 9
                         RobotoText
                         {
                             visible: selectedWidgetsCount > 2 ? true : false
@@ -635,6 +526,12 @@ Rectangle
                         }
                      } // GridLayout
                 } // SectionBox
+
+                VCGeometrySection
+                {
+                    visible: settingsView.checked && selectedWidgetsCount > 0
+                    widget: wObj
+                }
 
                 Loader
                 {

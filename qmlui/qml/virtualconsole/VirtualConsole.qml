@@ -23,7 +23,6 @@ import QtQuick.Controls
 import QtQuick.Window
 
 import org.qlcplus.classes 1.0
-import "ShortcutUtils.js" as ShortcutUtils
 import "."
 
 Rectangle
@@ -92,6 +91,8 @@ Rectangle
 
     Component.onCompleted: virtualConsole.editMode = false
 
+    VCWidgetMenu { area: vcContainer; panel: rightSidePanel }
+
     Connections
     {
         target: virtualConsole
@@ -101,80 +102,6 @@ Rectangle
             {
                 layoutError.message = error
                 layoutError.open()
-            }
-        }
-    }
-
-    Connections
-    {
-        target: vcEditor
-        function onWidgetPropertiesRequested() { showWidgetProperties() }
-        function onWidgetMenuRequested(scenePos)
-        {
-            var at = vcContainer.mapFromItem(null, scenePos.x, scenePos.y)
-            widgetMenu.x = Math.min(at.x, vcContainer.width - widgetMenu.width)
-            widgetMenu.y = Math.min(at.y, vcContainer.height - widgetMenu.height)
-            widgetMenu.open()
-        }
-    }
-
-    function showWidgetProperties()
-    {
-        rightSidePanel.loaderSource = "qrc:/VCWidgetProperties.qml"
-        rightSidePanel.animatePanel(true)
-    }
-
-    Popup
-    {
-        id: widgetMenu
-        objectName: "vcWidgetMenu"
-        padding: 0
-
-        background: Rectangle { color: UISettings.bgStrong; border.color: UISettings.bgLight }
-
-        Column
-        {
-            // one width for all entries, whatever their text
-            width: UISettings.textSizeDefault * 10
-
-            Repeater
-            {
-                model: [
-                    { name: "Properties", label: qsTr("Properties"), shortcut: "" },
-                    { name: "Cut", label: qsTr("Cut"), shortcut: "Ctrl+X" },
-                    { name: "Copy", label: qsTr("Copy"), shortcut: "Ctrl+C" },
-                    { name: "Paste", label: qsTr("Paste"), shortcut: "Ctrl+V" },
-                    { name: "Duplicate", label: qsTr("Duplicate"), shortcut: "Ctrl+D" },
-                    { name: "Delete", label: qsTr("Delete"), shortcut: "Del" }
-                ]
-
-                ContextMenuEntry
-                {
-                    objectName: "vcWidgetMenu" + modelData.name
-                    entryText: modelData.label
-                    shortcutText: ShortcutUtils.display(modelData.shortcut)
-                    visible: modelData.name !== "Paste" || virtualConsole.clipboardItemsCount > 0
-                    onClicked:
-                    {
-                        widgetMenu.close()
-                        switch (modelData.name)
-                        {
-                            case "Properties": showWidgetProperties(); break
-                            case "Cut": virtualConsole.cutToClipboard(); break
-                            case "Copy": virtualConsole.copyToClipboard(); break
-                            case "Paste": virtualConsole.pasteFromClipboard(); break
-                            case "Duplicate": virtualConsole.duplicateSelection(); break
-                            case "Delete":
-                                var result = virtualConsole.deleteAuthoringWidgets(virtualConsole.selectedIDs)
-                                if (!result.accepted)
-                                {
-                                    layoutError.message = result.error
-                                    layoutError.open()
-                                }
-                            break
-                        }
-                    }
-                }
             }
         }
     }

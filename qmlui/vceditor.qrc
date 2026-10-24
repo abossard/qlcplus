@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+<qresource prefix="/">
+    <file alias="VCCanvasArea.qml">qml/virtualconsole/VCCanvasArea.qml</file>
+    <file alias="VCFrameArrangeSection.qml">qml/virtualconsole/VCFrameArrangeSection.qml</file>
+    <file alias="VCGeometrySection.qml">qml/virtualconsole/VCGeometrySection.qml</file>
+    <file alias="VCWidgetMenu.qml">qml/virtualconsole/VCWidgetMenu.qml</file>
+</qresource>
+</RCC>
