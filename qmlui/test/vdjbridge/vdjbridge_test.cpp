@@ -18,6 +18,7 @@
 #include "vdjbridge_test.h"
 #include "vdjbridge.h"
 #include "djfsm.h"
+#include "vdjcapturereplay.h"
 #include "../../../plugins/vdjbridge/vdjbridgeplugin.h"
 #include "../../../plugins/vdjbridge/configurevdjbridge.h"
 
@@ -402,6 +403,31 @@ void VdjBridge_Test::activeDeckFollowsThePerDeckMasterdeck()
     // a phantom deck beyond get_decks never becomes master
     rig.master(2);
     QCOMPARE(fsm->activeDeck(), 2);
+}
+
+void VdjBridge_Test::capture_ejectReleasesPerform()
+{
+    // VDJ's eject (measured): placeholder title, get_bpm 120, loaded off, no
+    // empty filepath, for a deck Perform has adopted
+    PerformRig rig;
+    Show *b = rig.addShow("B", "/music/track-4.mp3");
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, &rig.bridge);
+    rig.master(1);
+    rig.bridge.setPerformMode(true);
+    QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
+
+    QVERIFY(VdjCapture::replay(client, "eject") > 0);
+
+    QCOMPARE(rig.state(), State::Armed);
+    QCOMPARE(rig.bridge.djFsm()->deckAt(1).state, DjFsm::DeckState::Empty);
+    QVERIFY(b->stopped());
+    QCOMPARE(b->syncSource(), int(ShowRunner::Autonomous));
+    // adopted at the deck's snapshot position, released without a drop to 0
+    QVERIFY(b->externalElapsedTime() > 0);
+    QCOMPARE(resolved.count(), 2);
+    QCOMPARE(resolved[0][0].toUInt(), b->id());
+    QCOMPARE(resolved[1][0].toUInt(), PerformFsm::InvalidShowId);
 }
 
 struct PerformShowFixture

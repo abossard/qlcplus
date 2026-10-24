@@ -72,6 +72,10 @@ public:
     /** Parse a single NDJSON line. Exposed for testing. */
     void parseLine(const QByteArray &line);
 
+    /** One chunk as the socket delivers it: concatenated objects, possibly
+     *  cut inside one. Exposed so tests replay captures without a socket. */
+    void feed(const QByteArray &chunk);
+
 signals:
     void statusChanged(VdjTelemetryClient::Status status);
 

@@ -25,6 +25,7 @@ private slots:
     void pastTheContentEndsUntilAJumpBack();
     void pauseBeforeTheFirstTickCancelsTheStart();
     void activeDeckFollowsThePerDeckMasterdeck();
+    void capture_ejectReleasesPerform();
     void performAdoptsAndReleasesSyncSource();
     void performAdoptionSuppressesAudioForAlreadyRunningShow();
     void performReleaseOrSwitchClearsTransientAudioSuppression_data();

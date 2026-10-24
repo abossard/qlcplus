@@ -19,6 +19,11 @@ target_include_directories(${module_name} PRIVATE
     ../../../plugins/interfaces
     ../../../plugins/vdjbridge
     ../..
+    ../vdjcaptures
+)
+
+target_compile_definitions(${module_name} PRIVATE
+    VDJ_CAPTURE_DIR="${CMAKE_SOURCE_DIR}/qmlui/test/vdjcaptures"
 )
 
 target_link_libraries(${module_name} PRIVATE

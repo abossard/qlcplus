@@ -157,10 +157,13 @@ void VdjTelemetryClient::onNewConnection()
 
 void VdjTelemetryClient::onReadyRead()
 {
-    if (!m_client)
-        return;
+    if (m_client)
+        feed(m_client->readAll());
+}
 
-    m_lineBuffer.append(m_client->readAll());
+void VdjTelemetryClient::feed(const QByteArray &chunk)
+{
+    m_lineBuffer.append(chunk);
 
     // VDJ sends JSON objects concatenated without separators: {...}{...}{...}
     // Also sometimes newline-delimited. Split on both patterns.
