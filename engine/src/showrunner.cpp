@@ -471,7 +471,8 @@ void ShowRunner::write(MasterTimer *timer)
     // An authored command extent and an armed recorder extend that end.
     // crossed commands still owed, a VC batch still being applied, or a
     // jump's Start/Stop still settling hold the end
-    bool timeDone = m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent() &&
+    // an external clock ends nothing before this Play's first sample, as processCommands waits for it
+    bool timeDone = !m_externalBaselinePending && m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent() &&
                     m_commandRemainder.isEmpty() && m_heldControlBatch == 0 &&
                     m_settlingFunction == ShowCommand::InvalidId;
     bool beatsDone = m_beatFunctions.isEmpty() ||
