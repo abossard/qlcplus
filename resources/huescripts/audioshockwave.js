@@ -51,6 +51,8 @@ var testAlgo;
 
     algo.waves = new Array();
     algo.dtAccum = 0;
+    var fillCredit = 0;
+    var freedFrames = [];
 
     var DOMINANT_TINT = 0.6;
     var AMBIENT_RING_FREQ = 0.65;
@@ -66,6 +68,15 @@ var testAlgo;
 
     var MIN_RENDER_BRI = 0.005;
     var MIN_WAVE_INTENSITY = 0.01;
+    // A wave keeps at least this share of its intensity per 40 ms step at any Decay x Wave Decay.
+    var MIN_DECAY_FACTOR = 0.1;
+
+    // Tints toward the dominant band (lows, mids, highs); the two colors are wave and background.
+    var BAND_COLORS = [
+        {h: 0.042, s: 1.0, v: 1.0},
+        {h: 0.399, s: 1.0, v: 1.0},
+        {h: 0.611, s: 0.749, v: 1.0}
+    ];
 
     // Wave and background colors: user-picked or defaults
     var DEFAULT_WAVE = {h: 0, s: 0, v: 1};       // white
@@ -75,35 +86,34 @@ var testAlgo;
     var lastW = 0, lastH = 0;
 
     function updateColors() {
-        if (algo.hasUserColors) {
-            waveColor = algo.colors[0] || DEFAULT_WAVE;
-            bgColor   = (algo.colors.length > 1) ? algo.colors[1] : DEFAULT_BG;
-        }
+        var user = algo.hasUserColors && algo.colors ? algo.colors : [];
+        waveColor = user[0] || DEFAULT_WAVE;
+        bgColor   = (user.length > 1) ? user[1] : DEFAULT_BG;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    algo.setMaxWaves = function(_v) { algo.presetMaxWaves = parseInt(_v); };
+    algo.setMaxWaves = function(_v) { algo.presetMaxWaves = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxWaves, 1, 12)); };
     algo.getMaxWaves = function() { return algo.presetMaxWaves; };
-    algo.setWaveWidth = function(_v) { algo.presetWaveWidth = parseFloat(_v); };
+    algo.setWaveWidth = function(_v) { algo.presetWaveWidth = HSVUtil.parseNumber(_v, algo.presetWaveWidth, 1, 5); };
     algo.getWaveWidth = function() { return algo.presetWaveWidth; };
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 1, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 1, 10); };
     algo.getDecay = function() { return algo.presetDecay; };
 
-    algo.setAmbientSpeed = function(_v) { algo.presetAmbientSpeed = parseFloat(_v); };
+    algo.setAmbientSpeed = function(_v) { algo.presetAmbientSpeed = HSVUtil.parseNumber(_v, algo.presetAmbientSpeed, 0, 5); };
     algo.getAmbientSpeed = function() { return algo.presetAmbientSpeed; };
-    algo.setWaveDecay = function(_v) { algo.presetWaveDecay = parseFloat(_v); };
+    algo.setWaveDecay = function(_v) { algo.presetWaveDecay = HSVUtil.parseNumber(_v, algo.presetWaveDecay, 0, 1); };
     algo.getWaveDecay = function() { return algo.presetWaveDecay; };
 
     algo.presetSmoothing = 5;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothLow = 0;
@@ -111,10 +121,15 @@ var testAlgo;
     function spawnWave(intensity, audio) {
         // Tint wave color toward dominant band color
         var domPower = Math.max(audio.low, audio.mid, audio.high);
-        var domHsv = (domPower >= 0.05 && algo.colors && algo.colors.length >= 3)
-            ? algo.colors[HSVUtil.dominantBand(audio)] : waveColor;
-        var t = DOMINANT_TINT;
-        var color = {h: waveColor.h + (domHsv.h - waveColor.h) * t, s: waveColor.s + (domHsv.s - waveColor.s) * t, v: waveColor.v + (domHsv.v - waveColor.v) * t};
+        var color = waveColor;
+        if (domPower >= 0.05) {
+            var base = HSVUtil.hsvToRgb(waveColor.h, waveColor.s, waveColor.v);
+            var dom = BAND_COLORS[HSVUtil.dominantBand(audio)];
+            var tint = HSVUtil.hsvToRgb(dom.h, dom.s, dom.v);
+            var t = DOMINANT_TINT;
+            color = HSVUtil.rgbToHsv(base[0] + (tint[0] - base[0]) * t,
+                base[1] + (tint[1] - base[1]) * t, base[2] + (tint[2] - base[2]) * t);
+        }
         algo.waves.push({
             radius: 0,
             intensity: Math.max(0, Math.min(MAX_INTENSITY, intensity * KICK_INTENSITY_BOOST)),
@@ -167,8 +182,27 @@ var testAlgo;
         for (var spawn = 0; spawn < Math.min(count, algo.presetMaxWaves); spawn++)
             spawnWave(Math.max(0.5, smoothLow), audio);
 
-        if (algo.waves.length < MAX_FILL_WAVES && smoothLow > MIN_BASS_FOR_FILL)
+        // Waves expand and fade per 40 ms step.
+        var speed = algo.presetSpeed * SPEED_SCALE;
+        var decayFactor = Math.max(MIN_DECAY_FACTOR, 1 - algo.presetDecay * algo.presetWaveDecay);
+        function ageWave(wave, steps) {
+            wave.radius += speed * steps;
+            wave.intensity *= Math.pow(decayFactor, steps);
+        }
+
+        // Fill waves: at most one per 20 ms frame of audio while fewer than MAX_FILL_WAVES are alive.
+        // A wave due in an earlier frame of this render, and not before the wave whose place it
+        // takes left the map, starts that many frames older.
+        fillCredit += HSVUtil.elapsedFrames(audio);
+        freedFrames.sort(function(a, b) { return b - a; });
+        while (fillCredit >= 1 && algo.waves.length < MAX_FILL_WAVES && smoothLow > MIN_BASS_FOR_FILL) {
+            fillCredit -= 1;
+            var freed = freedFrames.length ? Math.floor(freedFrames.shift()) : Infinity;
             spawnWave(FILL_INTENSITY, audio);
+            ageWave(algo.waves[algo.waves.length - 1], Math.min(fillCredit, freed) / 2);
+        }
+        fillCredit -= Math.floor(fillCredit);
+        freedFrames = [];
 
         // Render waves: intensity is snapshot at spawn, not re-read each frame
         var waveWidth = algo.presetWaveWidth;
@@ -192,13 +226,14 @@ var testAlgo;
             }
         }
 
-        var speed = algo.presetSpeed * SPEED_SCALE;
-        var decayFactor = 1 - algo.presetDecay * algo.presetWaveDecay;
         for (var ui = algo.waves.length - 1; ui >= 0; ui--) {
-            algo.waves[ui].radius += speed * frameScale;
-            algo.waves[ui].intensity *= Math.pow(decayFactor, frameScale);
-            if (algo.waves[ui].intensity < MIN_WAVE_INTENSITY || algo.waves[ui].radius > maxRadius)
+            var aged = algo.waves[ui];
+            ageWave(aged, frameScale);
+            if (aged.intensity < MIN_WAVE_INTENSITY || aged.radius > maxRadius) {
+                // How many frames before the next render the wave passed the map edge.
+                freedFrames.push(aged.radius > maxRadius ? (aged.radius - maxRadius) / (speed / 2) : 0);
                 algo.waves.splice(ui, 1);
+            }
         }
 
         return map;

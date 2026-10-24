@@ -303,7 +303,7 @@ const EVENT_STIMULUS = Object.freeze({
     'audiovumeter.js': 'vumeter',
     'audiowaterfall.js': 'waterfall',
     'audioshockwave.js': 'onset',
-    'audioshot.js': 'onset',
+    'audioshot.js': 'beat',
     'audiostrobe.js': 'onset'
 });
 const UNIFORM_BY_DESIGN = new Set([
@@ -7583,8 +7583,11 @@ function assertWorkerIScanRows() {
         var edge = render(bounceFlare, "audioscanflare.js", 20, 1, frame({ beat: 1, bass: 1, timing: { deltaSeconds: 1.5 }, dt: 3.0 }), "row49 edge");
         var b1 = render(bounceFlare, "audioscanflare.js", 20, 1, frame({ beat: 1, bass: 1 }), "row49 back1");
         var b2 = render(bounceFlare, "audioscanflare.js", 20, 1, frame({ beat: 1, bass: 1 }), "row49 back2");
-        assert(litStarts(b2, 0.05)[0] <= litStarts(b1, 0.05)[0] &&
-               litStarts(b1, 0.05)[0] <= litStarts(edge, 0.05)[0],
+        // The scanner is the saturated run; white sparkles are not part of it.
+        var scanStart = function(map) {
+            return litStarts(map.map(function(v, idx) { return idx % 3 === 2 && map[idx - 1] < 0.5 ? 0 : v; }), 0.05)[0];
+        };
+        assert(scanStart(b2) <= scanStart(b1) && scanStart(b1) <= scanStart(edge),
             "row49: bounce return must reverse scan direction");
         markCase("row49.scanflare-moving-particles-rgboverlap");
     }
@@ -14171,8 +14174,8 @@ function assertPublishedAudio() {
     const shotBrightness = [25, 30, 50, 60].map(hz => {
         const algo = loadScript('audioshot.js');
         render(algo, 'audioshot.js', 24, 9, audio({
-            onset: true, onsetIntensity: 0.8, timing: { deltaSeconds: 0 },
-            events: { delta: { onset: 1, beat: 0, kick: 0, bar: 0 } }
+            beatFired: true, onsetIntensity: 0.8, timing: { deltaSeconds: 0 },
+            events: { delta: { onset: 0, beat: 1, kick: 0, bar: 0 } }
         }), 'initial shot');
         let map;
         for (let n = 0; n < hz * 0.4; ++n)
