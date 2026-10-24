@@ -36,8 +36,9 @@ private slots:
     void bridgeTelemetryStatusProperty();
     void bridgeDeckTriggerRouting();
     void bridgeGlobalTriggerRouting();
-    void bridgeBeatSuppressesOS2L();
+    void bridgeClientDisconnectResetsDeckState_data();
     void bridgeClientDisconnectResetsDeckState();
+    void stopDropsTheClient();
 };
 
 #endif

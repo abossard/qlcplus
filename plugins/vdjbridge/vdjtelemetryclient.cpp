@@ -36,7 +36,7 @@ static const QStringList kDeckTriggers = {
     // On-load metadata
     "get_filepath", "get_title", "get_artist", "get_title_artist",
     "get_album", "get_genre", "get_bpm", "get_key", "get_firstbeat",
-    "get_time total", "loaded", "play", "volume",
+    "get_time total", "loaded", "play", "volume", "masterdeck",
     // EQ
     "eq_high", "eq_med", "eq_low", "gain",
     // Loop
@@ -81,6 +81,7 @@ bool VdjTelemetryClient::start(quint16 port)
 
 void VdjTelemetryClient::stop()
 {
+    const bool hadClient = m_client != nullptr;
     closeClient();
     if (m_server.isListening())
     {
@@ -88,6 +89,9 @@ void VdjTelemetryClient::stop()
         qDebug() << kLogTag << "Server stopped";
     }
     setStatus(Idle);
+    // closing the input is a disconnect to its consumers, like VDJ going away
+    if (hadClient)
+        emit clientDisconnected();
 }
 
 QString VdjTelemetryClient::clientAddress() const
@@ -276,7 +280,8 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
                 // Log song metadata triggers (infrequent, useful for debugging)
                 if (deckTrigger.startsWith("get_title") || deckTrigger.startsWith("get_artist") ||
                     deckTrigger.startsWith("get_filepath") || deckTrigger == "get_bpm" ||
-                    deckTrigger == "get_key" || deckTrigger == "loaded" || deckTrigger == "play")
+                    deckTrigger == "get_key" || deckTrigger == "loaded" || deckTrigger == "play" ||
+                    deckTrigger == "masterdeck")
                     qDebug() << kLogTag << "Deck" << deckNum << deckTrigger << "=" << value;
                 emit deckTriggerReceived(deckNum - 1, deckTrigger, value);
                 return;

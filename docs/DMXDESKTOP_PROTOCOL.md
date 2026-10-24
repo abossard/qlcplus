@@ -63,8 +63,8 @@ The per-deck triggers requested (each prefixed `deck N `, N=1–4):
 `get_bpm, volume, play, get_key, get_title_artist, get_artist, get_title,
 get_album, get_genre, get_position, loaded, get_time, get_time total, eq_high,
 eq_med, eq_low, gain, get_filepath, level, get_vu_meter, get_time elapsed absolute,
-get_beatpos, get_firstbeat, loop, get_loop`, plus a **`loop_roll … ? constant … :`
-VDJScript ternary** (returns the active loop-roll size as one number).
+get_beatpos, get_firstbeat, loop, get_loop, masterdeck` (the per-deck master flag;
+at a handover the old master sends `off` and the new one `on` in the same tick).
 Globals: `master_volume, get_decks, crossfader, headphone_volume, masterdeck,
 get_crossfader_result full, mixer_order, get_vu_meter`.
 
@@ -142,7 +142,7 @@ Real sample from the capture (note field order and that `pos` can be `-1`,
 | Trigger                      | JSON type | Observed | Meaning |
 |------------------------------|-----------|----------|---------|
 | `get_decks`                  | int       | **2**    | **Real deck count** (see below) |
-| `masterdeck`                 | string    | `"on"`/`"off"` | **`on` ⇒ deck 1 is master, `off` ⇒ deck 2.** NOT an int index |
+| `masterdeck`                 | string    | `"on"`/`"off"` | the master flag of VDJ's **default deck** (the deck last loaded/unloaded). Not a deck index, not "deck 1 is master": QLC+ ignores it and subscribes the per-deck `deck N masterdeck` instead |
 | `master_volume`              | number    | 1        | master volume 0–1 |
 | `crossfader`                 | float     | —        | crossfader 0–1 |
 | `get_crossfader_result full` | float     | 0 … 0.92 | effective crossfader blend |
@@ -153,9 +153,10 @@ Real sample from the capture (note field order and that `pos` can be `-1`,
 ## Deck count & phantom decks (important)
 
 VDJ always streams **4 decks**, but in a 2-deck configuration **decks 3 & 4 are
-phantom mirrors** of decks 1 & 2 — VDJ sends *cloned* `get_filepath`/`get_title`/…
-for them. The authoritative real count is the **`get_decks`** global (value `2` in
-the capture).
+phantom copies of VDJ's default deck** (the deck last targeted by a load or
+unload, deck 1 at startup): VDJ sends *cloned* `get_filepath`/`get_title`/… and
+`masterdeck on` for them. The authoritative real count is the **`get_decks`**
+global (value `2` in the capture).
 
 **Rule:** treat `get_decks` as the number of real decks and ignore any deck beyond
 it. This is how the real DMXDesktop avoids showing cloned decks. QLC+ drives its

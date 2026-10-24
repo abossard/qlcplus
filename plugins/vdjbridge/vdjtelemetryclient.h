@@ -58,7 +58,7 @@ public:
     /** Start listening on the given port. Returns false if port bind fails. */
     bool start(quint16 port = kDefaultPort);
 
-    /** Stop listening and disconnect any client. */
+    /** Stop listening; a connected client is dropped and clientDisconnected() emitted. */
     void stop();
 
     Status status() const { return m_status; }

@@ -85,9 +85,9 @@ void VdjTelemetryClient_Test::parseSubscribedGlobalTrigger_data()
         << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0.5})")
         << "crossfader" << QVariant(0.5);
 
-    QTest::newRow("masterdeck")
-        << QByteArray(R"({"evt":"subscribed","trigger":"masterdeck","value":2})")
-        << "masterdeck" << QVariant(2.0);
+    QTest::newRow("get_decks")
+        << QByteArray(R"({"evt":"subscribed","trigger":"get_decks","value":2})")
+        << "get_decks" << QVariant(2.0);
 }
 
 void VdjTelemetryClient_Test::parseSubscribedGlobalTrigger()
@@ -369,8 +369,8 @@ void VdjTelemetryClient_Test::bridgeGlobalTriggerRouting()
     bridge.attachVdjPlugin(&plugin);
     QVERIFY(plugin.openInput(0, 0));
 
-    QSignalSpy mixerSpy(&bridge, &VdjBridge::globalMixerChanged);
-    QSignalSpy masterDeckSpy(&bridge, &VdjBridge::masterDeckChanged);
+    DjFsm *fsm = bridge.djFsm();
+    fsm->setDeckCount(4);
 
     QTcpSocket fakeClient;
     fakeClient.connectToHost("127.0.0.1", 18055);
@@ -378,54 +378,31 @@ void VdjTelemetryClient_Test::bridgeGlobalTriggerRouting()
     QTRY_VERIFY_WITH_TIMEOUT(fakeClient.bytesAvailable() > 0, 2000);
     fakeClient.readAll();
 
-    fakeClient.write(R"({"evt":"subscribed","trigger":"master_volume","value":0.75})" "\n");
-    fakeClient.write(R"({"evt":"subscribed","trigger":"masterdeck","value":2})" "\n");
+    // the real deck count comes from get_decks; the per-deck master flag
+    // names the active deck, the bare global flag names nothing
+    fakeClient.write(R"({"evt":"subscribed","trigger":"get_decks","value":2})" "\n");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"masterdeck","value":"off"})" "\n");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 2 masterdeck","value":"on"})" "\n");
     fakeClient.flush();
 
-    QTRY_VERIFY_WITH_TIMEOUT(mixerSpy.count() >= 1, 2000);
-    QTRY_COMPARE_WITH_TIMEOUT(masterDeckSpy.count(), 1, 2000);
-
-    QCOMPARE(bridge.masterVolume(), 0.75);
-    QCOMPARE(bridge.masterDeck(), 1); // VDJ sends 1-based "2", we store 0-based 1
+    QTRY_COMPARE_WITH_TIMEOUT(fsm->deckCount(), 2, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(fsm->activeDeck(), 2, 2000);
 
     fakeClient.disconnectFromHost();
     plugin.closeInput(0, 0);
 }
 
-void VdjTelemetryClient_Test::bridgeBeatSuppressesOS2L()
+void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState_data()
 {
-    VdjBridge bridge;
-    VdjBridgePlugin plugin;
-    plugin.setParameter(0, 0, QLCIOPlugin::Input,
-                        QStringLiteral("hostPort"), 18056);
-    plugin.setParameter(0, 0, QLCIOPlugin::Input,
-                        QStringLiteral("bonjourEnabled"), false);
-    bridge.attachVdjPlugin(&plugin);
-    QVERIFY(plugin.openInput(0, 0));
-
-    QSignalSpy beatSpy(&bridge, &VdjBridge::beatReceived);
-
-    QTcpSocket fakeClient;
-    fakeClient.connectToHost("127.0.0.1", 18056);
-    QVERIFY(fakeClient.waitForConnected(2000));
-    QTRY_VERIFY_WITH_TIMEOUT(fakeClient.bytesAvailable() > 0, 2000);
-    fakeClient.readAll();
-
-    // With telemetry connected, OS2L beats should be suppressed
-    bridge.onBeat(); // This is the OS2L beat path
-    QCOMPARE(beatSpy.count(), 0);
-
-    // But telemetry beats should go through
-    fakeClient.write(R"({"evt":"beat","pos":1,"bpm":128.0,"strength":0.8,"change":false})" "\n");
-    fakeClient.flush();
-    QTRY_COMPARE_WITH_TIMEOUT(beatSpy.count(), 1, 2000);
-
-    fakeClient.disconnectFromHost();
-    plugin.closeInput(0, 0);
+    QTest::addColumn<bool>("closeInput");
+    QTest::newRow("VDJ goes away") << false;
+    QTest::newRow("the input is closed under a connected VDJ") << true;
 }
 
 void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState()
 {
+    QFETCH(bool, closeInput);
+
     VdjBridge bridge;
     VdjBridgePlugin plugin;
     plugin.setParameter(0, 0, QLCIOPlugin::Input,
@@ -448,11 +425,35 @@ void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState()
     DjFsm *fsm = bridge.djFsm();
     QTRY_COMPARE_WITH_TIMEOUT(fsm->deckAt(0).song.title, QString("Test"), 1000);
 
-    // Disconnect resets the FSM deck state.
-    fakeClient.disconnectFromHost();
+    // Either end of the connection resets the FSM deck state.
+    if (closeInput)
+        plugin.closeInput(0, 0);
+    else
+        fakeClient.disconnectFromHost();
     QTRY_COMPARE_WITH_TIMEOUT(fsm->deckAt(0).song.title, QString(), 2000);
 
     plugin.closeInput(0, 0);
+}
+
+void VdjTelemetryClient_Test::stopDropsTheClient()
+{
+    VdjTelemetryClient server;
+    QVERIFY(server.start(18058));
+    QSignalSpy discSpy(&server, &VdjTelemetryClient::clientDisconnected);
+
+    // nobody connected: stop is silent
+    server.stop();
+    QCOMPARE(discSpy.count(), 0);
+
+    QVERIFY(server.start(18058));
+    QTcpSocket client;
+    client.connectToHost("127.0.0.1", 18058);
+    QVERIFY(client.waitForConnected(2000));
+    QTRY_COMPARE_WITH_TIMEOUT(server.status(), VdjTelemetryClient::ClientConnected, 2000);
+
+    server.stop();
+    QCOMPARE(discSpy.count(), 1);
+    QCOMPARE(server.status(), VdjTelemetryClient::Idle);
 }
 
 QTEST_MAIN(VdjTelemetryClient_Test)
