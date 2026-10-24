@@ -64,6 +64,9 @@ private slots:
     void pageResize();
     void geometryFields_data();
     void geometryFields();
+    void doubleClickOpensProperties();
+    void widgetMenu_data();
+    void widgetMenu();
     void editKeys_data();
     void editKeys();
     void frameCheckboxes_data();
@@ -95,6 +98,7 @@ private:
     VirtualConsole *vc() const;
     ConsoleIds buildConsole();
     QByteArray consoleXML() const;
+    QObject *rightPanel() const;
     QPoint widgetCenter(quint32 id) const;
     /** Keep the window as an artifact and compare it with its reference
      *  in QLC_VC_GOLDEN_DIR, which QLC_VC_UPDATE_GOLDEN=1 rewrites */

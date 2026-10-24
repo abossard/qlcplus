@@ -878,10 +878,84 @@ void VCEditor_Test::geometryFields()
     checkScreenshot("panel");
 }
 
+/* Repeater delegates have no QObject parent, so findChild() cannot reach them */
+static QQuickItem *findItem(QQuickItem *root, const QString &name)
+{
+    if (root == nullptr || root->objectName() == name)
+        return root;
+    for (QQuickItem *child : root->childItems())
+        if (QQuickItem *found = findItem(child, name))
+            return found;
+    return nullptr;
+}
+
+QObject *VCEditor_Test::rightPanel() const
+{
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QQmlExpression panel(qmlContext(console), console, "rightSidePanel");
+    return panel.evaluate().value<QObject *>();
+}
+
 QPoint VCEditor_Test::widgetCenter(quint32 id) const
 {
     QQuickItem *item = vc()->widget(id)->renderItem();
     return item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
+}
+
+void VCEditor_Test::doubleClickOpensProperties()
+{
+    const ConsoleIds ids = buildConsole();
+    QObject *panel = rightPanel();
+    QVERIFY(panel);
+    QVERIFY(QMetaObject::invokeMethod(panel, "animatePanel", Q_ARG(QVariant, false)));
+    QTRY_VERIFY(!panel->property("isOpen").toBool());
+    QTRY_VERIFY(vc()->widget(ids.loose)->renderItem());
+
+    QTest::mouseDClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, widgetCenter(ids.loose));
+    QTRY_VERIFY(panel->property("isOpen").toBool());
+    QCOMPARE(panel->property("loaderSource").toString(), QString("qrc:/VCWidgetProperties.qml"));
+    QCOMPARE(vc()->selectedWidgetIDs(), QVariantList{ids.loose});
+}
+
+void VCEditor_Test::widgetMenu_data()
+{
+    QTest::addColumn<QString>("entry");
+    for (const QString &entry : {"Properties", "Cut", "Copy", "Duplicate", "Delete"})
+        QTest::newRow(qPrintable(entry)) << entry;
+}
+
+void VCEditor_Test::widgetMenu()
+{
+    QFETCH(QString, entry);
+    const ConsoleIds ids = buildConsole();
+    QObject *panel = rightPanel();
+    QVERIFY(QMetaObject::invokeMethod(panel, "animatePanel", Q_ARG(QVariant, false)));
+    QTRY_VERIFY(!panel->property("isOpen").toBool());
+    QTRY_VERIFY(vc()->widget(ids.loose)->renderItem());
+    const int widgets = vc()->page(0)->children(false).size();
+
+    QTest::mouseClick(m_app.get(), Qt::RightButton, Qt::NoModifier, widgetCenter(ids.loose));
+    QCOMPARE(vc()->selectedWidgetIDs(), QVariantList{ids.loose});
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QObject *menu = console->findChild<QObject *>("vcWidgetMenu");
+    QVERIFY(menu);
+    QTRY_VERIFY(menu->property("opened").toBool());
+    QQuickItem *button = findItem(menu->property("contentItem").value<QQuickItem *>(), "vcWidgetMenu" + entry);
+    QVERIFY(button);
+    QTRY_VERIFY(button->isVisible() && button->width() > 0);
+    checkScreenshot("menu");
+    QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier,
+                      button->mapToScene(QPointF(button->width() / 2, button->height() / 2)).toPoint());
+    QTRY_VERIFY(!menu->property("visible").toBool());
+
+    if (entry == "Properties")
+        QTRY_VERIFY(panel->property("isOpen").toBool());
+    else if (entry == "Cut" || entry == "Copy")
+        QCOMPARE(vc()->clipboardItemsList(), QVariantList{ids.loose});
+    else if (entry == "Duplicate")
+        QCOMPARE(vc()->page(0)->children(false).size(), widgets + 1);
+    else if (entry == "Delete")
+        QVERIFY(vc()->widget(ids.loose) == nullptr);
 }
 
 void VCEditor_Test::editKeys_data()

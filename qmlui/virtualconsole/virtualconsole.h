@@ -306,6 +306,10 @@ signals:
     void structureChanged(QVariantList ids);
     void layoutPreviewChanged();
     void editRejected(QString error);
+    /** Emitted from a widget item: show the properties of the selection */
+    void widgetPropertiesRequested();
+    /** Emitted from a widget item: show the widget menu at $scenePos */
+    void widgetMenuRequested(QPointF scenePos);
 
 private:
     friend class VCFrame;

@@ -125,8 +125,8 @@ Rectangle
             visible: shortcutText !== ""
             label: shortcutText
             height: baseMenuEntry.height
-            fontSize: UISettings.textSizeSmall
-            color: UISettings.fgMedium
+            fontSize: UISettings.textSizeDefault * 0.8
+            labelColor: UISettings.fgMedium
         }
     }
 

@@ -519,6 +519,7 @@ Rectangle
             anchors.fill: parent
             visible: virtualConsole.editMode && wRoot.wObj && wRoot.wObj.allowResize
             preventStealing: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
 
             property point pressedScene
             property bool gestureEnabled: false
@@ -528,6 +529,14 @@ Rectangle
             onPressed: (mouse) =>
             {
                 wRoot.forceActiveFocus()
+                if (mouse.button === Qt.RightButton)
+                {
+                    // the menu acts on the selection, so a right click on another widget selects it
+                    if (!wRoot.isSelected)
+                        virtualConsole.setWidgetSelection(wRoot.wObj.id, wRoot, true, false)
+                    virtualConsole.widgetMenuRequested(mapToItem(null, mouse.x, mouse.y))
+                    return
+                }
                 var multi = (mouse.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0
                 if (!wRoot.isSelected || multi)
                     virtualConsole.setWidgetSelection(wRoot.wObj.id, wRoot, multi ? !wRoot.isSelected : true, multi)
@@ -571,6 +580,13 @@ Rectangle
             {
                 gestureEnabled = false
                 wRoot.cancelGesture()
+            }
+            onDoubleClicked: (mouse) =>
+            {
+                if (mouse.button !== Qt.LeftButton)
+                    return
+                virtualConsole.setWidgetSelection(wRoot.wObj.id, wRoot, true, false)
+                virtualConsole.widgetPropertiesRequested()
             }
 
             Connections
