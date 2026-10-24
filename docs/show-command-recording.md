@@ -144,11 +144,14 @@ before, and a document without `Order` uses its file order. Unsupported
 versions/actions and invalid values, including `Order` on only some commands or
 used twice, are errors; they must not load as an empty successful track.
 Both edges of a saved hold share one `Pair` identity and keep separate event
-IDs. The loader rejects orphan or mismatched pairs.
+IDs. Loading drops an orphan, mismatched, overlapping or unclosed pair with a
+warning and keeps the rest of the track; a saved Show ends a hold still in
+progress at its extent.
 
 Edit XML only while the workspace is closed or saved elsewhere. Keep the target
 function definitions in the same workspace. A function reference does not freeze
-that function's definition.
+that function's definition. A stored command whose target function is deleted
+later stays and blocks nothing else; a new or changed command needs its target.
 
 ## Position changes
 
@@ -432,12 +435,17 @@ Recording Cut and keyboard drag/drop placement are not implemented.
 
 The Show Manager, DJ view and Virtual Console share one Record switch, which
 shows the take's Show and whether it is playing, pausing, paused or stopped.
-Record arms capture only; it never plays, pauses or seeks. REC waits for a Show
-if none has resolved yet, then binds the first resolved Show, such as the first
-one selected in the Show Manager. When Perform resolves another Show, the
-take on the previous one closes and REC continues on the new one; if the previous
-take cannot be saved, REC turns off and displays why. While a take is bound, the
-Show Manager keeps its Show selected.
+Record arms capture only; it never plays, pauses, stops or seeks, and turning it
+off leaves playback as it is: a Show it kept playing past its end plays on until
+stopped. REC waits for a Show if none has resolved yet, then binds the first
+resolved Show. While Perform is engaged only Perform resolves the Show,
+otherwise the Show Manager selection does. When Perform resolves another Show,
+or turns off while the selection is another Show, the take on the previous one
+closes and REC continues on the new one; if the previous take cannot be saved,
+REC turns off and displays why. While a take is bound, the Show Manager keeps its
+Show selected. Deleting the take's Show leaves REC waiting for a Show, says why
+and drops the input the Show had not stored; undoing the deletion binds the
+restored Show again.
 
 Toggle buttons, including those in Solo Frames, record their desired On/Off
 state. Flash buttons, slider flash and FreezeHold record paired press/release
