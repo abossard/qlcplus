@@ -34,9 +34,9 @@ var testAlgo;
     algo.properties.push("name:speed|type:float|display:Speed|write:setSpeed|read:getSpeed");
     algo.properties.push("name:reactivity|type:float|display:Reactivity|write:setReactivity|read:getReactivity");
 
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 10); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setReactivity = function(v) { algo.reactivity = parseFloat(v); };
+    algo.setReactivity = function(v) { algo.reactivity = HSVUtil.parseNumber(v, algo.reactivity, 0, 10); };
     algo.getReactivity = function() { return algo.reactivity; };
 
     var position = 0;

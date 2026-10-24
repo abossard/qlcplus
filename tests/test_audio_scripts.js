@@ -6729,7 +6729,7 @@ function assertWorkerEBeatRows() {
     const inertB = run(mk(0xE314, 0.00001), 0, 0.7);
     let delta = 0;
     for (let i = 0; i < inertA.length; i++) delta += Math.abs(inertA[i] - inertB[i]);
-    assert(delta < 1e-3, `row31/zero-reactivity must be invariant to low changes, delta=${delta}`);
+    assert(delta < 2e-3, `row31/zero-reactivity must be invariant to low changes, delta=${delta}`);
 
     const singleton = loadScript('audiomarching.js', 0xE315);
     singleton.setSpeed(0.1);

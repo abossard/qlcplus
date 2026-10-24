@@ -50,7 +50,7 @@ var testAlgo;
             resetState();
         var dt = HSVUtil.audioSeconds(audio);
         var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
-        state.lowsPower = HSVUtil.attackRelease(state.lowsPower, rawLow, 0.2, 0.05);
+        state.lowsPower = HSVUtil.attackRelease(state.lowsPower, rawLow, 0.2, 0.05, HSVUtil.elapsedFrames(audio));
         state.t1 = HSVUtil.mod1(state.t1 + dt * algo.presetSpeed * 20);
         state.t2 = HSVUtil.mod1(state.t2 + dt * algo.presetSpeed);
         var reactiveOffset = algo.presetReactivity * state.lowsPower * 20;
