@@ -15387,21 +15387,25 @@ void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold_data()
 {
     QTest::addColumn<QString>("role");
     QTest::addColumn<QString>("other");
-    QTest::addColumn<bool>("deleted");
+    QTest::addColumn<QString>("end"); // what ends A's hold: a stop, a deletion, or an edit removing it
 
     for (const char *role : {"flash", "freeze hold", "slider flash"})
         for (const char *other : {"replay", "user", "none"})
-            for (bool deleted : {false, true})
-                QTest::newRow(qPrintable(QStringLiteral("%1, %2 holds too, A %3").arg(role, other,
-                                                                                       deleted ? "deleted" : "stopped")))
-                    << QString::fromLatin1(role) << QString::fromLatin1(other) << deleted;
+            for (const char *end : {"stopped", "deleted", "edited"})
+            {
+                // FreezeHold's momentary flag is one shared flag: an edit releasing it releases it
+                if (qstrcmp(end, "edited") == 0 && qstrcmp(role, "freeze hold") == 0)
+                    continue;
+                QTest::newRow(qPrintable(QStringLiteral("%1, %2 holds too, A %3").arg(role, other, end)))
+                    << QString::fromLatin1(role) << QString::fromLatin1(other) << QString::fromLatin1(end);
+            }
 }
 
 void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold()
 {
     QFETCH(QString, role);
     QFETCH(QString, other);
-    QFETCH(bool, deleted);
+    QFETCH(QString, end);
 
     SharedHoldRig r;
     QVERIFY(r.setUp(role));
@@ -15412,13 +15416,20 @@ void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold()
         r.userHolds(true);
     QVERIFY(r.effect());
 
-    if (deleted)
+    if (end == QLatin1String("deleted"))
     {
         // like the Function Manager: a stop request, then the deletion before the timer ran it
         r.a->stop(FunctionParent::master());
         QVERIFY(r.doc.deleteFunction(r.a->id()));
         r.aDeleted = true;
         QCoreApplication::processEvents();
+    }
+    else if (end == QLatin1String("edited"))
+    {
+        // the editor removes A's hold behind the playhead: the replay release follows at once
+        QVERIFY(r.recorder.setResolvedShow(r.a->id()));
+        QVERIFY2(r.recorder.removeCommands(r.a->id(), {1, 2}), qPrintable(r.recorder.lastError()));
+        tickAndDeliver(&r.doc, 1);
     }
     else
     {
