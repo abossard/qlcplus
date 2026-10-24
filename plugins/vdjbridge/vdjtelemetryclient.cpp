@@ -224,6 +224,8 @@ void VdjTelemetryClient::feed(const QByteArray &chunk)
     }
     m_buffer.remove(0, pos);
     // or where the data ends after its last complete object
+    // shortcut: a write split across two reads ends here too (seen on no
+    // loopback capture), upgrade to a settle timeout when VDJ runs over the LAN
     if (writeOpen && m_buffer.isEmpty())
         emit tickEnded();
 }
