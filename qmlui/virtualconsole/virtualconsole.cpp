@@ -1917,6 +1917,7 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
     QPointF position = logicalPosition;
     qreal rowHeight = 0;
     QVector<QPair<quint32, QRectF>> creations;
+    QList<QSizeF> sizes, minimums;
     for (const QVariant &value : functionIDs)
     {
         Function *function = m_doc->function(value.toUInt());
@@ -1927,6 +1928,8 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
         if (!preview.value("accepted").toBool())
             return preview;
         QRectF rect = preview.value("rect").toRectF();
+        sizes.append(rect.size());
+        minimums.append(preview.value("minimumSize").toSizeF());
         if (!creations.isEmpty() && (rect.left() < position.x() || rect.right() > bounds.right()))
         {
             position = QPointF(qMax(bounds.left(), logicalPosition.x()), position.y() + rowHeight);
@@ -1943,6 +1946,10 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
         rowHeight = qMax(rowHeight, rect.height());
         position = QPointF(rect.right() + qMax(qreal(1), snappingSize()), rect.top());
     }
+    /* an arranged frame places the new controls itself, when all of them fit */
+    const QString arranged = m_editor->arrangedFit(target, page, sizes, minimums);
+    if (!arranged.isEmpty())
+        return editResult(false, false, arranged);
     QScopedValueRollback<bool> busy(m_authoringBusy, true);
     emit structureAboutToChange();
     QSignalBlocker blockOwner(this), blockParent(target);
@@ -1955,6 +1962,7 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
         Q_ASSERT(created);
         rectangles.insert(created->id(), creation.second);
     }
+    m_editor->arrangeJoined(target);
     if (tardis) tardis->endBatch();
     m_doc->setModified();
     blockOwner.unblock();

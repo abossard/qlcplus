@@ -1176,6 +1176,12 @@ void VCEditor_Test::arrangedStructure_data()
     QTest::newRow("paste") << "paste" << int(GridLayout::ArrangeMode::Flow) << QStringList{"b0", "b1", "b2", "b3", "new"}
         << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50),
                          QRectF(220, 10, 60, 50), QRectF(10, 70, 100, 80)};
+    QTest::newRow("function-drop") << "functions" << int(GridLayout::ArrangeMode::Flow) << QStringList{"b0", "b1", "b2", "b3", "new"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50),
+                         QRectF(220, 10, 60, 50), QRectF(10, 70, -1, -1)};
+    // one more Function than the row has room for: each fits alone, all together do not
+    QTest::newRow("function-drop-overflow") << "functions-overflow" << int(GridLayout::ArrangeMode::Row)
+        << QStringList{"b0"} << QList<QRectF>();
     // a full row refuses newcomers, even with free space below it
     QTest::newRow("paste-full") << "paste" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b1", "b2", "b3"}
         << QList<QRectF>();
@@ -1228,6 +1234,20 @@ void VCEditor_Test::arrangedStructure()
         QVERIFY(m_app->doc()->addFunction(scene));
         // dropped over b1, the arrangement still places it
         result = vc()->createFunctions(ids.empty, {scene->id()}, QPointF(80, 10), Qt::NoModifier, 0);
+    }
+    else if (edit == "functions-overflow")
+    {
+        QVERIFY(vc()->deleteAuthoringWidgets({named["b1"], named["b2"], named["b3"]}).value("accepted").toBool());
+        // b0 ends at 70, the row at 290
+        const qreal width = vc()->previewCreate(ids.empty, "Button", QPointF(80, 10), 0).value("rect").toRectF().width();
+        QVariantList functions;
+        for (int i = 0; i <= int((290 - 70) / (width + 10)); i++)
+        {
+            auto *scene = new Scene(m_app->doc());
+            QVERIFY(m_app->doc()->addFunction(scene));
+            functions.append(scene->id());
+        }
+        result = vc()->createFunctions(ids.empty, functions, QPointF(80, 10), Qt::NoModifier, 0);
     }
     else
         result = vc()->deleteAuthoringWidgets({named["b1"]});
