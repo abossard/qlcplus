@@ -54,6 +54,7 @@
 #include "vcclock.h"
 #include "vcpage.h"
 #include "tardis.h"
+#include "vceditor.h"
 #include "doc.h"
 #include "app.h"
 
@@ -134,8 +135,10 @@ VirtualConsole::VirtualConsole(QQuickView *view, Doc *doc,
         m_pages.append(page);
     }
     m_outlineModel = new VCOutlineModel(this, this);
+    m_editor = new VCEditor(this);
 
     view->rootContext()->setContextProperty("virtualConsole", this);
+    view->rootContext()->setContextProperty("vcEditor", m_editor);
     qmlRegisterUncreatableType<GrandMaster>("org.qlcplus.classes", 1, 0, "GrandMaster", "Can't create a GrandMaster!");
     qmlRegisterUncreatableType<QLCInputChannel>("org.qlcplus.classes", 1, 0, "QLCInputChannel", "Can't create a QLCInputChannel!");
 
@@ -480,8 +483,7 @@ void VirtualConsole::addPage(int index)
     addWidgetToMap(page);
     m_contextManager->registerContext(page->previewContext());
     m_pages.insert(index, page);
-    Tardis::instance()->enqueueAction(Tardis::VCPageAdd, page->id(), QVariant(),
-        QVariantMap{{"index", index}, {"xml", Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, page->id())}});
+    m_editor->recordPage(index, true);
 
     emit pagesCountChanged();
 
@@ -492,39 +494,6 @@ void VirtualConsole::addPage(int index)
     }
 }
 
-bool VirtualConsole::restorePage(int index, const QByteArray &xml)
-{
-    /* widgets read their ID only from a reader with a device */
-    QBuffer buffer;
-    buffer.setData(xml);
-    buffer.open(QIODevice::ReadOnly | QIODevice::Text);
-    QXmlStreamReader reader(&buffer);
-    if (index < 0 || index > m_pages.count() || !reader.readNextStartElement())
-        return false;
-
-    VCPage *page = new VCPage(m_view, m_doc, this, index, this);
-    QQmlEngine::setObjectOwnership(page, QQmlEngine::CppOwnership);
-    if (!page->loadXML(reader))
-    {
-        delete page;
-        return false;
-    }
-    addWidgetToMap(page);
-    m_contextManager->registerContext(page->previewContext());
-    m_pages.insert(index, page);
-    page->buildKeySequenceMap();
-
-    emit pagesCountChanged();
-
-    /* keep the shown page selected */
-    if (index <= m_selectedPage && m_pages.count() > 1)
-    {
-        m_selectedPage++;
-        emit selectedPageChanged(m_selectedPage);
-    }
-    return true;
-}
-
 void VirtualConsole::deletePage(int index)
 {
     if (index < 0 || index >= m_pages.count())
@@ -533,9 +502,7 @@ void VirtualConsole::deletePage(int index)
     if (m_pages.count() == 1)
         return;
 
-    Tardis::instance()->enqueueAction(Tardis::VCPageDelete, m_pages.at(index)->id(),
-        QVariantMap{{"index", index}, {"xml", Tardis::instance()->actionToByteArray(Tardis::VCWidgetDelete, m_pages.at(index)->id())}},
-        QVariant());
+    m_editor->recordPage(index, false);
     m_pages.at(index)->deleteChildren();
     VCPage *page = m_pages.takeAt(index);
     m_unlockedPagePINs.remove(page->id());
@@ -795,21 +762,6 @@ void VirtualConsole::setWidgetSelection(quint32 wID, QQuickItem *item, bool enab
 
     emit selectedWidgetChanged();
     emit selectedWidgetsCountChanged();
-}
-
-QVariantList VirtualConsole::widgetsInRect(quint32 frameID, QRectF logicalRect) const
-{
-    QVariantList ids;
-    VCFrame *frame = targetFrame(frameID);
-    if (frame == nullptr)
-        return ids;
-    for (VCWidget *child : frame->children(false))
-    {
-        const QRectF overlap = child->logicalGeometry().intersected(logicalRect);
-        if (child->page() == frame->currentPage() && overlap.width() > 0 && overlap.height() > 0)
-            ids.append(child->id());
-    }
-    return ids;
 }
 
 void VirtualConsole::setSelectedWidgetIDs(QVariantList ids)
@@ -1208,7 +1160,7 @@ QVariantMap VirtualConsole::previewGeometry(quint32 id, QRectF logicalRect, bool
     // children of arranged frames move along, checked here and placed again on commit
     QMap<quint32, QRectF> rectangles{{id, rect}};
     if (error.isEmpty())
-        error = arrangePlan(rectangles);
+        error = m_editor->arrangePlan(rectangles);
     if (error.isEmpty())
         error = geometryError(rectangles);
     return editResult(error.isEmpty(), false, error, error.isEmpty() ? QMap<quint32, QRectF>{{id, rect}} : QMap<quint32, QRectF>{});
@@ -1242,125 +1194,12 @@ QVariantMap VirtualConsole::applyGeometryPlan(const QMap<quint32, QRectF> &recta
             if (!error.isEmpty())
                 return editResult(false, false, error);
         }
-    error = arrangePlan(candidates);
+    error = m_editor->arrangePlan(candidates);
     if (error.isEmpty())
         error = geometryError(candidates);
     if (!error.isEmpty())
         return editResult(false, false, error);
     return commitGeometry(candidates);
-}
-
-static GridLayout::ArrangeSpec arrangeSpec(const VCFrame *frame)
-{
-    GridLayout::ArrangeSpec spec;
-    spec.mode = GridLayout::ArrangeMode(frame->arrangeMode());
-    spec.gap = frame->arrangeGap();
-    spec.columns = frame->arrangeColumns();
-    spec.fill = frame->arrangeFill();
-    return spec;
-}
-
-QString VirtualConsole::arrangePlan(QMap<quint32, QRectF> &rectangles,
-                                    const QHash<quint32, GridLayout::ArrangeSpec> &specs) const
-{
-    const auto specOf = [&specs](const VCFrame *frame) {
-        return specs.contains(frame->id()) ? specs.value(frame->id()) : arrangeSpec(frame);
-    };
-    QList<VCFrame *> pending;
-    const auto queue = [&](VCFrame *frame) {
-        if (frame && specOf(frame).mode != GridLayout::ArrangeMode::None && !pending.contains(frame))
-            pending.append(frame);
-    };
-    for (auto it = rectangles.constBegin(); it != rectangles.constEnd(); ++it)
-        if (VCWidget *entry = widget(it.key()))
-        {
-            queue(qobject_cast<VCFrame *>(entry));
-            queue(qobject_cast<VCFrame *>(entry->parent()));
-        }
-    // outer frames first, so the frames inside arrange in their new size
-    const auto depth = [](QObject *object) {
-        int level = 0;
-        for (; object; object = object->parent())
-            level++;
-        return level;
-    };
-    std::stable_sort(pending.begin(), pending.end(), [&depth](VCFrame *a, VCFrame *b) { return depth(a) < depth(b); });
-
-    for (int i = 0; i < pending.size(); i++)
-    {
-        VCFrame *frame = pending.at(i);
-        QRectF content = frame->contentRect();
-        if (rectangles.contains(frame->id()))
-        {
-            const QSizeF size = rectangles.value(frame->id()).size();
-            content.setWidth(size.width());
-            content.setHeight(qMax(qreal(0), size.height() - content.top()));
-        }
-        for (int subpage = 0; subpage < frame->totalPagesNumber(); subpage++)
-        {
-            QList<VCWidget *> children;
-            QList<QSizeF> sizes, minimums;
-            for (const QVariant &id : frame->orderedChildIDs(subpage))
-            {
-                VCWidget *child = widget(id.toUInt());
-                children.append(child);
-                sizes.append(rectangles.value(child->id(), child->logicalGeometry()).size());
-                minimums.append(child->minimumSize());
-            }
-            const GridLayout::ArrangeResult arranged = GridLayout::arrange(specOf(frame), content, sizes, minimums);
-            if (!arranged.error.isEmpty())
-                return tr("Frame %1: %2").arg(frame->caption(), arranged.error);
-            for (int c = 0; c < children.size(); c++)
-            {
-                rectangles.insert(children.at(c)->id(), arranged.rects.at(c));
-                if (arranged.rects.at(c).size() != children.at(c)->logicalGeometry().size())
-                    queue(qobject_cast<VCFrame *>(children.at(c)));
-            }
-        }
-    }
-    return QString();
-}
-
-QVariantMap VirtualConsole::arrangeFrame(quint32 frameID, QVariantMap settings)
-{
-    if (m_authoringBusy)
-        return editResult(false, false, tr("Another console edit is being committed"));
-    VCFrame *frame = targetFrame(frameID);
-    if (!frame)
-        return editResult(false, false, tr("Unknown frame %1").arg(frameID));
-    QString error = nativeAuthoringError(frame);
-    if (!error.isEmpty())
-        return editResult(false, false, error);
-    for (const QString &key : settings.keys())
-        if (key != "mode" && key != "gap" && key != "columns" && key != "fill")
-            return editResult(false, false, tr("Unknown arrangement setting %1").arg(key));
-
-    GridLayout::ArrangeSpec spec = arrangeSpec(frame);
-    spec.mode = GridLayout::ArrangeMode(settings.value("mode", int(spec.mode)).toInt());
-    spec.gap = settings.value("gap", spec.gap).toReal();
-    spec.columns = settings.value("columns", spec.columns).toInt();
-    spec.fill = settings.value("fill", spec.fill).toBool();
-    if (spec.mode < GridLayout::ArrangeMode::None || spec.mode > GridLayout::ArrangeMode::Flow ||
-        spec.gap < 0 || spec.columns < 1)
-        return editResult(false, false, tr("Invalid arrangement"));
-
-    // the children are placed and checked before anything changes
-    QMap<quint32, QRectF> rectangles {{frame->id(), frame->logicalGeometry()}};
-    error = arrangePlan(rectangles, {{frame->id(), spec}});
-    rectangles.remove(frame->id());
-    if (error.isEmpty() && !rectangles.isEmpty())
-        error = geometryError(rectangles);
-    if (!error.isEmpty())
-        return editResult(false, false, error);
-
-    Tardis::instance()->beginBatch("arrangeFrame");
-    frame->setArrangeMode(VCFrame::ArrangeMode(spec.mode));
-    frame->setArrangeGap(spec.gap);
-    frame->setArrangeColumns(spec.columns);
-    frame->setArrangeFill(spec.fill);
-    const QVariantMap result = rectangles.isEmpty() ? editResult(true, true, {}) : commitGeometry(rectangles);
-    Tardis::instance()->endBatch();
-    return result;
 }
 
 QVariantMap VirtualConsole::previewGeometryPlan(const QMap<quint32, QRectF> &rectangles) const
@@ -2378,32 +2217,6 @@ void VirtualConsole::setWidgetsAlignment(VCWidget *refWidget, int alignment)
     reportEdit(applyGeometryPlan(rectangles));
 }
 
-void VirtualConsole::setWidgetsSize(VCWidget *refWidget, int orientations)
-{
-    if (refWidget == nullptr)
-        return;
-
-    const QSizeF size = refWidget->logicalGeometry().size();
-    QMap<quint32, QRectF> rectangles;
-    for (quint32 id : m_itemsMap.keys())
-    {
-        VCWidget *widget = m_widgetsMap.value(id);
-        const QString error = nativeAuthoringError(widget);
-        if (!error.isEmpty())
-        {
-            reportEdit(editResult(false, false, error));
-            return;
-        }
-        QRectF rect = widget->logicalGeometry();
-        if (orientations & Qt::Horizontal)
-            rect.setWidth(size.width());
-        if (orientations & Qt::Vertical)
-            rect.setHeight(size.height());
-        rectangles.insert(id, rect);
-    }
-    reportEdit(applyGeometryPlan(rectangles));
-}
-
 void VirtualConsole::setWidgetsDistribution(int direction)
 {
     if (m_itemsMap.count() < 3)
@@ -2686,33 +2499,7 @@ void VirtualConsole::duplicateSelection()
     if (m_itemsMap.isEmpty())
         return;
 
-    /* Copies go right of the originals, in the same frame, and leave the clipboard alone */
-    QString error;
-    const QList<VCWidget *> roots = selectedRoots(selectedWidgetIDs(), &error);
-    if (!error.isEmpty() || roots.isEmpty())
-    {
-        reportEdit(editResult(false, false, error.isEmpty() ? tr("No widgets selected") : error));
-        return;
-    }
-    VCFrame *parent = qobject_cast<VCFrame *>(roots.first()->parent());
-    QRectF bounds;
-    QVariantList ids;
-    for (VCWidget *root : roots)
-    {
-        if (root->parent() != parent)
-        {
-            reportEdit(editResult(false, false, tr("Duplicate a selection from one parent at a time")));
-            return;
-        }
-        bounds = bounds.united(root->logicalGeometry());
-        ids.append(root->id());
-    }
-    const QVariantMap guide = snapGuide(parent->id());
-    const qreal gap = guide.value("enabled").toBool() ? guide.value("step").toSizeF().width() : 10;
-    QQuickItem *area = parent->renderItem() ?
-        parent->renderItem()->findChild<QQuickItem *>(QString("frameDropArea%1").arg(parent->id())) : nullptr;
-    QScopedValueRollback<bool> keepCut(m_clipboardIsCut, false);
-    reportEdit(pasteWidgets(ids, parent->id(), bounds.topRight() + QPointF(gap, 0), area, true));
+    m_editor->duplicateSelection();
 }
 
 void VirtualConsole::nudgeWidgets(int dx, int dy)
@@ -3029,49 +2816,8 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
         }
     }
     error = geometryError(rectangles, target, subpage, true);
-    if (!error.isEmpty() && nearPosition)
-    {
-        /* Take the first free spot in reading order from the requested position */
-        QRectF group;
-        for (const QRectF &rect : std::as_const(rectangles))
-            group = group.united(rect);
-        QList<QRectF> siblings;
-        for (VCWidget *child : target->children(false))
-            if (child->page() == subpage)
-                siblings.append(child->logicalGeometry());
-        const qreal stride = step > 0 ? step : 10;
-        const auto aligned = [stride, step](qreal value) { return step > 0 ? std::ceil(value / stride) * stride : value; };
-        const QPointF start(qBound(bounds.left(), group.left(), bounds.right()), qBound(bounds.top(), group.top(), bounds.bottom()));
-        QList<qreal> rows;
-        for (qreal y = aligned(start.y()); y + group.height() <= bounds.bottom(); y += stride)
-            rows.append(y);
-        for (qreal y = aligned(bounds.top()); y < start.y(); y += stride)
-            rows.append(y);
-        bool placed = false;
-        for (int row = 0; row < rows.size() && !placed; row++)
-            for (qreal x = aligned(row == 0 ? start.x() : bounds.left()); x + group.width() <= bounds.right(); x += stride)
-            {
-                const QPointF offset = QPointF(x, rows.at(row)) - group.topLeft();
-                bool free = true;
-                for (int i = 0; i < siblings.size() && free; i++)
-                {
-                    const QRectF overlap = group.translated(offset).intersected(siblings.at(i));
-                    free = overlap.width() <= 0 || overlap.height() <= 0;
-                }
-                if (!free)
-                    continue;
-                QMap<quint32, QRectF> moved;
-                for (auto it = rectangles.constBegin(); it != rectangles.constEnd(); ++it)
-                    moved.insert(it.key(), it.value().translated(offset));
-                if (geometryError(moved, target, subpage, true).isEmpty())
-                {
-                    rectangles = moved;
-                    error.clear();
-                    placed = true;
-                    break;
-                }
-            }
-    }
+    if (!error.isEmpty() && nearPosition && m_editor->placeNear(rectangles, target, subpage, step))
+        error.clear();
     if (!error.isEmpty())
         return editResult(false, false, error);
 

@@ -158,6 +158,7 @@ void PreviewContext::setDetached(bool detached)
         m_view->rootContext()->setContextProperty("contextManager", m_mainView->rootContext()->contextProperty("contextManager"));
         m_view->rootContext()->setContextProperty("paletteManager", m_mainView->rootContext()->contextProperty("paletteManager"));
         m_view->rootContext()->setContextProperty("virtualConsole", m_mainView->rootContext()->contextProperty("virtualConsole"));
+        m_view->rootContext()->setContextProperty("vcEditor", m_mainView->rootContext()->contextProperty("vcEditor"));
         m_view->rootContext()->setContextProperty("showManager", m_mainView->rootContext()->contextProperty("showManager"));
         m_view->rootContext()->setContextProperty("simpleDesk", m_mainView->rootContext()->contextProperty("simpleDesk"));
         m_view->rootContext()->setContextProperty("actionManager", m_mainView->rootContext()->contextProperty("actionManager"));

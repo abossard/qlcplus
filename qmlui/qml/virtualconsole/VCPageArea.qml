@@ -86,7 +86,7 @@ Rectangle
                 preventStealing = false
                 var vcPageObj = virtualConsole.page(page)
                 var scale = vcPageObj.scaleFactor
-                var ids = virtualConsole.widgetsInRect(vcPageObj.id,
+                var ids = vcEditor.widgetsInRect(vcPageObj.id,
                               Qt.rect(selectionBand.x / scale, selectionBand.y / scale,
                                       selectionBand.width / scale, selectionBand.height / scale))
                 if (mouse.modifiers & (Qt.ControlModifier | Qt.MetaModifier))

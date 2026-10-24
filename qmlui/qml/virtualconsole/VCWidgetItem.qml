@@ -534,7 +534,7 @@ Rectangle
                     // the menu acts on the selection, so a right click on another widget selects it
                     if (!wRoot.isSelected)
                         virtualConsole.setWidgetSelection(wRoot.wObj.id, wRoot, true, false)
-                    virtualConsole.widgetMenuRequested(mapToItem(null, mouse.x, mouse.y))
+                    vcEditor.widgetMenuRequested(mapToItem(null, mouse.x, mouse.y))
                     return
                 }
                 var multi = (mouse.modifiers & (Qt.ControlModifier | Qt.MetaModifier)) !== 0
@@ -586,7 +586,7 @@ Rectangle
                 if (mouse.button !== Qt.LeftButton)
                     return
                 virtualConsole.setWidgetSelection(wRoot.wObj.id, wRoot, true, false)
-                virtualConsole.widgetPropertiesRequested()
+                vcEditor.widgetPropertiesRequested()
             }
 
             Connections

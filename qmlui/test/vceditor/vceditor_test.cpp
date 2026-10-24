@@ -42,6 +42,7 @@
 #include "monitorproperties.h"
 #include "scene.h"
 #include "uimanager.h"
+#include "vceditor.h"
 #include "vcframe.h"
 #include "vcpage.h"
 #include "virtualconsole.h"
@@ -250,16 +251,14 @@ static QMap<QString, ConsoleEdit> consoleEdits()
         }},
         {"arrangeSettings", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.empty));
-            frame->setArrangeMode(VCFrame::ArrangeGrid);
-            frame->setArrangeGap(5);
-            frame->setArrangeColumns(3);
-            frame->setArrangeFill(true);
+            vc->editor()->arrangeFrame(frame->id(), {{"mode", int(GridLayout::ArrangeMode::Grid)}, {"gap", 5},
+                                                      {"columns", 3}, {"fill", true}});
             return QVariantMap();
         }},
         {"arrangeAndResize", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             // one undo step, however long the two edits take
             Tardis::instance()->beginBatch();
-            QVariantMap result = vc->arrangeFrame(ids.frame, {{"mode", int(VCFrame::ArrangeFlow)}});
+            QVariantMap result = vc->editor()->arrangeFrame(ids.frame, {{"mode", int(GridLayout::ArrangeMode::Flow)}});
             if (result.value("accepted").toBool())
                 result = vc->editGeometry(ids.frame, QRectF(20, 20, 560, 500), false);
             Tardis::instance()->endBatch();
@@ -1063,17 +1062,17 @@ void VCEditor_Test::arrangeFrame_data()
     QTest::addColumn<QVariantMap>("settings");
     QTest::addColumn<QSizeF>("frameSize"); // then resized to this
     QTest::addColumn<QList<QRectF>>("expected"); // empty: refused, nothing moves
-    const QVariantMap grid {{"mode", int(VCFrame::ArrangeGrid)}, {"columns", 2}, {"gap", 10}, {"fill", true}};
+    const QVariantMap grid {{"mode", int(GridLayout::ArrangeMode::Grid)}, {"columns", 2}, {"gap", 10}, {"fill", true}};
     QTest::newRow("grid-fill") << grid << QSizeF(300, 250)
         << QList<QRectF>{QRectF(10, 10, 135, 110), QRectF(155, 10, 135, 110), QRectF(10, 130, 135, 110), QRectF(155, 130, 135, 110)};
     QTest::newRow("grid-fill-resized") << grid << QSizeF(400, 250)
         << QList<QRectF>{QRectF(10, 10, 185, 110), QRectF(205, 10, 185, 110), QRectF(10, 130, 185, 110), QRectF(205, 130, 185, 110)};
     QTest::newRow("grid-fill-too-small") << grid << QSizeF(60, 60) << QList<QRectF>();
-    QTest::newRow("column") << QVariantMap{{"mode", int(VCFrame::ArrangeColumn)}, {"gap", 5}} << QSizeF(300, 250)
+    QTest::newRow("column") << QVariantMap{{"mode", int(GridLayout::ArrangeMode::Column)}, {"gap", 5}} << QSizeF(300, 250)
         << QList<QRectF>{QRectF(5, 5, 60, 50), QRectF(5, 60, 60, 50), QRectF(5, 115, 60, 50), QRectF(5, 170, 60, 50)};
-    QTest::newRow("flow-rewraps") << QVariantMap{{"mode", int(VCFrame::ArrangeFlow)}, {"gap", 10}} << QSizeF(160, 250)
+    QTest::newRow("flow-rewraps") << QVariantMap{{"mode", int(GridLayout::ArrangeMode::Flow)}, {"gap", 10}} << QSizeF(160, 250)
         << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(10, 70, 60, 50), QRectF(80, 70, 60, 50)};
-    QTest::newRow("row-does-not-fit") << QVariantMap{{"mode", int(VCFrame::ArrangeRow)}, {"gap", 40}} << QSizeF(300, 250)
+    QTest::newRow("row-does-not-fit") << QVariantMap{{"mode", int(GridLayout::ArrangeMode::Row)}, {"gap", 40}} << QSizeF(300, 250)
         << QList<QRectF>();
 }
 
@@ -1089,7 +1088,7 @@ void VCEditor_Test::arrangeFrame()
     for (quint32 id : buttons)
         before.append(vc()->widget(id)->logicalGeometry());
 
-    const QVariantMap result = vc()->arrangeFrame(ids.empty, settings);
+    const QVariantMap result = vc()->editor()->arrangeFrame(ids.empty, settings);
     const bool resized = frameSize != frame->logicalGeometry().size();
     if (resized && result.value("accepted").toBool())
         vc()->editGeometry(ids.empty, QRectF(frame->logicalGeometry().topLeft(), frameSize), false);
@@ -1100,12 +1099,12 @@ void VCEditor_Test::arrangeFrame()
     {
         // a refused arrangement leaves the frame free, a refused resize keeps the arrangement
         QCOMPARE(actual, resized ? actual : before);
-        QVERIFY(resized || frame->arrangeMode() == VCFrame::ArrangeNone);
+        QVERIFY(resized || VCArrangement::specOf(frame).mode == GridLayout::ArrangeMode::None);
         QVERIFY(!resized || frame->logicalGeometry().size() != frameSize);
         return;
     }
     QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
-    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeMode(settings.value("mode").toInt()));
+    QCOMPARE(VCArrangement::specOf(frame).mode, GridLayout::ArrangeMode(settings.value("mode").toInt()));
     QCOMPARE(actual, expected);
 }
 
@@ -1116,9 +1115,9 @@ void VCEditor_Test::arrangeNested()
     QVERIFY(vc()->deleteAuthoringWidgets({ids.a, ids.b}).value("accepted").toBool());
     auto *nested = qobject_cast<VCFrame *>(vc()->widget(ids.nested));
     nested->setShowHeader(false);
-    QVERIFY(vc()->arrangeFrame(ids.nested, {{"mode", int(VCFrame::ArrangeGrid)}, {"columns", 1}, {"fill", true}})
+    QVERIFY(vc()->editor()->arrangeFrame(ids.nested, {{"mode", int(GridLayout::ArrangeMode::Grid)}, {"columns", 1}, {"fill", true}})
                 .value("accepted").toBool());
-    QVERIFY(vc()->arrangeFrame(ids.frame, {{"mode", int(VCFrame::ArrangeRow)}, {"fill", true}})
+    QVERIFY(vc()->editor()->arrangeFrame(ids.frame, {{"mode", int(GridLayout::ArrangeMode::Row)}, {"fill", true}})
                 .value("accepted").toBool());
     const QRectF content = qobject_cast<VCFrame *>(vc()->widget(ids.frame))->contentRect();
     QCOMPARE(nested->logicalGeometry().size(), QSizeF(content.width() - 20, std::round(content.bottom() - 10) - std::round(content.top() + 10)));
@@ -1142,16 +1141,16 @@ void VCEditor_Test::arrangePanel()
     QTRY_VERIFY((mode = console->findChild<QObject *>("arrangeModeCombo")));
 
     // Grid, in two columns, sharing the frame
-    QVERIFY(mode->setProperty("currentIndex", int(VCFrame::ArrangeGrid)));
-    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeGrid);
+    QVERIFY(mode->setProperty("currentIndex", int(GridLayout::ArrangeMode::Grid)));
+    QCOMPARE(VCArrangement::specOf(frame).mode, GridLayout::ArrangeMode::Grid);
     QTRY_VERIFY((columns = console->findChild<QObject *>("arrangeColumnsSpin")) && columns->property("visible").toBool());
     QVERIFY(QMetaObject::invokeMethod(columns, "decrease"));
     QVERIFY(QMetaObject::invokeMethod(columns, "decrease"));
     QVERIFY(QMetaObject::invokeMethod(columns, "valueModified"));
-    QCOMPARE(frame->arrangeColumns(), 2);
+    QCOMPARE(VCArrangement::specOf(frame).columns, 2);
     QTRY_VERIFY((fill = console->findChild<QObject *>("arrangeFillCheck")) && fill->property("visible").toBool());
     QVERIFY(fill->setProperty("checked", true));
-    QVERIFY(frame->arrangeFill());
+    QVERIFY(VCArrangement::specOf(frame).fill);
     QCOMPARE(vc()->widget(buttons.last())->logicalGeometry(), QRectF(155, 130, 135, 110));
     checkScreenshot("arranged");
 
@@ -1160,9 +1159,9 @@ void VCEditor_Test::arrangePanel()
     QObject *gap = console->findChild<QObject *>("arrangeGapSpin");
     QVERIFY(gap->setProperty("value", 30));
     QVERIFY(QMetaObject::invokeMethod(gap, "valueModified"));
-    QVERIFY(mode->setProperty("currentIndex", int(VCFrame::ArrangeRow)));
-    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeGrid);
-    QTRY_COMPARE(mode->property("currentIndex").toInt(), int(VCFrame::ArrangeGrid));
+    QVERIFY(mode->setProperty("currentIndex", int(GridLayout::ArrangeMode::Row)));
+    QCOMPARE(VCArrangement::specOf(frame).mode, GridLayout::ArrangeMode::Grid);
+    QTRY_COMPARE(mode->property("currentIndex").toInt(), int(GridLayout::ArrangeMode::Grid));
     QCOMPARE(rejected.size(), 1);
 }
 
@@ -1170,10 +1169,8 @@ void VCEditor_Test::arrangeSettingsPersist()
 {
     const ConsoleIds ids = buildConsole();
     auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.empty));
-    frame->setArrangeMode(VCFrame::ArrangeFlow);
-    frame->setArrangeGap(7);
-    frame->setArrangeColumns(5);
-    frame->setArrangeFill(true);
+    QVERIFY(vc()->editor()->arrangeFrame(ids.empty, {{"mode", int(GridLayout::ArrangeMode::Flow)}, {"gap", 7},
+                                                      {"columns", 5}, {"fill", true}}).value("accepted").toBool());
     QTemporaryDir files;
     QVERIFY(files.isValid());
     const QString workspace = files.filePath("arranged.qxw");
@@ -1183,10 +1180,11 @@ void VCEditor_Test::arrangeSettingsPersist()
     m_app->doc()->masterTimer()->stop();
     frame = qobject_cast<VCFrame *>(vc()->widget(ids.empty));
     QVERIFY(frame);
-    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeFlow);
-    QCOMPARE(frame->arrangeGap(), qreal(7));
-    QCOMPARE(frame->arrangeColumns(), 5);
-    QCOMPARE(frame->arrangeFill(), true);
+    const GridLayout::ArrangeSpec spec = VCArrangement::specOf(frame);
+    QCOMPARE(spec.mode, GridLayout::ArrangeMode::Flow);
+    QCOMPARE(spec.gap, qreal(7));
+    QCOMPARE(spec.columns, 5);
+    QCOMPARE(spec.fill, true);
 }
 
 /*********************************************************************
@@ -1232,7 +1230,7 @@ void VCEditor_Test::matchSize()
     vc()->setWidgetSelection(ids.empty, nullptr, true, true);
     vc()->setWidgetSelection(ids.loose, nullptr, true, true);
 
-    vc()->setWidgetsSize(vc()->selectedWidget(), orientations);
+    vc()->editor()->setWidgetsSize(vc()->selectedWidget(), orientations);
     QCOMPARE(vc()->widget(ids.empty)->logicalGeometry(), expected);
     QCOMPARE(vc()->widget(ids.loose)->logicalGeometry(), QRectF(600, 20, 100, 80));
 }
@@ -1284,7 +1282,7 @@ void VCEditor_Test::widgetsInRect()
     for (const QString &name : expected)
         wanted.append(named.value(name));
 
-    QCOMPARE(vc()->widgetsInRect(named.value(container), band), wanted);
+    QCOMPARE(vc()->editor()->widgetsInRect(named.value(container), band), wanted);
 }
 
 void VCEditor_Test::bandSelection_data()

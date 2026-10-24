@@ -25,6 +25,7 @@
 
 #include "networkmanager.h"
 #include "virtualconsole.h"
+#include "vceditor.h"
 #include "fixturemanager.h"
 #include "functionmanager.h"
 #include "contextmanager.h"
@@ -802,7 +803,7 @@ int Tardis::processAction(TardisAction &action, bool undo)
      * created before a project change can be delivered after the local
      * contents have been cleared */
     if (((action.m_action > VCWidgetDelete && action.m_action < LIVE_ACTIONS_START_CODE &&
-          action.m_action != VCPageAdd && action.m_action != VCPageDelete) ||
+          action.m_action != VCEditorAction) ||
          action.m_action >= VCButtonSetPressed) &&
         m_virtualConsole->widget(action.m_objID) == nullptr)
     {
@@ -1512,13 +1513,7 @@ int Tardis::processAction(TardisAction &action, bool undo)
         case VCWidgetDelete:
             processBufferedAction(undo ? VCWidgetCreate : VCWidgetDelete, action.m_objID, action.m_oldValue);
             if (undo && action.m_newValue.metaType().id() == QMetaType::QVariantMap)
-            {
-                /* Put the restored widget back at its place among its siblings */
-                const QVariantMap location = action.m_newValue.toMap();
-                m_virtualConsole->restoreWidgetParent(location.value("widgetID").toUInt(), action.m_objID,
-                                                      location.value("subpage").toInt(),
-                                                      location.value("orderIndex").toInt());
-            }
+                m_virtualConsole->editor()->replay(action.m_objID, action.m_newValue);
             return undo ? VCWidgetCreate : VCWidgetDelete;
 
         case VCWidgetGeometry:
@@ -1585,12 +1580,6 @@ int Tardis::processAction(TardisAction &action, bool undo)
         {
             auto member = std::mem_fn(&VCWidget::setZIndex);
             member(qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID)), value->toInt());
-        }
-        break;
-        case VCWidgetDisabled:
-        {
-            auto member = std::mem_fn(&VCWidget::setDisabled);
-            member(qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
         }
         break;
 
@@ -1701,65 +1690,9 @@ int Tardis::processAction(TardisAction &action, bool undo)
             member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
         }
         break;
-        case VCFrameCollapsed:
-        {
-            auto member = std::mem_fn(&VCFrame::setCollapsed);
-            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
-        }
-        break;
-        case VCFrameShowHeader:
-        {
-            auto member = std::mem_fn(&VCFrame::setShowHeader);
-            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
-        }
-        break;
-        case VCFrameShowEnable:
-        {
-            auto member = std::mem_fn(&VCFrame::setShowEnable);
-            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
-        }
-        break;
-        case VCFrameMultiPage:
-        {
-            auto member = std::mem_fn(&VCFrame::setMultiPageMode);
-            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
-        }
-        break;
-        case VCFramePagesNumber:
-        {
-            auto member = std::mem_fn(&VCFrame::setTotalPagesNumber);
-            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toInt());
-        }
-        break;
-        case VCFramePagesLoop:
-        {
-            auto member = std::mem_fn(&VCFrame::setPagesLoop);
-            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
-        }
-        break;
-        case VCFrameArrangeMode:
-            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeMode(VCFrame::ArrangeMode(value->toInt()));
-        break;
-        case VCFrameArrangeGap:
-            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeGap(value->toReal());
-        break;
-        case VCFrameArrangeColumns:
-            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeColumns(value->toInt());
-        break;
-        case VCFrameArrangeFill:
-            qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID))->setArrangeFill(value->toBool());
-        break;
-        case VCPageAdd:
-        case VCPageDelete:
-        {
-            /* Both keep {index, xml} of the page, so it comes back with its own ID */
-            const bool restore = (action.m_action == VCPageAdd) != undo;
-            const QVariantMap page = (action.m_action == VCPageAdd ? action.m_newValue : action.m_oldValue).toMap();
-            if (restore)
-                m_virtualConsole->restorePage(page.value("index").toInt(), page.value("xml").toByteArray());
-            else
-                m_virtualConsole->deletePage(page.value("index").toInt());
-        }
+        case VCEditorAction:
+            if (!m_virtualConsole->editor()->replay(action.m_objID, *value))
+                return -1;
         break;
 
         /* ******************* Virtual Console live actions ******************* */

@@ -37,6 +37,7 @@ class QLCInputSource;
 class ContextManager;
 class TreeModel;
 class VCFrame;
+class VCEditor;
 class Doc;
 
 #define KXMLQLCVirtualConsole QStringLiteral("VirtualConsole")
@@ -144,8 +145,6 @@ public:
     /** Delete a VC page at $index */
     Q_INVOKABLE void deletePage(int index);
 
-    /** Insert at $index the page saved in $xml, keeping its widget IDs */
-    bool restorePage(int index, const QByteArray &xml);
 
     /** Set a protection PIN for the page at $index */
     Q_INVOKABLE bool setPagePIN(int index, QString currentPIN, QString newPIN);
@@ -210,12 +209,9 @@ public:
 
     /** Return a list of the currently selected VC widget IDs */
     Q_INVOKABLE QVariantList selectedWidgetIDs() const;
-
-    /** IDs of the children of $frameID on its shown page that a
-     *  $logicalRect band touches, in child order */
-    Q_INVOKABLE QVariantList widgetsInRect(quint32 frameID, QRectF logicalRect) const;
     Q_INVOKABLE void setSelectedWidgetIDs(QVariantList ids);
     VCOutlineModel *outlineModel() const;
+    VCEditor *editor() const { return m_editor; }
 
     /** Re-parent a widget to a different target frame and update frame maps/UI parent */
     bool reparentWidget(VCWidget *widget, VCFrame *targetFrame) const;
@@ -226,10 +222,6 @@ public:
     Q_INVOKABLE QVariantMap editStructureBefore(QVariantList ids, quint32 targetFrameID,
                                                int targetSubpage, int beforeID = -1);
     Q_INVOKABLE QVariantMap editGeometry(quint32 id, QRectF logicalRect, bool snap = true);
-    /** Set how frame $frameID arranges its children, from the optional "mode",
-     *  "gap", "columns" and "fill" of $settings, and arrange them. Refused
-     *  when the children do not fit, then nothing changes */
-    Q_INVOKABLE QVariantMap arrangeFrame(quint32 frameID, QVariantMap settings);
     Q_INVOKABLE QVariantMap previewGeometry(quint32 id, QRectF logicalRect, bool snap = true);
     Q_INVOKABLE QVariantMap editDrop(quint32 id, quint32 targetFrameID, int targetSubpage,
                                     QRectF logicalRect, int insertionIndex = -1);
@@ -264,9 +256,6 @@ public:
     /** Helper methods to handle alignment, label, background/foreground colors,
      *  background image and font when multiple widgets are selected */
     Q_INVOKABLE void setWidgetsAlignment(VCWidget *refWidget, int alignment);
-    /** Give the selected widgets the width and/or height of $refWidget,
-     *  as Qt::Horizontal and Qt::Vertical in $orientations ask */
-    Q_INVOKABLE void setWidgetsSize(VCWidget *refWidget, int orientations);
     Q_INVOKABLE void setWidgetsDistribution(int direction);
     Q_INVOKABLE void setWidgetsCaption(QString caption);
     Q_INVOKABLE void setWidgetsForegroundColor(QColor color);
@@ -310,23 +299,15 @@ signals:
     void structureChanged(QVariantList ids);
     void layoutPreviewChanged();
     void editRejected(QString error);
-    /** Emitted from a widget item: show the properties of the selection */
-    void widgetPropertiesRequested();
-    /** Emitted from a widget item: show the widget menu at $scenePos */
-    void widgetMenuRequested(QPointF scenePos);
 
 private:
     friend class VCFrame;
     friend class Tardis;
+    friend class VCEditor;
     QList<VCWidget *> selectedRoots(const QVariantList &ids, QString *error) const;
     VCFrame *targetFrame(quint32 id) const;
     QString geometryError(const QMap<quint32, QRectF> &rectangles,
                           VCFrame *destination = nullptr, int subpage = -1, bool copying = false) const;
-    /** Add to $rectangles the children of the arranged frames they resize, or
-     *  whose children they resize, from the outer frames in. $specs replace
-     *  the arrangement of the frames they name */
-    QString arrangePlan(QMap<quint32, QRectF> &rectangles,
-                        const QHash<quint32, GridLayout::ArrangeSpec> &specs = {}) const;
     /** With $nearPosition, an occupied $logicalPosition moves the copies to the next free spot */
     QVariantMap pasteWidgets(const QVariantList &ids, quint32 targetID,
                               QPointF logicalPosition, QQuickItem *renderParent, bool nearPosition = false);
@@ -346,6 +327,7 @@ private:
                            VCFrame *destination = nullptr, int subpage = -1) const;
     bool m_authoringBusy = false;
     VCOutlineModel *m_outlineModel = nullptr;
+    VCEditor *m_editor = nullptr;
     GridLayout::LayoutPlan calculateLayout(quint32 frameID, const QVariantMap &options,
                                            GridLayout::LayoutSnapshot *source,
                                            GridLayout::LayoutOptions *values, QString *error) const;

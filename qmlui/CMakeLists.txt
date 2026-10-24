@@ -100,6 +100,7 @@ set(SRC_FILES
     virtualconsole/virtualconsole.cpp virtualconsole/virtualconsole.h
     virtualconsole/vclayoutadapter.cpp virtualconsole/vclayoutadapter.h
     virtualconsole/vcoutlinemodel.cpp virtualconsole/vcoutlinemodel.h
+    virtualconsole/vceditor.cpp virtualconsole/vceditor.h
     flowconsole/flowconsole.cpp flowconsole/flowconsole.h
     stagewizard/stagewizard.cpp stagewizard/stagewizard.h
     stagewizard/stagewizard_placement.cpp

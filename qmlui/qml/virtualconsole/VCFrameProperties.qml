@@ -30,6 +30,7 @@ Rectangle
     height: fPropsColumn.height
 
     property VCFrame widgetRef: null
+    property QtObject arrangement: widgetRef ? vcEditor.arrangement(widgetRef.id) : null
     property int gridItemsHeight: UISettings.listItemHeight
 
     Column
@@ -215,15 +216,15 @@ Rectangle
                 /* every change places the children again, or is refused and shown unchanged */
                 function arrange(settings)
                 {
-                    var result = virtualConsole.arrangeFrame(widgetRef.id, settings)
+                    var result = vcEditor.arrangeFrame(widgetRef.id, settings)
                     if (!result.accepted)
                         virtualConsole.editRejected(result.error)
                     // once the control finished its own change, it follows the frame again
                     Qt.callLater(function() {
-                        arrangeModeCombo.currentIndex = Qt.binding(function() { return widgetRef ? widgetRef.arrangeMode : 0 })
-                        arrangeGapSpin.value = Qt.binding(function() { return widgetRef ? widgetRef.arrangeGap : 0 })
-                        arrangeColumnsSpin.value = Qt.binding(function() { return widgetRef ? widgetRef.arrangeColumns : 1 })
-                        arrangeFillCheck.checked = Qt.binding(function() { return widgetRef ? widgetRef.arrangeFill : false })
+                        arrangeModeCombo.currentIndex = Qt.binding(function() { return arrangement ? arrangement.mode : 0 })
+                        arrangeGapSpin.value = Qt.binding(function() { return arrangement ? arrangement.gap : 0 })
+                        arrangeColumnsSpin.value = Qt.binding(function() { return arrangement ? arrangement.columns : 1 })
+                        arrangeFillCheck.checked = Qt.binding(function() { return arrangement ? arrangement.fill : false })
                     })
                 }
 
@@ -241,15 +242,15 @@ Rectangle
                     Layout.fillWidth: true
                     height: gridItemsHeight
                     model: [
-                        { mLabel: qsTr("Freely"), mValue: VCFrame.ArrangeNone },
-                        { mLabel: qsTr("In a row"), mValue: VCFrame.ArrangeRow },
-                        { mLabel: qsTr("In a column"), mValue: VCFrame.ArrangeColumn },
-                        { mLabel: qsTr("In a grid"), mValue: VCFrame.ArrangeGrid },
-                        { mLabel: qsTr("Wrapping"), mValue: VCFrame.ArrangeFlow }
+                        { mLabel: qsTr("Freely"), mValue: 0 },
+                        { mLabel: qsTr("In a row"), mValue: 1 },
+                        { mLabel: qsTr("In a column"), mValue: 2 },
+                        { mLabel: qsTr("In a grid"), mValue: 3 },
+                        { mLabel: qsTr("Wrapping"), mValue: 4 }
                     ]
-                    currentIndex: widgetRef ? widgetRef.arrangeMode : 0
+                    currentIndex: arrangement ? arrangement.mode : 0
                     onCurrentIndexChanged:
-                        if (widgetRef && currentIndex !== widgetRef.arrangeMode)
+                        if (arrangement && currentIndex !== arrangement.mode)
                             arrangeGrid.arrange({ "mode": currentIndex })
                 }
 
@@ -258,7 +259,7 @@ Rectangle
                     height: gridItemsHeight
                     Layout.fillWidth: true
                     label: qsTr("Spacing")
-                    visible: arrangeModeCombo.currentIndex !== VCFrame.ArrangeNone
+                    visible: arrangeModeCombo.currentIndex !== 0
                 }
 
                 CustomSpinBox
@@ -267,11 +268,11 @@ Rectangle
                     objectName: "arrangeGapSpin"
                     Layout.fillWidth: true
                     height: gridItemsHeight
-                    visible: arrangeModeCombo.currentIndex !== VCFrame.ArrangeNone
+                    visible: arrangeModeCombo.currentIndex !== 0
                     suffix: "px"
                     from: 0
                     to: 200
-                    value: widgetRef ? widgetRef.arrangeGap : 0
+                    value: arrangement ? arrangement.gap : 0
                     onValueModified: arrangeGrid.arrange({ "gap": value })
                 }
 
@@ -280,7 +281,7 @@ Rectangle
                     height: gridItemsHeight
                     Layout.fillWidth: true
                     label: qsTr("Columns")
-                    visible: arrangeModeCombo.currentIndex === VCFrame.ArrangeGrid
+                    visible: arrangeModeCombo.currentIndex === 3
                 }
 
                 CustomSpinBox
@@ -289,10 +290,10 @@ Rectangle
                     objectName: "arrangeColumnsSpin"
                     Layout.fillWidth: true
                     height: gridItemsHeight
-                    visible: arrangeModeCombo.currentIndex === VCFrame.ArrangeGrid
+                    visible: arrangeModeCombo.currentIndex === 3
                     from: 1
                     to: 64
-                    value: widgetRef ? widgetRef.arrangeColumns : 1
+                    value: arrangement ? arrangement.columns : 1
                     onValueModified: arrangeGrid.arrange({ "columns": value })
                 }
 
@@ -310,11 +311,11 @@ Rectangle
                     objectName: "arrangeFillCheck"
                     implicitWidth: UISettings.iconSizeMedium
                     implicitHeight: implicitWidth
-                    visible: arrangeModeCombo.currentIndex !== VCFrame.ArrangeNone &&
-                             arrangeModeCombo.currentIndex !== VCFrame.ArrangeFlow
-                    checked: widgetRef ? widgetRef.arrangeFill : false
+                    visible: arrangeModeCombo.currentIndex !== 0 &&
+                             arrangeModeCombo.currentIndex !== 4
+                    checked: arrangement ? arrangement.fill : false
                     onCheckedChanged:
-                        if (widgetRef && checked !== widgetRef.arrangeFill)
+                        if (arrangement && checked !== arrangement.fill)
                             arrangeGrid.arrange({ "fill": checked })
                 }
               }

@@ -588,7 +588,7 @@ Rectangle
                                     height: width
                                     bgColor: UISettings.bgLighter
                                     tooltip: modelData.tip
-                                    onClicked: virtualConsole.setWidgetsSize(wObj, modelData.orientations)
+                                    onClicked: vcEditor.setWidgetsSize(wObj, modelData.orientations)
 
                                     RobotoText
                                     {

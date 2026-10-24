@@ -103,6 +103,11 @@ Rectangle
                 layoutError.open()
             }
         }
+    }
+
+    Connections
+    {
+        target: vcEditor
         function onWidgetPropertiesRequested() { showWidgetProperties() }
         function onWidgetMenuRequested(scenePos)
         {

@@ -23,6 +23,7 @@
 #include <QDebug>
 
 #include "tardis.h"
+#include "vceditor.h"
 #include "vcframe.h"
 #include "vclabel.h"
 #include "vcclock.h"
@@ -169,10 +170,7 @@ bool VCFrame::copyFrom(const VCWidget *widget)
     setMultiPageMode(frame->multiPageMode());
     setTotalPagesNumber(frame->totalPagesNumber());
     setPagesLoop(frame->pagesLoop());
-    m_arrangeMode = frame->m_arrangeMode;
-    m_arrangeGap = frame->m_arrangeGap;
-    m_arrangeColumns = frame->m_arrangeColumns;
-    m_arrangeFill = frame->m_arrangeFill;
+    VCArrangement::copy(frame, this);
 
     setLayoutMode(frame->layoutMode());
     setGridColumns(frame->gridColumns());
@@ -947,7 +945,7 @@ void VCFrame::setDisabled(bool disable)
 {
     /* The enable button also works while operating: only editing makes history */
     if (disable != isDisabled() && m_vc && m_vc->editMode())
-        enqueueTardisAction(Tardis::VCWidgetDisabled, QVariant(isDisabled()), QVariant(disable));
+        VCEditor::recordProperty(this, "isDisabled", isDisabled(), disable);
     for (VCWidget *widget : children(true)) // C++11
         widget->setDisabled(disable);
 
@@ -969,7 +967,7 @@ void VCFrame::setShowHeader(bool showHeader)
     if (m_showHeader == showHeader)
         return;
 
-    enqueueTardisAction(Tardis::VCFrameShowHeader, QVariant(m_showHeader), QVariant(showHeader));
+    VCEditor::recordProperty(this, "showHeader", m_showHeader, showHeader);
     m_showHeader = showHeader;
     emit showHeaderChanged(showHeader);
 }
@@ -988,7 +986,7 @@ void VCFrame::setShowEnable(bool showEnable)
     if (m_showEnable == showEnable)
         return;
 
-    enqueueTardisAction(Tardis::VCFrameShowEnable, QVariant(m_showEnable), QVariant(showEnable));
+    VCEditor::recordProperty(this, "showEnable", m_showEnable, showEnable);
     m_showEnable = showEnable;
     emit showEnableChanged(showEnable);
 }
@@ -1009,7 +1007,7 @@ void VCFrame::setCollapsed(bool isCollapsed)
 
     /* Operators fold frames during a show: only editing makes history */
     if (m_vc && m_vc->editMode())
-        enqueueTardisAction(Tardis::VCFrameCollapsed, QVariant(m_isCollapsed), QVariant(isCollapsed));
+        VCEditor::recordProperty(this, "isCollapsed", m_isCollapsed, isCollapsed);
     m_isCollapsed = isCollapsed;
     emit collapsedChanged(isCollapsed);
     setDocModified();
@@ -1029,7 +1027,7 @@ void VCFrame::setMultiPageMode(bool multiPageMode)
     if (m_multiPageMode == multiPageMode)
         return;
 
-    enqueueTardisAction(Tardis::VCFrameMultiPage, QVariant(m_multiPageMode), QVariant(multiPageMode));
+    VCEditor::recordProperty(this, "multiPageMode", m_multiPageMode, multiPageMode);
     m_multiPageMode = multiPageMode;
 
     // when enabling, make sure the label and shortcut control for the
@@ -1062,7 +1060,7 @@ void VCFrame::setTotalPagesNumber(int num)
     if (m_totalPagesNumber == num)
         return;
 
-    enqueueTardisAction(Tardis::VCFramePagesNumber, QVariant(m_totalPagesNumber), QVariant(num));
+    VCEditor::recordProperty(this, "totalPagesNumber", m_totalPagesNumber, num);
 
     // pages rely on the first page (index 0) being registered
     ensureFirstPage();
@@ -1141,7 +1139,7 @@ void VCFrame::setPagesLoop(bool pagesLoop)
     if (m_pagesLoop == pagesLoop)
         return;
 
-    enqueueTardisAction(Tardis::VCFramePagesLoop, QVariant(m_pagesLoop), QVariant(pagesLoop));
+    VCEditor::recordProperty(this, "pagesLoop", m_pagesLoop, pagesLoop);
     m_pagesLoop = pagesLoop;
     setDocModified();
     emit pagesLoopChanged(pagesLoop);
@@ -1323,70 +1321,6 @@ void VCFrame::applySubmasterValue(qreal submasterValue, VCWidget *submaster)
         if (child != nullptr && child->parent() == this && child != submaster)
             child->adjustIntensity(submasterValue * intensity());
     }
-}
-
-/*********************************************************************
- * Arrangement
- *********************************************************************/
-
-VCFrame::ArrangeMode VCFrame::arrangeMode() const
-{
-    return m_arrangeMode;
-}
-
-void VCFrame::setArrangeMode(ArrangeMode mode)
-{
-    if (m_arrangeMode == mode)
-        return;
-    enqueueTardisAction(Tardis::VCFrameArrangeMode, int(m_arrangeMode), int(mode));
-    m_arrangeMode = mode;
-    setDocModified();
-    emit arrangeChanged();
-}
-
-qreal VCFrame::arrangeGap() const
-{
-    return m_arrangeGap;
-}
-
-void VCFrame::setArrangeGap(qreal gap)
-{
-    if (m_arrangeGap == gap || gap < 0)
-        return;
-    enqueueTardisAction(Tardis::VCFrameArrangeGap, m_arrangeGap, gap);
-    m_arrangeGap = gap;
-    setDocModified();
-    emit arrangeChanged();
-}
-
-int VCFrame::arrangeColumns() const
-{
-    return m_arrangeColumns;
-}
-
-void VCFrame::setArrangeColumns(int columns)
-{
-    if (m_arrangeColumns == columns || columns < 1)
-        return;
-    enqueueTardisAction(Tardis::VCFrameArrangeColumns, m_arrangeColumns, columns);
-    m_arrangeColumns = columns;
-    setDocModified();
-    emit arrangeChanged();
-}
-
-bool VCFrame::arrangeFill() const
-{
-    return m_arrangeFill;
-}
-
-void VCFrame::setArrangeFill(bool fill)
-{
-    if (m_arrangeFill == fill)
-        return;
-    enqueueTardisAction(Tardis::VCFrameArrangeFill, m_arrangeFill, fill);
-    m_arrangeFill = fill;
-    setDocModified();
-    emit arrangeChanged();
 }
 
 /*********************************************************************
@@ -1860,17 +1794,9 @@ bool VCFrame::loadXML(QXmlStreamReader &root)
 
             //root.skipCurrentElement();
         }
-        else if (root.name() == KXMLQLCVCFrameArrange)
+        else if (VCArrangement::isXMLTag(root))
         {
-            const QXmlStreamAttributes attrs = root.attributes();
-            const QStringList modes {"None", "Row", "Column", "Grid", "Flow"};
-            m_arrangeMode = ArrangeMode(qMax(0, int(modes.indexOf(attrs.value(KXMLQLCVCFrameArrangeMode).toString()))));
-            if (attrs.hasAttribute(KXMLQLCVCFrameArrangeGap))
-                m_arrangeGap = qMax(qreal(0), attrs.value(KXMLQLCVCFrameArrangeGap).toDouble());
-            if (attrs.hasAttribute(KXMLQLCVCFrameArrangeColumns))
-                m_arrangeColumns = qMax(1, attrs.value(KXMLQLCVCFrameArrangeColumns).toInt());
-            m_arrangeFill = attrs.value(KXMLQLCVCFrameArrangeFill).toString() == KXMLQLCTrue;
-            root.skipCurrentElement();
+            VCArrangement::loadXML(this, root);
         }
         else if (root.name() == KXMLQLCVCFrameGridLayout)
         {
@@ -2007,17 +1933,7 @@ bool VCFrame::saveXML(QXmlStreamWriter *doc) const
         doc->writeEndElement();
     }
 
-    /* Arrangement, only when the frame arranges its children */
-    if (m_arrangeMode != ArrangeNone)
-    {
-        const QStringList modes {"None", "Row", "Column", "Grid", "Flow"};
-        doc->writeStartElement(KXMLQLCVCFrameArrange);
-        doc->writeAttribute(KXMLQLCVCFrameArrangeMode, modes.value(int(m_arrangeMode)));
-        doc->writeAttribute(KXMLQLCVCFrameArrangeGap, QString::number(m_arrangeGap));
-        doc->writeAttribute(KXMLQLCVCFrameArrangeColumns, QString::number(m_arrangeColumns));
-        doc->writeAttribute(KXMLQLCVCFrameArrangeFill, m_arrangeFill ? KXMLQLCTrue : KXMLQLCFalse);
-        doc->writeEndElement();
-    }
+    VCArrangement::saveXML(this, doc);
 
     /* Save children */
     foreach (const VCWidget *child, children(false))

@@ -231,18 +231,8 @@ public:
         VCFrameGridColumns,
         VCFrameGridRowHeight,
         VCFrameGridCompact,
-        VCFrameCollapsed,
-        VCFrameShowHeader,
-        VCFrameShowEnable,
-        VCFrameMultiPage,
-        VCFramePagesNumber,
-        VCFramePagesLoop,
-        VCPageAdd,
-        VCPageDelete,
-        VCFrameArrangeMode,
-        VCFrameArrangeGap,
-        VCFrameArrangeColumns,
-        VCFrameArrangeFill,
+        /** Payload maps that VCEditor::replay() applies */
+        VCEditorAction,
 
         /* Live actions */
         FixtureSetDumpValue = LIVE_ACTIONS_START_CODE,
