@@ -37,6 +37,15 @@ Dialog
     onVisibleChanged: mainView.setDimScreen(visible)
     onOpened: mainView.popupCount++
     onClosed: mainView.popupCount = Math.max(0, mainView.popupCount - 1)
+    // destroyed while open, like the dialog of a deleted widget: it never closes
+    Component.onDestruction:
+    {
+        if (opened && typeof mainView !== "undefined" && mainView)
+        {
+            mainView.popupCount = Math.max(0, mainView.popupCount - 1)
+            mainView.setDimScreen(false)
+        }
+    }
 
     property string message: ""
 

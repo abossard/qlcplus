@@ -92,6 +92,7 @@ private slots:
     void pastePlacement();
     void duplicateKeepsClipboard();
     void newWorkspaceShowsFirstPage();
+    void destroyedDialogReleasesKeys();
     void nudgeStep_data();
     void nudgeStep();
     void alignCenters_data();

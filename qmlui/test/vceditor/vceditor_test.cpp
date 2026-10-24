@@ -1542,6 +1542,19 @@ void VCEditor_Test::newWorkspaceShowsFirstPage()
     QTRY_VERIFY(m_app->rootObject()->findChild<QQuickItem *>("vcPage1") == nullptr);
 }
 
+void VCEditor_Test::destroyedDialogReleasesKeys()
+{
+    // like the error dialog of a widget deleted while it shows
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/CustomPopupDialog.qml"));
+    QObject *dialog = component.create(qmlContext(m_app->rootObject()));
+    QVERIFY2(dialog, qPrintable(component.errorString()));
+    QVERIFY(QMetaObject::invokeMethod(dialog, "open"));
+    QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 1);
+
+    delete dialog;
+    QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
+}
+
 void VCEditor_Test::nudgeStep_data()
 {
     QTest::addColumn<bool>("snapping");
