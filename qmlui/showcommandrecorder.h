@@ -515,9 +515,13 @@ private:
     /** The request being captured, for the entries it causes */
     const ShowControlRequest *m_tracedRequest = nullptr;
 
-    /** The one REC transition: ShowCommandFsm::record() and its effects.
-     *  False when a selection is refused or the take could not be saved. */
+    /** The one REC transition: ShowCommandFsm::record() and its effects. An
+     *  event an effect raises runs after them, in order. False when a
+     *  selection is refused or the take could not be saved. */
     bool dispatch(const ShowRecordEvent &event);
+    bool dispatchNow(const ShowRecordEvent &event);
+    bool m_dispatching = false;
+    QVector<ShowRecordEvent> m_queuedEvents;
     /** showId when it names a Show, InvalidId otherwise */
     quint32 resolvableShowId(quint32 showId) const;
 

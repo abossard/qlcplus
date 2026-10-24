@@ -440,6 +440,7 @@ private slots:
     void failedHandover_reasonOutlivesLaterInput();
     void staleTarget_blocksOnlyItsOwnCommand_data();
     void staleTarget_blocksOnlyItsOwnCommand();
+    void lifecycleEventRaisedByAnEffect_runsAfterIt();
     void manualShowSelection_lockedWhileArmed_data();
     void manualShowSelection_lockedWhileArmed();
     void boundShowDeletion_armsAndUndoRebinds_data();

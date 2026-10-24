@@ -273,8 +273,23 @@ quint32 ShowCommandRecorder::resolvableShowId(quint32 showId) const
 
 bool ShowCommandRecorder::dispatch(const ShowRecordEvent &event)
 {
+    if (m_dispatching)
+    {
+        // raised by an effect of the transition under way: after it, in order
+        m_queuedEvents.append(event);
+        return true;
+    }
+    const bool result = dispatchNow(event);
+    while (m_queuedEvents.isEmpty() == false)
+        dispatchNow(m_queuedEvents.takeFirst());
+    return result;
+}
+
+bool ShowCommandRecorder::dispatchNow(const ShowRecordEvent &event)
+{
     using Kind = ShowRecordEvent::Kind;
     using Effect = ShowRecordEffect::Kind;
+    QScopedValueRollback<bool> dispatching(m_dispatching, true);
     ShowRecordTransition step = ShowCommandFsm::record(m_rec, event);
     // named before an effect tracks another Show
     const QString take = m_trackedShow != nullptr ? m_trackedShow->name() : QString();

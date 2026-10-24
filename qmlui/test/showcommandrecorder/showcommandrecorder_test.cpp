@@ -16324,6 +16324,30 @@ void ShowCommandRecorder_Test::staleTarget_blocksOnlyItsOwnCommand()
     QVERIFY(r.recorder.setRecording(false));
 }
 
+void ShowCommandRecorder_Test::lifecycleEventRaisedByAnEffect_runsAfterIt()
+{
+    RequestRig r;
+    Show *b = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(b));
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId()));
+    QVERIFY(r.recorder.setRecording(true));
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+
+    // a rows subscriber turns REC off while the recorder binds B
+    bool disarmed = false;
+    QObject::connect(&r.recorder, &ShowCommandRecorder::commandsChanged, &r.recorder, [&]() {
+        if (disarmed)
+            return;
+        disarmed = true;
+        r.recorder.setRecording(false);
+    });
+    r.recorder.setResolvedShow(b->id());
+    QVERIFY(disarmed);
+    QVERIFY(!r.recorder.isRecording());
+    QVERIFY(!b->commandRecording());
+    QCOMPARE(r.recorder.targetName(), b->name());
+}
+
 void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed_data()
 {
     QTest::addColumn<QString>("state");
