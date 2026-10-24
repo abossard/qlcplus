@@ -609,6 +609,41 @@ void VCEditor_Test::randomEditSequence()
 }
 
 /*********************************************************************
+ * Property panels
+ *********************************************************************/
+
+void VCEditor_Test::frameCheckboxes_data()
+{
+    QTest::addColumn<QString>("property");
+    QTest::addColumn<QString>("type");
+    for (const QString &property : {"showHeader", "showEnable", "multiPageMode", "pagesLoop"})
+        QTest::newRow(qPrintable(property)) << property << QString("Frame");
+    QTest::newRow("excludeMonitoredFunctions") << QString("excludeMonitoredFunctions") << QString("Solo frame");
+}
+
+void VCEditor_Test::frameCheckboxes()
+{
+    QFETCH(QString, property);
+    QFETCH(QString, type);
+    const QVariantMap created = vc()->createWidgetGeometry(vc()->page(0)->id(), type, QRectF(20, 20, 300, 200));
+    QVERIFY(created.value("accepted").toBool());
+    VCWidget *frame = vc()->widget(created.value("widgetIDs").toList().first().toUInt());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/VCFrameProperties.qml"));
+    std::unique_ptr<QObject> panel(component.createWithInitialProperties(
+        {{"widgetRef", QVariant::fromValue(frame)}}, qmlContext(m_app->rootObject())));
+    QVERIFY2(panel, qPrintable(component.errorString()));
+    QObject *box = panel->findChild<QObject *>(property + "Check");
+    QVERIFY(box);
+
+    for (bool value : {true, false, true})
+    {
+        // a click toggles the box, the frame follows
+        QVERIFY(box->setProperty("checked", value));
+        QCOMPARE(frame->property(qPrintable(property)).toBool(), value);
+    }
+}
+
+/*********************************************************************
  * Selection and keyboard editing
  *********************************************************************/
 

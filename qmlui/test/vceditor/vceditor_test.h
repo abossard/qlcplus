@@ -57,6 +57,8 @@ private slots:
     void clonesStayOnTheirPage();
     void randomEditSequence_data();
     void randomEditSequence();
+    void frameCheckboxes_data();
+    void frameCheckboxes();
 
     void pageSwitchPrunesSelection_data();
     void pageSwitchPrunesSelection();

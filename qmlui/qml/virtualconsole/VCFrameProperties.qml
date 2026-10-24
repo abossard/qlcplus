@@ -60,6 +60,7 @@ Rectangle
 
                 CustomCheckBox
                 {
+                    objectName: "showHeaderCheck"
                     implicitWidth: UISettings.iconSizeMedium
                     implicitHeight: implicitWidth
                     checked: widgetRef ? widgetRef.showHeader : false
@@ -76,6 +77,7 @@ Rectangle
 
                 CustomCheckBox
                 {
+                    objectName: "showEnableCheck"
                     implicitWidth: UISettings.iconSizeMedium
                     implicitHeight: implicitWidth
                     checked: widgetRef ? widgetRef.showEnable : false
@@ -107,6 +109,7 @@ Rectangle
 
                 CustomCheckBox
                 {
+                    objectName: "excludeMonitoredFunctionsCheck"
                     implicitWidth: UISettings.iconSizeMedium
                     implicitHeight: implicitWidth
                     checked: widgetRef ? widgetRef.excludeMonitoredFunctions : false
@@ -137,6 +140,7 @@ Rectangle
 
                 CustomCheckBox
                 {
+                    objectName: "multiPageModeCheck"
                     implicitWidth: UISettings.iconSizeMedium
                     implicitHeight: implicitWidth
                     checked: widgetRef ? widgetRef.multiPageMode : false
@@ -153,10 +157,11 @@ Rectangle
 
                 CustomCheckBox
                 {
+                    objectName: "pagesLoopCheck"
                     implicitWidth: UISettings.iconSizeMedium
                     implicitHeight: implicitWidth
                     checked: widgetRef ? widgetRef.pagesLoop : false
-                    onCheckedChanged: if (checked && widgetRef) widgetRef.pagesLoop = checked
+                    onCheckedChanged: if (widgetRef) widgetRef.pagesLoop = checked
                 }
 
                 // row 3
