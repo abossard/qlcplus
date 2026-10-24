@@ -726,8 +726,11 @@ void DjManager::createShow(const QString &filepath)
     DjFsm::DeckSong song = m_model->songForFilepath(filepath);
     if (!song.isValid())
         return;
-    // showCreatedForSong assigns the row
-    m_factory->buildShow(song);
+    // a reopened workspace hands out the ids below its Shows: the index's
+    // newest-by-id would keep the old one
+    const quint32 id = m_factory->buildShow(song);
+    if (id != Function::invalidId())
+        m_factory->registerMapping(filepath, id);
 }
 
 QVariantList DjManager::availableShows() const

@@ -57,6 +57,7 @@ private slots:
 
     // Show creation and the index
     void deferredShowCreationRevalidates_data();
+    void newShowWinsAfterAWorkspaceLoad();
     void deferredShowCreationRevalidates();
     void playingASongModifiesTheWorkspace();
     void emptyArtistReachesTheRow();

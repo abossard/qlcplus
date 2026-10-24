@@ -364,6 +364,39 @@ void DjManager_Test::createShowAction()
     delete doc;
 }
 
+void DjManager_Test::newShowWinsAfterAWorkspaceLoad()
+{
+    // a loaded workspace keeps its ids and the Doc hands out the holes below
+    // them: the Show "New" builds gets a lower id than the song's old one
+    Doc *doc = createDoc();
+    QQuickView view;
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+    ShowFactory *factory = bridge.showFactory();
+    DjManager mgr(&view, doc, &bridge, factory);
+
+    Audio *audio = new Audio(doc);
+    audio->setSourceFileName("/m/old.mp3");
+    doc->addFunction(audio, 6);
+    Show *old = new Show(doc);
+    old->setName("Old");
+    doc->addFunction(old, 7);
+    Track *track = new Track(Function::invalidId(), old);
+    old->addTrack(track);
+    track->createShowFunction(audio->id());
+    feedSong(bridge.djFsm(), 1, "/m/old.mp3", "Old", "DJ", 120.0);
+    QCOMPARE(factory->showIdForFilepath("/m/old.mp3"), 7u);
+
+    mgr.createShow("/m/old.mp3");
+    QCOMPARE(doc->functionsByType(Function::ShowType).count(), 2);
+    const quint32 created = factory->showIdForFilepath("/m/old.mp3");
+    QVERIFY(created != 7u);
+    QVERIFY(created < 7u);
+    QCOMPARE(doc->function(created)->name(), QString("DJ - Old"));
+
+    delete doc;
+}
+
 void DjManager_Test::assignAndClearShowAction()
 {
     Doc *doc = createDoc();
