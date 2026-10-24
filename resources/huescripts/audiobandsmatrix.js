@@ -67,6 +67,7 @@ var testAlgo;
         var r = HSVUtil.interpolate(source, pixelCount);
         var gradSign = algo.presetFlipGradient === "Yes" ? -1 : 1;
         var gradOffset = algo.presetFlipGradient === "Yes" ? 1 : 0;
+        var outputControls = readOutputControls();
         if (width > 1 && height > 1) {
             var bands = bandPeaks(r, Math.min(algo.presetBandCount, width));
             if (algo.presetFlipBandOrder === "Yes")
@@ -90,6 +91,11 @@ var testAlgo;
                     }
                 }
             }
+            // Each row is a strip of its own, as in the Repeated rows layout.
+            for (var row = 0; row < height; row++)
+                HSVUtil.applyStripTransforms(map.subarray(row * width * 3, (row + 1) * width * 3),
+                                             width, 1, outputControls);
+            return map;
         } else {
             var bands = bandPeaks(r, Math.min(algo.presetBandCount, pixelCount));
             var bandOutputs = new Array(bands.length);
@@ -119,7 +125,7 @@ var testAlgo;
                 }
             }
         }
-        return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
+        return HSVUtil.applyStripTransforms(map, width, height, outputControls);
     };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {

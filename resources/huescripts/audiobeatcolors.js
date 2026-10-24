@@ -73,11 +73,11 @@ var testAlgo;
     algo.getTransition = function() {
         return ["Cut", "Fade", "SweepLR", "SweepTB", "Pulse"][algo.presetTransition];
     };
-    algo.setPulse = function(_v) { algo.presetPulse = parseFloat(_v); };
+    algo.setPulse = function(_v) { algo.presetPulse = HSVUtil.parseNumber(_v, algo.presetPulse, 0, 1); };
     algo.getPulse = function() { return algo.presetPulse; };
-    algo.setDownbeatBoost = function(_v) { algo.presetDownbeatBoost = parseFloat(_v); };
+    algo.setDownbeatBoost = function(_v) { algo.presetDownbeatBoost = HSVUtil.parseNumber(_v, algo.presetDownbeatBoost, 0, 1); };
     algo.getDownbeatBoost = function() { return algo.presetDownbeatBoost; };
-    algo.setSweepWidth = function(_v) { algo.presetSweepWidth = parseFloat(_v); };
+    algo.setSweepWidth = function(_v) { algo.presetSweepWidth = HSVUtil.parseNumber(_v, algo.presetSweepWidth, 0, 1); };
     algo.getSweepWidth = function() { return algo.presetSweepWidth; };
     algo.setBeat1 = function(_v) { algo.presetBeat1 = (_v === "On") ? 1 : 0; };
     algo.getBeat1 = function() { return algo.presetBeat1 ? "On" : "Off"; };
@@ -102,8 +102,12 @@ var testAlgo;
         };
     }
 
+    function tempoValid(audio) {
+        return !!(audio && audio.tempo && audio.tempo.valid);
+    }
+
     function beatIndexFor(audio, step) {
-        if (audio && audio.bpm > 0)
+        if (tempoValid(audio))
             return HSVUtil.wrap(Math.floor(audio.barPhase * 4), 4);
         return HSVUtil.wrap(step, 4);
     }
@@ -139,7 +143,7 @@ var testAlgo;
         }
         var currentColor = algo.colors[beat];
         var previousColor = algo.colors[prevBeat];
-        var phase = (audio && audio.bpm > 0) ? HSVUtil.clamp01(audio.phase) : 0;
+        var phase = tempoValid(audio) ? HSVUtil.clamp01(audio.phase) : 0;
         var cosPulse = audio ? HSVUtil.clamp01(audio.cosPulse) : 0;
         var brightness = BASE_BRIGHTNESS + 0.5 * cosPulse;
 

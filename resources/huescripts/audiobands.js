@@ -61,7 +61,7 @@ var testAlgo;
                     var s = Math.floor((bandWidth - vol) / 2);
                     on = j >= s && j < s + vol;
                 } else if (algo.presetAlign === "invert") {
-                    var shift = Math.floor(vol / 2);
+                    var shift = Math.ceil(vol / 2);
                     var rolled = (j + shift) % bandWidth;
                     on = rolled < vol;
                 }

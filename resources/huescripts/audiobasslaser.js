@@ -40,9 +40,9 @@ var testAlgo;
       "name:presetSpeed|type:range|display:Speed|" +
       "values:1,10|write:setSpeed|read:getSpeed");
 
-    algo.setTrailLength = function(_v) { algo.presetTrailLength = parseInt(_v); };
+    algo.setTrailLength = function(_v) { algo.presetTrailLength = Math.round(HSVUtil.parseNumber(_v, algo.presetTrailLength, 2, 20)); };
     algo.getTrailLength = function() { return algo.presetTrailLength; };
-    algo.setMaxBeams = function(_v) { algo.presetMaxBeams = parseInt(_v); };
+    algo.setMaxBeams = function(_v) { algo.presetMaxBeams = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxBeams, 1, 16)); };
     algo.getMaxBeams = function() { return algo.presetMaxBeams; };
     algo.setDirection = function(_v) {
         if (_v === "Vertical" || parseInt(_v) === 1) algo.presetDirection = 1;
@@ -52,34 +52,29 @@ var testAlgo;
     algo.getDirection = function() {
         return ["Horizontal", "Vertical", "Both"][algo.presetDirection];
     };
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 1, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
 
     algo.presetSmoothing = 5;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothHigh = 0;
     var smoothOnset = 0;
 
-    // Colors stored as HSV
-    var beamColor = { h: 0, s: 0, v: 1.0 };        // white
-    var trailColor = { h: 0.611, s: 0.875, v: 1.0 }; // blue (32, 128, 255)
+    // Without user colors: white beam, blue (32, 128, 255) trail.
+    var DEFAULT_COLORS = [{ h: 0, s: 0, v: 1.0 }, { h: 0.611, s: 0.875, v: 1.0 }];
+    var beamColor, trailColor; // set by each rgbMap call
 
     algo.beams = [];
     var lastWidth = 0;
     var lastHeight = 0;
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
-    algo.rgbMapSetColors = function(rawColors) {
-        if (rawColors && rawColors.length >= 1)
-            beamColor = rawColors[0];
-        if (rawColors && rawColors.length >= 2)
-            trailColor = rawColors[1];
-    };
+    algo.rgbMapSetColors = function() {};
     algo.rgbMapGetColors = function() { return []; };
 
 
@@ -152,21 +147,26 @@ var testAlgo;
             lastHeight = height;
         }
 
+        var colors = algo.hasUserColors && algo.colors && algo.colors.length >= 2 ? algo.colors : DEFAULT_COLORS;
+        beamColor = colors[0];
+        trailColor = colors[1];
+        var frames = HSVUtil.elapsedFrames(audio);
+
         var bass = audio.low;
         var rawHighs = audio.high;
         var rawOnset = Math.max(0.4, audio.onsetIntensity);
-        smoothHigh = HSVUtil.smoothFollow(smoothHigh, rawHighs, algo.presetSmoothing);
-        smoothOnset = HSVUtil.smoothFollow(smoothOnset, rawOnset, algo.presetSmoothing);
+        smoothHigh = HSVUtil.smoothFollow(smoothHigh, rawHighs, algo.presetSmoothing, frames);
+        smoothOnset = HSVUtil.smoothFollow(smoothOnset, rawOnset, algo.presetSmoothing, frames);
         var glowMul = (0.8 + smoothHigh * 0.4) * smoothOnset;
 
-        if (audio.beatFired || audio.beatFired || (algo.beams.length < 3 && bass > 0.15))
+        if (audio.beatFired || audio.kickFired || (algo.beams.length < 3 && bass > 0.15))
             spawnBeam(width, height, Math.max(0.3, bass));
 
         for (var bi = algo.beams.length - 1; bi >= 0; bi--) {
             var beam = algo.beams[bi];
-            beam.x += beam.dx;
-            beam.y += beam.dy;
-            beam.life--;
+            beam.x += beam.dx * frames;
+            beam.y += beam.dy * frames;
+            beam.life -= frames;
 
             if (fullyOffScreen(beam, width, height, algo.presetTrailLength)) {
                 algo.beams.splice(bi, 1);
