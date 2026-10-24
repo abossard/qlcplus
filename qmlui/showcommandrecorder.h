@@ -457,6 +457,8 @@ private:
     QSet<quint32> *userHolds(ShowControlRole role);
     /** showId's replay hold set for edges of role, nullptr for a role that holds nothing */
     QSet<QUuid> *replayHolds(quint32 showId, ShowControlRole role);
+    /** The same, to read: creates no set */
+    QSet<QUuid> replayHeld(quint32 showId, ShowControlRole role) const;
     /** Drop showId's timeline facts */
     void forgetTimeline(quint32 showId);
     /** Replace one command, for the value and state edits */

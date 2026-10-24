@@ -66,6 +66,7 @@ class App final : public QQuickView
     Q_DISABLE_COPY(App)
     Q_PROPERTY(bool docLoaded READ docLoaded NOTIFY docLoadedChanged)
     Q_PROPERTY(bool docModified READ docModified NOTIFY docModifiedChanged)
+    Q_PROPERTY(QString saveError READ saveError NOTIFY saveErrorChanged)
     Q_PROPERTY(QStringList recentFiles READ recentFiles NOTIFY recentFilesChanged)
     Q_PROPERTY(QString workingPath READ workingPath WRITE setWorkingPath NOTIFY workingPathChanged)
     Q_PROPERTY(int accessMask READ accessMask WRITE setAccessMask NOTIFY accessMaskChanged)
@@ -339,11 +340,15 @@ private:
 signals:
     void docLoadedChanged();
     void docModifiedChanged();
+    void saveErrorChanged();
     void runningFunctionsCountChanged();
 
 private:
+    void setSaveError(const QString &error);
+
     Doc *m_doc;
     bool m_docLoaded;
+    QString m_saveError;
 
     /*********************************************************************
      * Printer
@@ -391,6 +396,10 @@ public:
 
     /** Save the current workspace with the given $fileName */
     Q_INVOKABLE bool saveWorkspace(const QString& fileName);
+
+    /** Why the last workspace save, autosave or save for a client failed;
+     *  empty once one went through */
+    QString saveError() const;
 
     /**
      * Load workspace contents from a XML file with the given name.

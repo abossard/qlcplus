@@ -453,6 +453,8 @@ private:
 
     /** Insert at its (time, order) place, raising the high water marks */
     bool place(const ShowCommand &cmd, QString *error);
+    /** saveXML() of a track that holds no hold in progress */
+    bool writeXML(QXmlStreamWriter *doc) const;
 };
 
 /** One occurrence the host executed live, fixed when it was captured */

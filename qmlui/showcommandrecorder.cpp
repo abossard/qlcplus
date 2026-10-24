@@ -2081,18 +2081,18 @@ void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
         }
         return on;
     };
-    ShowControlAction::Holds user{m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
-    user.unite(replayHoldsOfOthers(showId));
+    // what the user and every other Show's replay still hold
+    ShowControlAction::Holds heldElsewhere{m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
+    heldElsewhere.unite(replayHoldsOfOthers(showId));
     for (ShowControlRole role : {ShowControlRole::FreezeHoldButton, ShowControlRole::FlashButton,
                                  ShowControlRole::AdjustSlider})
     {
-        const QSet<QUuid> held = *replayHolds(showId, role);
-        for (const QUuid &controlId : held)
+        for (const QUuid &controlId : replayHeld(showId, role))
         {
             if (heldAt(controlId, holdSet(role)))
                 continue;
             for (VCWidget *widget : m_vc->widgetsByRecordingId(controlId))
-                ShowControlAction::releaseHold(m_vc, widget, role, replayOwner, user, false);
+                ShowControlAction::releaseHold(m_vc, widget, role, replayOwner, heldElsewhere, false);
             replayHolds(showId, role)->remove(controlId);
         }
     }
@@ -2134,6 +2134,17 @@ QSet<QUuid> *ShowCommandRecorder::replayHolds(quint32 showId, ShowControlRole ro
         case 2: return &m_replaySliderFlashes[showId];
     }
     return nullptr;
+}
+
+QSet<QUuid> ShowCommandRecorder::replayHeld(quint32 showId, ShowControlRole role) const
+{
+    switch (holdSet(role))
+    {
+        case 0: return m_replayFreezeHolds.value(showId);
+        case 1: return m_replayFlashButtons.value(showId);
+        case 2: return m_replaySliderFlashes.value(showId);
+    }
+    return QSet<QUuid>();
 }
 
 bool ShowCommandRecorder::editFailed(const QString &error)
