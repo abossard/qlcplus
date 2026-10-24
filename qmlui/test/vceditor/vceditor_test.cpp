@@ -1656,6 +1656,32 @@ void VCEditor_Test::editErrorsDoNotBlock()
     QTRY_VERIFY_WITH_TIMEOUT(!message->property("visible").toBool(), 8000);
 }
 
+void VCEditor_Test::functionDropsOnlyWhileEditing_data()
+{
+    QTest::addColumn<QString>("type");
+    for (const QString &type : {"Button", "Slider", "Animation", "Speed"})
+        QTest::newRow(qPrintable(type)) << type;
+}
+
+void VCEditor_Test::functionDropsOnlyWhileEditing()
+{
+    QFETCH(QString, type);
+    const QVariantMap created = vc()->createWidgetGeometry(vc()->page(0)->id(), type, QRectF(20, 20, 200, 200));
+    QVERIFY2(created.value("accepted").toBool(), qPrintable(created.value("error").toString()));
+    VCWidget *widget = vc()->widget(created.value("widgetIDs").toList().first().toUInt());
+    QTRY_VERIFY(widget->renderItem());
+    QQuickItem *drop = nullptr;
+    for (QQuickItem *item : widget->renderItem()->findChildren<QQuickItem *>())
+        if (item->property("keys").toStringList() == QStringList{"function"})
+            drop = item;
+    QVERIFY(drop);
+
+    // dropping a function replaces the one the widget controls, which a show must not risk
+    QVERIFY(drop->isEnabled());
+    vc()->setEditMode(false);
+    QTRY_VERIFY(!drop->isEnabled());
+}
+
 void VCEditor_Test::nudgeStep_data()
 {
     QTest::addColumn<bool>("snapping");

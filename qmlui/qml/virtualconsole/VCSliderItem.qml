@@ -384,6 +384,7 @@ VCWidgetItem
         anchors.fill: parent
         z: 2 // this area must be above the VCWidget resize controls
         keys: [ "function" ]
+        enabled: virtualConsole.editMode
 
         onDropped:
         {

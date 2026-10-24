@@ -98,6 +98,8 @@ private slots:
     void destroyedDialogReleasesKeys();
     void editErrorsDoNotBlock_data();
     void editErrorsDoNotBlock();
+    void functionDropsOnlyWhileEditing_data();
+    void functionDropsOnlyWhileEditing();
     void nudgeStep_data();
     void nudgeStep();
     void alignCenters_data();
