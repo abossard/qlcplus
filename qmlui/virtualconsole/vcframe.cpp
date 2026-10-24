@@ -994,6 +994,9 @@ void VCFrame::setCollapsed(bool isCollapsed)
     if (m_isCollapsed == isCollapsed)
         return;
 
+    /* Operators fold frames during a show: only editing makes history */
+    if (m_vc && m_vc->editMode())
+        enqueueTardisAction(Tardis::VCFrameCollapsed, QVariant(m_isCollapsed), QVariant(isCollapsed));
     m_isCollapsed = isCollapsed;
     emit collapsedChanged(isCollapsed);
     setDocModified();

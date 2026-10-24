@@ -280,7 +280,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
-    QEXPECT_FAIL("collapse", "Collapsing a frame is not recorded", Abort);
     QVERIFY2(actual == before, qPrintable("Undo: " + firstDifference(before, actual)));
 
     Tardis::instance()->redoAction();
@@ -288,6 +287,18 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     actual = consoleXML();
     saveArtifact("redone.xml", actual);
     QVERIFY2(actual == after, qPrintable("Redo: " + firstDifference(after, actual)));
+}
+
+void VCEditor_Test::liveCollapseMakesNoHistory()
+{
+    const ConsoleIds ids = buildConsole();
+    Tardis *tardis = Tardis::instance();
+    const int steps = tardis->m_history.count();
+    vc()->setEditMode(false);
+
+    qobject_cast<VCFrame *>(vc()->widget(ids.frame))->setCollapsed(true);
+    settleHistory();
+    QCOMPARE(tardis->m_history.count(), steps);
 }
 
 /*********************************************************************

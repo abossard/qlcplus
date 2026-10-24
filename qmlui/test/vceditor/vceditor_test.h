@@ -51,6 +51,7 @@ private slots:
 
     void editUndoRedoRoundTrip_data();
     void editUndoRedoRoundTrip();
+    void liveCollapseMakesNoHistory();
 
     void pageSwitchPrunesSelection_data();
     void pageSwitchPrunesSelection();
