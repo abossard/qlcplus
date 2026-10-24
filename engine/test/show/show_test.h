@@ -50,6 +50,8 @@ private slots:
     void commandTrackRejectedEdit();
     void commandTrackPublishKeepsHoldPairsValid_data();
     void commandTrackPublishKeepsHoldPairsValid();
+    void commandTrackSaveEndsHoldInProgress_data();
+    void commandTrackSaveEndsHoldInProgress();
     void commandTrackMissingTargetBlocksOnlyItself_data();
     void commandTrackMissingTargetBlocksOnlyItself();
     void commandTrackControlStatesNeedNoFunction();

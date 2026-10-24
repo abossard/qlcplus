@@ -550,6 +550,45 @@ void Show_Test::commandTrackRejectedEdit()
     QCOMPARE(show.commandTrack().commands().first().functionId, target->id());
 }
 
+/** Flash hold edges "<pair> <on|off> <ms>, ..." on one control */
+static ShowCommandTrack holdTrack(const QString &edges)
+{
+    const QUuid flash(QStringLiteral("{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}"));
+    ShowCommandTrack track;
+    quint32 id = 0;
+    for (const QString &edge : edges.split(QStringLiteral(", ")))
+    {
+        ShowCommand cmd = ShowCommand::setButtonState(id++, edge.section(' ', 2).toUInt(), flash,
+                                                      edge.section(' ', 1, 1) == QLatin1String("on"));
+        cmd.role = ShowControlRole::FlashButton;
+        cmd.pairId = edge.section(' ', 0, 0).toUInt();
+        track.insert(cmd);
+    }
+    return track;
+}
+
+/** The hold pairs in track order as "press-release", an open one as "press-" */
+static QString holdSpans(const ShowCommandTrack &track)
+{
+    QStringList spans;
+    QHash<quint32, int> at;
+    for (const ShowCommand &cmd : track.commands())
+    {
+        if (cmd.pairId == ShowCommand::InvalidId)
+            continue;
+        if (cmd.on)
+        {
+            at.insert(cmd.pairId, spans.count());
+            spans.append(QString::number(cmd.time) + QLatin1Char('-'));
+        }
+        else
+        {
+            spans[at.value(cmd.pairId)] += QString::number(cmd.time);
+        }
+    }
+    return spans.join(QLatin1Char(' '));
+}
+
 void Show_Test::commandTrackPublishKeepsHoldPairsValid_data()
 {
     QTest::addColumn<QString>("edges");
@@ -566,17 +605,8 @@ void Show_Test::commandTrackPublishKeepsHoldPairsValid()
     QFETCH(QString, edges);
     QFETCH(bool, published);
 
-    const QUuid flash(QStringLiteral("{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}"));
-    ShowCommandTrack track;
-    quint32 id = 0;
-    for (const QString &edge : edges.split(QStringLiteral(", ")))
-    {
-        ShowCommand cmd = ShowCommand::setButtonState(id++, edge.section(' ', 2).toUInt(), flash,
-                                                      edge.section(' ', 1, 1) == QLatin1String("on"));
-        cmd.role = ShowControlRole::FlashButton;
-        cmd.pairId = edge.section(' ', 0, 0).toUInt();
-        QVERIFY(track.insert(cmd));
-    }
+    const ShowCommandTrack track = holdTrack(edges);
+    QCOMPARE(track.count(), int(edges.count(QLatin1Char(',')) + 1));
 
     // the validator a load repairs with refuses to publish a broken pair
     Show show(m_doc);
@@ -585,6 +615,41 @@ void Show_Test::commandTrackPublishKeepsHoldPairsValid()
     QCOMPARE(show.setCommandTrack(track, {}, &error), published);
     QCOMPARE(error.isEmpty(), published);
     QCOMPARE(show.commandTrack().count(), published ? track.count() : 0);
+}
+
+void Show_Test::commandTrackSaveEndsHoldInProgress_data()
+{
+    QTest::addColumn<QString>("edges");
+    QTest::addColumn<QString>("saved");
+
+    QTest::newRow("closed pair") << QStringLiteral("1 on 1000, 1 off 2000") << QStringLiteral("1000-2000");
+    // a hold left in progress outside recording ends at the extent in the file
+    QTest::newRow("hold in progress") << QStringLiteral("1 on 1000") << QStringLiteral("1000-6000");
+    QTest::newRow("hold in progress before a later pair") << QStringLiteral("1 on 1000, 2 on 4000, 2 off 5000")
+                                                         << QStringLiteral("1000-3999 4000-5000");
+}
+
+void Show_Test::commandTrackSaveEndsHoldInProgress()
+{
+    QFETCH(QString, edges);
+    QFETCH(QString, saved);
+
+    ShowCommandTrack track = holdTrack(edges);
+    QVERIFY(track.setExtent(6000));
+    Show show(m_doc);
+    show.setID(700);
+    QVERIFY(show.setCommandTrack(track));
+
+    // what a save writes is what a load reads back, and saves the same again
+    Show loaded(m_doc);
+    QVERIFY(loadShow(loaded, saveShow(show)));
+    QCOMPARE(holdSpans(loaded.commandTrack()), saved);
+    Show reloaded(m_doc);
+    QVERIFY(loadShow(reloaded, saveShow(loaded)));
+    QCOMPARE(reloaded.commandTrack().commands(), loaded.commandTrack().commands());
+    QCOMPARE(reloaded.commandTrack().extent(), loaded.commandTrack().extent());
+    // the live track keeps its hold in progress
+    QCOMPARE(show.commandTrack().commands(), track.commands());
 }
 
 void Show_Test::commandTrackMissingTargetBlocksOnlyItself_data()
