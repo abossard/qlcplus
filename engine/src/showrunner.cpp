@@ -477,8 +477,11 @@ void ShowRunner::write(MasterTimer *timer)
     bool beatsDone = m_beatFunctions.isEmpty() ||
                       (beatSynced && m_elapsedBeats >= m_totalRunBeats);
 
-    // an armed recorder keeps a command-only or very short Show alive
-    if (m_show != NULL && m_show->commandRecording())
+    // REC keeps a command-only or short run alive past its end, and a run it
+    // kept stays alive when REC turns off: REC never stops playback
+    if (timeDone && m_show != NULL && m_show->commandRecording())
+        m_keptByRecording = true;
+    if (m_keptByRecording)
         timeDone = false;
 
     if (timeDone && beatsDone)

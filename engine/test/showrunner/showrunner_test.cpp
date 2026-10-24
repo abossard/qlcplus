@@ -1560,12 +1560,16 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive_data()
     QTest::addColumn<quint32>("extent");
     QTest::addColumn<bool>("recording");
     QTest::addColumn<quint32>("position");
+    QTest::addColumn<bool>("recOff"); // REC turns off at position, and the Show plays on past its end
     QTest::addColumn<bool>("expectFinished");
 
-    QTest::newRow("legacy empty show finishes") << quint32(0) << false << quint32(0) << true;
-    QTest::newRow("extent not reached") << quint32(200) << false << quint32(100) << false;
-    QTest::newRow("extent reached") << quint32(200) << false << quint32(200) << true;
-    QTest::newRow("recording keeps an empty show alive") << quint32(0) << true << quint32(200) << false;
+    QTest::newRow("legacy empty show finishes") << quint32(0) << false << quint32(0) << false << true;
+    QTest::newRow("extent not reached") << quint32(200) << false << quint32(100) << false << false;
+    QTest::newRow("extent reached") << quint32(200) << false << quint32(200) << false << true;
+    QTest::newRow("recording keeps an empty show alive") << quint32(0) << true << quint32(200) << false << false;
+    // REC never stops playback: a run it kept past its end stays alive
+    QTest::newRow("REC off past the end") << quint32(0) << true << quint32(200) << true << false;
+    QTest::newRow("REC off before the end") << quint32(400) << true << quint32(100) << true << true;
 }
 
 void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
@@ -1573,6 +1577,7 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
     QFETCH(quint32, extent);
     QFETCH(bool, recording);
     QFETCH(quint32, position);
+    QFETCH(bool, recOff);
     QFETCH(bool, expectFinished);
 
     Doc doc(nullptr);
@@ -1592,6 +1597,12 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
     show->start(timer, FunctionParent::master());
     for (int i = 0; i < ticksToReach(position); i++)
         timer->timerTick();
+    if (recOff)
+    {
+        show->setCommandRecording(false);
+        for (int i = 0; i < ticksToReach(extent + 200); i++)
+            timer->timerTick();
+    }
 
     const int finishedCount = finished.count();
     show->stop(FunctionParent::master());

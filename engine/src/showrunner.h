@@ -274,6 +274,8 @@ private:
     quint64 m_heldControlBatch = 0;
     /** This traversal still dispatches the crossed interval of a requested forward jump */
     bool m_commandCatchUp = false;
+    /** REC held this run past its end: only a stop ends it now */
+    bool m_keptByRecording = false;
     /** The target of the last jump Start or Stop, whose native effect
      *  everything after it waits for; InvalidId when nothing waits */
     quint32 m_settlingFunction = ShowCommand::InvalidId;
