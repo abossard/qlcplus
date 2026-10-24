@@ -1581,6 +1581,12 @@ int Tardis::processAction(TardisAction &action, bool undo)
             member(qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID)), value->toInt());
         }
         break;
+        case VCWidgetDisabled:
+        {
+            auto member = std::mem_fn(&VCWidget::setDisabled);
+            member(qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
+        }
+        break;
 
         case VCButtonSetActionType:
         {

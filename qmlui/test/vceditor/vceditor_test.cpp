@@ -361,7 +361,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
-    QEXPECT_FAIL("disableFrame", "Not recorded", Abort);
     QEXPECT_FAIL("multiPage", "Not recorded", Abort);
     QEXPECT_FAIL("cloneFirstPage", "Not recorded", Abort);
     QEXPECT_FAIL("addPage", "Not recorded", Abort);
@@ -376,14 +375,26 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     QVERIFY2(actual == after, qPrintable("Redo: " + firstDifference(after, actual)));
 }
 
-void VCEditor_Test::liveCollapseMakesNoHistory()
+void VCEditor_Test::liveToggleMakesNoHistory_data()
 {
+    QTest::addColumn<QString>("toggle");
+    QTest::newRow("collapse") << QString("collapse");
+    QTest::newRow("disable") << QString("disable");
+}
+
+void VCEditor_Test::liveToggleMakesNoHistory()
+{
+    QFETCH(QString, toggle);
     const ConsoleIds ids = buildConsole();
     Tardis *tardis = Tardis::instance();
     const int steps = tardis->m_history.count();
     vc()->setEditMode(false);
 
-    qobject_cast<VCFrame *>(vc()->widget(ids.frame))->setCollapsed(true);
+    auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.frame));
+    if (toggle == "collapse")
+        frame->setCollapsed(true);
+    else
+        frame->setDisabled(true);
     settleHistory();
     QCOMPARE(tardis->m_history.count(), steps);
 }

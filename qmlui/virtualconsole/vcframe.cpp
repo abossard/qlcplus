@@ -937,6 +937,9 @@ bool VCFrame::moveWidgetToPage(VCWidget *widget, int pageIndex)
 
 void VCFrame::setDisabled(bool disable)
 {
+    /* The enable button also works while operating: only editing makes history */
+    if (disable != isDisabled() && m_vc && m_vc->editMode())
+        enqueueTardisAction(Tardis::VCWidgetDisabled, QVariant(isDisabled()), QVariant(disable));
     for (VCWidget *widget : children(true)) // C++11
         widget->setDisabled(disable);
 
