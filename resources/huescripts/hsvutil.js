@@ -51,7 +51,7 @@ HSVUtil.setPixel = function(map, width, x, y, h, s, v) {
 HSVUtil.gradientAt = function(stops, t) {
     if (!stops || stops.length === 0) return {h: 0, s: 0, v: 0};
     if (stops.length === 1) return {h: stops[0].h, s: stops[0].s, v: stops[0].v};
-    if (t < 0) t = 0; else if (t > 1) t = 1;
+    if (!(t >= 0)) t = 0; else if (t > 1) t = 1;
     var pos = t * (stops.length - 1);
     var idx = Math.floor(pos);
     if (idx >= stops.length - 1)
@@ -371,7 +371,8 @@ HSVUtil.clamp01 = function(x) {
 /** Wrap x into [0, 1) (positive modulo 1). */
 HSVUtil.mod1 = function(x) {
     var m = x - Math.floor(x);
-    return m < 0 ? m + 1 : m;
+    // A tiny negative x rounds x - floor(x) up to exactly 1.
+    return m < 1 ? m : 0;
 };
 
 /** Wrap x into [0, n) (positive modulo n). */
@@ -526,6 +527,26 @@ HSVUtil.audioSeconds = function(audio) {
     return 0;
 };
 
+/**
+ * Time since the previous render in 20 ms frames, the MasterTimer tick that the
+ * per-render constants were tuned at. Pass it to smoothFollow/attackRelease or use
+ * Math.pow(k, frames) so effects look the same at any render rate.
+ */
+HSVUtil.elapsedFrames = function(audio) {
+    return HSVUtil.audioSeconds(audio) * 50;
+};
+
+/**
+ * Setter input from the engine is any string. Returns the number clamped to
+ * [min, max], or previous when the input is not a finite number.
+ */
+HSVUtil.parseNumber = function(value, previous, min, max) {
+    var n = parseFloat(value);
+    if (!isFinite(n))
+        return previous;
+    return Math.min(max, Math.max(min, n));
+};
+
 HSVUtil.audioIdentityKey = function(audio, previous) {
     audio = audio || {};
     var profile = String(audio.profileId === undefined ? "legacy" : audio.profileId);
@@ -614,6 +635,25 @@ HSVUtil.hueMean = function(hues, weights) {
     var angle = Math.atan2(sy, sx);
     if (angle < 0) angle += Math.PI * 2;
     return angle / (Math.PI * 2);
+};
+
+/**
+ * Box blur of a strip of {h, s, v} over radius neighbours on each side; edge pixels
+ * average the neighbours that exist. Colors mix in RGB, so hues wrap and black adds no hue.
+ */
+HSVUtil.blurStrip = function(strip, radius) {
+    var n = strip.length;
+    var rgb = new Array(n), out = new Array(n);
+    for (var i = 0; i < n; i++)
+        rgb[i] = HSVUtil.hsvToRgb(strip[i].h, strip[i].s, strip[i].v);
+    for (var j = 0; j < n; j++) {
+        var r = 0, g = 0, b = 0, c = 0;
+        for (var k = Math.max(0, j - radius); k <= Math.min(n - 1, j + radius); k++) {
+            r += rgb[k][0]; g += rgb[k][1]; b += rgb[k][2]; c++;
+        }
+        out[j] = HSVUtil.rgbToHsv(r / c, g / c, b / c);
+    }
+    return out;
 };
 
 /** Add brightness v at pixel (x, y); the brighter contributor keeps its hue and saturation. */
@@ -833,7 +873,8 @@ HSVUtil.noiseFieldRenderer = function(algo, noise) {
         if (algo.presetSpeed > 0 && dt > 0) {
             var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
             var target = rawLow * algo.presetMultiplier;
-            state.lowsImpulse = HSVUtil.attackRelease(state.lowsImpulse, target, 0.99, algo.presetImpulseDecay);
+            state.lowsImpulse = HSVUtil.attackRelease(state.lowsImpulse, target, 0.99, algo.presetImpulseDecay,
+                                                      HSVUtil.elapsedFrames(audio));
         }
         var mov = 0.5 * algo.presetSpeed * dt;
         state.x += mov;

@@ -1726,6 +1726,31 @@ function assertSharedEffectBuildingBlocks() {
         helpers.addPixel(map, 1, 1, 1, 0, 1, 1, 1);
         c.expected.forEach((value, i) => assert(Math.abs(map[i] - value) < 1e-6, `${c.label} channel ${i}`));
     });
+    runCases('HSVUtil.parseNumber clamps numbers and keeps the previous value otherwise', [
+        { label: 'inside', value: '0.4', expected: 0.4 },
+        { label: 'below', value: '-3', expected: 0 },
+        { label: 'above', value: '1e9', expected: 2 },
+        { label: 'empty', value: '', expected: 0.7 },
+        { label: 'text', value: 'abc', expected: 0.7 },
+        { label: 'NaN', value: 'NaN', expected: 0.7 },
+        { label: 'Infinity', value: 'Infinity', expected: 0.7 },
+        { label: 'number', value: 1.5, expected: 1.5 }
+    ], c => near(helpers.parseNumber(c.value, 0.7, 0, 2), c.expected, c.label));
+    runCases('HSVUtil.elapsedFrames counts 20 ms frames', [
+        { label: 'one tick', audio: { timing: { deltaSeconds: 0.02 } }, expected: 1 },
+        { label: 'stall', audio: { timing: { deltaSeconds: 0.5 } }, expected: 25 },
+        { label: 'first render', audio: { timing: { deltaSeconds: 0 } }, expected: 0 }
+    ], c => near(helpers.elapsedFrames(c.audio), c.expected, c.label));
+    runCases('HSVUtil.blurStrip mixes colors in RGB', [
+        { label: 'reds stay red', strip: [{ h: 0.97, s: 1, v: 1 }, { h: 0.03, s: 1, v: 1 }], radius: 1, hueNear: 0 },
+        { label: 'black adds no hue', strip: [{ h: 0.6, s: 1, v: 1 }, { h: 0, s: 0, v: 0 }], radius: 1, hueNear: 0.6 },
+        { label: 'radius 0 keeps colors', strip: [{ h: 0.3, s: 1, v: 0.5 }], radius: 0, hueNear: 0.3 }
+    ], c => {
+        for (const color of Array.from(helpers.blurStrip(c.strip, c.radius))) {
+            const d = Math.abs(color.h - c.hueNear);
+            assert(Math.min(d, 1 - d) < 1e-6, `${c.label}: hue ${color.h}`);
+        }
+    });
     runCases('HSVUtil.ledFxGradientStops falls back to red, green, blue', [
         { label: 'user palette', algo: { hasUserColors: true, colors: PALETTE.slice(0, 2) }, expected: PALETTE.slice(0, 2) },
         { label: 'no user colors', algo: { hasUserColors: false, colors: PALETTE }, expected: [0, 1 / 3, 2 / 3] },
@@ -4897,7 +4922,7 @@ function assertWorkerCSimulationRows() {
             ? frame.timing.deltaSeconds : 0);
         if (speed > 0 && dt > 0) {
             const target = rawLowOf(frame) * multiplier;
-            const alpha = target > state.lowsImpulse ? 0.99 : impulseDecay;
+            const alpha = 1 - Math.pow(1 - (target > state.lowsImpulse ? 0.99 : impulseDecay), dt * 50);
             state.lowsImpulse += (target - state.lowsImpulse) * alpha;
         }
         const mov = 0.5 * speed * dt;

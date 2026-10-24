@@ -113,8 +113,10 @@ Per group (agents): one parametrized test per bug in the group sections below, i
 
 ## Phase 4: bug fixes
 
-- [ ] Central: `parseNumber` (D2), time-based smoothing helper (D1), circular blend/blur (D3),
-  `gradientAt` NaN-safe, `mod1(-1e-20)` returns 1 (hsvutil.js:382).
+- [x] Central: `parseNumber(value, previous, min, max)` (D2), `elapsedFrames(audio)` for D1 (pass to
+  smoothFollow/attackRelease frames, or Math.pow(k, frames)), `blurStrip(strip, radius)` RGB mixing (D3),
+  `gradientAt` NaN-safe (H2), `mod1` never returns 1 (H1), `noiseFieldRenderer` impulse time-based
+  (D9 noise, E14 smoke; harness noise oracle updated).
 - [x] G-A  - [x] G-B  - [x] G-C  - [x] G-D  - [x] G-E  - [ ] G-F
 - [ ] Engine tests green, harness green, equivalence diffs limited to fixed scripts.
 - [ ] Docs: update only where documented behaviour changed (`docs/audio-data-usage.md`, `docs/hue-effects/README.md`).
@@ -291,3 +293,7 @@ Group F
   merge, C9 covers flame blur.
 - 2026-10-24 Group red tests merged (ffce2aa00). Default run: 62 red tables (X1-X6, A2..F18, H1-H2), RESULTS
   63 passed. X5 now covers blurz, scan, tunnel, vortex; flame/power/strobe hue are C9, D7, F6.
+- 2026-10-24 Phase 2 round 2 merged (17770400e): 11 more helpers (wrap, audioStateChanged x23, eventCount,
+  blendPixel, walkLine, rangeSlice, bandPeaks, attackRelease(frames?), ledFxColor, writeRgbPixels,
+  noiseFieldRenderer for noise+smoke). Equivalence 63/63, red set unchanged.
+- 2026-10-24 Phase 4 central fixes: H1, H2, E14 and D9 noise green; X3 274 -> 304 of 393.
