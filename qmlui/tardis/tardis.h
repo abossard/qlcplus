@@ -237,6 +237,8 @@ public:
         VCFrameMultiPage,
         VCFramePagesNumber,
         VCFramePagesLoop,
+        VCPageAdd,
+        VCPageDelete,
 
         /* Live actions */
         FixtureSetDumpValue = LIVE_ACTIONS_START_CODE,

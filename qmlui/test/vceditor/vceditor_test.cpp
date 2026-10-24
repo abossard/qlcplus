@@ -233,6 +233,10 @@ static QMap<QString, ConsoleEdit> consoleEdits()
             vc->deletePage(3);
             return QVariantMap();
         }},
+        {"deleteFilledPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &) {
+            vc->deletePage(1);
+            return QVariantMap();
+        }},
         {"collapse", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             qobject_cast<VCFrame *>(vc->widget(ids.frame))->setCollapsed(true);
             return QVariantMap();
@@ -275,6 +279,11 @@ void VCEditor_Test::initTestCase()
 
 void VCEditor_Test::init()
 {
+    // New keeps the page count of the previous workspace
+    while (vc()->pagesCount() > 4)
+        vc()->deletePage(vc()->pagesCount() - 1);
+    while (vc()->pagesCount() < 4)
+        vc()->addPage(vc()->pagesCount());
     QVERIFY(m_app->newWorkspace());
     m_app->doc()->masterTimer()->stop();
     vc()->setSelectedPage(0);
@@ -309,6 +318,7 @@ ConsoleIds VCEditor_Test::buildConsole()
     ids.inner = create(ids.nested, "Button", QRectF(10, 60, 100, 80));
     ids.empty = create(ids.page, "Frame", QRectF(750, 200, 300, 250));
     ids.loose = create(ids.page, "Button", QRectF(600, 20, 100, 80));
+    ids.onPage2 = create(vc()->page(1)->id(), "Button", QRectF(300, 20, 100, 80));
     vc()->resetWidgetSelection();
     settleHistory();
     return ids;
@@ -367,8 +377,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
-    QEXPECT_FAIL("addPage", "Not recorded", Abort);
-    QEXPECT_FAIL("deletePage", "Not recorded", Abort);
     QVERIFY2(actual == before, qPrintable("Undo: " + firstDifference(before, actual)));
 
     Tardis::instance()->redoAction();

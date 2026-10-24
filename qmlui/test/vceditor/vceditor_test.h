@@ -38,6 +38,7 @@ struct ConsoleIds
     quint32 inner = 0;
     quint32 empty = 0;   // empty page child frame
     quint32 loose = 0;   // page child button
+    quint32 onPage2 = 0; // button on the second page
 };
 
 class VCEditor_Test : public QObject

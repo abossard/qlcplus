@@ -801,7 +801,8 @@ int Tardis::processAction(TardisAction &action, bool undo)
      * whole application. This happens routinely over the network: actions
      * created before a project change can be delivered after the local
      * contents have been cleared */
-    if (((action.m_action > VCWidgetDelete && action.m_action < LIVE_ACTIONS_START_CODE) ||
+    if (((action.m_action > VCWidgetDelete && action.m_action < LIVE_ACTIONS_START_CODE &&
+          action.m_action != VCPageAdd && action.m_action != VCPageDelete) ||
          action.m_action >= VCButtonSetPressed) &&
         m_virtualConsole->widget(action.m_objID) == nullptr)
     {
@@ -1734,6 +1735,18 @@ int Tardis::processAction(TardisAction &action, bool undo)
         {
             auto member = std::mem_fn(&VCFrame::setPagesLoop);
             member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
+        }
+        break;
+        case VCPageAdd:
+        case VCPageDelete:
+        {
+            /* Both keep {index, xml} of the page, so it comes back with its own ID */
+            const bool restore = (action.m_action == VCPageAdd) != undo;
+            const QVariantMap page = (action.m_action == VCPageAdd ? action.m_newValue : action.m_oldValue).toMap();
+            if (restore)
+                m_virtualConsole->restorePage(page.value("index").toInt(), page.value("xml").toByteArray());
+            else
+                m_virtualConsole->deletePage(page.value("index").toInt());
         }
         break;
 

@@ -144,6 +144,9 @@ public:
     /** Delete a VC page at $index */
     Q_INVOKABLE void deletePage(int index);
 
+    /** Insert at $index the page saved in $xml, keeping its widget IDs */
+    bool restorePage(int index, const QByteArray &xml);
+
     /** Set a protection PIN for the page at $index */
     Q_INVOKABLE bool setPagePIN(int index, QString currentPIN, QString newPIN);
 

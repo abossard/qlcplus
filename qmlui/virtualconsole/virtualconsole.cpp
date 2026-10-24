@@ -17,6 +17,7 @@
   limitations under the License.
 */
 
+#include <QtCore/qbuffer.h>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QQmlContext>
@@ -474,6 +475,8 @@ void VirtualConsole::addPage(int index)
     addWidgetToMap(page);
     m_contextManager->registerContext(page->previewContext());
     m_pages.insert(index, page);
+    Tardis::instance()->enqueueAction(Tardis::VCPageAdd, page->id(), QVariant(),
+        QVariantMap{{"index", index}, {"xml", Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, page->id())}});
 
     emit pagesCountChanged();
 
@@ -484,6 +487,39 @@ void VirtualConsole::addPage(int index)
     }
 }
 
+bool VirtualConsole::restorePage(int index, const QByteArray &xml)
+{
+    /* widgets read their ID only from a reader with a device */
+    QBuffer buffer;
+    buffer.setData(xml);
+    buffer.open(QIODevice::ReadOnly | QIODevice::Text);
+    QXmlStreamReader reader(&buffer);
+    if (index < 0 || index > m_pages.count() || !reader.readNextStartElement())
+        return false;
+
+    VCPage *page = new VCPage(m_view, m_doc, this, index, this);
+    QQmlEngine::setObjectOwnership(page, QQmlEngine::CppOwnership);
+    if (!page->loadXML(reader))
+    {
+        delete page;
+        return false;
+    }
+    addWidgetToMap(page);
+    m_contextManager->registerContext(page->previewContext());
+    m_pages.insert(index, page);
+    page->buildKeySequenceMap();
+
+    emit pagesCountChanged();
+
+    /* keep the shown page selected */
+    if (index <= m_selectedPage && m_pages.count() > 1)
+    {
+        m_selectedPage++;
+        emit selectedPageChanged(m_selectedPage);
+    }
+    return true;
+}
+
 void VirtualConsole::deletePage(int index)
 {
     if (index < 0 || index >= m_pages.count())
@@ -492,6 +528,9 @@ void VirtualConsole::deletePage(int index)
     if (m_pages.count() == 1)
         return;
 
+    Tardis::instance()->enqueueAction(Tardis::VCPageDelete, m_pages.at(index)->id(),
+        QVariantMap{{"index", index}, {"xml", Tardis::instance()->actionToByteArray(Tardis::VCWidgetDelete, m_pages.at(index)->id())}},
+        QVariant());
     m_pages.at(index)->deleteChildren();
     VCPage *page = m_pages.takeAt(index);
     m_unlockedPagePINs.remove(page->id());
