@@ -527,6 +527,10 @@ protected:
     bool m_runnerPaused = false;
     /** A track intensity changed since the runner last took them all */
     std::atomic_bool m_trackIntensityChanged{false};
+    /** The track intensities as the GUI last set them, by attribute index,
+     *  under m_commandTrackMutex: the runner takes these, never the
+     *  attributes the GUI keeps writing while it reads */
+    QVector<qreal> m_trackIntensities;
     /** Number of currently running children */
     QSet <quint32> m_runningChildren;
 

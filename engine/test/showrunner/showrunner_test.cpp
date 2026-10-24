@@ -613,14 +613,18 @@ void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
 void ShowRunner_Test::trackIntensityAppliesOnNextTick_data()
 {
     QTest::addColumn<bool>("paused");
+    QTest::addColumn<bool>("attributeWrittenPastTheShow"); // the Function attribute changes under the Show
 
-    QTest::newRow("playing") << false;
-    QTest::newRow("paused") << true;
+    QTest::newRow("playing") << false << false;
+    QTest::newRow("paused") << true << false;
+    // the runner takes the value the Show handed over, not the attribute the GUI keeps writing
+    QTest::newRow("attribute written again before the tick") << false << true;
 }
 
 void ShowRunner_Test::trackIntensityAppliesOnNextTick()
 {
     QFETCH(bool, paused);
+    QFETCH(bool, attributeWrittenPastTheShow);
 
     Doc doc(nullptr);
     MasterTimer *timer = doc.masterTimer();
@@ -651,6 +655,8 @@ void ShowRunner_Test::trackIntensityAppliesOnNextTick()
 
     // the GUI only stores the value: the runner and its clips take it on the timer thread
     QVERIFY(show->adjustAttribute(0.5, 0) == 0);
+    if (attributeWrittenPastTheShow)
+        QVERIFY(show->Function::adjustAttribute(0.2, 0) == 0);
     QCOMPARE(show->m_runner->m_intensityMap.value(track->id()), 1.0);
     timer->timerTick();
     QCOMPARE(show->m_runner->m_intensityMap.value(track->id()), 0.5);
