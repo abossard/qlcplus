@@ -103,6 +103,9 @@ static QMap<QString, ConsoleEdit> consoleEdits()
         {"deleteFirstChild", [](VirtualConsole *vc, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.a});
         }},
+        {"deleteSelection", [](VirtualConsole *vc, const ConsoleIds &ids) {
+            return vc->deleteAuthoringWidgets({ids.b, ids.a});
+        }},
         {"deleteFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.frame});
         }},
@@ -277,8 +280,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
-    QEXPECT_FAIL("deleteFrame", "Undo appends the restored widget to the child order", Abort);
-    QEXPECT_FAIL("deleteFirstChild", "Undo appends the restored widget to the child order", Abort);
     QEXPECT_FAIL("collapse", "Collapsing a frame is not recorded", Abort);
     QVERIFY2(actual == before, qPrintable("Undo: " + firstDifference(before, actual)));
 

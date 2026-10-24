@@ -1510,6 +1510,14 @@ int Tardis::processAction(TardisAction &action, bool undo)
 
         case VCWidgetDelete:
             processBufferedAction(undo ? VCWidgetCreate : VCWidgetDelete, action.m_objID, action.m_oldValue);
+            if (undo && action.m_newValue.metaType().id() == QMetaType::QVariantMap)
+            {
+                /* Put the restored widget back at its place among its siblings */
+                const QVariantMap location = action.m_newValue.toMap();
+                m_virtualConsole->restoreWidgetParent(location.value("widgetID").toUInt(), action.m_objID,
+                                                      location.value("subpage").toInt(),
+                                                      location.value("orderIndex").toInt());
+            }
             return undo ? VCWidgetCreate : VCWidgetDelete;
 
         case VCWidgetGeometry:

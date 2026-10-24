@@ -2365,10 +2365,16 @@ void VirtualConsole::commitWidgetDeletion(const QVariantList &IDList)
         if (w == nullptr)
             continue;
 
-        /* 1- remove the widget from its parent frame page map */
+        /* 1- remove the widget from its parent frame page map, remembering
+         *    its place among the siblings so undo can put it back there */
         VCFrame *parentFrame = qobject_cast<VCFrame *>(w->parent());
+        QVariantMap location;
         if (parentFrame != nullptr)
+        {
+            location = {{"widgetID", wID}, {"subpage", w->page()},
+                        {"orderIndex", parentFrame->orderedChildIDs(w->page()).indexOf(wID)}};
             parentFrame->removeWidgetFromPageMap(w);
+        }
 
         /* 2- if the widget is a frame, delete also all its children.
          *    The frame XML saved below holds them, so they need no undo action of their own */
@@ -2394,7 +2400,7 @@ void VirtualConsole::commitWidgetDeletion(const QVariantList &IDList)
         VCFrame *parent = qobject_cast<VCFrame *>(w->parent());
         Tardis::instance()->enqueueAction(Tardis::VCWidgetDelete, parent->id(),
                                           Tardis::instance()->actionToByteArray(Tardis::VCWidgetDelete, w->id()),
-                                          QVariant());
+                                          location);
         removeWidgetFromMap(w);
 
         /* 4- perform the actual widget deletion */
