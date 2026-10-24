@@ -813,7 +813,7 @@ void ShowCommandRecorder::drainUserRequests()
             {
                 m_userBlackoutIntent.insert(intentShowId, input.on);
             }
-            else
+            else if (ShowCommand::isHoldRole(input.role))
             {
                 if (input.on)
                     m_userSliderFlashHolds.insert(widgetId);
