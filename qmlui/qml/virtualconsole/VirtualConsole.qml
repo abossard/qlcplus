@@ -445,7 +445,7 @@ Rectangle
         onClosed: virtualConsole.cancelLayout()
     }
 
-    CustomPopupDialog
+    VCEditMessage
     {
         id: layoutError
         objectName: "vcLayoutError"

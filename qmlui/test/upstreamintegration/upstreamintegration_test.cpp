@@ -11568,7 +11568,7 @@ void UpstreamIntegration_Test::vcFramePresentation()
         QXmlStreamWriter beforeWriter(&before);
         QVERIFY(vc->saveXML(&beforeWriter));
         vc->setSelectedWidgetIDs({second->id()});
-        QObject *popup = second->renderItem()->findChild<QObject *>("vcEditError");
+        QObject *popup = m_app->rootObject()->findChild<QObject *>("vcLayoutError");
         QVERIFY(popup);
         QTRY_VERIFY(popup->property("visible").toBool());
         for (int corner = 0; corner < 4; ++corner)

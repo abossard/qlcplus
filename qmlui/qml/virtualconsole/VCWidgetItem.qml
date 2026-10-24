@@ -71,11 +71,9 @@ Rectangle
 
     function showEditResult(result)
     {
+        // the console shows why, without a dialog that blocks its shortcuts
         if (!result.accepted)
-        {
-            editError.message = result.error
-            editError.open()
-        }
+            virtualConsole.editRejected(result.error)
     }
 
     function cancelGesture()
@@ -748,10 +746,4 @@ Rectangle
         }
     }
 
-    CustomPopupDialog
-    {
-        id: editError
-        objectName: "vcEditError"
-        title: qsTr("Cannot edit control")
-    }
 }

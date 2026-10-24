@@ -96,6 +96,8 @@ private slots:
     void duplicateKeepsClipboard();
     void newWorkspaceShowsFirstPage();
     void destroyedDialogReleasesKeys();
+    void editErrorsDoNotBlock_data();
+    void editErrorsDoNotBlock();
     void nudgeStep_data();
     void nudgeStep();
     void alignCenters_data();

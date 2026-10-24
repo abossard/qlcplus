@@ -1624,6 +1624,38 @@ void VCEditor_Test::destroyedDialogReleasesKeys()
     QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
 }
 
+void VCEditor_Test::editErrorsDoNotBlock_data()
+{
+    QTest::addColumn<bool>("fromWidget");
+    QTest::newRow("console") << false;
+    QTest::newRow("widget") << true;
+}
+
+void VCEditor_Test::editErrorsDoNotBlock()
+{
+    QFETCH(bool, fromWidget);
+    const ConsoleIds ids = buildConsole();
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QObject *message = console->findChild<QObject *>("vcLayoutError");
+    QVERIFY(message);
+
+    if (fromWidget)
+    {
+        QTRY_VERIFY(vc()->widget(ids.loose)->renderItem());
+        const QVariant refused = QVariantMap{{"accepted", false}, {"error", "No room here"}};
+        QVERIFY(QMetaObject::invokeMethod(vc()->widget(ids.loose)->renderItem(), "showEditResult",
+                                          Q_ARG(QVariant, refused)));
+    }
+    else
+        emit vc()->editRejected("No room here");
+    // the reason shows without a dialog, so shortcuts keep working
+    QTRY_VERIFY(message->property("visible").toBool());
+    QCOMPARE(message->property("message").toString(), QString("No room here"));
+    QCOMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
+    checkScreenshot("message");
+    QTRY_VERIFY_WITH_TIMEOUT(!message->property("visible").toBool(), 8000);
+}
+
 void VCEditor_Test::nudgeStep_data()
 {
     QTest::addColumn<bool>("snapping");
