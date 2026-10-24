@@ -188,6 +188,11 @@ void VdjTelemetryClient_Test::subscriptionTriggerCount()
     QVERIFY(triggerStrings.contains("deck 4 get_position"));
     QVERIFY(triggerStrings.contains("master_volume"));
     QVERIFY(triggerStrings.contains("crossfader"));
+
+    // VDJ streams a tick's changes in this order: a track change must reach
+    // consumers before the new track's position does
+    QVERIFY(triggerStrings.indexOf("deck 1 get_filepath") < triggerStrings.indexOf("deck 1 get_time elapsed absolute"));
+    QVERIFY(triggerStrings.indexOf("deck 1 loaded") < triggerStrings.indexOf("deck 1 get_time elapsed absolute"));
 }
 
 // ========================================================================

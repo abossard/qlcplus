@@ -67,19 +67,24 @@ void DjFsm::setDeckCount(int count)
         emit deckChanged(d + 1);
     }
 
-    if (m_activeDeck > m_deckCount)
-    {
-        // a phantom deck took the master flag before get_decks: the real master is the
-        // tracked deck that holds it
-        m_activeDeck = 0;
-        for (int d = 1; d <= m_deckCount && m_activeDeck == 0; ++d)
-            if (m_slots[d - 1].master)
-                m_activeDeck = d;
-        emit activeDeckChanged(m_activeDeck);
-        recomputeActiveSong();
-    }
+    // the master flag may have reached a deck the old count hid (a real deck
+    // 3 before get_decks 4) or dropped (a phantom copy before get_decks 2)
+    followMasterFlags();
 
     emit deckCountChanged(m_deckCount);
+}
+
+void DjFsm::followMasterFlags()
+{
+    int master = 0;
+    for (int d = 1; d <= m_deckCount && master == 0; ++d)
+        if (m_slots[d - 1].master)
+            master = d;
+    if (master == m_activeDeck || (master == 0 && deckTracked(m_activeDeck)))
+        return;
+    m_activeDeck = master;
+    emit activeDeckChanged(m_activeDeck);
+    recomputeActiveSong();
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -88,6 +93,15 @@ void DjFsm::setDeckCount(int count)
 
 void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &value)
 {
+    if (trigger == QLatin1String("masterdeck"))
+    {
+        if (!indexValid(deck - 1))
+            return;
+        m_slots[deck - 1].master = triggerIsOn(value);
+        if (m_slots[deck - 1].master && deckTracked(deck))
+            onMasterDeck(deck);
+        return;
+    }
     if (!deckTracked(deck))
         return;
 
@@ -97,17 +111,10 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
     bool metaChanged = false;   //!< title, artist or bpm moved
     const bool prevPlaying = s.deck.playing;
 
-    if (trigger == QLatin1String("masterdeck"))
-    {
-        s.master = triggerIsOn(value);
-        if (s.master)
-            onMasterDeck(deck);
-        return;
-    }
-    else if (trigger == QLatin1String("loaded"))
+    if (trigger == QLatin1String("loaded"))
     {
         if (!triggerIsOn(value))
-            emptyDeck(s, deck);
+            ejectDeck(s, deck);
         return;
     }
     else if (trigger == QLatin1String("get_filepath"))
@@ -115,7 +122,7 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         const QString path = value.toString();
         if (path.isEmpty())
         {
-            emptyDeck(s, deck);
+            ejectDeck(s, deck);
             return;
         }
         if (path != song.filepath)
@@ -131,6 +138,7 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
             song.filepath = path;
             s.gotMask |= F_Filepath;
             s.freshMask |= F_Filepath;
+            s.deck.positionStale = true;
             changed = true;
         }
     }
@@ -140,7 +148,7 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         // VDJ shows the placeholder on an empty deck only: an eject's first word
         if (isPlaceholderTitle(title))
         {
-            emptyDeck(s, deck);
+            ejectDeck(s, deck);
             return;
         }
         if (!title.isEmpty() && song.title != title)
@@ -231,6 +239,7 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         if (ok && ms >= 0.0)
         {
             s.deck.elapsedMs = static_cast<int>(ms); // VDJ sends milliseconds (verified from live telemetry)
+            s.deck.positionStale = false;
             maybeEmitPosition(s, deck);
         }
         return;
@@ -334,32 +343,43 @@ DjFsm::Slot &DjFsm::slotForDeck(int deck)
 
 void DjFsm::resetSlot(Slot &s, int deck1)
 {
-    s.deck.state   = DeckState::Empty;
     s.deck.song    = DeckSong{};
-    s.deck.playing = false;
     s.deck.volume  = 0.0;
+    s.deck.number  = deck1;
+    s.master       = false;
+    emptyDeck(s);
+}
+
+void DjFsm::ejectDeck(Slot &s, int deck1)
+{
+    if (!s.deck.song.isValid() && s.deck.state == DeckState::Empty)
+        return;
+    emptyDeck(s);
+    emit deckChanged(deck1);
+    if (deck1 == m_activeDeck)
+        recomputeActiveSong();
+}
+
+void DjFsm::emptyDeck(Slot &s)
+{
+    // the song leaves; VDJ's last artist, bpm and key stay the next song's
+    // until VDJ sends a change, the fader is no song field
+    s.deck.state   = DeckState::Empty;
+    s.deck.song.filepath.clear();
+    s.deck.song.title.clear();
+    s.deck.song.totalMs = 0;
+    s.deck.playing = false;
     s.deck.beatPos = 0.0;
     s.deck.elapsedMs = 0;
     s.deck.remainingMs = 0;
-    s.deck.number  = deck1;
+    s.deck.positionStale = false;
     s.gotMask      = 0;
     s.freshMask    = 0;
     s.committedFilepath.clear();
-    s.master       = false;
     s.wasPlaying   = false;
     s.rawPlaying   = false;
     s.posEmitSecond = -1;
     s.posEmitBeatQ  = -1000;
-}
-
-void DjFsm::emptyDeck(Slot &s, int deck1)
-{
-    if (!s.deck.song.isValid() && s.deck.state == DeckState::Empty)
-        return;
-    resetSlot(s, deck1);
-    emit deckChanged(deck1);
-    if (deck1 == m_activeDeck)
-        recomputeActiveSong();
 }
 
 void DjFsm::recomputeState(Slot &s)
@@ -431,7 +451,7 @@ void DjFsm::maybeEmitPosition(Slot &s, int deck1)
 void DjFsm::recomputeActiveSong()
 {
     const DeckSong song = activeSong();
-    const QString key = song.filepath + QLatin1Char('\n') + song.title;
+    const QString key = song.filepath + QLatin1Char('\n') + song.title + QLatin1Char('\n') + song.artist;
     if (key == m_activeSongKey)
         return;
     m_activeSongKey = key;

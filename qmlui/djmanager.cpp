@@ -439,9 +439,10 @@ QVariant DjDeckModel::data(const QModelIndex &index, int role) const
     case DeckNumberRole: return deck.number;
     case StateRole:      return DjFsm::stateName(deck.state);
     case TitleRole:      return deck.song.title;
-    case ArtistRole:     return deck.song.artist;
+    // an emptied deck keeps VDJ's last artist and bpm for the next song, not for display
+    case ArtistRole:     return deck.song.isValid() ? deck.song.artist : QString();
     case FilepathRole:   return deck.song.filepath;
-    case BpmRole:        return deck.song.bpm;
+    case BpmRole:        return deck.song.isValid() ? deck.song.bpm : 0.0;
     case VolumeRole:     return deck.volume;
     case BeatPosRole:    return deck.beatPos;
     case ElapsedRole:    return deck.elapsedMs;

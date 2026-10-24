@@ -42,8 +42,10 @@ private slots:
     void loadedOffEmptiesDeck();
     void disconnectDropsActiveDeckFirst();
     void titleAfterFilepathChangesActiveSong();
-    void phantomMasterBeforeDeckCount_data();
-    void phantomMasterBeforeDeckCount();
+    void masterFlagSurvivesTheDeckCount_data();
+    void masterFlagSurvivesTheDeckCount();
+    void ejectKeepsTheFaderAndTheLastValues();
+    void artistAfterTitleChangesActiveSong();
     void capture_trackChangeSameBpm();
     void capture_consecutiveLoads();
     void capture_eject();

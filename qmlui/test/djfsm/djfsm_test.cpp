@@ -546,34 +546,80 @@ void DjFsm_Test::titleAfterFilepathChangesActiveSong()
     fsm.onDeckTrigger(1, "get_title", "Song A");
     QCOMPARE(activeSongSpy.count(), 2);
     QCOMPARE(fsm.activeSong().title, QString("Song A"));
-    // the rest of the burst is not a song change
+    // the artist is shown too; the rest of the burst is not a song change
     fsm.onDeckTrigger(1, "get_artist", "Artist A");
+    QCOMPARE(activeSongSpy.count(), 3);
     fsm.onDeckTrigger(1, "get_bpm", 120.0);
-    QCOMPARE(activeSongSpy.count(), 2);
+    QCOMPARE(activeSongSpy.count(), 3);
 }
 
-void DjFsm_Test::phantomMasterBeforeDeckCount_data()
+void DjFsm_Test::masterFlagSurvivesTheDeckCount_data()
 {
+    QTest::addColumn<int>("countBefore");
     QTest::addColumn<QString>("flags");
-    QTest::addColumn<int>("activeDeck");
+    QTest::addColumn<int>("activeBefore");
+    QTest::addColumn<int>("countAfter");
+    QTest::addColumn<int>("activeAfter");
 
-    // the snapshot streams deck 3 (a phantom copy of deck 1) before get_decks
-    QTest::newRow("the real master keeps its flag") << "1:on;3:on" << 1;
-    QTest::newRow("no real deck holds it") << "1:off;3:on" << 0;
+    // the snapshot streams every deck's master flag before get_decks: with a
+    // persisted count of 4 a phantom deck 3 (a copy of deck 1) takes it, with
+    // the default 2 a real deck 3 of a 4-deck VDJ is hidden
+    QTest::newRow("shrink: the real master keeps its flag") << 4 << "1:on;3:on" << 3 << 2 << 1;
+    QTest::newRow("shrink: no real deck holds it") << 4 << "1:off;3:on" << 3 << 2 << 0;
+    QTest::newRow("grow: the hidden master appears") << 2 << "3:on" << 0 << 4 << 3;
+    QTest::newRow("grow: nobody holds it") << 2 << "1:off;3:off" << 0 << 4 << 0;
+    QTest::newRow("grow: a tracked master stays") << 2 << "1:on;3:on" << 1 << 4 << 1;
 }
 
-void DjFsm_Test::phantomMasterBeforeDeckCount()
+void DjFsm_Test::masterFlagSurvivesTheDeckCount()
 {
+    QFETCH(int, countBefore);
     QFETCH(QString, flags);
-    QFETCH(int, activeDeck);
+    QFETCH(int, activeBefore);
+    QFETCH(int, countAfter);
+    QFETCH(int, activeAfter);
 
     DjFsm fsm;
-    fsm.setDeckCount(4);
+    fsm.setDeckCount(countBefore);
     for (const QString &flag : flags.split(';'))
         fsm.onDeckTrigger(flag.section(':', 0, 0).toInt(), "masterdeck", flag.section(':', 1));
-    QCOMPARE(fsm.activeDeck(), flags.contains("3:on") ? 3 : 1);
-    fsm.setDeckCount(2);
-    QCOMPARE(fsm.activeDeck(), activeDeck);
+    QCOMPARE(fsm.activeDeck(), activeBefore);
+    fsm.setDeckCount(countAfter);
+    QCOMPARE(fsm.activeDeck(), activeAfter);
+}
+
+void DjFsm_Test::ejectKeepsTheFaderAndTheLastValues()
+{
+    // VDJ resends neither an unchanged fader nor an unchanged artist after an eject
+    DjFsm fsm;
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist X", 120.0);
+    fsm.onDeckTrigger(1, "volume", 1.0);
+    fsm.onDeckTrigger(1, "get_title", "Drag a song on this deck to load it");
+    fsm.onDeckTrigger(1, "get_bpm", 120.0);
+    fsm.onDeckTrigger(1, "loaded", "off");
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Empty);
+    QCOMPARE(fsm.deckAt(0).volume, 1.0);
+
+    // same artist, different bpm: filepath, title, bpm and no get_artist
+    fsm.onDeckTrigger(1, "get_filepath", "/music/b.mp3");
+    fsm.onDeckTrigger(1, "get_title", "Song B");
+    fsm.onDeckTrigger(1, "get_bpm", 125.0);
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Loaded);
+    QCOMPARE(songs(songSpy).last(), QString("d1 /music/b.mp3 | Song B | Artist X | 120.000"));
+    QCOMPARE(fsm.deckAt(0).song.bpm, 125.0);
+    QCOMPARE(fsm.deckAt(0).volume, 1.0);
+}
+
+void DjFsm_Test::artistAfterTitleChangesActiveSong()
+{
+    // automix order: filepath, title, artist; the header shows the artist once it arrives
+    DjFsm fsm;
+    fsm.onMasterDeck(1);
+    QString artistAtNotify;
+    connect(&fsm, &DjFsm::activeSongChanged, &fsm, [&]() { artistAtNotify = fsm.activeSong().artist; });
+    loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
+    QCOMPARE(artistAtNotify, QString("Artist A"));
 }
 
 void DjFsm_Test::capture_trackChangeSameBpm()

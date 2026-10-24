@@ -29,14 +29,17 @@ static const char *kLogTag = "[VdjTelemetry]";
 // --- Per-deck triggers ---
 // These are subscribed for each of 4 decks as "deck N <trigger>".
 
+// VDJ sends a tick's changed triggers in this order: the song's identity
+// first, so a track change reaches consumers before its new position does
 static const QStringList kDeckTriggers = {
+    "get_filepath", "loaded",
     // Continuous
     "get_position", "get_time", "get_time elapsed absolute",
     "get_beatpos", "get_vu_meter", "level",
     // On-load metadata
-    "get_filepath", "get_title", "get_artist", "get_title_artist",
+    "get_title", "get_artist", "get_title_artist",
     "get_album", "get_genre", "get_bpm", "get_key", "get_firstbeat",
-    "get_time total", "loaded", "play", "volume", "masterdeck",
+    "get_time total", "play", "volume", "masterdeck",
     // EQ
     "eq_high", "eq_med", "eq_low", "gain",
     // Loop

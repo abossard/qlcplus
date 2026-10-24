@@ -92,6 +92,7 @@ public:
         double    beatPos = 0.0;                 //!< current beat position (get_beatpos)
         int       elapsedMs = 0;                 //!< elapsed time, ms (get_time elapsed absolute)
         int       remainingMs = 0;               //!< remaining time, ms (get_time)
+        bool      positionStale = false;         //!< a new song's first sample is still ahead
     };
 
     static constexpr int MaxDecks     = 4;
@@ -108,9 +109,11 @@ public:
     // --- Event inputs (deck is 1-based) ---
 
     /** Route a per-deck telemetry trigger into the FSM. Ignored when the deck
-     *  number exceeds deckCount. "masterdeck" on names the active deck;
-     *  "loaded" off and the placeholder title empty the deck (VDJ sends no
-     *  empty filepath on eject). */
+     *  number exceeds deckCount, except "masterdeck", kept for every deck so
+     *  get_decks finds the master whichever way the count moves. "loaded" off
+     *  and the placeholder title empty the deck (VDJ sends no empty filepath
+     *  on eject); its artist, bpm and key stay the next song's until VDJ
+     *  sends a change, its fader is no song field. */
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
 
     /** Set the active/master deck (1-based). Ignored when beyond deckCount. */
@@ -141,7 +144,7 @@ signals:
     /** Artist or bpm of the announced song arrived or changed after it */
     void songUpdated(int deck, const DjFsm::DeckSong &song);
     void activeDeckChanged(int deck);
-    /** The active deck's song or its title changed (the title may follow the filepath) */
+    /** The active deck's song, title or artist changed (they may follow the filepath) */
     void activeSongChanged();
 
 private:
@@ -170,7 +173,9 @@ private:
     bool deckTracked(int deck1) const { return deck1 >= 1 && deck1 <= m_deckCount; }
     Slot &slotForDeck(int deck);     // 1-based; clamps invalid input to deck 1
     void resetSlot(Slot &s, int deck1);
-    void emptyDeck(Slot &s, int deck1);
+    void ejectDeck(Slot &s, int deck1);
+    void emptyDeck(Slot &s);
+    void followMasterFlags();
     void recomputeState(Slot &s);
     static bool isPlaceholderTitle(const QString &title);
     void maybeAnnounceSong(Slot &s, bool metaChanged);
