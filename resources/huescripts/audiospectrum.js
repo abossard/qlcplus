@@ -107,7 +107,7 @@ var testAlgo;
         state.output = new Array(n);
         for (var i = 0; i < n; i++) {
           var value = y[i];
-          var retention = Math.pow(value > state.envelope[i] ? 0.5 : 0.9, scale);
+          var retention = Math.pow(value > state.envelope[i] ? 0.5 : 1 - algo.presetDecay, scale);
           state.envelope[i] = value + (state.envelope[i] - value) * retention;
           var channels = [0, 0, 0];
           channels[mix[0]] = novelty[i] * 1000 / 255;
@@ -124,14 +124,15 @@ var testAlgo;
     algo.properties.push(
       "name:rgb_mix|type:range|display:RGB Mix|" +
       "values:0,5|write:setRgbMix|read:getRgbMix");
-    algo.setRgbMix = function(_v) { algo.presetRgbMix = parseFloat(_v); };
+    algo.setRgbMix = function(_v) { algo.presetRgbMix = Math.round(HSVUtil.parseNumber(_v, algo.presetRgbMix, 0, 5)); };
     algo.getRgbMix = function() { return algo.presetRgbMix; };
 
-    algo.presetDecay = 0.05;
+    // Falling rate of the smoothed channel per 1/60 s; LedFx uses 0.1.
+    algo.presetDecay = 0.1;
     algo.properties.push(
       "name:decay|type:float|display:Decay|" +
       "write:setDecay|read:getDecay");
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 0, 1); };
     algo.getDecay = function() { return algo.presetDecay; };
 
     var prevY = null;
@@ -149,7 +150,7 @@ var testAlgo;
         return bFilter;
       }
       for (var i = 0; i < values.length; i++) {
-        var alpha = values[i] > bFilter[i] ? 0.5 : 0.1;
+        var alpha = values[i] > bFilter[i] ? 0.5 : algo.presetDecay;
         alpha = 1 - Math.pow(1 - alpha, frameScale);
         bFilter[i] = alpha * values[i] + (1.0 - alpha) * bFilter[i];
       }
@@ -173,13 +174,14 @@ var testAlgo;
           [audio.low, audio.mid, audio.high], pixelCount);
       var filtered = bank && bank.count ? HSVUtil.interpolate(bank.novelty, pixelCount) : y;
       var frameScale = audio.timing ? audio.timing.deltaSeconds * 60 : 1;
+      var frames = HSVUtil.elapsedFrames(audio);
       var filt = updateFilter(y, frameScale);
       var mix = rgbMixes[algo.presetRgbMix];
 
       for (var i = 0; i < pixelCount; i++) {
         var channels = [0, 0, 0];
         channels[mix[0]] = filtered[i];
-        channels[mix[1]] = Math.abs(y[i] - prevY[i]);
+        channels[mix[1]] = Math.min(1, Math.abs(y[i] - prevY[i]) / (frames > 0 ? frames : 1));
         channels[mix[2]] = filt[i];
 
         var hsv = HSVUtil.rgbToHsv(channels[0], channels[1], channels[2]);

@@ -119,8 +119,12 @@ var testAlgo;
         var delta = Math.max(0, activity - state.prevActivity);
         state.prevActivity = activity;
         state.gradientPhase = HSVUtil.mod1(state.gradientPhase + dt * algo.presetGradientSpeed);
+        // The rise boosts the follower's input for one 20 ms frame; the rest of the render follows activity.
+        var frames = HSVUtil.elapsedFrames(audio);
+        var boosted = Math.min(1, frames);
         var activityInput = HSVUtil.clamp01(activity + delta * 1.2);
-        state.activity = HSVUtil.clamp01(HSVUtil.attackRelease(state.activity, activityInput, 0.6, 0.25));
+        state.activity = HSVUtil.attackRelease(state.activity, activityInput, 0.6, 0.25, boosted);
+        state.activity = HSVUtil.clamp01(HSVUtil.attackRelease(state.activity, activity, 0.6, 0.25, frames - boosted));
         state.carry += dt * (2.5 + 14.0 * state.activity);
         state.carry += delta * algo.presetBirthGain;
         state.carry += HSVUtil.powerForRange(audio, algo.presetSource, false) * dt * 1.5;
@@ -160,9 +164,12 @@ var testAlgo;
             };
         });
 
+        // A single column runs along its height.
+        var length = width === 1 ? height : width;
         for (var y = 0; y < height; y++) {
             for (var x2 = 0; x2 < width; x2++) {
-                var pos = width <= 1 ? 0 : x2 / (width - 1);
+                var along = width === 1 ? y : x2;
+                var pos = length <= 1 ? 0 : along / (length - 1);
                 var r = 0, g = 0, b = 0;
                 for (var s = 0; s < lit.length; s++) {
                     var spot = lit[s];

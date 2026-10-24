@@ -210,20 +210,20 @@ var testAlgo;
     };
     algo.getBassTrigger = function() { return algo.presetBassTrigger; };
 
-    algo.setColorStep = function(v) { algo.color_step = parseFloat(v); };
+    algo.setColorStep = function(v) { algo.color_step = HSVUtil.parseNumber(v, algo.color_step, 0, 0.25); };
     algo.getColorStep = function() { return algo.color_step; };
-    algo.setBassStrobeDecayRate = function(v) { algo.bass_strobe_decay_rate = parseFloat(v); };
+    algo.setBassStrobeDecayRate = function(v) { algo.bass_strobe_decay_rate = HSVUtil.parseNumber(v, algo.bass_strobe_decay_rate, 0, 1); };
     algo.getBassStrobeDecayRate = function() { return algo.bass_strobe_decay_rate; };
     algo.setStrobeColor = function(v) {
       if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))
         algo.strobe_color = v.toLowerCase();
     };
     algo.getStrobeColor = function() { return algo.strobe_color; };
-    algo.setStrobeWidth = function(v) { algo.strobe_width = parseFloat(v); };
+    algo.setStrobeWidth = function(v) { algo.strobe_width = Math.round(HSVUtil.parseNumber(v, algo.strobe_width, 0, 1000)); };
     algo.getStrobeWidth = function() { return algo.strobe_width; };
-    algo.setStrobeDecayRate = function(v) { algo.strobe_decay_rate = parseFloat(v); };
+    algo.setStrobeDecayRate = function(v) { algo.strobe_decay_rate = HSVUtil.parseNumber(v, algo.strobe_decay_rate, 0, 1); };
     algo.getStrobeDecayRate = function() { return algo.strobe_decay_rate; };
-    algo.setColorShiftDelay = function(v) { algo.color_shift_delay = parseFloat(v); };
+    algo.setColorShiftDelay = function(v) { algo.color_shift_delay = HSVUtil.parseNumber(v, algo.color_shift_delay, 0, 1); };
     algo.getColorShiftDelay = function() { return algo.color_shift_delay; };
 
     var strobeOverlay = [];
@@ -361,7 +361,7 @@ var testAlgo;
         var domHsv = Math.max(audio.low, audio.mid, audio.high) >= 0.05
             ? algo.colors[HSVUtil.dominantBand(audio)] : bandColor;
         var scol = {
-            h: bandColor.h + (domHsv.h - bandColor.h) * DOMINANT_TINT,
+            h: HSVUtil.lerpHue(bandColor.h, domHsv.h, DOMINANT_TINT),
             s: bandColor.s + (domHsv.s - bandColor.s) * DOMINANT_TINT,
             v: bandColor.v + (domHsv.v - bandColor.v) * DOMINANT_TINT
         };

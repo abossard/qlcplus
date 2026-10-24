@@ -56,7 +56,7 @@ var testAlgo;
     algo.setViscosity = function(v) { algo.viscosity = clamp(v, 2, 12); };
     algo.getViscosity = function() { return algo.viscosity; };
 
-    var buf0 = null, buf1 = null, curBuf = 0;
+    var buf0 = null, buf1 = null, curBuf = 0, rippleCarry = 0;
     var EMITTER_DRIFT_RATE = 0.0002;
     var midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
     var highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
@@ -70,6 +70,7 @@ var testAlgo;
         buf0 = new Array(w); buf1 = new Array(w);
         for (var i = 0; i < w; i++) { buf0[i] = 0; buf1[i] = 0; }
         curBuf = 0;
+        rippleCarry = 0;
         midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
         highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
     }
@@ -134,7 +135,9 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         var ledFxMode = algo.presetMode === "LedFx Water";
-        var stripLength = ledFxMode ? Math.max(1, width * height) : Math.max(1, width);
+        // Artistic ripples along the columns when the rows are too short for a ripple.
+        var vertical = !ledFxMode && width < 5 && height > width;
+        var stripLength = ledFxMode ? Math.max(1, width * height) : Math.max(1, vertical ? height : width);
         var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;
         var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
         if (ledFxMode) {
@@ -152,7 +155,8 @@ var testAlgo;
         var speed = algo.speed;
         var dampFactor = Math.pow(2, algo.viscosity);
         var shift = algo.vertical_shift;
-        var ledFxDrift = ledFxMode ? (HSVUtil.audioSeconds(audio) * 60) : 1;
+        // Ripple steps and emitter drift follow elapsed time: LedFx frames are 1/60 s, Artistic frames 20 ms.
+        var frames = ledFxMode ? HSVUtil.audioSeconds(audio) * 60 : HSVUtil.elapsedFrames(audio);
 
         var power = ledFxMode ? thirdMaxPowers(audio) : {
             low: HSVUtil.clamp01(audio.low),
@@ -167,7 +171,7 @@ var testAlgo;
             for (var i = 0; i < emitters.length; i++) {
                 var pos = 1 + Math.floor(emitters[i][0] * (stripLength - 2));
                 createDrop(pos, size, stripLength);
-                emitters[i][0] += EMITTER_DRIFT_RATE * emitters[i][1] * speed * ledFxDrift;
+                emitters[i][0] += EMITTER_DRIFT_RATE * emitters[i][1] * speed * frames;
                 if (emitters[i][0] < 0) emitters[i][0] += 1;
                 else if (emitters[i][0] > 1) emitters[i][0] -= 1;
             }
@@ -183,8 +187,8 @@ var testAlgo;
         if (!ledFxMode)
             injectDrops();
 
-        var speedSteps = ledFxMode ? Math.floor(speed) : Math.round(speed);
-        for (var s = 0; s < speedSteps; s++)
+        rippleCarry += (ledFxMode ? Math.floor(speed) : Math.round(speed)) * frames;
+        for (; rippleCarry >= 1; rippleCarry--)
             doRipple(dampFactor, stripLength);
 
         if (ledFxMode)
@@ -203,6 +207,13 @@ var testAlgo;
                 map[i * 3] = hsvOut.h;
                 map[i * 3 + 1] = hsvOut.s;
                 map[i * 3 + 2] = hsvOut.v;
+            } else if (vertical) {
+                for (var x = 0; x < width; x++) {
+                    var j3 = (i * width + x) * 3;
+                    map[j3] = h;
+                    map[j3 + 1] = sv;
+                    map[j3 + 2] = v;
+                }
             } else {
                 for (var y = 0; y < height; y++) {
                     var i3 = (y * width + i) * 3;

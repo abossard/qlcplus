@@ -60,8 +60,9 @@ var testAlgo;
         return row;
     }
 
-    function bandVolumes(values, width, height) {
-        var pixelCount = Math.max(1, width * height);
+    // Bands split the new row, so they are sampled across its width.
+    function bandVolumes(values, width) {
+        var pixelCount = Math.max(1, width);
         var samples = HSVUtil.interpolate(values, pixelCount);
         for (var i = 0; i < samples.length; i++)
             samples[i] = HSVUtil.clamp01(samples[i]);
@@ -88,8 +89,8 @@ var testAlgo;
         return out;
     }
 
-    function buildRow(width, height, values) {
-        var grouped = bandVolumes(values, width, height);
+    function buildRow(width, values) {
+        var grouped = bandVolumes(values, width);
         var bands = grouped.length;
         var row = new Array(width);
         for (var i = 0; i < bands; i++) {
@@ -159,15 +160,17 @@ var testAlgo;
 
         var bank = audio && audio.banks && audio.banks.full;
         var values = bank && bank.count ? (bank.novelty || bank.processed || []) : [];
-        var row = buildRow(width, height, values);
+        var row = buildRow(width, values);
         writeTopRow(row, width, height);
 
         var halfHeight = Math.max(1, Math.floor(height / 2));
+        var evenHeight = (height % 2) === 0;
         for (var y = 0; y < height; y++) {
             var fade = 1;
             if (algo.presetFade > 0) {
                 if (algo.presetCenter === "On") {
-                    var dist = Math.abs(y - halfHeight);
+                    // Rows from the nearest newest row; even heights write two center rows.
+                    var dist = evenHeight && y < halfHeight ? halfHeight - 1 - y : Math.abs(y - halfHeight);
                     fade = Math.max(0, 1 - (dist / halfHeight) * algo.presetFade * 2);
                 } else {
                     fade = Math.max(0, 1 - (y / halfHeight) * algo.presetFade);

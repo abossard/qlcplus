@@ -38,11 +38,11 @@ var testAlgo;
       "name:presetDecay|type:float|display:Decay|" +
       "write:setDecay|read:getDecay");
 
-    algo.setBands = function(_v) { algo.presetBands = parseInt(_v); };
+    algo.setBands = function(_v) { algo.presetBands = Math.round(HSVUtil.parseNumber(_v, algo.presetBands, 2, 5)); };
     algo.getBands = function() { return algo.presetBands; };
-    algo.setPeakHold = function(_v) { algo.presetPeakHold = parseInt(_v); };
+    algo.setPeakHold = function(_v) { algo.presetPeakHold = Math.round(HSVUtil.parseNumber(_v, algo.presetPeakHold, 1, 20)); };
     algo.getPeakHold = function() { return algo.presetPeakHold; };
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 0, 1); };
     algo.getDecay = function() { return algo.presetDecay; };
 
     var BEAT_PULSE_AMOUNT = 0.25;
@@ -79,17 +79,17 @@ var testAlgo;
         var numBands = algo.presetBands;
         var sourceBands = [audio.low, audio.mid, audio.high];
         var bands = (numBands === 3) ? sourceBands : HSVUtil.interpolate(sourceBands, numBands);
-        var fallStep = algo.presetDecay;
-        var peakStep = Math.max(1, Math.round(algo.presetDecay * 50));
+        // Fall, hold and peak steps are per 20 ms frame.
+        var frames = HSVUtil.elapsedFrames(audio);
+        var fallStep = algo.presetDecay * frames;
+        var peakStep = Math.max(1, Math.round(algo.presetDecay * 50)) * frames;
 
         var beatBoost = 1.0 + BEAT_PULSE_AMOUNT * audio.cosPulse;
 
+        var sections = [];
         for (var section = 0; section < numBands; section++) {
             var magnitude = Math.max(0, bands[section]);
-            if (magnitude > algo.smoothBands[section])
-                algo.smoothBands[section] = magnitude;
-            else
-                algo.smoothBands[section] = Math.max(0, algo.smoothBands[section] - fallStep);
+            algo.smoothBands[section] = Math.max(magnitude, algo.smoothBands[section] - fallStep);
 
             var smoothMagnitude = algo.smoothBands[section];
             var barHeight = Math.round(smoothMagnitude * height);
@@ -100,27 +100,40 @@ var testAlgo;
                 algo.peakValues[section] = barHeight;
                 algo.peakHolds[section] = algo.presetPeakHold;
             } else if (algo.peakHolds[section] > 0) {
-                algo.peakHolds[section]--;
+                algo.peakHolds[section] -= frames;
             } else {
                 algo.peakValues[section] = Math.max(0, algo.peakValues[section] - peakStep);
             }
 
-            var peakPosition = Math.round(algo.peakValues[section]);
+            // Narrower than the band count: a band shares its first column with its neighbours.
             var sectionStart = Math.floor(section * width / numBands);
-            var sectionEnd = Math.floor((section + 1) * width / numBands);
-            var color = algo.colors[section % 3];
+            sections.push({
+                index: section,
+                start: sectionStart,
+                end: Math.max(sectionStart + 1, Math.floor((section + 1) * width / numBands)),
+                barHeight: barHeight,
+                peakPosition: Math.round(algo.peakValues[section]),
+                magnitude: smoothMagnitude,
+                color: algo.colors[section % 3]
+            });
+        }
 
-            for (var x = sectionStart; x < sectionEnd; x++) {
+        // Shared columns show every band: shorter bars are drawn in front of taller ones.
+        sections.sort(function(a, b) { return (b.barHeight - a.barHeight) || (a.index - b.index); });
+        for (var k = 0; k < sections.length; k++) {
+            var bar = sections[k];
+            var color = bar.color;
+            for (var x = bar.start; x < bar.end; x++) {
                 for (var y = 0; y < height; y++) {
                     var fromBottom = height - 1 - y;
                     var i3 = (y * width + x) * 3;
-                    if (fromBottom < barHeight) {
-                        var baseBrightness = smoothMagnitude * (1 - y / height * TOP_DARKEN);
+                    if (fromBottom < bar.barHeight) {
+                        var baseBrightness = bar.magnitude * (1 - y / height * TOP_DARKEN);
                         var brightness = baseBrightness * beatBoost;
                         map[i3] = color.h;
                         map[i3 + 1] = color.s;
                         map[i3 + 2] = Math.min(1, color.v * brightness);
-                    } else if (fromBottom === peakPosition && peakPosition < height) {
+                    } else if (fromBottom === bar.peakPosition && bar.peakPosition > 0 && bar.peakPosition < height) {
                         map[i3] = color.h;
                         map[i3 + 1] = color.s;
                         map[i3 + 2] = color.v;
