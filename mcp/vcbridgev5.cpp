@@ -1685,7 +1685,7 @@ QString VCBridgeV5::authoringPreconditionError(const QMap<quint32, QRectF> &rect
     }
     if (observations)
         observations->append({QStringLiteral("recorderAvailable"), true, QStringLiteral("global"), QString()});
-    if (recorder->isRecording() || recorder->isAuthoring())
+    if (recorder->isRecording())
     {
         if (code)
             *code = QStringLiteral("authoringPrecondition");

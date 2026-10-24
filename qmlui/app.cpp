@@ -257,16 +257,6 @@ void App::startup()
     {
         m_showCommandRecorder->setResolvedShow(quint32(showID));
     });
-    connect(m_showManager, &ShowManager::isPlayingChanged,
-            m_showCommandRecorder, [this](bool playing)
-    {
-        m_showCommandRecorder->setPlaying(playing && !m_showManager->isPaused());
-    });
-    connect(m_showManager, &ShowManager::isPausedChanged,
-            m_showCommandRecorder, [this](bool paused)
-    {
-        m_showCommandRecorder->setPlaying(m_showManager->isPlaying() && !paused);
-    });
 
     m_networkManager = new NetworkManager(this, m_doc, m_virtualConsole, m_simpleDesk);
     rootContext()->setContextProperty("networkManager", m_networkManager);

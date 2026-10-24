@@ -1285,9 +1285,8 @@ void ShowCommandRecorder_Test::armedRecorder_bindsFirstShowAndAuthorsWhileFrozen
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
 
-    // A paused transport keeps reporting the same time; recording stays live
-    // and stamps both commands at that frozen position.
-    recorder.setPlaying(false);
+    // A Show that does not run keeps reporting the same time; recording
+    // stays live and stamps both commands at that frozen position.
     button->requestUserStateChange(true);
     button->requestUserStateChange(false);
 
@@ -1378,7 +1377,8 @@ void ShowCommandRecorder_Test::editor_retimeValueDeleteAndExtent()
     ShowCommandInput value = start;
     value.action = ShowCommandAction::SetIntensity;
     value.intensity = 128.0 / 255.0;
-    QVERIFY(recorder.submitUserInput(QVector<ShowCommandInput>{start, value}));
+    QVERIFY(recorder.submitUserInput(start));
+    QVERIFY(recorder.submitUserInput(value));
 
     const QVector<ShowCommand> &stored = recorder.track().commands();
     QCOMPARE(stored.count(), qsizetype(2));
@@ -1716,57 +1716,6 @@ void ShowCommandRecorder_Test::rewoundTake_replaysItsOwnRecordedCommand()
     show->stopAndWait();
 }
 
-void ShowCommandRecorder_Test::editor_typedActionAndTargetEdits()
-{
-    Doc doc(nullptr, 1);
-    UiFixture ui(&doc);
-
-    Scene *scene = addTarget(&doc);
-    QVERIFY(scene);
-    Scene *other = new Scene(&doc);
-    other->setName(QStringLiteral("Other target"));
-    QVERIFY(doc.addFunction(other));
-    Show *show = addRecordingShow(&doc, kRecordPosition);
-    QVERIFY(show);
-
-    ShowCommandRecorder recorder(&doc);
-    recorder.setResolvedShow(show->id());
-    recorder.setRecording(true);
-
-    // a legacy function command, which VC input no longer authors
-    ShowCommandInput start;
-    start.origin = ShowCommandOrigin::Pointer;
-    start.action = ShowCommandAction::Start;
-    start.functionId = scene->id();
-    QVERIFY(recorder.submitUserInput(start));
-    QCOMPARE(recorder.track().count(), 1);
-    recorder.setRecording(false);
-
-    const quint32 id = recorder.track().commands().at(0).id;
-
-    // An editor that shows action and target has to let the user change them.
-    QVERIFY(recorder.setCommandAction(show->id(), id, QStringLiteral("Stop")));
-    QCOMPARE(int(recorder.track().commands().at(0).action), int(ShowCommandAction::Stop));
-    QCOMPARE(int(show->commandTrack().commands().at(0).action), int(ShowCommandAction::Stop));
-
-    QVERIFY(recorder.setCommandTarget(show->id(), id, other->id()));
-    QCOMPARE(recorder.track().commands().at(0).functionId, other->id());
-    QCOMPARE(show->commandTrack().commands().at(0).functionId, other->id());
-
-    // Rejected edits leave the take alone and say why.
-    QVERIFY(!recorder.setCommandAction(show->id(), id, QStringLiteral("Explode")));
-    QVERIFY(!recorder.lastError().isEmpty());
-    QCOMPARE(int(recorder.track().commands().at(0).action), int(ShowCommandAction::Stop));
-
-    QVERIFY(!recorder.setCommandTarget(show->id(), id, 12345));
-    QCOMPARE(recorder.track().commands().at(0).functionId, other->id());
-
-    // A Show that starts itself is not a target.
-    QVERIFY(!recorder.setCommandTarget(show->id(), id, show->id()));
-    QCOMPARE(recorder.track().commands().at(0).functionId, other->id());
-    QCOMPARE(show->commandTrack().commands().at(0).functionId, other->id());
-}
-
 namespace
 {
 /** A bound recorder with a slider and a button on the current Show */
@@ -1906,11 +1855,9 @@ void ShowCommandRecorder_Test::loopSegment_keepsDepartureEnd()
 
     rig.button->requestUserStateChange(true);
     QTRY_COMPARE(recorder.track().count(), 1);
-    const quint64 takeBeforeLoop = recorder.takeId();
 
     // The song loops. Nobody touches a control afterwards.
     show->setExternalElapsedTime(5000);
-    QVERIFY(recorder.takeId() != takeBeforeLoop);
 
     show->setExternalElapsedTime(8000);
     recorder.setRecording(false);
@@ -16585,7 +16532,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
     QCOMPARE(running, transport != QLatin1String("stopped"));
     QCOMPARE(paused, transport == QLatin1String("paused"));
     QVERIFY(rig.recorder->isAuthoring());
-    QCOMPARE(rig.recorder->position(), 55000);
+    QCOMPARE(take.show->commandPosition(), 55000u);
 
     const QString destination = failure.isEmpty() ? saveAs : failure == QLatin1String("checkpoint") ? original : locked;
     const bool saved = rig.app->saveWorkspace(destination);
@@ -16596,7 +16543,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
     QVERIFY(take.show->commandRecording());
     QCOMPARE(take.show->isRunning(), running);
     QCOMPARE(take.show->isPaused(), paused);
-    QCOMPARE(rig.recorder->position(), 55000);
+    QCOMPARE(take.show->commandPosition(), 55000u);
 
     if (failure.isEmpty() == false)
     {
@@ -16838,7 +16785,7 @@ void ShowCommandRecorder_Test::appReplacement_confirmsRecording()
         QVERIFY(take.show->commandRecording());
         QVERIFY(rig.manager->isPlaying());
         QVERIFY(rig.doc->masterTimer()->runningFunctions() > 0);
-        QCOMPARE(rig.recorder->position(), 55000);
+        QCOMPARE(take.show->commandPosition(), 55000u);
     };
 
     if (choice == QLatin1String("cancel"))
@@ -19731,7 +19678,8 @@ void ShowCommandRecorder_Test::debugPanel_tracesFlowDecisionsAndOutcomes()
     QCOMPARE(rows.at(later).origin, int(ShowCommandOrigin::Keyboard));
     QCOMPARE(rows.at(rewound).showTimeMs, qint64(3000));
     QCOMPARE(rows.at(rewound).origin, int(ShowCommandOrigin::Osc));
-    QVERIFY(rows.at(rewound).take != rows.at(later).take);
+    // a take is one binding: a rewind of its Show does not start another
+    QCOMPARE(rows.at(rewound).take, rows.at(later).take);
 
     // a refused edit changes nothing
     const int refused = findRow(rows, P::Commit, O::Rejected, QString(), rewound);
@@ -20557,7 +20505,6 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
     slider->requestUserValue(140);
     QCOMPARE(recorder.pendingUserRequests().count(), 1);
     const quint64 trace = recorder.pendingUserRequests().first().cause.trace;
-    const quint64 acceptedTake = recorder.takeId();
     QVERIFY(recorder.setResolvedShow(next->id()));
     slider->setCaption(QStringLiteral("Renamed after acceptance"));
     for (int i = 0; i < 30 && (!recorder.pendingUserRequests().isEmpty() || recorder.pendingControlRuns() > 0 ||
@@ -20573,6 +20520,8 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
             caused.append(e);
     }
     QVERIFY(caused.count() >= 2);
+    // the first is the acceptance: every later one names its take
+    const quint64 acceptedTake = caused.first().take;
     for (const ShowEventLog::Entry &e : caused)
     {
         QCOMPARE(e.showId, show->id());
@@ -21281,15 +21230,16 @@ void ShowCommandRecorder_Test::debugPanel_commandDeltaKeepsChangedFacts()
     model.setOpen(true);
 
     QVector<quint32> expected;
-    if (change == QLatin1String("target"))
-    {
-        QVERIFY(recorder.setCommandTarget(show->id(), 0, other->id()));
-        expected = {0};
-    }
-    else
     {
         ShowCommandTrack changed;
-        if (change == QLatin1String("order"))
+        if (change == QLatin1String("target"))
+        {
+            QVERIFY(changed.insert(ShowCommand::start(0, 1000, other->id())));
+            QVERIFY(changed.insert(track.commands().at(1)));
+            QVERIFY(changed.insert(track.commands().at(2)));
+            expected = {0};
+        }
+        else if (change == QLatin1String("order"))
         {
             QVERIFY(changed.insert(ShowCommand::stop(1, 1000, scene->id())));
             QVERIFY(changed.insert(ShowCommand::start(0, 1000, scene->id())));
@@ -21407,11 +21357,6 @@ void ShowCommandRecorder_Test::debugPanel_transportUsesTheAcceptanceClock()
     ShowManager manager(r.ui.view(), &r.doc);
     manager.m_detached = true;
     manager.setCurrentShowID(int(r.show->id()));
-    // the application's transport wiring
-    QObject::connect(&manager, &ShowManager::isPlayingChanged, &r.recorder,
-                     [&](bool playing) { r.recorder.setPlaying(playing && !manager.isPaused()); });
-    QObject::connect(&manager, &ShowManager::isPausedChanged, &r.recorder,
-                     [&](bool paused) { r.recorder.setPlaying(manager.isPlaying() && !paused); });
     ShowEventModel model(&r.doc, &r.recorder);
     model.setOpen(true);
     const auto playFor = [&](int ticks) {
@@ -21484,8 +21429,6 @@ void ShowCommandRecorder_Test::debugPanel_transportUsesTheAcceptanceClock()
              qint64(route == QLatin1String("paused seek") ? 0u : expected));
     if (route != QLatin1String("external"))
         QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Cursor moved")), qint64(expected));
-    if (route == QLatin1String("rewound"))
-        QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Playing")), qint64(expected));
     QVERIFY(r.recorder.setRecording(false));
     model.setOpen(false);
 }

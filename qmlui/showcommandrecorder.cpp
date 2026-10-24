@@ -183,7 +183,6 @@ ShowCommandRecorder::ShowCommandRecorder(Doc *doc, QObject *parent)
             emit clipboardChanged();
         }
     });
-    connect(this, &ShowCommandRecorder::stateChanged, this, &ShowCommandRecorder::editGateChanged);
     connect(this, &ShowCommandRecorder::commandsChanged, this, &ShowCommandRecorder::observeRowSources);
     // the referenced controls follow the tracked Show's track while observed
     connect(this, &ShowCommandRecorder::commandsChanged, this, [this]()
@@ -232,8 +231,11 @@ bool ShowCommandRecorder::setRecording(bool on)
         return true;
 
     const bool diag = ShowEventLog::generation() != 0;
-    if (isAuthoring() && checkpoint(!on) == false)
+    // only a disarm leaves a bound take
+    QString error;
+    if (isAuthoring() && publishAccepted(true, &error) == false)
     {
+        reportFailure(error);
         if (diag)
             traceTransport(Outcome::Failed, on ? tr("REC on") : tr("REC off"), phaseName(), m_lastError);
         return false;
@@ -264,11 +266,6 @@ void ShowCommandRecorder::enterRecordingState(const ShowCommandState &next)
     reloadTrack();
 
     Show *bound = trackedShow();
-    if (bound != nullptr && isAuthoring())
-    {
-        m_clockPosition = bound->commandPosition();
-        m_state.position = m_clockPosition;
-    }
     if (previous != nullptr && previous != bound)
         previous->setCommandRecording(false);
     if (bound != nullptr)
@@ -290,7 +287,7 @@ bool ShowCommandRecorder::setResolvedShow(quint32 showId)
     {
         const QString previous = targetName();
         QString reason;
-        handed = publishCheckpoint(true, &reason);
+        handed = publishAccepted(true, &reason);
         // a take that cannot close disarms: its accepted input stays for a later checkpoint
         next = ShowCommandFsm::setRecording(next, false);
         if (handed)
@@ -305,11 +302,6 @@ bool ShowCommandRecorder::setResolvedShow(quint32 showId)
     reloadTrack();
 
     Show *bound = trackedShow();
-    if (bound != nullptr && isAuthoring())
-    {
-        m_clockPosition = bound->commandPosition();
-        m_state.position = m_clockPosition;
-    }
     if (previous != nullptr && previous != bound)
         previous->setCommandRecording(false);
     if (bound != nullptr)
@@ -340,63 +332,29 @@ bool ShowCommandRecorder::isAuthoring() const
     return m_state.phase() == ShowRecordPhase::Bound;
 }
 
-void ShowCommandRecorder::setPlaying(bool playing)
-{
-    // a transport change of the host may have started or stopped the Show
-    emit editGateChanged();
-    const ShowCommandState next = ShowCommandFsm::setPlaying(m_state, playing);
-    if (next == m_state)
-        return;
-
-    m_state = next;
-    if (ShowEventLog::generation() != 0)
-        traceTransport(Outcome::Applied, playing ? tr("Playing") : tr("Not playing"), targetName());
-    emit stateChanged();
-}
-
-quint64 ShowCommandRecorder::takeId() const
-{
-    return m_takeId;
-}
-
 quint32 ShowCommandRecorder::boundShowId() const
 {
     return m_state.boundShowId;
 }
 
-bool ShowCommandRecorder::checkpoint(bool disarming)
+bool ShowCommandRecorder::checkpoint()
 {
     QString error;
-    if (publishCheckpoint(disarming, &error))
+    if (publishAccepted(false, &error))
+    {
+        armCheckpointSaveProjection();
         return true;
+    }
 
     reportFailure(error);
     return false;
 }
 
-bool ShowCommandRecorder::publishCheckpoint(bool disarming, QString *error)
+bool ShowCommandRecorder::publishAccepted(bool disarming, QString *error)
 {
     const ShowTraceCause operation = newCause();
     QScopedValueRollback<const ShowTraceCause *> scoped(m_operation,
                                                         operation.generation != 0 ? &operation : nullptr);
-    const bool published = publishAccepted(disarming, error);
-    if (published && disarming == false)
-        armCheckpointSaveProjection();
-    if (operation.generation == 0 || operation.generation != ShowEventLog::generation())
-        return published;
-    ShowEventLog::Entry e = causeEntry(operation, Phase::Transport, published ? Outcome::Applied : Outcome::Failed,
-                                       published ? tr("accepted input ends at its content") : *error);
-    if (e.generation != 0)
-    {
-        e.action = tr("Checkpoint");
-        e.value = targetName();
-        ShowEventLog::append(e);
-    }
-    return published;
-}
-
-bool ShowCommandRecorder::publishAccepted(bool disarming, QString *error)
-{
     // the take's Show ends at its content even when it accepted nothing new
     QVector<quint32> shows;
     if (m_state.recording && m_state.boundShowId != ShowCommand::InvalidId)
@@ -413,6 +371,16 @@ bool ShowCommandRecorder::publishAccepted(bool disarming, QString *error)
         Show *show = qobject_cast<Show *>(m_doc->function(showId));
         if (show == nullptr || publishUnpublished(show, disarming, error) == false)
             published = false;
+    }
+    if (operation.generation == 0 || operation.generation != ShowEventLog::generation())
+        return published;
+    ShowEventLog::Entry e = causeEntry(operation, Phase::Transport, published ? Outcome::Applied : Outcome::Failed,
+                                       published ? tr("accepted input ends at its content") : *error);
+    if (e.generation != 0)
+    {
+        e.action = tr("Checkpoint");
+        e.value = targetName();
+        ShowEventLog::append(e);
     }
     return published;
 }
@@ -538,12 +506,6 @@ QString ShowCommandRecorder::targetName() const
     return show != nullptr ? show->name() : QString();
 }
 
-int ShowCommandRecorder::position() const
-{
-    Show *show = trackedShow();
-    return show != nullptr ? int(show->commandPosition()) : 0;
-}
-
 quint32 ShowCommandRecorder::acceptancePosition(const Show *show) const
 {
     // the traversal is about to restart there: input now belongs to that pass
@@ -574,17 +536,8 @@ QString ShowCommandRecorder::lastError() const
 
 bool ShowCommandRecorder::submitUserInput(const ShowCommandInput &input)
 {
-    return submitUserInput(QVector<ShowCommandInput>{input});
-}
-
-bool ShowCommandRecorder::submitUserInput(const QVector<ShowCommandInput> &inputs)
-{
     Show *show = trackedShow();
-    if (show == nullptr || isAuthoring() == false)
-        return false;
-
-    syncPosition(show);
-    return authorAt(inputs, m_state.position);
+    return show != nullptr && authorAt({input}, show->commandPosition());
 }
 
 bool ShowCommandRecorder::authorAt(const QVector<ShowCommandInput> &inputs, quint32 positionMs)
@@ -1305,38 +1258,17 @@ int ShowCommandRecorder::extent() const
     return int(m_track.extent());
 }
 
-bool ShowCommandRecorder::editAllowed(quint32 showId, QString *reason) const
-{
-    const auto refuse = [reason](const QString &why)
-    {
-        if (reason != nullptr)
-            *reason = why;
-        return false;
-    };
-    // playing, paused and recording Shows take edits too: the runner meets
-    // what is published when it gets there, and capture only ever adds
-    Show *show = m_doc != nullptr ? qobject_cast<Show *>(m_doc->function(showId)) : nullptr;
-    if (show == nullptr)
-        return refuse(tr("No Show to edit"));
-    if (reason != nullptr)
-        reason->clear();
-    return true;
-}
-
 QString ShowCommandRecorder::editBlockedReason() const
 {
-    QString reason;
-    editAllowed(trackedShowId(), &reason);
-    return reason;
+    // playing, paused and recording Shows take edits too: the runner meets
+    // what is published when it gets there, and capture only ever adds
+    return trackedShow() != nullptr ? QString() : tr("No Show to edit");
 }
 
 Show *ShowCommandRecorder::editableShow(quint32 showId)
 {
-    QString reason;
-    if (showId != trackedShowId())
-        reason = tr("That row belongs to a Show that is no longer shown");
-    else
-        editAllowed(showId, &reason);
+    const QString reason = showId != trackedShowId() ? tr("That row belongs to a Show that is no longer shown")
+                                                     : editBlockedReason();
     if (reason.isEmpty() == false)
     {
         editFailed(reason);
@@ -1797,38 +1729,6 @@ bool ShowCommandRecorder::snapCommands(quint32 showId, const QVariantList &ids, 
     return shiftCommands(show, affected, qint64(target) - earliest);
 }
 
-bool ShowCommandRecorder::setCommandAction(quint32 showId, quint32 id, const QString &action)
-{
-    return replaceCommand(showId, id, [&action](ShowCommand &cmd)
-    {
-        ShowCommandAction next;
-        if (!ShowCommand::actionFromString(action, &next) || next == ShowCommandAction::SetButtonState ||
-            next == ShowCommandAction::SetSliderPosition || next == ShowCommandAction::SetSliderColors ||
-            next == ShowCommandAction::SetSliderReset || next == ShowCommandAction::SetXYPadPosition ||
-            next == ShowCommandAction::SetAnimationFader ||
-            cmd.controlId.isNull() == false)
-            return tr("%1 is not a function command action").arg(action);
-        cmd.action = next;
-        // a trigger carries no value, so changing one drops it rather than
-        // keeping a stale number the validation would reject
-        if (cmd.action != ShowCommandAction::SetIntensity)
-            cmd.intensity = 0.0;
-        return QString();
-    });
-}
-
-bool ShowCommandRecorder::setCommandTarget(quint32 showId, quint32 id, quint32 functionId)
-{
-    // target existence and self-recursion are the Show's call, not ours
-    return replaceCommand(showId, id, [functionId](ShowCommand &cmd)
-    {
-        if (cmd.controlId.isNull() == false)
-            return tr("A control state has no function target");
-        cmd.functionId = functionId;
-        return QString();
-    });
-}
-
 bool ShowCommandRecorder::copyCommands(quint32 showId, const QVariantList &ids)
 {
     Show *show = showId == trackedShowId() ? trackedShow() : nullptr;
@@ -1970,11 +1870,10 @@ bool ShowCommandRecorder::applyHistoryEdit(const QVariant &value, bool undo)
         return false;
     const ShowCommandEdit edit = value.value<ShowCommandEdit>();
 
-    QString error;
-    if (editAllowed(edit.showId, &error) == false)
-        return editFailed(error);
-
     Show *show = qobject_cast<Show *>(m_doc->function(edit.showId));
+    if (show == nullptr)
+        return editFailed(tr("No Show to edit"));
+    QString error;
     const ShowCommandTrack before = show->commandTrack();
     ShowCommandTrack edited = before;
     if (replayDelta(&edited, edit.entries, undo, &error) == false ||
@@ -1999,22 +1898,7 @@ void ShowCommandRecorder::slotShowClock()
     if (show == nullptr || sender() != show)
         return;
 
-    // Milliseconds, never the editor's ruler units.
-    const quint32 now = show->commandPosition();
-    // the clock moved: it is the position again, not a cursor set before
     m_hostCursorShowId = ShowCommand::InvalidId;
-    if (now < m_clockPosition)
-    {
-        if (isAuthoring())
-            m_takeId++;
-        m_state = ShowCommandFsm::seek(m_state, now);
-        if (ShowEventLog::generation() != 0)
-            traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3),
-                           isAuthoring() ? tr("a new take segment begins") : QString());
-    }
-
-    m_clockPosition = now;
-    m_state.position = now;
 }
 
 void ShowCommandRecorder::slotCommandTrackChanged()
@@ -2075,7 +1959,6 @@ void ShowCommandRecorder::reloadTrack()
 
     Show *show = trackedShow();
     m_track = show != nullptr ? show->commandTrack() : ShowCommandTrack();
-    m_clockPosition = show != nullptr ? show->commandPosition() : 0;
     if (show != nullptr)
     {
         connect(show, &Show::commandTrackChanged,
@@ -2087,14 +1970,7 @@ void ShowCommandRecorder::reloadTrack()
     }
 
     emit commandsChanged();
-    emit positionChanged();
     emit targetNameChanged();
-}
-
-void ShowCommandRecorder::syncPosition(Show *show)
-{
-    if (show != nullptr)
-        m_state.position = show->commandPosition();
 }
 
 bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *show)

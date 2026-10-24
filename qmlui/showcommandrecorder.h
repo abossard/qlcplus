@@ -146,12 +146,11 @@ class ShowCommandRecorder : public QObject
     Q_PROPERTY(int phase READ phaseValue NOTIFY stateChanged)
     Q_PROPERTY(QString phaseName READ phaseName NOTIFY stateChanged)
     Q_PROPERTY(QString targetName READ targetName NOTIFY targetNameChanged)
-    Q_PROPERTY(int position READ position NOTIFY positionChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QVariantList commands READ commands NOTIFY commandsChanged)
     Q_PROPERTY(QVariantList groups READ groups NOTIFY commandsChanged)
     Q_PROPERTY(int extent READ extent NOTIFY commandsChanged)
-    Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY editGateChanged)
+    Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY targetNameChanged)
     Q_PROPERTY(int lastEditSerial READ lastEditSerial NOTIFY commandsChanged)
     Q_PROPERTY(bool editSessionActive READ editSessionActive NOTIFY editSessionChanged)
     Q_PROPERTY(QString editSessionEndReason READ editSessionEndReason NOTIFY editSessionChanged)
@@ -180,9 +179,10 @@ public:
     void requestUserControl(ShowControlRequest request);
 
     /** Save boundary: publish the accepted input no Show has taken yet, and
-     *  end those Shows and the take's Show at their content. Waits for no queued request; recording and
-     *  playback go on. False, keeping every candidate, when a Show rejects it. */
-    bool checkpoint(bool disarming = false);
+     *  end those Shows and the take's Show at their content. Waits for no
+     *  queued request; recording and playback go on. False, keeping every
+     *  candidate, when a Show rejects it. */
+    bool checkpoint();
 
     /** Drop the accepted input no Show has taken */
     void discardUnpublished();
@@ -222,19 +222,8 @@ public:
      *  moves before the Show Manager's selection lock is asked. */
     void followPerform(PerformFsm *fsm);
 
-    /** Playing state, fed by the existing transport events (Perform FSM, Show
-     *  Manager playback state). The recorder never reads the runtime's own
-     *  running flag from the UI thread, and authoring does not depend on it:
-     *  a bound recorder authors at the frozen position while paused. */
-    void setPlaying(bool playing);
-
     /** True while accepted user input is authored: recording and bound */
     bool isAuthoring() const;
-
-    /** Identity of the current take. A control that captures an input for
-     *  later delivery stores this with it, so a gesture can never be written
-     *  into the Show that happens to be bound when it finally arrives. */
-    quint64 takeId() const;
 
     /** The Show this take belongs to, InvalidId when nothing is bound */
     quint32 boundShowId() const;
@@ -242,10 +231,6 @@ public:
     int phaseValue() const;
     QString phaseName() const;
     QString targetName() const;
-
-    /** The bound Show's own authoritative position. There is no second
-     *  transport here: a paused Show simply keeps reporting its frozen time. */
-    int position() const;
 
     /** A stopped or paused host moved its cursor on a Show: input accepted on
      *  it is stamped there until that Show's clock moves. Seeks nothing. */
@@ -256,14 +241,10 @@ public:
      * Input seam
      *********************************************************************/
 public:
-    /** Offer one resolved user command at the current position. Returns true
-     *  when a command was stored. Programmatic, audio and replay origins never
-     *  author. UI thread. */
+    /** Offer one resolved user command at the bound Show's position. Returns
+     *  true when a command was stored. Programmatic, audio and replay origins
+     *  never author. UI thread. */
     bool submitUserInput(const ShowCommandInput &input);
-
-    /** A supported compound gesture: ordered commands from one user action,
-     *  authored at the same position in the given order. */
-    bool submitUserInput(const QVector<ShowCommandInput> &inputs);
 
     /** User input on a control or mode that cannot be recorded. Live control
      *  is unaffected; the user sees why nothing was stored. */
@@ -312,32 +293,27 @@ public:
     Q_INVOKABLE QVariantMap sliderSamples(quint32 showId, const QVariantList &eventIds) const;
     int extent() const;
 
-    /** Why the Show's recordings cannot be edited now, empty when they can.
-     *  Stopped, playing, paused and recording Shows all take edits: an edit
-     *  is published at once, and the runner processes what it meets next. */
-    bool editAllowed(quint32 showId, QString *reason = nullptr) const;
-    /** editAllowed() for the tracked Show */
+    /** Why the tracked Show's recordings cannot be edited, empty when they
+     *  can. Stopped, playing, paused and recording Shows all take edits: an
+     *  edit is published at once, and the runner processes what it meets next. */
     QString editBlockedReason() const;
 
     /** Editor edits. Each names the Show its row belongs to and is refused
      *  when that is no longer the tracked Show, when editing is not allowed,
      *  or when any result is invalid; then nothing changes. A change is one
      *  undo step and marks the project modified; a no-op is neither. */
-    Q_INVOKABLE bool retimeCommand(quint32 showId, quint32 id, qreal ms);
+    bool retimeCommand(quint32 showId, quint32 id, qreal ms);
     /** Intensity of SetIntensity, position of SetSliderPosition, 0..1 */
-    Q_INVOKABLE bool setCommandValue(quint32 showId, quint32 id, qreal value);
-    Q_INVOKABLE bool setCommandState(quint32 showId, quint32 id, bool on);
+    bool setCommandValue(quint32 showId, quint32 id, qreal value);
+    bool setCommandState(quint32 showId, quint32 id, bool on);
     /** The editor's cell text: field time (seconds), value (percent) or state (On/Off) */
-    Q_INVOKABLE bool editCommandText(quint32 showId, quint32 id, const QString &field, const QString &text);
+    bool editCommandText(quint32 showId, quint32 id, const QString &field, const QString &text);
     Q_INVOKABLE bool removeCommands(quint32 showId, const QVariantList &ids);
     /** Move the events by one shared delta: direction times stepMs rounded once */
     Q_INVOKABLE bool moveCommands(quint32 showId, const QVariantList &ids, int direction, qreal stepMs);
     /** Put the earliest event on the nearest beat anchorMs + k * beatMs, the
      *  others by the same delta */
     Q_INVOKABLE bool snapCommands(quint32 showId, const QVariantList &ids, qreal beatMs, qreal anchorMs);
-    /** Legacy function commands only */
-    Q_INVOKABLE bool setCommandAction(quint32 showId, quint32 id, const QString &action);
-    Q_INVOKABLE bool setCommandTarget(quint32 showId, quint32 id, quint32 functionId);
 
     /** One edit session at a time, for a drag, a stretch or a cell draft:
      *  begin freezes the Show, the exact ids and each event as it is now,
@@ -402,10 +378,8 @@ signals:
     void stateChanged();
     /** The tracked Show changed or was renamed */
     void targetNameChanged();
-    void positionChanged();
     void lastErrorChanged();
     void commandsChanged();
-    void editGateChanged();
     void referencesChanged();
     void clipboardChanged();
     void editSessionChanged();
@@ -424,16 +398,15 @@ private slots:
     /** A Show stopped or changed its time source: its timeline facts end */
     void slotTimelineReset();
     void slotFunctionAdded(quint32 id);
-    /** A Show's playback began or ended: the edit gate follows it */
+    /** A Show began playing: its timeline facts start over */
     void slotShowPlayback();
     /** A Show stopped: release replay-owned holds before timeline facts reset */
     void slotShowStopped(quint32 sourceId);
     /** Follow the controls and functions the current rows show */
     void observeRowSources();
 
-    /** The bound Show's own clock moved. A backward move ends the segment:
-     *  accepted input settles into it, its end becomes a floor for the Show's
-     *  duration, the take identity changes and the echo shield is reset. */
+    /** The tracked Show's own clock moved: it is the position again, not a
+     *  cursor the host set before */
     void slotShowClock();
 
 private:
@@ -447,11 +420,6 @@ private:
 
     /** Reload the track value from the tracked Show */
     void reloadTrack();
-
-    /** The authored timestamp is the Show time the input happened at. Read
-     *  from the host's own snapshot, never derived from a second playhead or
-     *  from the tick that later executes the effect. */
-    void syncPosition(Show *show);
 
     /** Author at an explicit Show time: the acceptance time of the input */
     bool authorAt(const QVector<ShowCommandInput> &inputs, quint32 positionMs);
@@ -496,7 +464,8 @@ private:
     ShowCommandTrack projectedCheckpointTrack(Show *show, bool *projected) const;
     void armCheckpointSaveProjection();
 
-    /** checkpoint() without reporting: error names the last rejection */
+    /** checkpoint() as one observed operation, without reporting: error
+     *  names the last rejection. Disarming closes the bound take's open holds. */
     bool publishAccepted(bool disarming, QString *error);
 
     void setError(const QString &error);
@@ -525,8 +494,6 @@ private:
                          quint32 showId, const QString &reason) const;
     /** The cause of the input or operation being handled now */
     ShowTraceCause currentCause() const;
-    /** checkpoint() as one observed operation of its own */
-    bool publishCheckpoint(bool disarming, QString *error);
     /** The explicit operation (checkpoint, handover) being handled now */
     const ShowTraceCause *m_operation = nullptr;
     void traceTransport(ShowEventLog::Outcome outcome, const QString &action, const QString &value,
@@ -637,8 +604,8 @@ private:
     quint32 m_trackedShowId = ShowCommand::InvalidId;
     QString m_lastError;
     bool m_publishing = false;
+    /** Diagnostics only: which take an entry belongs to */
     quint64 m_takeId = 0;
-    quint32 m_clockPosition = 0;
     quint32 m_hostCursorShowId = ShowCommand::InvalidId;
     quint32 m_hostCursor = 0;
     /** Accepted input a Show rejected, kept for the next publication */

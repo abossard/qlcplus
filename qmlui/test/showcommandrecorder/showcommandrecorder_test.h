@@ -165,7 +165,6 @@ private slots:
     void timeline_dragCommitsOnceOrCancels_data();
     void timeline_dragCommitsOnceOrCancels();
 
-    void editor_typedActionAndTargetEdits();
 
     void replayedButtonOn_startsItsSceneThroughShowPlayback();
     void nativeFunctionReceipt_settlesQueuedOperation_data();
