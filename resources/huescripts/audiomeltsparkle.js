@@ -88,23 +88,23 @@ var testAlgo;
       "name:presetAxis|type:list|display:Axis|" +
       "values:Horizontal,Vertical|write:setAxis|read:getAxis");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = HSVUtil.parseNumber(_v, algo.presetReactivity, 0, 10); };
     algo.getReactivity = function() { return algo.presetReactivity; };
-    algo.setBgBright = function(_v) { algo.presetBgBright = parseFloat(_v); };
+    algo.setBgBright = function(_v) { algo.presetBgBright = HSVUtil.parseNumber(_v, algo.presetBgBright, 0, 1); };
     algo.getBgBright = function() { return algo.presetBgBright; };
-    algo.setLavaWidth = function(_v) { algo.presetLavaWidth = parseFloat(_v); };
+    algo.setLavaWidth = function(_v) { algo.presetLavaWidth = HSVUtil.parseNumber(_v, algo.presetLavaWidth, 0, 1); };
     algo.getLavaWidth = function() { return algo.presetLavaWidth; };
-    algo.setStrobeThreshold = function(_v) { algo.presetStrobeThreshold = parseFloat(_v); };
+    algo.setStrobeThreshold = function(_v) { algo.presetStrobeThreshold = HSVUtil.parseNumber(_v, algo.presetStrobeThreshold, 0, 1); };
     algo.getStrobeThreshold = function() { return algo.presetStrobeThreshold; };
-    algo.setStrobeRate = function(_v) { algo.presetStrobeRate = parseFloat(_v); };
+    algo.setStrobeRate = function(_v) { algo.presetStrobeRate = HSVUtil.parseNumber(_v, algo.presetStrobeRate, 0, 1); };
     algo.getStrobeRate = function() { return algo.presetStrobeRate; };
-    algo.setStrobeWidth = function(_v) { algo.presetStrobeWidth = parseFloat(_v); };
+    algo.setStrobeWidth = function(_v) { algo.presetStrobeWidth = HSVUtil.parseNumber(_v, algo.presetStrobeWidth, 0, 1); };
     algo.getStrobeWidth = function() { return algo.presetStrobeWidth; };
-    algo.setStrobeDecay = function(_v) { algo.presetStrobeDecay = parseFloat(_v); };
+    algo.setStrobeDecay = function(_v) { algo.presetStrobeDecay = HSVUtil.parseNumber(_v, algo.presetStrobeDecay, 0, 1); };
     algo.getStrobeDecay = function() { return algo.presetStrobeDecay; };
-    algo.setStrobeBlur = function(_v) { algo.presetStrobeBlur = parseFloat(_v); };
+    algo.setStrobeBlur = function(_v) { algo.presetStrobeBlur = Math.round(HSVUtil.parseNumber(_v, algo.presetStrobeBlur, 0, 10)); };
     algo.getStrobeBlur = function() { return algo.presetStrobeBlur; };
     algo.setAxis = function(_v) { algo.presetAxis = _v; };
     algo.getAxis = function() { return algo.presetAxis; };
@@ -113,7 +113,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothLow = 0;

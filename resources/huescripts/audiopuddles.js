@@ -31,35 +31,35 @@ var testAlgo;
     algo.properties.push(
       "name:presetMaxRipples|type:range|display:Max Concurrent Ripples|" +
       "values:1,32|write:setMaxRipples|read:getMaxRipples");
-    algo.setMaxRipples = function(v) { algo.presetMaxRipples = parseInt(v); };
+    algo.setMaxRipples = function(v) { algo.presetMaxRipples = Math.round(HSVUtil.parseNumber(v, algo.presetMaxRipples, 1, 32)); };
     algo.getMaxRipples = function() { return algo.presetMaxRipples; };
 
     algo.presetExpansionSpeed = 30;
     algo.properties.push(
       "name:presetExpansionSpeed|type:range|display:Expansion Speed (px/s)|" +
       "values:5,200|write:setExpansionSpeed|read:getExpansionSpeed");
-    algo.setExpansionSpeed = function(v) { algo.presetExpansionSpeed = parseFloat(v); };
+    algo.setExpansionSpeed = function(v) { algo.presetExpansionSpeed = HSVUtil.parseNumber(v, algo.presetExpansionSpeed, 5, 200); };
     algo.getExpansionSpeed = function() { return algo.presetExpansionSpeed; };
 
     algo.presetMaxRadius = 30;
     algo.properties.push(
       "name:presetMaxRadius|type:range|display:Max Radius (px)|" +
       "values:4,120|write:setMaxRadius|read:getMaxRadius");
-    algo.setMaxRadius = function(v) { algo.presetMaxRadius = parseFloat(v); };
+    algo.setMaxRadius = function(v) { algo.presetMaxRadius = HSVUtil.parseNumber(v, algo.presetMaxRadius, 4, 120); };
     algo.getMaxRadius = function() { return algo.presetMaxRadius; };
 
     algo.presetLifeMs = 1500;
     algo.properties.push(
       "name:presetLifeMs|type:range|display:Ripple Lifetime (ms)|" +
       "values:200,5000|write:setLifeMs|read:getLifeMs");
-    algo.setLifeMs = function(v) { algo.presetLifeMs = parseFloat(v); };
+    algo.setLifeMs = function(v) { algo.presetLifeMs = HSVUtil.parseNumber(v, algo.presetLifeMs, 200, 5000); };
     algo.getLifeMs = function() { return algo.presetLifeMs; };
 
     algo.presetRingWidth = 2;
     algo.properties.push(
       "name:presetRingWidth|type:range|display:Ring Width (px)|" +
       "values:1,8|write:setRingWidth|read:getRingWidth");
-    algo.setRingWidth = function(v) { algo.presetRingWidth = parseFloat(v); };
+    algo.setRingWidth = function(v) { algo.presetRingWidth = HSVUtil.parseNumber(v, algo.presetRingWidth, 1, 8); };
     algo.getRingWidth = function() { return algo.presetRingWidth; };
 
     algo.presetTrigger = "Onset";
@@ -73,7 +73,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetMinSpawnMs|type:range|display:Min Spawn Interval (ms)|" +
       "values:0,500|write:setMinSpawnMs|read:getMinSpawnMs");
-    algo.setMinSpawnMs = function(v) { algo.presetMinSpawnMs = parseFloat(v); };
+    algo.setMinSpawnMs = function(v) { algo.presetMinSpawnMs = HSVUtil.parseNumber(v, algo.presetMinSpawnMs, 0, 500); };
     algo.getMinSpawnMs = function() { return algo.presetMinSpawnMs; };
     algo.presetRainBand = "Lows";
     algo.properties.push(
@@ -166,7 +166,8 @@ var testAlgo;
     algo.spawnAccumMs = 1e9; // start ready
     algo.rainPulseStrip = [];
     algo.rainPulseBaseline = [0, 0, 0];
-    var lastIdentityKey = "";
+    algo.rainPulseDecayFrames = 0;
+    var state = { audioKey: "", geometryKey: "" };
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
@@ -213,10 +214,14 @@ var testAlgo;
                 }
             }
 
+            var frames = HSVUtil.elapsedFrames(audio);
             for (var b = 0; b < 3; b++)
-                algo.rainPulseBaseline[b] = HSVUtil.attackRelease(algo.rainPulseBaseline[b], peaks[b], 0.99, 0.5);
+                algo.rainPulseBaseline[b] = HSVUtil.attackRelease(algo.rainPulseBaseline[b], peaks[b], 0.99, 0.5, frames);
 
-            var decaySteps = Math.round(dt * 50);
+            // Whole 20 ms decay steps; the rest carries over to the next render.
+            algo.rainPulseDecayFrames += frames;
+            var decaySteps = Math.round(algo.rainPulseDecayFrames);
+            algo.rainPulseDecayFrames -= decaySteps;
             for (var step = 0; step < decaySteps; step++) {
                 for (var d = 0; d < n; d++) {
                     algo.rainPulseStrip[d][0] = Math.floor(algo.rainPulseStrip[d][0] * 0.9);
@@ -240,14 +245,12 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio) {
         if (!audio)
             return HSVUtil.createMap(width, height);
-        var identityKey = HSVUtil.audioIdentityKey(audio, lastIdentityKey);
-        var identityChanged = identityKey !== lastIdentityKey;
-        lastIdentityKey = identityKey;
-        if (identityChanged) {
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             algo.ripples = [];
             algo.spawnAccumMs = 1e9;
             algo.rainPulseStrip = [];
             algo.rainPulseBaseline = [0, 0, 0];
+            algo.rainPulseDecayFrames = 0;
         }
         var dt = HSVUtil.audioSeconds(audio);
         if (algo.presetMode === "Rain Pulse")

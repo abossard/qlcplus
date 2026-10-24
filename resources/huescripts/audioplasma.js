@@ -56,15 +56,15 @@ var testAlgo;
     algo.presetSpeedMultiplier = 1;
     algo.properties.push("name:presetSpeedMultiplier|type:float|values:0,1|display:Wled Speed Multiplier|write:setSpeedMultiplier|read:getSpeedMultiplier");
 
-    algo.setDensity = function(v) { algo.density = parseFloat(v); };
+    algo.setDensity = function(v) { algo.density = HSVUtil.parseNumber(v, algo.density, 0.001, 2); };
     algo.getDensity = function() { return algo.density; };
-    algo.setLower = function(v) { algo.lower = parseFloat(v); };
+    algo.setLower = function(v) { algo.lower = HSVUtil.parseNumber(v, algo.lower, 0.01, 1); };
     algo.getLower = function() { return algo.lower; };
-    algo.setDensityVertical = function(v) { algo.density_vertical = parseFloat(v); };
+    algo.setDensityVertical = function(v) { algo.density_vertical = HSVUtil.parseNumber(v, algo.density_vertical, 0.01, 0.3); };
     algo.getDensityVertical = function() { return algo.density_vertical; };
-    algo.setTwist = function(v) { algo.twist = parseFloat(v); };
+    algo.setTwist = function(v) { algo.twist = HSVUtil.parseNumber(v, algo.twist, 0.01, 0.3); };
     algo.getTwist = function() { return algo.twist; };
-    algo.setRadius = function(v) { algo.radius = parseFloat(v); };
+    algo.setRadius = function(v) { algo.radius = HSVUtil.parseNumber(v, algo.radius, 0.01, 1); };
     algo.getRadius = function() { return algo.radius; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
@@ -86,7 +86,7 @@ var testAlgo;
 
     algo.presetSmoothing = 5;
     algo.properties.push("name:presetSmoothing|type:range|display:Smoothing|values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(v) { algo.presetSmoothing = parseInt(v); };
+    algo.setSmoothing = function(v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPower = 0;
@@ -236,7 +236,7 @@ var testAlgo;
             return map;
         }
 
-        smoothPower = HSVUtil.smoothFollow(smoothPower, rawPower, algo.presetSmoothing);
+        smoothPower = HSVUtil.smoothFollow(smoothPower, rawPower, algo.presetSmoothing, HSVUtil.elapsedFrames(audio));
 
         // BPM-scaled free-running time replaces LedFX's wall-clock self.now.
         // One unit of "time" advances per beat (matches LedFX seconds at 60 BPM).

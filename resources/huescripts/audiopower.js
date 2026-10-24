@@ -39,11 +39,11 @@ var testAlgo;
     algo.properties.push("name:sparks_color|type:string|display:Spark Color (#rrggbb)|write:setSparksColor|read:getSparksColor");
     algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
 
-    algo.setBlur = function(v) { algo.blur = parseFloat(v); };
+    algo.setBlur = function(v) { algo.blur = HSVUtil.parseNumber(v, algo.blur, 0, 10); };
     algo.getBlur = function() { return algo.blur; };
-    algo.setBassDecayRate = function(v) { algo.bass_decay_rate = parseFloat(v); };
+    algo.setBassDecayRate = function(v) { algo.bass_decay_rate = HSVUtil.parseNumber(v, algo.bass_decay_rate, 0, 1); };
     algo.getBassDecayRate = function() { return algo.bass_decay_rate; };
-    algo.setSparksDecayRate = function(v) { algo.sparks_decay_rate = parseFloat(v); };
+    algo.setSparksDecayRate = function(v) { algo.sparks_decay_rate = HSVUtil.parseNumber(v, algo.sparks_decay_rate, 0, 1); };
     algo.getSparksDecayRate = function() { return algo.sparks_decay_rate; };
     algo.setSparksColor = function(v) {
         if (typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v))
@@ -55,7 +55,7 @@ var testAlgo;
 
     algo.presetSmoothing = 5;
     algo.properties.push("name:presetSmoothing|type:range|display:Smoothing|values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(v) { algo.presetSmoothing = parseInt(v); };
+    algo.setSmoothing = function(v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo);
 
@@ -66,7 +66,6 @@ var testAlgo;
 
     var sparksV = null;
     var bassV = null;
-    var sparkColor = {h: 0.884, s: 1.0, v: 1.0};
     var lastW = 0;
     var ledSparks = null;
     var ledBass = null;
@@ -98,23 +97,6 @@ var testAlgo;
 
     function scaleInPlace(arr, factor) {
         for (var i = 0; i < arr.length; i++) arr[i] *= factor;
-    }
-
-    function boxBlur(strip, radius) {
-        if (radius < 0.5) return strip;
-        var n = strip.length;
-        var r = Math.max(1, Math.round(radius));
-        var out = new Array(n);
-        for (var i = 0; i < n; i++) {
-            var bh = 0, bs = 0, bv = 0, c = 0;
-            for (var k = -r; k <= r; k++) {
-                var idx = i + k;
-                if (idx < 0 || idx >= n) continue;
-                bh += strip[idx].h; bs += strip[idx].s; bv += strip[idx].v; c++;
-            }
-            out[i] = {h: bh / c, s: bs / c, v: bv / c};
-        }
-        return out;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -213,22 +195,25 @@ var testAlgo;
         }
 
         ensure(width);
+        var frames = HSVUtil.elapsedFrames(audio);
 
-        scaleInPlace(sparksV, 1.0 - Math.max(0, Math.min(1, algo.sparks_decay_rate)));
-        scaleInPlace(bassV, 1.0 - Math.max(0, Math.min(1, algo.bass_decay_rate)));
+        scaleInPlace(sparksV, Math.pow(1.0 - algo.sparks_decay_rate, frames));
+        scaleInPlace(bassV, Math.pow(1.0 - algo.bass_decay_rate, frames));
 
         // Sparks on onset
+        var sparkColor = HSVUtil.hexToHsv(algo.sparks_color);
         if (audio.onset) {
-            var numSparks = Math.floor(width / 20);
-            sparkColor = stops[stops.length - 1];
+            var numSparks = Math.max(1, Math.floor(width / 20));
             for (var s = 0; s < numSparks; s++) {
                 var sx = Math.floor(Math.random() * width);
                 sparksV[sx] = sparkColor.v;
             }
         }
 
-        // Bass fill from left
-        var bass = Math.max(0, Math.min(1, audio.low));
+        // Bass fill from left; the default range reads the engine's own lows
+        var rangePower = algo.frequency_range === "Lows (beat+bass)" ? audio.low
+            : HSVUtil.powerForRange(audio, algo.frequency_range);
+        var bass = Math.max(0, Math.min(1, rangePower));
         var bassIdx = Math.floor(bass * width);
         var bassHsv = HSVUtil.gradientAt(stops, bass);
         for (var i = 0; i < bassIdx && i < width; i++)
@@ -237,12 +222,12 @@ var testAlgo;
         // Build 5-band interpolated power strip
         var rawBands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
         for (var sb = 0; sb < 5; sb++)
-            smoothBands[sb] = HSVUtil.smoothFollow(smoothBands[sb], rawBands[sb], algo.presetSmoothing);
+            smoothBands[sb] = HSVUtil.smoothFollow(smoothBands[sb], rawBands[sb], algo.presetSmoothing, frames);
         var bands = smoothBands;
 
         // --- Bar-level build-up ---
         var rawEnergy = (audio.low + audio.mid * 0.5 + audio.high * 0.3) / 1.8;
-        HSVUtil.barEnvelope(barState, rawEnergy, audio.dt, audio.downbeat, 0.85);
+        HSVUtil.barEnvelope(barState, rawEnergy, audio.dt, audio.downbeat, Math.pow(0.85, frames));
 
         var strip = new Array(width);
         for (var x = 0; x < width; x++) {
@@ -269,10 +254,16 @@ var testAlgo;
             strip[x] = {h: ph, s: ps, v: totalV};
         }
 
-        strip = boxBlur(strip, algo.blur);
+        if (algo.blur >= 0.5)
+            strip = HSVUtil.blurStrip(strip, Math.round(algo.blur));
+        var row = HSVUtil.createMap(width, 1);
+        for (var px = 0; px < width; px++)
+            HSVUtil.setPixel(row, width, px, 0, strip[px].h, strip[px].s, strip[px].v);
+        var options = readOutputControls();
+        options.blur = 0; // the strip is box-blurred above
+        row = HSVUtil.applyStripTransforms(row, width, 1, options);
         for (var y = 0; y < height; y++)
-            for (var px = 0; px < width; px++)
-                HSVUtil.setPixel(map, width, px, y, strip[px].h, strip[px].s, strip[px].v);
+            map.set(row, y * width * 3);
         return map;
     };
 
