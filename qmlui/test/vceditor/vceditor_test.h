@@ -72,6 +72,7 @@ private slots:
     void pastePlacement_data();
     void pastePlacement();
     void duplicateKeepsClipboard();
+    void newWorkspaceShowsFirstPage();
     void nudgeStep_data();
     void nudgeStep();
     void alignToLastSelected_data();

@@ -1002,6 +1002,16 @@ void VCEditor_Test::duplicateKeepsClipboard()
     QCOMPARE(vc()->clipboardItemsList().first().toUInt(), ids.a);
 }
 
+void VCEditor_Test::newWorkspaceShowsFirstPage()
+{
+    vc()->setSelectedPage(1);
+    QTRY_VERIFY(m_app->rootObject()->findChild<QQuickItem *>("vcPage1"));
+
+    QVERIFY(m_app->newWorkspace());
+    QCOMPARE(vc()->selectedPage(), 0);
+    QTRY_VERIFY(m_app->rootObject()->findChild<QQuickItem *>("vcPage1") == nullptr);
+}
+
 void VCEditor_Test::nudgeStep_data()
 {
     QTest::addColumn<bool>("snapping");

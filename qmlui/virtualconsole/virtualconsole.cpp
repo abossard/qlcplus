@@ -211,8 +211,13 @@ void VirtualConsole::resetContents()
     m_latestWidgetId = 0;
     for (VCPage *page : m_pages)
         addWidgetToMap(page);
-    m_selectedPage = 0;
     m_loadStatus = Cleared;
+    // the view follows, or it keeps showing a page edits no longer target
+    if (m_selectedPage != 0)
+    {
+        m_selectedPage = 0;
+        emit selectedPageChanged(0);
+    }
 }
 
 
