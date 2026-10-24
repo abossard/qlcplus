@@ -339,7 +339,6 @@ void VCEditor_Test::alignToLastSelected()
 
     vc()->setWidgetSelection(first, nullptr, true, true);
     vc()->setWidgetSelection(last, nullptr, true, true);
-    QEXPECT_FAIL("button-last", "The reference is the lowest widget ID", Abort);
     QCOMPARE(vc()->selectedWidget(), vc()->widget(last));
     vc()->setWidgetsAlignment(vc()->selectedWidget(), Qt::AlignLeft);
     QCOMPARE(vc()->widget(first)->logicalGeometry().x(), lastX);

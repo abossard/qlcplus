@@ -348,6 +348,8 @@ private:
     void reportEdit(const QVariantMap &result);
     mutable QHash<quint32, int> m_unlockedPagePINs;
     QSet<QQuickItem *> m_selectionProjections;
+    /** The latest widget added to the selection: the reference for alignment and properties */
+    quint32 m_lastSelectedID = VCWidget::invalidId();
 
 protected:
     /** Create a new widget ID */

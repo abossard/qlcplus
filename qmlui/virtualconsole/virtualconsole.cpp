@@ -725,6 +725,7 @@ void VirtualConsole::setWidgetSelection(quint32 wID, QQuickItem *item, bool enab
     {
         QQuickItem *projection = item ? item : vcWidget->renderItem();
         m_itemsMap[wID] = projection;
+        m_lastSelectedID = wID;
         vcWidget->setIsEditing(nativeAuthoringError(vcWidget).isEmpty());
         if (projection)
         {
@@ -2621,7 +2622,7 @@ void VirtualConsole::autoLayoutPage()
 VCWidget *VirtualConsole::selectedWidget() const
 {
     VCWidget *selected = m_itemsMap.isEmpty() ? qobject_cast<VCWidget *>(page(m_selectedPage))
-                                            : widget(m_itemsMap.firstKey());
+                         : widget(m_itemsMap.contains(m_lastSelectedID) ? m_lastSelectedID : m_itemsMap.firstKey());
     return nativeAuthoringError(selected).isEmpty() ? selected : nullptr;
 }
 
