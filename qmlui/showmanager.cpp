@@ -67,6 +67,20 @@ ShowManager::ShowManager(QQuickView *view, Doc *doc, QObject *parent)
        their preview lines when the referenced Function is edited */
     connect(m_doc, SIGNAL(functionChanged(quint32)),
             this, SIGNAL(functionChanged(quint32)));
+    // the shown Show can be deleted elsewhere, e.g. in the Function Manager;
+    // native undo brings it back under its id
+    connect(m_doc, &Doc::functionRemoved, this, [this](quint32 id)
+    {
+        if (m_currentShow == nullptr || m_currentShow->id() != id)
+            return;
+        selectShow(Function::invalidId());
+        m_removedShowId = id;
+    });
+    connect(m_doc, &Doc::functionAdded, this, [this](quint32 id)
+    {
+        if (id == m_removedShowId)
+            setCurrentShowID(int(id));
+    });
 
     setContextResource("qrc:/ShowManager.qml");
     setContextTitle(tr("Show Manager"));
@@ -123,7 +137,12 @@ void ShowManager::setCurrentShowID(int currentShowID)
     ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
     if (recorder != nullptr && recorder->selectionAllowed(quint32(currentShowID)) == false)
         return;
+    m_removedShowId = Function::invalidId();
+    selectShow(currentShowID);
+}
 
+void ShowManager::selectShow(int currentShowID)
+{
     if (m_currentShow != nullptr)
     {
         if (m_currentShow->id() == (quint32)currentShowID)
@@ -540,8 +559,9 @@ void ShowManager::setTimeScale(float timeScale)
     }
     else
     {
+        // the shown Show can go while the application is being destroyed
         App *app = qobject_cast<App *>(m_view);
-        m_tickSize = app->pixelDensity() * (18 * tickScale);
+        m_tickSize = (app != nullptr ? app->pixelDensity() : pixelDensity()) * (18 * tickScale);
     }
 
     emit tickSizeChanged(m_tickSize);

@@ -1927,8 +1927,10 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
                 result.effects.append({ Effect::RefuseSelection });
                 return result;
             }
-            else
+            else if (event.showId != ShowCommand::InvalidId || state.manual.removed == false)
             {
+                // a deleted Show stays named through the "none" its deletion
+                // leaves behind, so its restoration finds it
                 next.manual = { event.showId, false };
             }
         break;

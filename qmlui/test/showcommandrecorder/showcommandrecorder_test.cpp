@@ -17309,6 +17309,56 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
     rig.recorder->setRecording(false);
 }
 
+void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake_data()
+{
+    QTest::addColumn<bool>("rec");
+
+    QTest::newRow("REC off") << false;
+    QTest::newRow("REC bound to it") << true;
+}
+
+void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake()
+{
+    QFETCH(bool, rec);
+
+    AppRig rig;
+    QVERIFY(rig.recorder && rig.manager);
+    auto *functions = qobject_cast<FunctionManager *>(rig.context("functionManager"));
+    auto *tardis = qobject_cast<Tardis *>(rig.context("tardis"));
+    QVERIFY(functions && tardis);
+    Show *a = rig.addShow(3000);
+    a->setName(QStringLiteral("Take A"));
+    const quint32 aId = a->id();
+    rig.manager->setCurrentShowID(int(aId));
+    QVERIFY(rig.recorder->setRecording(rec));
+    QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));
+
+    // the Function Manager deletes the shown Show: nothing is shown or recorded into
+    functions->deleteFunction(aId);
+    QVERIFY(rig.doc->function(aId) == nullptr);
+    QCOMPARE(rig.manager->currentShowID(), int(Function::invalidId()));
+    QVERIFY(!rig.manager->isEditing());
+    QCOMPARE(rig.recorder->isRecording(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), quint32(Function::invalidId()));
+    QCOMPARE(rig.recorder->targetName(), QString());
+    if (rec)
+        QVERIFY2(rig.recorder->lastError().contains(QStringLiteral("Take A")), qPrintable(rig.recorder->lastError()));
+
+    // native undo brings it back under its id: shown again, and the take goes on in it
+    QTest::qWait(200);
+    tardis->undoAction();
+    auto *restored = qobject_cast<Show *>(rig.doc->function(aId));
+    QVERIFY(restored);
+    QCOMPARE(rig.manager->currentShow(), restored);
+    QCOMPARE(rig.manager->currentShowID(), int(aId));
+    QCOMPARE(rig.recorder->targetName(), QStringLiteral("Take A"));
+    QCOMPARE(rig.recorder->isAuthoring(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));
+    QCOMPARE(restored->commandRecording(), rec);
+    QCOMPARE(rig.doc->masterTimer()->runningFunctions(), 0);
+    rig.recorder->setRecording(false);
+}
+
 void ShowCommandRecorder_Test::appMcpReplacement_needsDiscardWhileRecording_data()
 {
     QTest::addColumn<QString>("tool");

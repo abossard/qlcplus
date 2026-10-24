@@ -2354,6 +2354,9 @@ void ShowCommandTrack_Test::recordTransitions_data()
     row("restoring an unnamed Show", "rec m=1", "restored 2", true, "rec m=1", bound, false, "");
     row("armed after a deletion binds the next selection", "rec m=1x", "manual 2", true, "rec m=2", bound,
         false, "track 2, on 2");
+    row("selecting none keeps a deleted Show named", "rec m=1x", "manual -", true, "rec m=1x", armed, false, "");
+    row("selecting none while off keeps a deleted Show named", "off m=1x", "manual -", true, "off m=1x", off,
+        false, "");
 
     // workspace replacement
     row("discarding drops everything unsaved", "rec m=1 p=2", "discard", true, "off p=-", off, false,

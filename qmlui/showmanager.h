@@ -180,8 +180,13 @@ private:
     bool m_isPaused;
     bool m_pausing = false;
 
+    /** setCurrentShowID() without the recorder's selection gate */
+    void selectShow(int showId);
+
     /** A reference to the Show Function being edited */
     Show *m_currentShow;
+    /** The shown Show that was deleted: shown again if it comes back */
+    quint32 m_removedShowId = Function::invalidId();
 
     /** Flag that indicates if a Function should be stretched
      *  when the corresponding Show Item duration changes */
