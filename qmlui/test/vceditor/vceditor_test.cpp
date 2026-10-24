@@ -21,6 +21,7 @@
 
 #include <QtTest>
 #include <QBuffer>
+#include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlExpression>
 #include <QQuickItem>
@@ -632,6 +633,41 @@ void VCEditor_Test::pageSwitchPrunesSelection()
 
     vc()->setSelectedPage(1);
     QCOMPARE(vc()->selectedWidgetIDs(), selectOnTarget ? QVariantList{onTarget} : QVariantList());
+}
+
+void VCEditor_Test::keysIgnoredWhileTyping_data()
+{
+    QTest::addColumn<int>("key");
+    QTest::newRow("up") << int(Qt::Key_Up);
+    QTest::newRow("down") << int(Qt::Key_Down);
+    QTest::newRow("left") << int(Qt::Key_Left);
+    QTest::newRow("right") << int(Qt::Key_Right);
+    QTest::newRow("delete") << int(Qt::Key_Delete);
+    QTest::newRow("backspace") << int(Qt::Key_Backspace);
+}
+
+void VCEditor_Test::keysIgnoredWhileTyping()
+{
+    QFETCH(int, key);
+    const ConsoleIds ids = buildConsole();
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QVERIFY(console);
+    // Stands in for the property fields, which live inside the console too
+    QQmlComponent component(m_app->engine());
+    component.setData("import QtQuick; TextInput { width: 100; height: 20 }", QUrl());
+    std::unique_ptr<QQuickItem> field(qobject_cast<QQuickItem *>(component.create(qmlContext(console))));
+    QVERIFY2(field, qPrintable(component.errorString()));
+    field->setParentItem(console);
+    m_app->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(m_app.get()));
+    vc()->setSelectedWidgetIDs({ids.loose});
+    field->forceActiveFocus();
+    QTRY_VERIFY(field->hasActiveFocus());
+    const QRectF before = vc()->widget(ids.loose)->logicalGeometry();
+
+    QTest::keyClick(m_app.get(), Qt::Key(key));
+    QVERIFY(vc()->widget(ids.loose));
+    QCOMPARE(vc()->widget(ids.loose)->logicalGeometry(), before);
 }
 
 void VCEditor_Test::nudgeStep_data()

@@ -60,6 +60,8 @@ private slots:
 
     void pageSwitchPrunesSelection_data();
     void pageSwitchPrunesSelection();
+    void keysIgnoredWhileTyping_data();
+    void keysIgnoredWhileTyping();
     void nudgeStep_data();
     void nudgeStep();
     void alignToLastSelected_data();

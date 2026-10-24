@@ -34,7 +34,8 @@ Rectangle
     Keys.enabled: virtualConsole ? virtualConsole.editMode : false
     Keys.onPressed: (event) =>
     {
-        if (!virtualConsole || !virtualConsole.editMode)
+        // keys a text field leaves unhandled must not edit the selection
+        if (!virtualConsole || !virtualConsole.editMode || mainView.shortcutsBlocked())
             return
 
         if (event.modifiers & Qt.ControlModifier)
