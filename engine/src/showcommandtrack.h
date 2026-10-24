@@ -249,6 +249,8 @@ struct ShowCommand
     /** false when the name is not a known action */
     static bool actionFromString(const QString &name, ShowCommandAction *action);
     static bool isControlAction(ShowCommandAction action);
+    /** A momentary role whose press and release form one hold pair */
+    static bool isHoldRole(ShowControlRole role);
     static bool hasTypedPayload(ShowCommandAction action);
 
     static QString roleToString(ShowControlRole role);
@@ -384,9 +386,9 @@ public:
      *  every pair id this track value has held, so a removed pair's id is
      *  never reissued. */
     quint32 nextPairId() const;
-    /** Never issue an id, order or pair id below these again, e.g. ones an
-     *  undo history still names */
-    void reserve(quint32 nextEventId, quint32 nextOrder, quint32 nextPairId = 0);
+    /** Never issue an id, order or pair id below the ones floor would issue,
+     *  e.g. ones an undo history still names. True when a mark was raised. */
+    bool reserve(const ShowCommandTrack &floor);
 
     /** The one hold pair invariant. Per control and role, the SetButtonState
      *  edges sharing a pair id are one press and at most one release after it,

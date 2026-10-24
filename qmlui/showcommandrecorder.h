@@ -472,7 +472,7 @@ private:
     /** After a live edit, align replay-owned hold effects with the authored
      *  state at the current playhead so moved/deleted holds release at once. */
     void reconcileReplayOwnedHoldsAtCursor(Show *show);
-    /** Release the holds showId's replay owns and return what its timeline changed */
+    /** Release the holds showId's replay owns and restore what its timeline changed */
     void releaseReplayOwned(quint32 showId);
     /** Replace one command, for the value and state edits */
     bool replaceCommand(quint32 showId, quint32 id, const std::function<QString(ShowCommand &)> &change);
@@ -645,15 +645,11 @@ private:
     /** Function targets of copied commands deleted since, or already absent
      *  at, the Copy: the Doc may give their ids to other Functions */
     QSet<quint32> m_clipboardDeletedTargets;
-    /** Per Show ID, the event ids, equal-time orders and hold pair ids issued
-     *  in this workspace so far: a Show restored from XML (native undo of its
-     *  deletion) keeps them unissued, since the editor's undo history may
-     *  still name them */
-    struct IdFloor
-    {
-        quint32 event = 0, order = 0, pair = 0;
-    };
-    QHash<quint32, IdFloor> m_eventIdFloors;
+    /** Per Show ID, a track value whose high water marks cover the event
+     *  ids, equal-time orders and hold pair ids issued in this workspace so
+     *  far: a Show restored from XML (native undo of its deletion) keeps them
+     *  unissued, since the editor's undo history may still name them */
+    QHash<quint32, ShowCommandTrack> m_eventIdFloors;
     /** Replay-owned FreezeHold controls currently active per show. */
     QHash<quint32, QSet<QUuid>> m_replayFreezeHolds;
     /** Replay-owned Flash button controls currently active per show. */

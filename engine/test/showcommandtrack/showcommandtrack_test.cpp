@@ -49,6 +49,19 @@ static ShowCommandTrack fixtureTrack()
     return track;
 }
 
+/** A track value holding nothing but these high water marks */
+static ShowCommandTrack highWaterMarks(quint32 nextEventId, quint32 nextOrder, quint32 nextPairId)
+{
+    ShowCommandTrack marks;
+    ShowCommand edge = ShowCommand::setButtonState(nextEventId - 1, 0, kControlA, true);
+    edge.role = ShowControlRole::FlashButton;
+    edge.pairId = nextPairId - 1;
+    edge.order = nextOrder - 1;
+    marks.restore(edge);
+    marks.remove(edge.id);
+    return marks;
+}
+
 static QVector<quint32> idsOf(const ShowCommandTrack &track)
 {
     QVector<quint32> ids;
@@ -113,7 +126,7 @@ void ShowCommandTrack_Test::incompatiblePairIsTransactional()
     QFETCH(QString, pair);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     QString reason;
@@ -157,7 +170,7 @@ void ShowCommandTrack_Test::explicitButtonPairIsTransactional()
     QFETCH(QString, pair);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     const QString xml = QStringLiteral(
@@ -419,7 +432,7 @@ void ShowCommandTrack_Test::typedPayloadRejection()
     QFETCH(QString, reasonPart);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     for (const bool replace : {false, true})
@@ -507,7 +520,7 @@ void ShowCommandTrack_Test::nativeSchemaRejection()
     QFETCH(int, version);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     QString xml;
@@ -2781,7 +2794,7 @@ void ShowCommandTrack_Test::pairIdsAreNeverReissued()
         QVERIFY(track.remove(2) && track.remove(3));
     }
     if (history == QLatin1String("reserve"))
-        track.reserve(0, 0, 9);
+        track.reserve(highWaterMarks(1, 1, 9));
 
     ShowCommandState state = ShowCommandFsm::setResolvedShow(ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
     state.position = 5000;

@@ -45,13 +45,6 @@ ShowCommandRecorder *ShowCommandRecorder::s_instance = nullptr;
 using Phase = ShowEventLog::Phase;
 using Outcome = ShowEventLog::Outcome;
 
-static bool isHoldRole(ShowControlRole role)
-{
-    return role == ShowControlRole::FlashButton || role == ShowControlRole::FreezeHoldButton ||
-           role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
-           role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
-}
-
 namespace
 {
 QString commandActionText(const ShowCommand &cmd);
@@ -1026,7 +1019,7 @@ QVector<quint32> idList(const QVariantList &ids)
 
 bool isPairedHoldCommand(const ShowCommand &cmd)
 {
-    return cmd.action == ShowCommandAction::SetButtonState && isHoldRole(cmd.role) &&
+    return cmd.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(cmd.role) &&
            cmd.pairId != ShowCommand::InvalidId;
 }
 
@@ -1916,8 +1909,7 @@ QVariantList ShowCommandRecorder::pasteCommands(quint32 showId, qreal atMs)
 
     // above every id the Show, its input not taken yet and its history hold
     ShowCommandTrack candidate = show->commandTrack();
-    const ShowCommandTrack accepted = withUnpublished(show);
-    candidate.reserve(accepted.nextEventId(), 0, accepted.nextPairId());
+    candidate.reserve(withUnpublished(show));
     const qint64 delta = qRound64(atMs) - qint64(m_clipboard.first().time);
     quint32 nextPair = candidate.nextPairId();
     QHash<quint32, quint32> pairRemap;
@@ -2598,25 +2590,18 @@ void ShowCommandRecorder::traceInput(VCWidget *control, ShowCommandOrigin origin
 void ShowCommandRecorder::slotFunctionAdded(quint32 id)
 {
     Show *show = qobject_cast<Show *>(m_doc->function(id));
-    const IdFloor floor = m_eventIdFloors.value(id);
-    if (show != nullptr &&
-        (floor.event > show->commandTrack().nextEventId() || floor.order > show->commandTrack().nextOrder() ||
-         floor.pair > show->commandTrack().nextPairId()))
+    if (show != nullptr)
     {
         ShowCommandTrack restored = show->commandTrack();
-        restored.reserve(floor.event, floor.order, floor.pair);
-        show->setCommandTrack(restored);
+        if (restored.reserve(m_eventIdFloors.value(id)))
+            show->setCommandTrack(restored);
     }
     attachShow(show);
 }
 
 void ShowCommandRecorder::rememberEventIds(const Show *show)
 {
-    IdFloor &floor = m_eventIdFloors[show->id()];
-    const ShowCommandTrack track = show->commandTrack();
-    floor.event = qMax(floor.event, track.nextEventId());
-    floor.order = qMax(floor.order, track.nextOrder());
-    floor.pair = qMax(floor.pair, track.nextPairId());
+    m_eventIdFloors[show->id()].reserve(show->commandTrack());
 }
 
 void ShowCommandRecorder::attachShow(Show *show)

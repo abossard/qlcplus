@@ -463,13 +463,6 @@ namespace
         return pending;
     }
 
-    bool isMomentaryHoldRole(ShowControlRole role)
-    {
-        return role == ShowControlRole::FlashButton || role == ShowControlRole::FreezeHoldButton ||
-               role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
-               role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
-    }
-
     /** One hold pair: the indices of its press and release, -1 when absent */
     struct HoldPair
     {
@@ -1225,6 +1218,13 @@ bool ShowCommand::hasTypedPayload(ShowCommandAction action)
            action <= ShowCommandAction::SetSliderChannel;
 }
 
+bool ShowCommand::isHoldRole(ShowControlRole role)
+{
+    return role == ShowControlRole::FlashButton || role == ShowControlRole::FreezeHoldButton ||
+           role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
+           role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
+}
+
 bool ShowCommand::isControlAction(ShowCommandAction action)
 {
     return action >= ShowCommandAction::SetButtonState &&
@@ -1388,14 +1388,19 @@ quint32 ShowCommandTrack::nextPairId() const
     return m_nextPairId;
 }
 
-void ShowCommandTrack::reserve(quint32 nextEventId, quint32 nextOrder, quint32 nextPairId)
+bool ShowCommandTrack::reserve(const ShowCommandTrack &floor)
 {
-    if (m_nextEventId != ShowCommand::InvalidId && nextEventId > m_nextEventId)
-        m_nextEventId = nextEventId;
-    if (m_nextOrder != ShowCommand::InvalidId && nextOrder > m_nextOrder)
-        m_nextOrder = nextOrder;
-    if (m_nextPairId != ShowCommand::InvalidId && nextPairId > m_nextPairId)
-        m_nextPairId = nextPairId;
+    const auto raise = [](quint32 &mark, quint32 to)
+    {
+        if (mark == ShowCommand::InvalidId || to <= mark)
+            return false;
+        mark = to;
+        return true;
+    };
+    const bool event = raise(m_nextEventId, floor.m_nextEventId);
+    const bool order = raise(m_nextOrder, floor.m_nextOrder);
+    const bool pair = raise(m_nextPairId, floor.m_nextPairId);
+    return event || order || pair;
 }
 
 QVector<quint32> ShowCommandTrack::malformedHoldPairs() const
@@ -1982,7 +1987,7 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     cmd.position = input.position;
 
     if (cmd.id != ShowCommand::InvalidId && cmd.action == ShowCommandAction::SetButtonState &&
-        isMomentaryHoldRole(cmd.role))
+        ShowCommand::isHoldRole(cmd.role))
     {
         if (cmd.on)
         {
