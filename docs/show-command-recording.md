@@ -444,8 +444,8 @@ or turns off while the selection is another Show, the take on the previous one
 closes and REC continues on the new one; if the previous take cannot be saved,
 REC turns off and displays why. While a take is bound, the Show Manager keeps its
 Show selected. Deleting the take's Show leaves REC waiting for a Show, says why
-and drops the input the Show had not stored; undoing the deletion binds the
-restored Show again.
+and drops the input the Show had not stored; undoing the deletion shows the
+restored Show again and binds it again.
 
 Toggle buttons, including those in Solo Frames, record their desired On/Off
 state. Flash buttons, slider flash and FreezeHold record paired press/release
