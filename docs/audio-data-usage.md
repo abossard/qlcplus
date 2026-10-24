@@ -282,8 +282,9 @@ fill and gradient direction stays attached to its frequency group when
 Flip Band Order is enabled.
 
 These adaptations change saved matrix looks under the same existing choices.
-Artistic and single-row/single-column rendering stay unchanged. Shared
-flip, mirror and blur remain the existing one-dimensional output transforms.
+Artistic and single-row/single-column rendering stay unchanged. In Bands
+Matrix's Matrix layout, flip, mirror and blur act on each row; strips keep
+the one-dimensional output transforms.
 
 ## Focused 320-pixel performance assessment
 
