@@ -452,6 +452,9 @@ private:
     void reconcileReplayOwnedHoldsAtCursor(Show *show);
     /** Release the holds showId's replay owns and restore what its timeline changed */
     void releaseReplayOwned(quint32 showId);
+    /** The holds every other Show's replay keeps, as widget ids: releasing
+     *  showId's holds leaves a shared effect they hold alone */
+    ShowControlAction::Holds replayHoldsOfOthers(quint32 showId) const;
     /** The user's hold set for edges of role, nullptr for a role that holds nothing */
     QSet<quint32> *userHolds(ShowControlRole role);
     /** showId's replay hold set for edges of role, nullptr for a role that holds nothing */

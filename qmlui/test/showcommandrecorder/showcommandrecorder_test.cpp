@@ -15258,6 +15258,174 @@ void ShowCommandRecorder_Test::replayedHold_releasedWhenAShowIsDeleted()
     QCOMPARE(r.button->state(), VCButton::Inactive);
 }
 
+namespace
+{
+/** Shows A and B each replay a hold [1000, 5000] on their own control of
+ *  one kind, A1 and B2: flash buttons or Adjust sliders on one Scene, or
+ *  two FreezeHold buttons. One shared effect, two owners. */
+struct SharedHoldRig
+{
+    Doc doc{nullptr, 1};
+    UiFixture ui{&doc};
+    VCBridgeV5 bridge{&doc, ui.vc()};
+    ShowCommandRecorder recorder{&doc};
+    Scene *target = addTarget(&doc);
+    Show *a = new Show(&doc);
+    Show *b = new Show(&doc);
+    QString role;
+    int frame = -1;
+    VCWidget *a1 = nullptr;
+    VCWidget *b2 = nullptr;
+    qreal baseline = 1.0;
+    bool aDeleted = false;
+    bool userHeld = false;
+
+    bool setUp(const QString &kind)
+    {
+        role = kind;
+        recorder.setVirtualConsole(ui.vc());
+        if (!doc.addFunction(a) || !doc.addFunction(b))
+            return false;
+        frame = addFrame(bridge, 0, QRect(0, 0, 660, 300), QStringLiteral("Shared hold"), false);
+        a1 = control(10);
+        b2 = control(300);
+        if (a1 == nullptr || b2 == nullptr)
+            return false;
+        // A1's own level, which its flash raises to full and its release restores
+        if (auto *slider = qobject_cast<VCSlider *>(a1))
+        {
+            slider->setValue(76);
+            tickAndDeliver(&doc, 2);
+        }
+        baseline = target->getAttributeValue(Function::Intensity);
+        return true;
+    }
+
+    VCWidget *control(int x)
+    {
+        if (role == QLatin1String("slider flash"))
+            return addAdjustSlider(bridge, ui.vc(), frame, target->id(), x);
+        const bool flash = role == QLatin1String("flash");
+        return ui.vc()->widget(bridge.addButton(frame, QRect(x, 10, 80, 48),
+                                                flash ? target->id() : quint32(Function::invalidId()),
+                                                QStringLiteral("Hold"),
+                                                flash ? QStringLiteral("flash") : QStringLiteral("freezehold")));
+    }
+
+    /** show replays a hold [1000, 5000] of control; true once it took effect at 2000 */
+    bool replay(Show *show, VCWidget *control)
+    {
+        ShowCommand on = ShowCommand::setButtonState(1, 1000, control->ensureRecordingId(), true);
+        on.role = role == QLatin1String("flash") ? ShowControlRole::FlashButton
+                : role == QLatin1String("freeze hold") ? ShowControlRole::FreezeHoldButton
+                                                       : ShowControlRole::AdjustSlider;
+        on.pairId = 1;
+        ShowCommand off = on;
+        off.id = 2;
+        off.time = 5000;
+        off.on = false;
+        ShowCommandTrack track;
+        if (!track.insert(on) || !track.insert(off) || !track.setExtent(60000) || !show->setCommandTrack(track))
+            return false;
+        show->setSyncSource(ShowRunner::External);
+        playExternalFromZero(show, &doc);
+        show->setExternalElapsedTime(2000);
+        // the effect may be on already: wait for this Show's own batch instead
+        for (int i = 0; i < 200 && show->commandPosition() < 2000; i++)
+            tickAndDeliver(&doc);
+        for (int i = 0; i < 50 && (show->commandWorkPending() || recorder.pendingControlRuns() > 0); i++)
+            tickAndDeliver(&doc);
+        tickAndDeliver(&doc, 2);
+        return effect();
+    }
+
+    /** The user holds B2 */
+    void userHolds(bool on)
+    {
+        userHeld = on;
+        if (auto *slider = qobject_cast<VCSlider *>(b2))
+            slider->requestUserFlash(on);
+        else
+            qobject_cast<VCButton *>(b2)->requestUserStateChange(on);
+        tickAndDeliver(&doc, 2);
+    }
+
+    /** The shared effect: the Scene flashing, the output frozen, or the level at full */
+    bool effect() const
+    {
+        if (role == QLatin1String("flash"))
+            return target->flashing();
+        if (role == QLatin1String("freeze hold"))
+            return doc.inputOutputMap()->frozenMomentary();
+        return qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0));
+    }
+
+    ~SharedHoldRig()
+    {
+        // the timer still lists a Show deleted while playing: it must not tick again
+        if (aDeleted)
+            return;
+        if (userHeld)
+            userHolds(false);
+        for (Function *f : std::initializer_list<Function *>{a, b, target})
+            f->stop(FunctionParent::master());
+        tickAndDeliver(&doc, 5);
+    }
+};
+}
+
+void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold_data()
+{
+    QTest::addColumn<QString>("role");
+    QTest::addColumn<QString>("other");
+    QTest::addColumn<bool>("deleted");
+
+    for (const char *role : {"flash", "freeze hold", "slider flash"})
+        for (const char *other : {"replay", "user", "none"})
+            for (bool deleted : {false, true})
+                QTest::newRow(qPrintable(QStringLiteral("%1, %2 holds too, A %3").arg(role, other,
+                                                                                       deleted ? "deleted" : "stopped")))
+                    << QString::fromLatin1(role) << QString::fromLatin1(other) << deleted;
+}
+
+void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold()
+{
+    QFETCH(QString, role);
+    QFETCH(QString, other);
+    QFETCH(bool, deleted);
+
+    SharedHoldRig r;
+    QVERIFY(r.setUp(role));
+    QVERIFY(r.replay(r.a, r.a1));
+    if (other == QLatin1String("replay"))
+        QVERIFY(r.replay(r.b, r.b2));
+    else if (other == QLatin1String("user"))
+        r.userHolds(true);
+    QVERIFY(r.effect());
+
+    if (deleted)
+    {
+        // like the Function Manager: a stop request, then the deletion before the timer ran it
+        r.a->stop(FunctionParent::master());
+        QVERIFY(r.doc.deleteFunction(r.a->id()));
+        r.aDeleted = true;
+        QCoreApplication::processEvents();
+    }
+    else
+    {
+        r.a->stop(FunctionParent::master());
+        tickAndDeliver(&r.doc, 3);
+    }
+
+    // A's end releases only what nobody else holds
+    const bool kept = other != QLatin1String("none");
+    QCOMPARE(r.effect(), kept);
+    if (role == QLatin1String("slider flash"))
+        QCOMPARE(r.target->getAttributeValue(Function::Intensity), kept ? qreal(1.0) : r.baseline);
+    else if (!kept)
+        QCOMPARE(qobject_cast<VCButton *>(r.a1)->state(), VCButton::Inactive);
+}
+
 void ShowCommandRecorder_Test::patchedInput_recordsOnlyUserRoutes_data()
 {
     QTest::addColumn<QString>("plugin");

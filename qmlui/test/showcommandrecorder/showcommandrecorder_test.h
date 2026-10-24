@@ -420,6 +420,8 @@ private slots:
     void replayedHold_historyEditReleasesIt();
     void replayedHold_releasedWhenAShowIsDeleted_data();
     void replayedHold_releasedWhenAShowIsDeleted();
+    void replayedHold_endSparesWhatOthersHold_data();
+    void replayedHold_endSparesWhatOthersHold();
     void recordingsEditor_holdPairPasteUndoRedoKeepsFreshPairIds();
     void patchedInput_recordsOnlyUserRoutes_data();
     void patchedInput_recordsOnlyUserRoutes();

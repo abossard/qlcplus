@@ -104,6 +104,7 @@ public:
     struct Holds
     {
         QSet<quint32> freeze, flash, sliderFlash;
+        void unite(const Holds &other);
     };
     struct Stop
     {
@@ -111,6 +112,8 @@ public:
         QVector<Restoration> effects;
         QSet<QUuid> freeze, flash, sliderFlash;
         Holds user;
+        /** Holds other replay owners keep: a shared effect they hold stays */
+        Holds elsewhere;
         std::optional<bool> freezeIntent, blackoutIntent;
     };
 
