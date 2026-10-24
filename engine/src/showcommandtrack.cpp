@@ -1747,14 +1747,16 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
 
 bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
 {
-    Q_ASSERT(doc != nullptr);
-
     // a file holds no hold in progress: one left open ends at the extent
     ShowCommandTrack closed = *this;
     if (closed.closeOpenHolds(m_extent) == false)
         return false;
-    if (closed.count() != count())
-        return closed.saveXML(doc);
+    return closed.writeXML(doc);
+}
+
+bool ShowCommandTrack::writeXML(QXmlStreamWriter *doc) const
+{
+    Q_ASSERT(doc != nullptr);
 
     // a track of function commands only keeps writing exactly the legacy document
     const bool controlStates = std::any_of(m_commands.cbegin(), m_commands.cend(),
