@@ -16161,6 +16161,8 @@ void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
     start.action = ShowCommandAction::Start;
     start.functionId = goneId;
     QVERIFY(!r.recorder.submitUserInput(start));
+    // a host cursor on the Show goes with it
+    r.recorder.setHostCursor(showId, 5000);
 
     QBuffer xml;
     xml.open(QIODevice::WriteOnly);
@@ -16191,8 +16193,6 @@ void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
     QVERIFY(Function::loader(reader, &r.doc));
     auto *restored = qobject_cast<Show *>(r.doc.function(showId));
     QVERIFY(restored);
-    restored->setSyncSource(ShowRunner::External);
-    restored->setExternalElapsedTime(2000);
     // bound again, to the restored object and its signals
     QVERIFY(r.recorder.isAuthoring());
     QCOMPARE(r.recorder.boundShowId(), showId);
@@ -16202,9 +16202,11 @@ void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
     restored->setName(QStringLiteral("Take again"));
     QCOMPARE(renamed.count(), 1);
     QCOMPARE(r.recorder.targetName(), QStringLiteral("Take again"));
+    // input is stamped at the restored Show's own clock, not the deleted Show's cursor
     r.slider->requestUserValue(153);
     QCOMPARE(restored->commandTrack().count(), 2);
-    QCOMPARE(restored->commandTrack().commands().last().time, 2000u);
+    QCOMPARE(restored->commandTrack().commands().first().time, 0u);
+    QCOMPARE(restored->commandTrack().commands().last().time, 1000u);
     QVERIFY2(r.recorder.setRecording(false), qPrintable(r.recorder.lastError()));
     QVERIFY(!restored->commandRecording());
 }

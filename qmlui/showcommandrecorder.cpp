@@ -877,6 +877,8 @@ void ShowCommandRecorder::slotFunctionRemoved(quint32 id)
     forgetTimeline(id);
     m_userFreezeIntent.remove(id);
     m_userBlackoutIntent.remove(id);
+    if (m_hostCursorShowId == id)
+        m_hostCursorShowId = ShowCommand::InvalidId;
     // accepted input goes with the Show that owned it, and so does its take
     ShowRecordEvent event;
     event.kind = ShowRecordEvent::Kind::Removed;
