@@ -252,6 +252,8 @@ void App::startup()
     rootContext()->setContextProperty("showCommandRecorder", m_showCommandRecorder);
     m_showEvents = new ShowEventModel(m_doc, m_showCommandRecorder, this);
     rootContext()->setContextProperty("showEvents", m_showEvents);
+    // the Show Manager's selection, also the Show its addItems() creates and
+    // shows without setCurrentShowID()
     connect(m_showManager, &ShowManager::currentShowIDChanged,
             m_showCommandRecorder, [this](int showID)
     {
@@ -315,9 +317,11 @@ void App::startup()
     }
 
     // Perform resolves a Show for the playing deck without the Show Manager
-    // being open, so Record follows the same target. While Perform is
-    // engaged the recorder ignores the Show Manager selection, so the DJ
-    // Manager's own follower may run in either order.
+    // being open, so Record follows the same target. Connected before the DJ
+    // Manager below, on purpose: engaging Perform on a resolved deck is one
+    // stateChanged, and the recorder must see Perform engaged before the DJ
+    // Manager's follower asks the Show Manager to select the deck's Show,
+    // or a take bound to another Show refuses that selection.
     if (m_showCommandRecorder != nullptr)
         m_showCommandRecorder->followPerform(m_vdjBridge->performFsm());
 
