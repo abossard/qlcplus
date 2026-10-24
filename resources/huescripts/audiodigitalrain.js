@@ -75,8 +75,8 @@ var testAlgo;
         return out;
     }
 
-    function updateImpulse(current, target) {
-        return HSVUtil.attackRelease(current, target, 0.99, algo.presetImpulseDecay);
+    function updateImpulse(current, target, frames) {
+        return HSVUtil.attackRelease(current, target, 0.99, algo.presetImpulseDecay, frames);
     }
 
     function rawPower(audio, name) {
@@ -115,9 +115,10 @@ var testAlgo;
         }
         var dt = HSVUtil.audioSeconds(audio);
         var beatOsc = audio && audio.tempo && isFinite(audio.tempo.beatPhase) ? HSVUtil.clamp01(audio.tempo.beatPhase) : 0;
-        state.low = updateImpulse(state.low, rawPower(audio, "low") * algo.presetMultiplier);
-        state.mid = updateImpulse(state.mid, rawPower(audio, "mid") * algo.presetMultiplier);
-        state.high = updateImpulse(state.high, rawPower(audio, "high") * algo.presetMultiplier);
+        var frames = HSVUtil.elapsedFrames(audio);
+        state.low = updateImpulse(state.low, rawPower(audio, "low") * algo.presetMultiplier, frames);
+        state.mid = updateImpulse(state.mid, rawPower(audio, "mid") * algo.presetMultiplier, frames);
+        state.high = updateImpulse(state.high, rawPower(audio, "high") * algo.presetMultiplier, frames);
         var impulses = [state.low, state.mid, state.high];
 
         var lineCap = Math.max(1, Math.floor(algo.presetCount * width));

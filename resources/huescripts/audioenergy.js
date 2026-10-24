@@ -229,7 +229,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) {
+      algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10));
+    };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPow = [0, 0, 0];
@@ -237,11 +239,6 @@ var testAlgo;
     // Bar-level build-up / release state
     var barState = {bar: 0, flash: 0};
 
-    var DEFAULT_BAND_COLORS = [
-      {h: 0.958, s: 1.0, v: 1.0},
-      {h: 0.167, s: 1.0, v: 1.0},
-      {h: 0.611, s: 0.75, v: 1.0}
-    ];
     var BEAT_PULSE_AMP = 0.25;
     var idx = new Array(3);
 
@@ -252,12 +249,7 @@ var testAlgo;
 
     algo.rgbMapSetColors = function(rawColors) { };
 
-    algo.rgbMapGetColors = function()
-    {
-        return algo.colors
-            ? algo.colors.slice()
-            : DEFAULT_BAND_COLORS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -295,7 +287,8 @@ var testAlgo;
                 }
 
                 if (col) {
-                    var brightness = Math.min(1.0, beatBoost + barState.flash * 0.4);
+                    // Full brightness on the beat; between beats the bars rest lower
+                    var brightness = Math.min(1.0, (beatBoost + barState.flash * 0.4) / (1.0 + BEAT_PULSE_AMP));
                     HSVUtil.setPixel(map, width, x, y, col.h, col.s, col.v * brightness);
                 }
             }
