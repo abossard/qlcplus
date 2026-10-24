@@ -674,6 +674,11 @@ void Show_Test::commandTrackSaveRefusalReachesTheDocument()
     QString xml;
     QXmlStreamWriter writer(&xml);
     QVERIFY(document ? m_doc->saveXML(&writer) == false : show->saveXML(&writer) == false);
+    // a caller that ignores the refusal still gets a document it can read
+    QXmlStreamReader reader(xml);
+    while (reader.atEnd() == false)
+        reader.readNext();
+    QVERIFY2(reader.hasError() == false, qPrintable(reader.errorString()));
     m_doc->deleteFunction(show->id());
 }
 
