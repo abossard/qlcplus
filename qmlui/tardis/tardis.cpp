@@ -1571,8 +1571,13 @@ int Tardis::processAction(TardisAction &action, bool undo)
         break;
         case VCWidgetFont:
         {
-            auto member = std::mem_fn(&VCWidget::setFont);
-            member(qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID)), value->value<QFont>());
+            VCWidget *widget = qobject_cast<VCWidget *>(m_virtualConsole->widget(action.m_objID));
+            if (widget == nullptr)
+                break;
+            if (value->metaType().id() == QMetaType::QVariantMap)
+                widget->restoreDefaultFont(value->toMap().value("defaultFont").value<QFont>());
+            else
+                widget->setFont(value->value<QFont>());
         }
         break;
         case VCWidgetZIndex:

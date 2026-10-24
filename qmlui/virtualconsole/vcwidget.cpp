@@ -629,8 +629,10 @@ void VCWidget::setFont(const QFont& font)
     if (m_hasCustomFont && m_font == font)
         return;
 
+    /* undo of the first custom font goes back to the look and feel font */
+    const QVariant previous = m_hasCustomFont ? QVariant(m_font) : QVariant(QVariantMap{{"defaultFont", m_font}});
     m_hasCustomFont = true;
-    enqueueTardisAction(Tardis::VCWidgetFont, m_font, font);
+    enqueueTardisAction(Tardis::VCWidgetFont, previous, font);
     m_font = font;
 
     emit fontChanged();
@@ -644,6 +646,14 @@ QFont VCWidget::font() const
 bool VCWidget::hasCustomFont() const
 {
     return m_hasCustomFont;
+}
+
+void VCWidget::restoreDefaultFont(const QFont &font)
+{
+    m_font = font;
+    m_hasCustomFont = false;
+    setDocModified();
+    emit fontChanged();
 }
 
 void VCWidget::resetFont()

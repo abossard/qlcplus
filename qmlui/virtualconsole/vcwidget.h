@@ -423,6 +423,9 @@ public:
     /** Reset the font used for the widget's caption to the default */
     void resetFont();
 
+    /** Go back to the look and feel @a font, as it was before any custom font */
+    void restoreDefaultFont(const QFont &font);
+
 signals:
     void fontChanged();
 

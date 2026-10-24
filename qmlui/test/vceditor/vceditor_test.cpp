@@ -369,7 +369,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     saveArtifact("undone.xml", actual);
     QEXPECT_FAIL("addPage", "Not recorded", Abort);
     QEXPECT_FAIL("deletePage", "Not recorded", Abort);
-    QEXPECT_FAIL("font", "Undo stores the default font as an explicit one", Abort);
     QVERIFY2(actual == before, qPrintable("Undo: " + firstDifference(before, actual)));
 
     Tardis::instance()->redoAction();
