@@ -2903,6 +2903,8 @@ void ShowCommandTrack_Test::pairIdsAreNeverReissued_data()
     QTest::newRow("fresh track") << QString() << 1u;
     QTest::newRow("after removing the highest pair") << QStringLiteral("remove") << 3u;
     QTest::newRow("after an undo history reserved one") << QStringLiteral("reserve") << 9u;
+    // both edges replaced in place, at their times, with a higher pair id
+    QTest::newRow("after replacing a pair's edges in place") << QStringLiteral("replace") << 3u;
 }
 
 void ShowCommandTrack_Test::pairIdsAreNeverReissued()
@@ -2915,12 +2917,20 @@ void ShowCommandTrack_Test::pairIdsAreNeverReissued()
     {
         QVERIFY(track.insert(holdEdge(0, QStringLiteral("1:on@1000"))));
         QVERIFY(track.insert(holdEdge(1, QStringLiteral("1:off@2000"))));
+    }
+    if (history == QLatin1String("remove") || history == QLatin1String("reserve"))
+    {
         QVERIFY(track.insert(holdEdge(2, QStringLiteral("2:on@3000"))));
         QVERIFY(track.insert(holdEdge(3, QStringLiteral("2:off@4000"))));
         QVERIFY(track.remove(2) && track.remove(3));
     }
     if (history == QLatin1String("reserve"))
         track.reserve(highWaterMarks(1, 1, 9));
+    if (history == QLatin1String("replace"))
+    {
+        QVERIFY(track.replace(holdEdge(0, QStringLiteral("2:on@1000"))));
+        QVERIFY(track.replace(holdEdge(1, QStringLiteral("2:off@2000"))));
+    }
 
     ShowCommandState state = ShowCommandState();
     state.position = 5000;

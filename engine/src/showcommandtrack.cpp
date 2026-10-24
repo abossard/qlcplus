@@ -1487,14 +1487,9 @@ bool ShowCommandTrack::replace(const ShowCommand &original, QString *error)
     if (!reason.isEmpty())
         return fail(error, reason);
 
+    // one way in for every command, so the high water marks see it
     ShowCommand replaced = cmd;
     replaced.order = m_commands.at(index).order;
-    if (m_commands.at(index).time == cmd.time)
-    {
-        m_commands[index] = replaced;
-        return succeed(error);
-    }
-
     const ShowCommand previous = m_commands.takeAt(index);
     if (place(replaced, error))
         return true;
