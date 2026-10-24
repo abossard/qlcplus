@@ -73,8 +73,15 @@ public:
     quint32 buildShow(const DjFsm::DeckSong &info);
 
     /** The user's choice for a song: a Show, or Function::invalidId() for none
-     *  even when the Doc has one. Kept until the Doc is cleared. */
+     *  even when the Doc has one. Kept until the Doc is cleared, or the Show
+     *  removed. */
     void registerMapping(const QString &filepath, quint32 showId);
+
+    /** Whether the user chose for this song (Assign or Clear) */
+    bool hasOverride(const QString &filepath) const;
+
+    /** One spelling for a song path: the key of the index and of the song rows */
+    static QString normalizePath(const QString &filepath);
 
 signals:
     /** Emitted after a Show is successfully added to the Doc for a song. */
@@ -85,7 +92,6 @@ signals:
     void mappingChanged(const QString &filepath, quint32 showId);
 
 private:
-    static QString normalizePath(const QString &filepath);
     void docChanged();
     const QHash<QString, quint32> &docIndex() const;
 

@@ -59,6 +59,13 @@ private slots:
     void deferredShowCreationRevalidates_data();
     void deferredShowCreationRevalidates();
     void playingASongModifiesTheWorkspace();
+    void emptyArtistReachesTheRow();
+    void newShowBecomesTheSongsShow();
+    void deletedAssignedShowUnassignsTheRow();
+    void staleDeferredCreationFiresForNothing();
+    void workspaceLoadKeepsThePlayingSong();
+    void twoDecksWithOneSongBuildOneShow();
+    void liveWorkspaceClearKeepsPerformOffTheRecycledId();
 
 private:
     Doc *m_doc = nullptr;

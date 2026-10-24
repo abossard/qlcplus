@@ -41,12 +41,26 @@ ShowFactory::ShowFactory(Doc *doc, QObject *parent)
         m_overrides.clear();
         docChanged();
     });
-    connect(m_doc, &Doc::functionAdded, this, [this](quint32 id) {
+    // a Show's clips and an Audio's source make the index; their changes reach it
+    const auto songFunctionChanged = [this](quint32 id) {
         const Function *function = m_doc->function(id);
         if (function && (function->type() == Function::ShowType || function->type() == Function::AudioType))
             docChanged();
+    };
+    connect(m_doc, &Doc::functionAdded, this, songFunctionChanged);
+    connect(m_doc, &Doc::functionChanged, this, songFunctionChanged);
+    connect(m_doc, &Doc::functionNameChanged, this, songFunctionChanged);
+    connect(m_doc, &Doc::functionRemoved, this, [this](quint32 id) {
+        // the user's choice goes with its Show; its id is handed to the next Function
+        for (auto it = m_overrides.begin(); it != m_overrides.end();)
+        {
+            if (it.value() == id)
+                it = m_overrides.erase(it);
+            else
+                ++it;
+        }
+        docChanged();
     });
-    connect(m_doc, &Doc::functionRemoved, this, &ShowFactory::docChanged);
     // a clip attached to a track announces nothing but the Doc's modification
     connect(m_doc, &Doc::modified, this, [this]() { m_docIndexDirty = true; });
 }
@@ -88,10 +102,11 @@ const QHash<QString, quint32> &ShowFactory::docIndex() const
     if (m_docIndexDirty)
     {
         m_docIndex.clear();
+        // the newest Show of a song wins: "New" builds it to replace the old one
         for (Function *f : m_doc->functionsByType(Function::ShowType))
         {
             const QString filepath = songFilepath(m_doc, qobject_cast<Show *>(f));
-            if (!filepath.isEmpty() && !m_docIndex.contains(filepath))
+            if (!filepath.isEmpty())
                 m_docIndex.insert(filepath, f->id());
         }
         m_docIndexDirty = false;
@@ -108,6 +123,11 @@ quint32 ShowFactory::showIdForFilepath(const QString &filepath) const
     if (override != m_overrides.constEnd())
         return override.value();
     return docIndex().value(key, Function::invalidId());
+}
+
+bool ShowFactory::hasOverride(const QString &filepath) const
+{
+    return m_overrides.contains(normalizePath(filepath));
 }
 
 QString ShowFactory::showNameForSong(const DjFsm::DeckSong &info)

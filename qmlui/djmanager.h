@@ -225,6 +225,10 @@ public:
     DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
               ShowFactory *factory, QObject *parent = nullptr);
 
+    /** A song's Show is built this long after its first announcement, once
+     *  its load burst is complete; tests shorten it */
+    static int showCreationDelayMs;
+
     QAbstractItemModel *songListModel() const;
     QAbstractItemModel *deckModel() const;
 
@@ -310,6 +314,8 @@ private:
     QSet<QString> m_lastPlayingPaths;
     /** Songs whose Show creation waits for their burst to complete */
     QSet<QString> m_pendingShows;
+    /** Counts workspaces: a deferred creation of an earlier one fires for nothing */
+    int m_docGeneration = 0;
     QString m_vdjDatabasePath;
 };
 

@@ -22,7 +22,10 @@ private slots:
     void buildShow();
     void indexFollowsTheDoc();
     void overridesWinUntilTheDocIsCleared();
-    void pathSeparatorsAreOneSong();
+    void overrideGoesWithItsShow();
+    void clipChangesReachTheIndex();
+    void normalizePath_data();
+    void normalizePath();
 };
 
 #endif // SHOWFACTORY_TEST_H

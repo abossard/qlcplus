@@ -15,6 +15,7 @@
 #include "track.h"
 #include "showfunction.h"
 #include "function.h"
+#include "scene.h"
 
 #include <QDir>
 #include <QSignalSpy>
@@ -54,6 +55,7 @@ void ShowFactory_Test::showNameForSong_data()
     QTest::newRow("artist and title") << "/music/track1.mp3" << "My Song" << "DJ Alpha" << "DJ Alpha - My Song";
     QTest::newRow("empty artist: title only") << "/music/track2.mp3" << "Instrumental" << "" << "Instrumental";
     QTest::newRow("no tags: the file name") << "/music/cool beat.flac" << "" << "" << "cool beat";
+    QTest::newRow("no song: a name, nothing to build") << "" << "Ghost" << "Nobody" << "Nobody - Ghost";
 }
 
 void ShowFactory_Test::showNameForSong()
@@ -83,6 +85,13 @@ void ShowFactory_Test::buildShow()
     QSignalSpy created(&factory, &ShowFactory::showCreatedForSong);
 
     const quint32 showId = factory.buildShow(song(filepath, title, artist, 128.0));
+    if (filepath.isEmpty())
+    {
+        QCOMPARE(showId, Function::invalidId());
+        QCOMPARE(created.count(), 0);
+        QVERIFY(doc.functions().isEmpty());
+        return;
+    }
     QVERIFY(showId != Function::invalidId());
     QCOMPARE(created.count(), 1);
     QCOMPARE(created[0][0].toString(), filepath);
@@ -110,16 +119,15 @@ void ShowFactory_Test::indexFollowsTheDoc()
     // a loaded workspace: the Show maps without anyone registering it
     Show *a = addSongShow(&doc, "A", "/music/a.mp3");
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
-    // the first Show of a song wins, a later one with the same clip changes nothing
-    addSongShow(&doc, "A again", "/music/a.mp3");
-    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    // the newest Show of a song wins: "New" builds it to replace the old one
+    Show *again = addSongShow(&doc, "A again", "/music/a.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), again->id());
+    QCOMPARE(factory.buildShow(song("/music/a.mp3", "A", "X")), factory.showIdForFilepath("/music/a.mp3"));
     QVERIFY(mapping.count() > 0);
 
-    // the Show goes: the song has none; its Audio alone maps nothing
-    const quint32 aId = a->id();
-    QVERIFY(doc.deleteFunction(aId));
-    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), doc.functionsByType(Function::ShowType).first()->id());
-    QVERIFY(doc.deleteFunction(doc.functionsByType(Function::ShowType).first()->id()));
+    // the Shows go: the song has none; its Audio alone maps nothing
+    while (!doc.functionsByType(Function::ShowType).isEmpty())
+        QVERIFY(doc.deleteFunction(doc.functionsByType(Function::ShowType).last()->id()));
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
 
     // a new workspace with new ids: no id survives from the old one
@@ -164,20 +172,74 @@ void ShowFactory_Test::overridesWinUntilTheDocIsCleared()
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), b->id());
 }
 
-void ShowFactory_Test::pathSeparatorsAreOneSong()
+void ShowFactory_Test::overrideGoesWithItsShow()
 {
-    // the platform's native form (backslashes on Windows, the same path here)
-    // and the saved workspace's form name one song
+    // Assign a song to a Show, then delete that Show: the Doc's Show is the
+    // song's again, and the freed id, handed to the next Function, maps nothing
     Doc doc(nullptr, 4);
     ShowFactory factory(&doc);
-    Show *a = addSongShow(&doc, "A", QDir::toNativeSeparators("/music/sub/a.mp3"));
-    QCOMPARE(factory.showIdForFilepath("/music/sub/a.mp3"), a->id());
-    QCOMPARE(factory.showIdForFilepath(QDir::toNativeSeparators("/music/sub/a.mp3")), a->id());
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    Show *chosen = new Show(&doc);
+    chosen->setName("Chosen");
+    doc.addFunction(chosen);
+    const quint32 chosenId = chosen->id();
+    factory.registerMapping("/music/a.mp3", chosenId);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), chosenId);
+    QVERIFY(factory.hasOverride("/music/a.mp3"));
 
-    Show *b = new Show(&doc);
-    doc.addFunction(b);
-    factory.registerMapping(QDir::toNativeSeparators("/music/sub/b.mp3"), b->id());
-    QCOMPARE(factory.showIdForFilepath("/music/sub/b.mp3"), b->id());
+    QVERIFY(doc.deleteFunction(chosenId));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    QVERIFY(!factory.hasOverride("/music/a.mp3"));
+    Scene *scene = new Scene(&doc);
+    doc.addFunction(scene);
+    QCOMPARE(scene->id(), chosenId);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+
+    // Clear is a choice too, kept apart from "no choice"
+    factory.registerMapping("/music/a.mp3", Function::invalidId());
+    QVERIFY(factory.hasOverride("/music/a.mp3"));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
+}
+
+void ShowFactory_Test::clipChangesReachTheIndex()
+{
+    // the index reads the first Audio clip: re-sourcing that Audio moves the song
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    QSignalSpy mapping(&factory, &ShowFactory::mappingChanged);
+
+    ShowFactory::songAudio(&doc, a)->setSourceFileName("/music/b.mp3");
+    QCOMPARE(mapping.count(), 1);
+    QCOMPARE(factory.showIdForFilepath("/music/b.mp3"), a->id());
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
+
+    // a renamed Show is a change of the same kind
+    a->setName("A renamed");
+    QVERIFY(mapping.count() >= 2);
+}
+
+void ShowFactory_Test::normalizePath_data()
+{
+    QTest::addColumn<QString>("path");
+    QTest::addColumn<QString>("key");
+
+    QTest::newRow("posix") << "/music/sub/a.mp3" << "/music/sub/a.mp3";
+#ifdef Q_OS_WIN
+    QTest::newRow("windows") << "C:\\music\\sub\\a.mp3" << "C:/music/sub/a.mp3";
+#else
+    QTest::newRow("a backslash is a character here") << "/music/sub\\a.mp3" << "/music/sub\\a.mp3";
+#endif
+}
+
+void ShowFactory_Test::normalizePath()
+{
+    QFETCH(QString, path);
+    QFETCH(QString, key);
+    // the platform's native separators become the saved workspace's form
+    QCOMPARE(ShowFactory::normalizePath(path), key);
+    QCOMPARE(ShowFactory::normalizePath(path), QDir::fromNativeSeparators(path));
 }
 
 QTEST_MAIN(ShowFactory_Test)
