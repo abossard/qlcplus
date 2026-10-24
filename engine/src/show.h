@@ -45,7 +45,6 @@ struct ShowControlBatch
 {
     quint64 traversal = 0; //!< stamped when the playhead crossed the records
     quint64 seq = 0;
-    bool restore = false;
     /** A backward move to this time: the executor first returns what the
      *  timeline changed after it to its state before (commands is empty) */
     std::optional<quint32> rollbackTo;
@@ -294,15 +293,6 @@ public:
     bool setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
                          quint64 appliedTraversal, QString *error);
 
-    /** Any thread: no start was accepted that has not ended yet. Queued,
-     *  running, paused and stopping all count as playing. */
-    bool commandPlaybackStopped() const;
-
-    /** An editor edit: published only if commandPlaybackStopped() holds as it
-     *  is stored, decided under the same lock that accepts a start, so either
-     *  the edit is in before the start or the start wins and it is refused */
-    bool setStoppedCommandTrack(const ShowCommandTrack &track, QString *error);
-
     /** Transient recording intent. It keeps a command-only or short Show
      *  playing and is never stored in the workspace. */
     void setCommandRecording(bool enabled);
@@ -427,15 +417,12 @@ private:
     bool functionSettled(quint32 functionId, bool expectLive) const;
 
     bool publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
-                             std::optional<quint64> appliedTraversal, QString *error,
-                             bool onlyStopped = false);
+                             std::optional<quint64> appliedTraversal, QString *error);
 
-    /** Publish without target validation, for loading and copying. With
-     *  onlyStopped, false and nothing stored unless commandPlaybackStopped(). */
-    bool storeCommandTrack(const ShowCommandTrack &track,
+    /** Publish without target validation, for loading and copying */
+    void storeCommandTrack(const ShowCommandTrack &track,
                            const QSet<quint32> &alreadyApplied = QSet<quint32>(),
-                           std::optional<quint64> appliedTraversal = std::nullopt,
-                           bool onlyStopped = false);
+                           std::optional<quint64> appliedTraversal = std::nullopt);
 
     /** Empty when the track may be published: no hold pair breaks the
      *  invariant and every command added or changed since the published
@@ -463,12 +450,6 @@ private:
     /** Counts every Stop, so preRun can tell one landed while it installed
      *  the runner. Changed with m_commandTrackMutex held */
     std::atomic<quint64> m_commandStops{0};
-
-    /** Guarded by m_commandTrackMutex: starts accepted, the accepted starts
-     *  the current run began with, and those whose run ended */
-    quint64 m_startsAccepted = 0;
-    quint64 m_startsRunning = 0;
-    quint64 m_startsEnded = 0;
 
     /** Guarded by m_commandTrackMutex */
     quint64 m_commandTraversal = 0;

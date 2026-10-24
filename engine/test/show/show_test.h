@@ -62,8 +62,6 @@ private slots:
     void commandTrackCopyAndReferences();
     void commandTrackCopyReusesOneClonePerTarget();
     void commandRecordingAndPosition();
-    void commandTrackEditWaitsForStoppedPlayback_data();
-    void commandTrackEditWaitsForStoppedPlayback();
 
 private:
     Doc *m_doc;

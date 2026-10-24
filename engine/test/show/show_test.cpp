@@ -24,7 +24,6 @@
 #define private public
 #include "mastertimer.h"
 #undef private
-#include "collection.h"
 #include "showcommandtrack.h"
 #include "show_test.h"
 #include "show.h"
@@ -903,86 +902,6 @@ void Show_Test::commandTrackCopyReusesOneClonePerTarget()
     QVERIFY(m_doc->function(commandTarget) != NULL);
     // an uncommanded target keeps its existing per-clip copy behaviour
     QVERIFY(plainClones.at(0) != plainClones.at(1));
-}
-
-void Show_Test::commandTrackEditWaitsForStoppedPlayback_data()
-{
-    QTest::addColumn<QString>("state");
-    QTest::addColumn<bool>("stopped");
-
-    QTest::newRow("never started") << QStringLiteral("idle") << true;
-    QTest::newRow("start accepted, not run yet") << QStringLiteral("queued") << false;
-    QTest::newRow("running") << QStringLiteral("running") << false;
-    QTest::newRow("paused") << QStringLiteral("paused") << false;
-    QTest::newRow("stop requested, not run yet") << QStringLiteral("stopping") << false;
-    QTest::newRow("started again before the stop ran") << QStringLiteral("restarted") << false;
-    QTest::newRow("started by a Collection on the timer") << QStringLiteral("collection") << false;
-    QTest::newRow("stopped and ended") << QStringLiteral("ended") << true;
-    QTest::newRow("restart ended too") << QStringLiteral("restart ended") << true;
-}
-
-void Show_Test::commandTrackEditWaitsForStoppedPlayback()
-{
-    QFETCH(QString, state);
-    QFETCH(bool, stopped);
-
-    Doc doc(this);
-    MasterTimer *timer = doc.masterTimer();
-    Show *show = new Show(&doc);
-    QVERIFY(doc.addFunction(show));
-    ShowCommandTrack track;
-    QVERIFY(track.setExtent(60000));
-    QVERIFY(show->setCommandTrack(track));
-    Collection *collection = new Collection(&doc);
-    QVERIFY(doc.addFunction(collection));
-    QVERIFY(collection->addFunction(show->id()));
-
-    const auto start = [&]() { show->start(timer, FunctionParent::master()); };
-    const auto stop = [&]() { show->stop(FunctionParent::master()); };
-    if (state == QLatin1String("collection"))
-    {
-        collection->start(timer, FunctionParent::master());
-        timer->timerTick();
-        QVERIFY(!show->stopped());
-    }
-    else if (state != QLatin1String("idle"))
-    {
-        start();
-        if (state != QLatin1String("queued"))
-            timer->timerTick();
-        if (state == QLatin1String("paused"))
-            show->setPause(true);
-        if (state == QLatin1String("stopping") || state == QLatin1String("restarted") ||
-            state.contains(QLatin1String("ended")))
-            stop();
-        if (state == QLatin1String("restarted") || state == QLatin1String("restart ended"))
-        {
-            start();
-            timer->timerTick();
-        }
-        if (state == QLatin1String("restart ended"))
-            stop();
-        if (state.contains(QLatin1String("ended")))
-            timer->timerTick();
-    }
-
-    // the edit and a start are decided under one lock: while any accepted
-    // start has not ended, the Show refuses the edit and keeps its track
-    QCOMPARE(show->commandPlaybackStopped(), stopped);
-    ShowCommandTrack edited = show->commandTrack();
-    QVERIFY(edited.insert(ShowCommand::start(0, 1000, collection->id())));
-    QSignalSpy published(show, &Show::commandTrackChanged);
-    QString error;
-    QCOMPARE(show->setStoppedCommandTrack(edited, &error), stopped);
-    QCOMPARE(error.isEmpty(), stopped);
-    QCOMPARE(show->commandTrack().count(), stopped ? 1 : 0);
-    QCOMPARE(published.count(), stopped ? 1 : 0);
-
-    collection->stop(FunctionParent::master());
-    stop();
-    for (int i = 0; i < 3; i++)
-        timer->timerTick();
-    QVERIFY(show->commandPlaybackStopped());
 }
 
 void Show_Test::commandRecordingAndPosition()

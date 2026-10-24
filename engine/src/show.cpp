@@ -643,26 +643,13 @@ bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &a
     return publishCommandTrack(track, alreadyApplied, appliedTraversal, error);
 }
 
-bool Show::commandPlaybackStopped() const
-{
-    QMutexLocker locker(&m_commandTrackMutex);
-    return m_startsEnded == m_startsAccepted;
-}
-
-bool Show::setStoppedCommandTrack(const ShowCommandTrack &track, QString *error)
-{
-    return publishCommandTrack(track, QSet<quint32>(), std::nullopt, error, true);
-}
-
 void Show::startRequested()
 {
-    QMutexLocker locker(&m_commandTrackMutex);
-    m_startsAccepted++;
     m_playFirstSample.store(NoSample, std::memory_order_release);
 }
 
 bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
-                               std::optional<quint64> appliedTraversal, QString *error, bool onlyStopped)
+                               std::optional<quint64> appliedTraversal, QString *error)
 {
     QString reason = commandTrackError(track);
     // a live mark needs the occurrence the caller executed
@@ -685,12 +672,7 @@ bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32
     if (accepted.extent() < accepted.lastCommandTime())
         accepted.setExtent(accepted.lastCommandTime());
 
-    if (storeCommandTrack(accepted, alreadyApplied, appliedTraversal, onlyStopped) == false)
-    {
-        if (error != NULL)
-            *error = tr("Recordings can be edited once playback has fully stopped");
-        return false;
-    }
+    storeCommandTrack(accepted, alreadyApplied, appliedTraversal);
 
     if (error != NULL)
         error->clear();
@@ -699,13 +681,11 @@ bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32
     return true;
 }
 
-bool Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
-                             std::optional<quint64> appliedTraversal, bool onlyStopped)
+void Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                             std::optional<quint64> appliedTraversal)
 {
     {
         QMutexLocker locker(&m_commandTrackMutex);
-        if (onlyStopped && m_startsEnded != m_startsAccepted)
-            return false;
         m_commandTrack = track;
         m_commandTrackSaveProjectionArmed = false;
         /** Ids published earlier in this traversal are still waiting for the
@@ -725,7 +705,6 @@ bool Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> 
     }
 
     m_commandTrackRevision.fetch_add(1, std::memory_order_release);
-    return true;
 }
 
 quint64 Show::commandTrackRevision() const
@@ -1127,7 +1106,6 @@ void Show::preRun(MasterTimer* timer)
     {
         QMutexLocker locker(&m_commandTrackMutex);
         stops = m_commandStops;
-        m_startsRunning = m_startsAccepted;
     }
     m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
     m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
@@ -1236,11 +1214,6 @@ void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
         m_runner->stop();
         delete m_runner;
         m_runner = NULL;
-    }
-    {
-        // a start accepted after this run began keeps the Show playing
-        QMutexLocker locker(&m_commandTrackMutex);
-        m_startsEnded = m_startsRunning;
     }
     Function::postRun(timer, universes);
 }

@@ -17894,7 +17894,7 @@ void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive()
         QVERIFY(collection->addFunction(showId));
         collection->start(timer, FunctionParent::master());
         tickAndDeliver(ed.rig.doc, 1);
-        QVERIFY(!ed.show->commandPlaybackStopped());
+        QVERIFY(ed.show->isRunning() || timer->isStartQueued(ed.show));
         // adding the Collection is a project change of its own
         ed.rig.doc->resetModified();
     }
@@ -17912,7 +17912,7 @@ void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive()
             QVERIFY(!ed.rig.manager->isPlaying());
         }
         if (state != QLatin1String("during edit"))
-            QVERIFY(!ed.show->commandPlaybackStopped());
+            QVERIFY(ed.show->isRunning() || timer->isStartQueued(ed.show));
     }
 
     // nothing says the recordings cannot be edited
@@ -18205,7 +18205,7 @@ void ShowCommandRecorder_Test::recordingsEdit_liveStretchSavesAndReloads()
     // two events share 1700: their saved tie order must come back
     ed.rig.manager->playShow();
     tickAndDeliver(ed.rig.doc, 2);
-    QVERIFY(!ed.show->commandPlaybackStopped());
+    QVERIFY(ed.show->isRunning());
     QVERIFY(ed.rig.recorder->beginEditSession(ed.show->id(), {0, 2, 3, 6}));
     QVERIFY2(ed.rig.recorder->commitRetime(int(ShowRetimeKind::StretchEnd), 1400), qPrintable(ed.rig.recorder->lastError()));
     const ShowCommandTrack edited = ed.show->commandTrack();
