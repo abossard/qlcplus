@@ -958,6 +958,7 @@ void VCFrame::setShowHeader(bool showHeader)
     if (m_showHeader == showHeader)
         return;
 
+    enqueueTardisAction(Tardis::VCFrameShowHeader, QVariant(m_showHeader), QVariant(showHeader));
     m_showHeader = showHeader;
     emit showHeaderChanged(showHeader);
 }
@@ -976,6 +977,7 @@ void VCFrame::setShowEnable(bool showEnable)
     if (m_showEnable == showEnable)
         return;
 
+    enqueueTardisAction(Tardis::VCFrameShowEnable, QVariant(m_showEnable), QVariant(showEnable));
     m_showEnable = showEnable;
     emit showEnableChanged(showEnable);
 }

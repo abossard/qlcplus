@@ -1695,6 +1695,18 @@ int Tardis::processAction(TardisAction &action, bool undo)
             member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
         }
         break;
+        case VCFrameShowHeader:
+        {
+            auto member = std::mem_fn(&VCFrame::setShowHeader);
+            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
+        }
+        break;
+        case VCFrameShowEnable:
+        {
+            auto member = std::mem_fn(&VCFrame::setShowEnable);
+            member(qobject_cast<VCFrame *>(m_virtualConsole->widget(action.m_objID)), value->toBool());
+        }
+        break;
 
         /* ******************* Virtual Console live actions ******************* */
         case VCButtonSetPressed:

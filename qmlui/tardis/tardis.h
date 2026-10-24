@@ -232,6 +232,8 @@ public:
         VCFrameGridRowHeight,
         VCFrameGridCompact,
         VCFrameCollapsed,
+        VCFrameShowHeader,
+        VCFrameShowEnable,
 
         /* Live actions */
         FixtureSetDumpValue = LIVE_ACTIONS_START_CODE,

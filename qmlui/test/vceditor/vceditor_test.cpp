@@ -361,8 +361,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
-    QEXPECT_FAIL("hideHeader", "Not recorded", Abort);
-    QEXPECT_FAIL("hideEnableButton", "Not recorded", Abort);
     QEXPECT_FAIL("disableFrame", "Not recorded", Abort);
     QEXPECT_FAIL("multiPage", "Not recorded", Abort);
     QEXPECT_FAIL("cloneFirstPage", "Not recorded", Abort);
@@ -375,7 +373,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     actual = consoleXML();
     saveArtifact("redone.xml", actual);
-    QEXPECT_FAIL("buttonMatrix", "Hiding the matrix frame header is not recorded", Abort);
     QVERIFY2(actual == after, qPrintable("Redo: " + firstDifference(after, actual)));
 }
 
