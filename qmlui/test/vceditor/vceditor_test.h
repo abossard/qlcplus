@@ -61,6 +61,7 @@ private slots:
     void arrangedStructure_data();
     void arrangedStructure();
     void arrangePanel();
+    void newWorkspaceForgetsArrangement();
     void arrangeSettingsPersist();
     void framePageVisibility_data();
     void framePageVisibility();

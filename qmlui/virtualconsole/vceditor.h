@@ -95,6 +95,9 @@ public:
     /** Apply the old (undo) or new (redo) $value of a recorded editor action */
     bool replay(quint32 objID, const QVariant &value);
 
+    /** Forget what the pages, which outlive a workspace, carried of it */
+    void resetContents();
+
     /*********************************************************************
      * Selection
      *********************************************************************/

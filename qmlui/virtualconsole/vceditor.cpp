@@ -199,6 +199,12 @@ bool VCEditor::replay(quint32 objID, const QVariant &value)
     return widget->setProperty(action.value("property").toString().toLatin1(), action.value("value"));
 }
 
+void VCEditor::resetContents()
+{
+    for (VCPage *page : m_vc->m_pages)
+        delete VCArrangement::of(page, false);
+}
+
 bool VCEditor::restorePage(int index, const QByteArray &xml)
 {
     /* widgets read their ID only from a reader with a device */
@@ -604,3 +610,4 @@ void VCEditor::arrangeJoined(VCFrame *frame)
         if (VCWidget *widget = m_vc->widget(it.key()); widget && widget->logicalGeometry() != it.value())
             widget->setLogicalGeometry(it.value());
 }
+

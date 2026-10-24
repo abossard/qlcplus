@@ -755,6 +755,14 @@ void VCEditor_Test::randomEditSequence()
             vc()->setWidgetsDistribution(rng.bounded(2) ? Qt::Horizontal : Qt::Vertical);
             return QVariantMap();
         },
+        [&](QString *what) {
+            VCWidget *frame = pick(frames());
+            const int mode = rng.bounded(5);
+            const QVariantMap settings {{"mode", mode}, {"gap", rng.bounded(4) * 5},
+                                        {"columns", 1 + rng.bounded(3)}, {"fill", rng.bounded(2) == 1}};
+            *what = QString("arrange %1 as %2").arg(frame->id()).arg(mode);
+            return vc()->editor()->arrangeFrame(frame->id(), settings);
+        },
     };
 
     QList<QByteArray> states {consoleXML()};
@@ -1254,6 +1262,17 @@ void VCEditor_Test::arrangePanel()
     QCOMPARE(VCArrangement::specOf(frame).mode, GridLayout::ArrangeMode::Grid);
     QTRY_COMPARE(mode->property("currentIndex").toInt(), int(GridLayout::ArrangeMode::Grid));
     QCOMPARE(rejected.size(), 1);
+}
+
+void VCEditor_Test::newWorkspaceForgetsArrangement()
+{
+    buildConsole();
+    QVERIFY(vc()->editor()->arrangeFrame(vc()->page(0)->id(), {{"mode", int(GridLayout::ArrangeMode::Flow)}})
+                .value("accepted").toBool());
+
+    // pages outlive a new workspace, their arrangement must not
+    QVERIFY(m_app->newWorkspace());
+    QCOMPARE(VCArrangement::specOf(vc()->page(0)).mode, GridLayout::ArrangeMode::None);
 }
 
 void VCEditor_Test::arrangeSettingsPersist()
