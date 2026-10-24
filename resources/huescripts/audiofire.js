@@ -38,20 +38,20 @@ var testAlgo;
     algo.properties.push("name:intensity|type:range|display:Intensity|values:1,64|write:setIntensity|read:getIntensity");
     algo.properties.push("name:fade_chance|type:float|display:Fade Chance|write:setFadeChance|read:getFadeChance");
 
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 1); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setColorShift = function(v) { algo.color_shift = parseFloat(v); };
+    algo.setColorShift = function(v) { algo.color_shift = HSVUtil.parseNumber(v, algo.color_shift, 0, 1); };
     algo.getColorShift = function() { return algo.color_shift; };
-    algo.setIntensity = function(v) { algo.intensity = parseInt(v, 10); };
+    algo.setIntensity = function(v) { algo.intensity = Math.round(HSVUtil.parseNumber(v, algo.intensity, 1, 64)); };
     algo.getIntensity = function() { return algo.intensity; };
-    algo.setFadeChance = function(v) { algo.fade_chance = parseFloat(v); };
+    algo.setFadeChance = function(v) { algo.fade_chance = HSVUtil.parseNumber(v, algo.fade_chance, 0, 1); };
     algo.getFadeChance = function() { return algo.fade_chance; };
 
     var sparkPixels = null;
     var sparks = null;
     var sparkX = null;
     var emaLows = 0;
-    var ledFxStepAccumMs = 0;
+    var stepAccumMs = 0;
     var LEDFX_STEP_MS = 1000 / 60;
     var MAX_STEPS_PER_FRAME = 240;
     var NOMINAL_HZ = 50;
@@ -64,7 +64,7 @@ var testAlgo;
     function init(n) {
         sparkPixels = new Array(n);
         for (var i = 0; i < n; i++) sparkPixels[i] = 0;
-        ledFxStepAccumMs = 0;
+        stepAccumMs = 0;
         var sc = algo.intensity;
         sparks = new Array(sc);
         sparkX = new Array(sc);
@@ -96,8 +96,7 @@ var testAlgo;
 
         // EMA filter on lows (decay=0.05, rise=0.99)
         var rawLows = HSVUtil.powerForRange(audio, "Lows", ledFxMode);
-        var alphaL = (rawLows > emaLows) ? 0.99 : 0.05;
-        emaLows = alphaL * rawLows + (1 - alphaL) * emaLows;
+        emaLows = HSVUtil.attackRelease(emaLows, rawLows, 0.99, 0.05, HSVUtil.elapsedFrames(audio));
 
         // Audio modulation
         var cooling = 0.75 + emaLows * 0.25;
@@ -136,18 +135,20 @@ var testAlgo;
             }
         }
 
-        if (ledFxMode) {
-            ledFxStepAccumMs += dtSeconds * 1000.0;
-            var steps = Math.floor(ledFxStepAccumMs / LEDFX_STEP_MS);
-            if (steps > MAX_STEPS_PER_FRAME) steps = MAX_STEPS_PER_FRAME;
-            if (steps > 0)
-                ledFxStepAccumMs -= steps * LEDFX_STEP_MS;
-            var stepFadeChance = 1 - Math.pow(1 - curFadeChance, (LEDFX_STEP_MS / 1000.0) * NOMINAL_HZ);
-            for (var n = 0; n < steps; n++)
-                simulateFireStep(LEDFX_STEP_MS, stepFadeChance);
+        // Fixed simulation steps: LedFx's 60 Hz, Artistic's 50 Hz reference frame.
+        var stepMs = ledFxMode ? LEDFX_STEP_MS : 1000 / NOMINAL_HZ;
+        stepAccumMs += dtSeconds * 1000.0;
+        var steps = Math.floor(stepAccumMs / stepMs);
+        if (steps > MAX_STEPS_PER_FRAME) {
+            // After a stall, drop the backlog instead of fast-forwarding through it.
+            steps = MAX_STEPS_PER_FRAME;
+            stepAccumMs = 0;
         } else {
-            simulateFireStep(audio.dt * 60000 / audio.bpm, curFadeChance);
+            stepAccumMs -= steps * stepMs;
         }
+        var stepFadeChance = 1 - Math.pow(1 - curFadeChance, (stepMs / 1000.0) * NOMINAL_HZ);
+        for (var n = 0; n < steps; n++)
+            simulateFireStep(stepMs, stepFadeChance);
 
         var colorShift = algo.color_shift;
         var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;

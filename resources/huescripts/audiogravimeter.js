@@ -27,28 +27,28 @@ var testAlgo;
     algo.properties.push(
       "name:presetGravity|type:range|display:Gravity (units/s^2)|" +
       "values:50,800|write:setGravity|read:getGravity");
-    algo.setGravity = function(v) { algo.presetGravity = parseFloat(v); };
+    algo.setGravity = function(v) { algo.presetGravity = HSVUtil.parseNumber(v, algo.presetGravity, 50, 800); };
     algo.getGravity = function() { return algo.presetGravity; };
 
     algo.presetPeakDecay = 50;
     algo.properties.push(
       "name:presetPeakDecay|type:range|display:Peak Decay (units/s)|" +
       "values:5,300|write:setPeakDecay|read:getPeakDecay");
-    algo.setPeakDecay = function(v) { algo.presetPeakDecay = parseFloat(v); };
+    algo.setPeakDecay = function(v) { algo.presetPeakDecay = HSVUtil.parseNumber(v, algo.presetPeakDecay, 5, 300); };
     algo.getPeakDecay = function() { return algo.presetPeakDecay; };
 
     algo.presetPeakHoldMs = 800;
     algo.properties.push(
       "name:presetPeakHoldMs|type:range|display:Peak Hold (ms)|" +
       "values:100,3000|write:setPeakHoldMs|read:getPeakHoldMs");
-    algo.setPeakHoldMs = function(v) { algo.presetPeakHoldMs = parseFloat(v); };
+    algo.setPeakHoldMs = function(v) { algo.presetPeakHoldMs = HSVUtil.parseNumber(v, algo.presetPeakHoldMs, 100, 3000); };
     algo.getPeakHoldMs = function() { return algo.presetPeakHoldMs; };
 
     algo.presetPeakFlashMs = 150;
     algo.properties.push(
       "name:presetPeakFlashMs|type:range|display:Peak Flash Decay (ms)|" +
       "values:30,1000|write:setPeakFlashMs|read:getPeakFlashMs");
-    algo.setPeakFlashMs = function(v) { algo.presetPeakFlashMs = parseFloat(v); };
+    algo.setPeakFlashMs = function(v) { algo.presetPeakFlashMs = HSVUtil.parseNumber(v, algo.presetPeakFlashMs, 30, 1000); };
     algo.getPeakFlashMs = function() { return algo.presetPeakFlashMs; };
 
     algo.presetBands = "3";
@@ -71,19 +71,11 @@ var testAlgo;
     algo.peakAge    = [0, 0, 0];
     algo.peakFlash  = [0, 0, 0];
 
-    // 0xFF4000=orange-red, 0x00FF64=green, 0x4080FF=blue
-    var DEFAULT_BANDS = [
-        {h: 0.042, s: 1.0,   v: 1.0},
-        {h: 0.399, s: 1.0,   v: 1.0},
-        {h: 0.611, s: 0.749, v: 1.0}
-    ];
+    var REFERENCE_FRAME_SECONDS = 0.02;
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-        return (algo.colors && algo.colors.length >= 3)
-            ? algo.colors.slice() : DEFAULT_BANDS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.blendToWhite = function(c, t) {
         if (t <= 0) return c;
@@ -110,12 +102,14 @@ var testAlgo;
                 algo.heights[i] = srcVal;
                 algo.velocities[i] = 0;
             } else {
+                // Exact fall under constant gravity, plus the half 20 ms step the per-render update added.
+                var nh = algo.heights[i] - (algo.velocities[i] + gravity * (dt + REFERENCE_FRAME_SECONDS) / 2) * dt;
                 algo.velocities[i] += gravity * dt;
-                var nh = algo.heights[i] - algo.velocities[i] * dt;
                 algo.heights[i] = nh < 0 ? 0 : nh;
             }
 
-            if (algo.heights[i] > algo.peaks[i]) {
+            // The hold starts once the bar falls away from its peak.
+            if (algo.heights[i] >= algo.peaks[i]) {
                 algo.peaks[i] = algo.heights[i];
                 algo.peakAge[i] = 0;
             } else {

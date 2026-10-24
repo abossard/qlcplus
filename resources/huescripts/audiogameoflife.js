@@ -56,6 +56,7 @@ var testAlgo;
         geometryKey: "",
         board: [],
         carry: 0,
+        frameCarry: 0,
         healthTimer: 0,
         impulse: 0,
         recent: [],
@@ -83,6 +84,7 @@ var testAlgo;
         if (!HSVUtil.audioStateChanged(state, audio, width, height))
             return;
         state.carry = 0;
+        state.frameCarry = 0;
         state.healthTimer = 0;
         state.impulse = 0;
         state.recent = [];
@@ -134,8 +136,9 @@ var testAlgo;
         if (algo.presetHealthCheck === "None") return false;
         var alive = 0;
         for (var i = 0; i < state.board.length; i++) alive += state.board[i];
-        if (algo.presetHealthCheck === "All") return alive === state.board.length;
-        if (algo.presetHealthCheck === "Dead") return alive === 0;
+        // "All" runs both the Dead and the Oscillating check, as LedFx game_of_life.py.
+        if (algo.presetHealthCheck !== "Oscillating" && alive === 0) return true;
+        if (algo.presetHealthCheck === "Dead") return false;
         var sig = boardSignature(state.board);
         var matches = 0;
         for (var j = 0; j < state.recent.length; j++) {
@@ -144,6 +147,9 @@ var testAlgo;
         }
         return false;
     }
+
+    var FRAME_SECONDS = 0.02;
+    var MAX_FRAMES = 1000;
 
     algo.rgbMapStepCount = function() { return 1; };
     algo.rgbMapSetColors = function() {};
@@ -154,11 +160,17 @@ var testAlgo;
         ensure(audio, width, height);
         var dt = HSVUtil.audioSeconds(audio);
         var targetImpulse = HSVUtil.powerForRange(audio, algo.presetSource, false);
-        state.impulse = HSVUtil.attackRelease(state.impulse, targetImpulse, 0.99, algo.presetImpulseDecay);
-        var speedFactor = algo.presetFreeRun === "Yes"
-            ? Math.max(0.01, state.impulse)
-            : state.impulse;
-        state.carry += dt * algo.presetRate * speedFactor;
+        // Impulse and step carry advance in 20 ms reference frames (at most 20 s per render),
+        // so the board steps at the same moments at any render rate.
+        state.frameCarry = Math.min(state.frameCarry + HSVUtil.elapsedFrames(audio), MAX_FRAMES);
+        while (state.frameCarry >= 1) {
+            state.frameCarry -= 1;
+            state.impulse = HSVUtil.attackRelease(state.impulse, targetImpulse, 0.99, algo.presetImpulseDecay);
+            var speedFactor = algo.presetFreeRun === "Yes"
+                ? Math.max(0.01, state.impulse)
+                : state.impulse;
+            state.carry += FRAME_SECONDS * algo.presetRate * speedFactor;
+        }
         var maxSteps = 256;
         var steps = 0;
         while (state.carry >= 1 && steps < maxSteps) {

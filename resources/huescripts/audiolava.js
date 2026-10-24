@@ -36,11 +36,11 @@ var testAlgo;
     algo.properties.push("name:contrast|type:float|display:Contrast|write:setContrast|read:getContrast");
     algo.properties.push("name:reactivity|type:float|display:Reactivity|write:setReactivity|read:getReactivity");
 
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 15); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setContrast = function(v) { algo.contrast = parseFloat(v); };
+    algo.setContrast = function(v) { algo.contrast = HSVUtil.parseNumber(v, algo.contrast, 0, 1); };
     algo.getContrast = function() { return algo.contrast; };
-    algo.setReactivity = function(v) { algo.reactivity = parseFloat(v); };
+    algo.setReactivity = function(v) { algo.reactivity = HSVUtil.parseNumber(v, algo.reactivity, 0, 1); };
     algo.getReactivity = function() { return algo.reactivity; };
 
     var timePosition = 0;
@@ -92,8 +92,7 @@ var testAlgo;
             ledfxRawLows = HSVUtil.attackRelease(ledfxRawLows, low, algo.reactivity, 0.05, dtSeconds * 50);
             lows = ledfxRawLows;
         } else {
-            var alpha = (rawLows > emaLows) ? algo.reactivity : 0.05;
-            emaLows = alpha * rawLows + (1 - alpha) * emaLows;
+            emaLows = HSVUtil.attackRelease(emaLows, rawLows, algo.reactivity, 0.05, dtSeconds * 50);
             lows = emaLows;
         }
 

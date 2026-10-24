@@ -45,14 +45,14 @@ var testAlgo;
       "name:presetComplexity|type:range|display:Complexity|" +
       "values:1,10|write:setComplexity|read:getComplexity");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setSaturation = function(_v) { algo.presetSaturation = parseFloat(_v); };
+    algo.setSaturation = function(_v) { algo.presetSaturation = HSVUtil.parseNumber(_v, algo.presetSaturation, 0, 1); };
     algo.getSaturation = function() { return algo.presetSaturation; };
-    algo.setComplexity = function(_v) { algo.presetComplexity = parseFloat(_v); };
+    algo.setComplexity = function(_v) { algo.presetComplexity = HSVUtil.parseNumber(_v, algo.presetComplexity, 1, 10); };
     algo.getComplexity = function() { return algo.presetComplexity; };
 
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = HSVUtil.parseNumber(_v, algo.presetReactivity, 0, 1); };
     algo.getReactivity = function() { return algo.presetReactivity; };
 
     // 0xFF0080=pink, 0xFFFF00=yellow, 0xFFFFFF=white
@@ -89,6 +89,7 @@ var testAlgo;
     var flashColor = null;
     var flashLevel = 0;
 
+    // Artistic's own wave, 1 - HSVUtil.triangle(x); LedFx Glitch uses LedFx's HSVUtil.triangle.
     function triangle(x) { return Math.abs(HSVUtil.wrap(x, 1) * 2 - 1); }
 
     function dominantBandHsv(audio) {
@@ -128,8 +129,8 @@ var testAlgo;
             var t5 = HSVUtil.time01(speed * 0.25, glitchLedTimestepMs);
             var t6 = HSVUtil.time01(speed * 10.0, glitchLedTimestepMs);
 
-            var m = STRIPE_MID + triangle(t2) * STRIPE_AMP;
-            var c = triangle(t3) * 10.0 + 4.0 * Math.sin(t4);
+            var m = STRIPE_MID + HSVUtil.triangle(t2) * STRIPE_AMP;
+            var c = HSVUtil.triangle(t3) * 10.0 + 4.0 * Math.sin(t4);
             var stops = HSVUtil.ledFxGradientStops(algo);
             var ledFxOutputOptions = getLedFxOutputOptions();
             var denom = Math.max(1, count - 1);
@@ -144,11 +145,11 @@ var testAlgo;
                 var h = ((centered * c) % m + m) % m;
                 h += Math.sin(t1);
 
-                var s1 = triangle((t5 + i2) % 1);
+                var s1 = HSVUtil.triangle((t5 + i2) % 1);
                 s1 *= s1;
-                var s2 = triangle((t6 - i3) % 1);
+                var s2 = HSVUtil.triangle((t6 - i3) % 1);
                 s2 = Math.pow(s2, 4);
-                var sat = 1 - triangle(s1 * s2);
+                var sat = 1 - HSVUtil.triangle(s1 * s2);
                 if (sat < satThreshold) sat = satThreshold;
                 if (sat > 1) sat = 1;
 
@@ -165,8 +166,9 @@ var testAlgo;
         var satThreshold = algo.presetSaturation;
         var complexity = algo.presetComplexity;
 
-        // Audio-reactive time boost (extra beats per frame)
-        var boostBeats = audio.low * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS * audio.bpm / 60000;
+        // Audio-reactive time boost (extra beats per reference frame)
+        var frames = HSVUtil.elapsedFrames(audio);
+        var boostBeats = audio.low * reactivity / Math.max(0.001, speed) * AUDIO_TIME_BOOST_PER_FRAME_MS * audio.bpm / 60000 * frames;
         var effectiveDt = audio.dt + boostBeats;
 
         // t1 and t2 share the slow accumulator (read once, reuse value).
@@ -219,7 +221,7 @@ var testAlgo;
             for (var y = 0; y < height; y++)
                 HSVUtil.setPixel(map, width, x, y, hOut, sOut, vOut);
         }
-        flashLevel = Math.max(0, flashLevel - FLASH_DECAY);
+        flashLevel = Math.max(0, flashLevel - FLASH_DECAY * frames);
 
         return map;
     };

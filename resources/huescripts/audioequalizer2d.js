@@ -129,13 +129,14 @@ var testAlgo;
     function updatePeaks(levels, dt) {
         for (var i = 0; i < levels.length; i++) {
             if (levels[i] >= state.peaks[i]) state.peaks[i] = levels[i];
-            else state.peaks[i] *= Math.pow(1 - algo.presetPeakDecay, dt * 60);
+            else state.peaks[i] = Math.max(levels[i], state.peaks[i] * Math.pow(1 - algo.presetPeakDecay, dt * 60));
         }
     }
 
     function updateSpin(audio, dt) {
         var target = HSVUtil.powerForRange(audio, algo.presetSpinSource, false) * algo.presetMultiplier;
-        state.spinImpulse = HSVUtil.attackRelease(state.spinImpulse, target, 0.99, algo.presetDecay);
+        state.spinImpulse = HSVUtil.attackRelease(state.spinImpulse, target, 0.99, algo.presetDecay,
+            HSVUtil.elapsedFrames(audio));
         if (algo.presetSpin > 0)
             state.spinAngle = HSVUtil.mod1(state.spinAngle + state.spinImpulse * dt * algo.presetSpin * 0.5);
     }
@@ -271,43 +272,50 @@ var testAlgo;
             }
         }
 
+        var thickness = algo.presetPeakThickness;
         for (var p = 0; p < bands; p++) {
             columns = bandColumns(width, bands, p);
             if (algo.presetCenter === "On") {
+                // One marker on each side of the center, as LedFx _draw_normal_peaks().
                 var peakScaledC = Math.floor(half * state.peaks[p]);
-                var low = Math.max(0, half - peakScaledC - algo.presetPeakThickness + 1);
-                var high = Math.min(height - 1, half + peakScaledC + algo.presetPeakThickness - 1);
-                for (var yc = low; yc <= high; yc++)
-                    for (var xc = columns.start; xc <= columns.end && xc < width; xc++)
-                        HSVUtil.setPixel(map, width, xc, yc, peakColor.h, peakColor.s, peakColor.v);
+                paintRows(map, width, height, columns, half + peakScaledC, half + peakScaledC + thickness - 1, peakColor);
+                paintRows(map, width, height, columns, half - peakScaledC - thickness + 1, half - peakScaledC, peakColor);
             } else {
                 var peakScaled = Math.floor((height - 1) * state.peaks[p]);
-                var markerTop = Math.max(0, (height - 1) - peakScaled - algo.presetPeakThickness + 1);
-                var markerBottom = Math.min(height - 1, (height - 1) - peakScaled);
-                for (var y0 = markerTop; y0 <= markerBottom; y0++)
-                    for (var x0 = columns.start; x0 <= columns.end && x0 < width; x0++)
-                        HSVUtil.setPixel(map, width, x0, y0, peakColor.h, peakColor.s, peakColor.v);
+                paintRows(map, width, height, columns, (height - 1) - peakScaled - thickness + 1, (height - 1) - peakScaled, peakColor);
             }
         }
     }
 
+    function paintRows(map, width, height, columns, top, bottom, color) {
+        for (var y = Math.max(0, top); y <= Math.min(height - 1, bottom); y++)
+            for (var x = columns.start; x <= columns.end && x < width; x++)
+                HSVUtil.setPixel(map, width, x, y, color.h, color.s, color.v);
+    }
+
     function drawRing(map, width, height, levels, peakColor) {
         var bands = levels.length;
-        var geometry = calcRingGeometry(width, height, bands, state.spinAngle * 2 * Math.PI);
+        // One or two bands give segments without area (a point or a line through the center),
+        // so each band then spans several segments: at least a triangle overall.
+        var split = bands < 3 ? Math.ceil(3 / bands) : 1;
+        var segments = bands * split;
+        var geometry = calcRingGeometry(width, height, segments, state.spinAngle * 2 * Math.PI);
 
-        for (var i = 0; i < bands; i++) {
+        for (var i = 0; i < segments; i++) {
+            var band = Math.floor(i / split);
+            var level = levels[band];
             var tri;
             if (algo.presetCenter === "On") {
                 tri = [
-                    lerpPoint(geometry.center, geometry.verts[i], levels[i]),
-                    lerpPoint(geometry.center, geometry.verts[i + 1], levels[i]),
+                    lerpPoint(geometry.center, geometry.verts[i], level),
+                    lerpPoint(geometry.center, geometry.verts[i + 1], level),
                     geometry.center
                 ];
             } else {
                 tri = [
                     geometry.verts[i],
                     geometry.verts[i + 1],
-                    lerpPoint(geometry.mids[i], geometry.center, levels[i])
+                    lerpPoint(geometry.mids[i], geometry.center, level)
                 ];
             }
 
@@ -319,22 +327,23 @@ var testAlgo;
             for (var y = minY; y <= maxY; y++) {
                 for (var x = minX; x <= maxX; x++) {
                     if (!pointInTriangle(x + 0.5, y + 0.5, tri[0], tri[1], tri[2])) continue;
-                    var coord = ringCoord(x + 0.5, y + 0.5, width, height, levels[i]);
-                    var color = modeColor(algo.presetColorMode, i, bands, levels[i], coord);
+                    var coord = ringCoord(x + 0.5, y + 0.5, width, height, level);
+                    var color = modeColor(algo.presetColorMode, band, bands, level, coord);
                     HSVUtil.setPixel(map, width, x, y, color.h, color.s, color.v);
                 }
             }
         }
 
-        for (var p = 0; p < bands; p++) {
+        for (var p = 0; p < segments; p++) {
             var a;
             var b;
-            var nextPeak = state.peaks[(p + 1) % bands];
+            var peak = state.peaks[Math.floor(p / split)];
+            var nextPeak = state.peaks[Math.floor(((p + 1) % segments) / split)];
             if (algo.presetCenter === "On") {
-                a = lerpPoint(geometry.center, geometry.mids[p], state.peaks[p]);
+                a = lerpPoint(geometry.center, geometry.mids[p], peak);
                 b = lerpPoint(geometry.center, geometry.mids[p + 1], nextPeak);
             } else {
-                a = lerpPoint(geometry.mids[p], geometry.center, state.peaks[p]);
+                a = lerpPoint(geometry.mids[p], geometry.center, peak);
                 b = lerpPoint(geometry.mids[p + 1], geometry.center, nextPeak);
             }
             drawLine(map, width, height, a, b, peakColor, algo.presetPeakThickness);

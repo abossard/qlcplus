@@ -80,11 +80,12 @@ var testAlgo;
         var low = HSVUtil.powerForRange(audio, "Lows (beat+bass)", false);
         var mid = HSVUtil.powerForRange(audio, "Mids", false);
         var high = HSVUtil.powerForRange(audio, "High", false);
+        // Time since the mids last took over; the lows do not reset it (LedFx last_mid).
+        state.midBelowSec += dt;
         if (low > algo.presetThresholdLows) {
             state.selected = "low";
             state.filteredPower = low;
             state.lowBelowSec = 0;
-            state.midBelowSec = 0;
         } else {
             state.lowBelowSec += dt;
             if (state.selected === "low") state.filteredPower = low;
@@ -94,7 +95,6 @@ var testAlgo;
                     state.filteredPower = mid;
                     state.midBelowSec = 0;
                 } else {
-                    state.midBelowSec += dt;
                     if (state.selected === "mid") state.filteredPower = mid;
                     if (state.midBelowSec > algo.presetSwitchTime) {
                         state.selected = "high";
