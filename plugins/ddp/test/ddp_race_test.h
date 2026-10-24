@@ -20,6 +20,8 @@ private slots:
     void throttleAndKeepAlive();
     void pixelCountChangeDropsPending_data();
     void pixelCountChangeDropsPending();
+    void ioMappingConcurrentAccess_data();
+    void ioMappingConcurrentAccess();
 };
 
 #endif

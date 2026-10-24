@@ -154,18 +154,20 @@ QStringList DDPPlugin::outputs()
 
 QString DDPPlugin::outputInfo(quint32 output)
 {
-    if (output >= (quint32)m_IOmapping.length())
-        return QString();
-
-    QString str;
-
-    str += QString("<H3>%1 %2</H3>").arg(tr("Output")).arg(outputs()[output]);
-    str += QString("<P>");
+    QString address;
     QSharedPointer<DDPController> ctrl;
     {
         QMutexLocker locker(&m_ioMutex);
+        if (output >= (quint32)m_IOmapping.length())
+            return QString();
+        address = m_IOmapping.at(output).address.ip().toString();
         ctrl = m_IOmapping.at(output).controller;
     }
+
+    QString str;
+
+    str += QString("<H3>%1 %2</H3>").arg(tr("Output")).arg(address);
+    str += QString("<P>");
     if (ctrl.isNull())
     {
         str += tr("Status: Not open");
@@ -186,19 +188,19 @@ QString DDPPlugin::outputInfo(quint32 output)
 
 bool DDPPlugin::openOutput(quint32 output, quint32 universe)
 {
-    if (output >= (quint32)m_IOmapping.length())
-    {
-        qDebug() << "[DDP] cannot open line" << output
-                 << "(available:" << m_IOmapping.length() << ")";
-        return false;
-    }
-
-    qDebug() << "[DDP] Open output on" << m_IOmapping.at(output).address.ip().toString();
-
     QSharedPointer<DDPController> controller;
     {
         QMutexLocker locker(&m_ioMutex);
-        if (m_IOmapping[output].controller.isNull())
+        if (output >= (quint32)m_IOmapping.length())
+        {
+            qDebug() << "[DDP] cannot open line" << output
+                     << "(available:" << m_IOmapping.length() << ")";
+            return false;
+        }
+
+        qDebug() << "[DDP] Open output on" << m_IOmapping.at(output).address.ip().toString();
+
+        if (m_IOmapping.at(output).controller.isNull())
         {
             // No QObject parent — lifetime is managed by QSharedPointer
             // with deleteLater() to ensure destruction on the correct thread.
@@ -209,7 +211,7 @@ bool DDPPlugin::openOutput(quint32 output, quint32 universe)
                     output, nullptr),
                 [](DDPController *c) { c->deleteLater(); });
         }
-        controller = m_IOmapping[output].controller;
+        controller = m_IOmapping.at(output).controller;
     }
 
     controller->addUniverse(universe);
@@ -220,16 +222,15 @@ bool DDPPlugin::openOutput(quint32 output, quint32 universe)
 
 void DDPPlugin::closeOutput(quint32 output, quint32 universe)
 {
-    if (output >= (quint32)m_IOmapping.length())
-        return;
-
-    removeFromMap(universe, output, Output);
-
     QSharedPointer<DDPController> controller;
     {
         QMutexLocker locker(&m_ioMutex);
+        if (output >= (quint32)m_IOmapping.length())
+            return;
         controller = m_IOmapping.at(output).controller;
     }
+
+    removeFromMap(universe, output, Output);
 
     if (!controller.isNull())
     {
@@ -248,9 +249,6 @@ void DDPPlugin::closeOutput(quint32 output, quint32 universe)
 void DDPPlugin::writeUniverse(quint32 universe, quint32 output,
                                const QByteArray &data, bool dataChanged)
 {
-    if (output >= (quint32)m_IOmapping.count())
-        return;
-
     // Copy the QSharedPointer under m_ioMutex, release the mutex, then call
     // sendDmx on the local copy. This keeps the controller alive for the
     // duration of the call even if closeOutput() resets the slot mid-way,
@@ -259,7 +257,9 @@ void DDPPlugin::writeUniverse(quint32 universe, quint32 output,
     QSharedPointer<DDPController> controller;
     {
         QMutexLocker locker(&m_ioMutex);
-        controller = m_IOmapping[output].controller;
+        if (output >= (quint32)m_IOmapping.count())
+            return;
+        controller = m_IOmapping.at(output).controller;
     }
     if (!controller.isNull())
         controller->sendDmx(universe, data, dataChanged);
@@ -313,12 +313,11 @@ void DDPPlugin::setParameter(quint32 universe, quint32 line, Capability type,
     // when the controller for this line hasn't been opened yet.
     QLCIOPlugin::setParameter(universe, line, type, name, value);
 
-    if (line >= (quint32)m_IOmapping.length())
-        return;
-
     QSharedPointer<DDPController> controller;
     {
         QMutexLocker locker(&m_ioMutex);
+        if (line >= (quint32)m_IOmapping.length())
+            return;
         controller = m_IOmapping.at(line).controller;
     }
     if (controller.isNull())

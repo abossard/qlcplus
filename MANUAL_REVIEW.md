@@ -2550,3 +2550,71 @@ The running application was not restarted.
 > Correction artifacts: `build/upstream-correction-2026-10-21/executions.json` records every retained selection, exact argv/environment/cwd, raw inner exit, continuous-time budget, failures/skips and executable/engine/audio hashes before and after execution. Named build/test logs and `baseline-identity.json` retain the red attempts and matched baseline provenance.
 >
 > All ten human checks above remain pending. Eight screenshot fixtures, media export, ten-minute replay, physical input/display feel, audio/output hardware and real-show cadence remain unverified. No running application or live workspace was changed.
+
+## 41. Upstream a706b2adf playback and safe-area integration
+
+> Covers upstream b95e399e5..a706b2adf. Use a disposable workspace. All eleven checks below await human sign-off.
+>
+> History verified on 2026-10-23: upstream `a706b2adfe9273b167b3ea04e6a0d53e9641bf67` was already the second parent of `e1dfd6a59b48c76d21601d6f430ef09347943a1b`, whose first parent is `6010206a1a668ce51208019e36482bc4ff0ad321`. A fresh explicit upstream fetch and ancestor check returned exit 0 and `388 0` ahead/behind. This task performed no merge or production/test source change.
+>
+> Fresh build, exit 0: `cmake --build build --target qlcplus5 collection_test chaserrunner_test rgbtext_test upstreamintegration_test mcp_vc_query_filter_test mcp_vc_validation_test -j8`. Local Qt is 6.12.0 on macOS 27.0.1. Linker warnings about the macOS 26.0 deployment target versus Qt libraries built for 27.0 remain in the build log.
+>
+> Fresh native commands used each absolute executable path with `-maxwarnings 0`, offscreen/software rendering and separate owned HOME, settings, runtime, scratch and output directories. `build/engine/test/collection/collection_test` passed 17; `build/engine/test/chaserrunner/chaserrunner_test` passed 24; `build/engine/test/rgbtext/rgbtext_test` passed 18; `build/mcp/test/mcp_vc_query_filter_test` passed 65; `build/mcp/test/mcp_vc_validation_test` passed 76. Each exited 0 with no skips. These include parallel-member duration, chaser start offset and invalid-font loading.
+>
+> Unresolved automation failure: full `build/qmlui/test/upstreamintegration/upstreamintegration_test -maxwarnings 0` exited 15 with 564 passed, 15 failed and 8 opt-in screenshot skips. All failures were `timelineViewport` rows for Time, BPM and VDJ divisions in playing, paused, stopped, external and held states, asserting `preview->width() <= width`. A separate fresh isolated `-maxwarnings 0 timelineViewport previewRepeatBounds` run reproduced the same 15 failures, with 23 passed and no skips. These failures occurred before the checklist edit on unchanged entry source. Their cause and whether they predate the integrated merge remain unverified. No assertion was weakened or source repair attempted.
+>
+> Execution artifacts: `build/replicate-a706b2adf-20261023-0909/` retains `build-result.json`, `build.log`, `results.json`, `focused-results.json`, named suite logs and the bounded `run.py` runner. JSON records exact argv, environment overrides, resource cwd, inner exit status, timeout state, totals and skips. Engine suites used their source-test resource directories; UI and MCP suites used owned working directories.
+>
+> Parser verification on 2026-10-23: `cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts` exited 0, 48 passed. `node build/replicate-a706b2adf-20261023-0909/check-native.mjs` exited 0 and independently preserved the original 176225-byte prefix, 40 prior sections and 522 prior checks, with unique IDs and six new cases containing eleven pending checks.
+>
+> Limitations: the integration suite is not green. Android safe areas, pre-Qt-6.7 compatibility, screenshot fixtures, physical outputs, display/input feel and real-show timing remain unverified. No live QLC+ application was stopped, restarted or used, and no live workspace was loaded or saved. The Simple Desk focus-policy compatibility adjustment is compile-checked only on local Qt; reuse case 40.4 for its existing channel-display checks rather than duplicate them.
+
+### 41.1 Parallel Collection duration
+
+- **Do:** In a disposable workspace, run a Collection containing two visible functions with unequal finite durations. Compare its timeline duration and visible output with the longest member. Remove that member, then run again with the remaining member.
+- ☐ Parallel output continues for the longest member without adding member durations or cutting its output short.
+- ☐ Removing the longest member leaves a coherent shorter duration and clean completion, with no stale output from the removed member.
+
+### 41.2 Chaser start offset and repeated starts
+
+- **Do:** Use distinct visible steps with a nonzero fade and start offset. Start repeatedly from the same offset, then start a new step while an earlier crossfade is still running.
+- ☐ The first visible step starts at the intended offset without a one-tick jump or drift between repeated starts.
+- ☐ The existing crossfade remains smooth when the new step starts. Neither step jumps ahead or leaves a visible discontinuity.
+
+### 41.3 Show seek while paused and resume
+
+- **Do:** Play a Show, pause, move the cursor to a different clip, and resume. Repeat at several positions, then stop normally.
+- ☐ After each resume, the playback indicator and cursor agree that playback is active and continue from the selected position without immediately reverting to stopped.
+- ☐ Normal stop still clears the playback indication and leaves the cursor and output in the expected stopped state.
+
+### 41.4 VC Clock schedule enable control
+
+- **Do:** Create a Clock with no schedules. Inspect it at normal and narrow widths. Add a schedule, toggle scheduling, then remove the last schedule and inspect both widths again.
+- ☐ With zero schedules the enable control is absent and the clock text uses the released space without clipping or an unexplained gap.
+- ☐ With at least one schedule the enable control is visible, readable and hittable. Toggling it controls scheduling, including at narrow width.
+
+### 41.5 Android safe areas
+
+- **Do:** On an Android device with system bars or a cutout, inspect the toolbar, actions menu and beat menu in portrait and landscape. Switch between Fixtures and Functions and the other contexts to exercise both content loaders. Repeat in kiosk mode.
+- ☐ Toolbar controls, menus and both content areas remain visible and reachable outside the system insets after rotation.
+- ☐ Kiosk mode removes the toolbar without hiding content beneath system UI or leaving an unnecessary toolbar-sized gap.
+
+### 41.6 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, platform/Qt version, display size/scale and output hardware. Leave unavailable device and interaction paths unsigned.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Parallel Collection duration | | | | | |
+| Chaser offset and crossfade | | | | | |
+| Show pause, seek, resume and stop | | | | | |
+| Clock schedule control and layout | | | | | |
+| Android safe areas and kiosk | | | | | |
+
+#### Superseding classification note, 2026-10-23
+
+The earlier statement “Their cause and whether they predate the integrated merge remain unverified” records the initial observation, now superseded by E9/E10 diagnosis and independent inspection in the [verification blueprint](/Users/abossard/.minime/abossard/_qlcplus/blueprints/2026-10-23-upstream-master-a706b2adf-verification.md#e9-bounded-preview-width-classification-correction-2026-10-23). The fifteen failures are a pre-existing fork production/test contract mismatch: fork commit `6010206a1` introduced a three-viewport preview cache while the tests retained one-viewport width assertions. Relevant production QML (ShowItem, ShowManager and HeaderAndCursor) and integration-test blobs are identical at merge HEAD `e1dfd6a59b48c76d21601d6f430ef09347943a1b` and its first parent `6010206a1a668ce51208019e36482bc4ff0ad321`, not newly changed by this upstream integration.
+
+Retained [diagnostic output](build/preview-width-correction-20261023/diagnostic.log) and [summary](build/preview-width-correction-20261023/summary.json) report `viewport=991`, `preview=1982.07` for Time/VDJ or `1982.03` for BPM, with `viewChunk=0`, `contentX=0` and the correct timeline identity. At the left edge, clamping the three-viewport cache leaves roughly two viewport widths, explaining the unchanged failing bound. E10 independently reproduced these values and verified the relevant first-parent blob identities.
+
+All prior failures remain failures: full suite `564 passed, 15 failed, 8 skipped`; focused run `23 passed, 15 failed, 0 skipped`; diagnostic `17 passed, 15 failed, 0 skipped` (each inner exit 15). The full UI suite is not green. No full first-parent suite was executed, so this localized attribution does not establish complete pre-merge runtime equivalence or approval of the cache policy. No production/test source changes or weakened assertions were made. Reconciling the fork cache policy and its tests is explicitly out of the current integration scope and requires separate owner scope. All existing human checks and sign-offs remain unchanged and pending where previously pending.

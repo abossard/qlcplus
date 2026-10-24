@@ -41,8 +41,12 @@ struct DDPUniverseInfo
     quint32 ddpOffset;        // byte offset into the device's pixel buffer
     int transmissionMode;     // 0 = Full, 1 = Partial (dirty-range sends + keep-alive)
     int components;           // 0 = RGB (3 bytes/pixel), 1 = RGBW (4 bytes/pixel)
+    // destinationKey() of destAddress/destPort/destId, refreshed by their setters.
+    // Refresh grouping compares it on every callback, so it is not rebuilt there.
+    QString destKey;
     qint64 lastSendElapsed = 0;      // per-universe rate limit timestamp
     qint64 lastSendDataElapsed = 0;  // per-universe keepalive timestamp
+    qint64 frameSlot = 0;            // maxFps schedule: ideal time of the last frame sent
 
     // ----- Partial-mode baseline state -----
     // Snapshot of bytes last successfully transmitted (length == lastCoverageLen).
@@ -67,8 +71,13 @@ struct DDPUniverseInfo
     // Callbacks that cannot emit (unchanged, throttled) still count as reports.
     QString refreshDestKey;
     bool participatesInRefresh = false;
+    // The last engine frame held no whole pixel. Such a universe cannot report,
+    // so its destination does not wait for it.
+    bool frameEmpty = false;
     quint64 reportedCycle = 0;
     bool hasPendingReport = false;
+    // An engine-reported change that has not reached the wire yet. Kept until a
+    // send succeeds, so a held back or re-reported frame is not taken as unchanged.
     bool pendingDataChanged = true;
     QByteArray pendingData;
     int pendingTotalLen = 0;
@@ -92,8 +101,9 @@ public:
     ~DDPController();
 
     /** Send DMX data for a specific QLC+ universe.
-     *  When dataChanged is false, the send is suppressed unless the
-     *  keep-alive interval (kKeepAliveMs) has elapsed since the last send. */
+     *  With skip-unchanged on, a Full-mode frame is suppressed while no change
+     *  (dataChanged) is waiting to be sent and the keep-alive interval
+     *  (kKeepAliveMs) has not elapsed since the last send. */
     void sendDmx(quint32 universe, const QByteArray &data, bool dataChanged = true);
 
     /** Return the controller IP address */
@@ -196,6 +206,7 @@ private:
     EmitResult emitUniverse(DDPUniverseInfo &info, qint64 now,
                             quint8 &seq, bool &seqAssigned, bool allowPush);
     bool sendPushOnly(const DDPUniverseInfo &info, quint8 seq);
+    void markFrameSent(DDPUniverseInfo &info, qint64 now) const;
 
     // Wire-level senders. Return true if every datagram was accepted by the kernel.
     bool sendFullSnapshot(DDPUniverseInfo &info, const char *srcData, int totalLen,
@@ -248,6 +259,9 @@ private:
     // and is a multiple of lcm(3,4)=12 so the boundary stays bpp-aligned.
     static constexpr int kPartialMinGapBytes = 48;
     static constexpr qint64 kFallbackTickPeriods = 2;
+    // How far the maxFps schedule may trail the clock: a callback up to this
+    // early still gets its frame. Half of MasterTimer's default 20 ms tick.
+    static constexpr qint64 kFrameJitterMs = 10;
     // Test hook: bypass FPS throttle entirely.
     bool m_maxFpsBypassForTest = false;
     QMap<QString, DestinationCycleState> m_destinationCycles;

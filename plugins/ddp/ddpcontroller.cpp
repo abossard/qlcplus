@@ -198,6 +198,12 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
             if (!previousDestKey.isEmpty())
                 maybeEmitDestination(previousDestKey, now, -1, /*allowFallback=*/false);
         }
+        else if (info.frameEmpty)
+        {
+            // No longer counted as a member, so the members that did report
+            // may now complete the cycle.
+            maybeEmitDestination(info.destKey, now, -1, /*allowFallback=*/false);
+        }
     };
 
     // ---- Pre-flight validation (apply to both Full and Partial paths) ----
@@ -229,6 +235,7 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
         totalLen = m_pixelCount * bpp;            // explicit: zero-pad if needed
     else
         totalLen = (srcLen / bpp) * bpp;          // auto: whole pixels only
+    info.frameEmpty = (totalLen == 0);
 
     // ddpOffset must be a whole pixel — WLED divides by bpp internally:
     // wled00/e131.cpp handleDDPPacket():
@@ -257,7 +264,7 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
     if (srcLen > 0)
         memcpy(prepared.data(), data.constData(), qMin(srcLen, totalLen));
 
-    const QString currentDestKey = destinationKey(info);
+    const QString currentDestKey = info.destKey;
 
     if (info.participatesInRefresh && previousDestKey != currentDestKey)
     {
@@ -270,7 +277,7 @@ void DDPController::sendDmx(quint32 universe, const QByteArray &data, bool dataC
     info.participatesInRefresh = true;
     info.refreshDestKey = currentDestKey;
     info.hasPendingReport = true;
-    info.pendingDataChanged = dataChanged;
+    info.pendingDataChanged = info.pendingDataChanged || dataChanged;
     info.pendingData = std::move(prepared);
     info.pendingTotalLen = totalLen;
     info.pendingBpp = bpp;
@@ -325,9 +332,9 @@ void DDPController::maybeEmitDestination(const QString &destKey, qint64 now,
         return;
 
     auto isDestinationMember = [&](const DDPUniverseInfo &info) -> bool {
-        if (info.destAddress.isNull())
+        if (info.frameEmpty || info.destKey != destKey)
             return false;
-        if (destinationKey(info) != destKey)
+        if (info.destAddress.isNull())
             return false;
         if (info.destId == 246 || info.destId == 250 || info.destId == 251)
             return false;
@@ -384,7 +391,7 @@ void DDPController::emitDestination(const QString &destKey, qint64 now, qint32 p
         const DDPUniverseInfo &info = it.value();
         if (!info.participatesInRefresh || info.refreshDestKey != destKey)
             continue;
-        if (destinationKey(info) != destKey)
+        if (info.destKey != destKey)
             continue;
         if (info.reportedCycle != cycleId || !info.hasPendingReport)
             continue;
@@ -476,11 +483,12 @@ DDPController::EmitResult DDPController::emitUniverse(DDPUniverseInfo &info, qin
     if (!(partialMode && mustFull) && !m_maxFpsBypassForTest && info.lastSendElapsed != 0)
     {
         const qint64 minInterval = (m_maxFps > 0) ? (1000 / m_maxFps) : 0;
-        if (minInterval > 0 && (now - info.lastSendElapsed) < minInterval)
+        if (minInterval > 0 && now < info.frameSlot + minInterval)
             return EmitResult{};
     }
 
-    if (!partialMode && m_skipUnchanged && !info.pendingDataChanged
+    // Unchanged only if this destination already holds our last frame.
+    if (!partialMode && m_skipUnchanged && info.baselineValid && !info.pendingDataChanged
             && (now - info.lastSendDataElapsed) < kKeepAliveMs)
         return EmitResult{};
 
@@ -502,7 +510,26 @@ DDPController::EmitResult DDPController::emitUniverse(DDPUniverseInfo &info, qin
                            now, seq, allowPush, &emitted)
         : sendPartialDiff(info, srcData, info.pendingTotalLen, info.pendingBpp, info.pendingDataType,
                           now, seq, allowPush, &emitted);
+    if (ok)
+        info.pendingDataChanged = false;
     return EmitResult{emitted, ok};
+}
+
+void DDPController::markFrameSent(DDPUniverseInfo &info, qint64 now) const
+{
+    // maxFps paces against an ideal schedule, one slot per interval, not
+    // against the send time. A late engine tick then does not push every
+    // later frame back, and advancing a full interval per frame keeps the
+    // average at maxFps. The schedule trails the clock by up to
+    // kFrameJitterMs, which is how early a tick may report.
+    const qint64 interval = (m_maxFps > 0) ? (1000 / m_maxFps) : 0;
+    const qint64 trailing = now - kFrameJitterMs;
+    info.frameSlot = (info.lastSendElapsed == 0)
+        ? trailing
+        : qMax(info.frameSlot + interval, trailing);
+    // qMax(now,1) avoids the 0 sentinel meaning "never sent".
+    info.lastSendElapsed = qMax<qint64>(now, 1);
+    info.lastSendDataElapsed = info.lastSendElapsed;
 }
 
 bool DDPController::sendPushOnly(const DDPUniverseInfo &info, quint8 seq)
@@ -575,11 +602,13 @@ bool DDPController::sendFullSnapshot(DDPUniverseInfo &info, const char *srcData,
         && info.lastDestId == info.destId;     // destId may have changed via setter
     if (sameDest && oldBpp > 0 && oldCoverage > 0)
     {
-        // Compute old-only intervals = old_range \ new_range.
-        const quint64 oldStart = oldOffset;
-        const quint64 oldEnd   = oldStart + static_cast<quint64>(oldCoverage);
-        const quint64 newStart = info.ddpOffset;
-        const quint64 newEnd   = newStart + static_cast<quint64>(totalLen);
+        // Compute old-only intervals = old_range \ new_range, in pixels: WLED
+        // addresses pixel offset/bpp with each packet's own bpp, so after an
+        // RGB <-> RGBW change equal byte ranges cover different pixels.
+        const quint64 oldStart = oldOffset / static_cast<quint32>(oldBpp);
+        const quint64 oldEnd   = oldStart + static_cast<quint64>(oldCoverage / oldBpp);
+        const quint64 newStart = info.ddpOffset / static_cast<quint32>(bpp);
+        const quint64 newEnd   = newStart + static_cast<quint64>(totalLen / bpp);
 
         struct Iv { quint64 s, e; };
         Iv ivs[2];
@@ -595,14 +624,16 @@ bool DDPController::sendFullSnapshot(DDPUniverseInfo &info, const char *srcData,
         static char zeroChunk[DDP_MAX_DATALEN] = {0};
         for (int k = 0; k < n && ok; k++)
         {
-            const int len = static_cast<int>(ivs[k].e - ivs[k].s);
+            // Back to bytes at the old bpp. DDP_MAX_DATALEN chunks stay whole pixels.
+            const int len = static_cast<int>(ivs[k].e - ivs[k].s) * oldBpp;
             if (len <= 0) continue;
+            const quint32 start = static_cast<quint32>(ivs[k].s) * static_cast<quint32>(oldBpp);
             int sent = 0;
             while (sent < len && ok)
             {
                 const int chunk = qMin(DDP_MAX_DATALEN, len - sent);
                 ok = writeChunk(info, zeroChunk, chunk, 0, chunk,
-                                static_cast<quint32>(ivs[k].s) + static_cast<quint32>(sent),
+                                start + static_cast<quint32>(sent),
                                 seq, /*push=*/false, oldDataType);
                 if (ok && emittedPackets)
                     *emittedPackets = true;
@@ -632,9 +663,7 @@ bool DDPController::sendFullSnapshot(DDPUniverseInfo &info, const char *srcData,
         if (!ok) break;
     }
 
-    // qMax(now,1) avoids the 0 sentinel meaning "never sent".
-    info.lastSendElapsed = qMax<qint64>(now, 1);
-    info.lastSendDataElapsed = info.lastSendElapsed;
+    markFrameSent(info, now);
     if (!ok)
     {
         // Keep the just-bumped lastSendElapsed (so we don't tight-loop retry),
@@ -750,8 +779,7 @@ bool DDPController::sendPartialDiff(DDPUniverseInfo &info, const char *srcData,
         if (!ok) break;
     }
 
-    info.lastSendElapsed = qMax<qint64>(now, 1);
-    info.lastSendDataElapsed = info.lastSendElapsed;
+    markFrameSent(info, now);
     if (!ok)
     {
         // Force a full retry next call.
@@ -803,6 +831,7 @@ void DDPController::addUniverse(quint32 universe)
         info.ddpOffset = 0;
         info.transmissionMode = Full;
         info.components = RGB;
+        info.destKey = destinationKey(info);
         m_universeMap[universe] = info;
     }
 }
@@ -839,6 +868,7 @@ void DDPController::setDestAddress(quint32 universe, const QString &address)
     if (it == m_universeMap.end()) return;
     const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().destAddress = QHostAddress(address);
+    it.value().destKey = destinationKey(it.value());
     it.value().participatesInRefresh = false;
     it.value().refreshDestKey.clear();
     it.value().hasPendingReport = false;
@@ -857,6 +887,7 @@ void DDPController::setDestPort(quint32 universe, quint16 port)
     if (it == m_universeMap.end()) return;
     const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().destPort = port;
+    it.value().destKey = destinationKey(it.value());
     it.value().participatesInRefresh = false;
     it.value().refreshDestKey.clear();
     it.value().hasPendingReport = false;
@@ -875,6 +906,7 @@ void DDPController::setDestId(quint32 universe, quint8 id)
     if (it == m_universeMap.end()) return;
     const QString previousDestKey = it.value().participatesInRefresh ? it.value().refreshDestKey : QString();
     it.value().destId = id;
+    it.value().destKey = destinationKey(it.value());
     it.value().participatesInRefresh = false;
     it.value().refreshDestKey.clear();
     it.value().hasPendingReport = false;

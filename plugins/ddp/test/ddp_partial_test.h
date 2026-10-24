@@ -40,6 +40,10 @@ private slots:
     // Throttling
     void fpsThrottle_bypassedForKeepAlive();
     void skipUnchanged_doesNotSuppressPartialKeepAlive();
+    void skipUnchanged_deliversEveryChange_data();
+    void skipUnchanged_deliversEveryChange();
+    void fpsPacing_toleratesTickJitter_data();
+    void fpsPacing_toleratesTickJitter();
 
     // Wire-cost upgrade
     void heavyDiff_upgradesToFull();
@@ -56,6 +60,8 @@ private slots:
     void offsetShiftClearsOldRange();
     void multiPacketCoverageClear();
     void destIdShift_clearsWithOldDestId();
+    void componentChange_clearsAbandonedPixels_data();
+    void componentChange_clearsAbandonedPixels();
 
     // Throttle
     void fullMode_fpsThrottleEnforced();
@@ -71,6 +77,10 @@ private slots:
     void droppedUpdate_repairedByKeepAlive_data();
     void droppedUpdate_repairedByKeepAlive();
     void destIdChange_dropsPendingBeforeCycleClose();
+    void emptyMember_doesNotStallDestination_data();
+    void emptyMember_doesNotStallDestination();
+    void largeInstall_tickFitsBudget_data();
+    void largeInstall_tickFitsBudget();
 };
 
 #endif // DDP_PARTIAL_TEST_H

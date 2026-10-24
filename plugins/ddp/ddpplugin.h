@@ -130,9 +130,10 @@ public:
 
 private:
     QList<DDPIO> m_IOmapping;
-    /** Guards access to controller slots in m_IOmapping. The list itself is
-     *  only resized on the engine main thread; the mutex protects the
-     *  QSharedPointer slot read/reset against concurrent writeUniverse(). */
+    /** Guards every access to m_IOmapping, size checks included.
+     *  writeUniverse() runs on universe threads, and while a copy of the list
+     *  is alive (getIOMapping(), diagnostics) any non-const access detaches
+     *  it, rewriting the list's own data pointer. */
     mutable QMutex m_ioMutex;
 };
 

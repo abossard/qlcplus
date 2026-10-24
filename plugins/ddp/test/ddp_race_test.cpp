@@ -586,4 +586,66 @@ void DDP_Race_Test::pixelCountChangeDropsPending()
     verifyPushes(receiver.snapshot(), {initial, configured}, bpp);
 }
 
+void DDP_Race_Test::ioMappingConcurrentAccess_data()
+{
+    QTest::addColumn<int>("caller");
+    QTest::newRow("outputInfo") << 0;
+    QTest::newRow("openOutput-closeOutput") << 1;
+    QTest::newRow("setParameter") << 2;
+}
+
+void DDP_Race_Test::ioMappingConcurrentAccess()
+{
+    // A universe thread writes while the main thread works on the same line
+    // and holds a copy of the mapping (diagnostics, configuration dialog).
+    // The copy makes any non-const access detach the shared list, so every
+    // access to the list must be ordered by the plugin mutex. Run in the
+    // TSan build to see unordered access.
+    QFETCH(int, caller);
+    Receiver receiver;
+    QVERIFY(receiver.port != 0);
+    DDPPlugin plugin;
+    plugin.init();
+    const int line = plugin.outputs().indexOf("127.0.0.1");
+    QVERIFY(line >= 0);
+    QVERIFY(plugin.openOutput(line, 0));
+    plugin.setParameter(0, line, QLCIOPlugin::Output, DDP_IP, "127.0.0.1");
+    plugin.setParameter(0, line, QLCIOPlugin::Output, DDP_DESTPORT, receiver.port.load());
+    plugin.setParameter(0, line, QLCIOPlugin::Output, DDP_SKIPUNCHANGED, true);
+
+    std::atomic<bool> stopping{false};
+    std::atomic<int> writes{0};
+    std::thread universeThread([&] {
+        const QByteArray frame(30, char(0x42));
+        while (!stopping)
+        {
+            plugin.writeUniverse(0, line, frame, false);
+            writes++;
+        }
+    });
+
+    bool callsSucceeded = true;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    while (elapsed.elapsed() < 200)
+    {
+        const QList<DDPIO> held = plugin.getIOMapping();
+        if (caller == 0)
+            callsSucceeded = !plugin.outputInfo(line).isEmpty() && callsSucceeded;
+        else if (caller == 1)
+        {
+            callsSucceeded = plugin.openOutput(line, 1) && callsSucceeded;
+            plugin.closeOutput(line, 1);
+        }
+        else
+            plugin.setParameter(0, line, QLCIOPlugin::Output, DDP_MAXFPS, 0);
+        callsSucceeded = held.size() == plugin.outputs().size() && callsSucceeded;
+    }
+    stopping = true;
+    universeThread.join();
+    QVERIFY(callsSucceeded);
+    QVERIFY(writes > 0);
+    plugin.closeOutput(line, 0);
+}
+
 QTEST_GUILESS_MAIN(DDP_Race_Test)

@@ -16,6 +16,7 @@
 #include <QtEndian>
 #include <QVector>
 #include <QElapsedTimer>
+#include <algorithm>
 #include <cstring>
 
 #include "ddpcontroller.h"
@@ -458,6 +459,128 @@ void DDP_Partial_Test::skipUnchanged_doesNotSuppressPartialKeepAlive()
     w.ctrl->sendDmx(UNI, f, /*dataChanged=*/false);
     auto pkts = drain(w.rx);
     QCOMPARE(pkts.size(), 1);
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::skipUnchanged_deliversEveryChange_data()
+{
+    QTest::addColumn<int>("scenario");
+    QTest::newRow("change_held_by_fps_cap") << 0;
+    QTest::newRow("change_rereported_before_burst") << 1;
+    QTest::newRow("destination_changed") << 2;
+}
+
+void DDP_Partial_Test::skipUnchanged_deliversEveryChange()
+{
+    // The engine reports dataChanged=true once per change. Whatever delays
+    // that frame, the next unchanged report must still put it on the wire,
+    // not wait for the 1 s keep-alive.
+    QFETCH(int, scenario);
+    Wire w = makeWire();
+    QUdpSocket rx2;
+    QVERIFY(rx2.bind(QHostAddress::LocalHost, 0));
+    w.ctrl->setTransmissionMode(UNI, DDPController::Full);
+    w.ctrl->setSkipUnchanged(true);
+    const QByteArray a = rgbFrame(10, char(0x11), char(0x12), char(0x13));
+    const QByteArray b = rgbFrame(10, char(0x21), char(0x22), char(0x23));
+    QVector<ParsedPkt> pkts;
+
+    if (scenario == 0)
+    {
+        w.ctrl->setMaxFpsBypassForTest(false);
+        w.ctrl->setMaxFps(2); // 500ms gap so drain's 50ms idle doesn't slip past it
+        w.ctrl->sendDmx(UNI, a, true);
+        QCOMPARE(drain(w.rx).size(), 1);
+        w.ctrl->sendDmx(UNI, b, true);
+        QCOMPARE(drain(w.rx).size(), 0); // held back by the cap
+        QTest::qWait(550);
+        w.ctrl->sendDmx(UNI, b, false);
+        pkts = drain(w.rx);
+    }
+    else if (scenario == 1)
+    {
+        configureUniverse(w.ctrl, 1, w.rxPort, 30, 1);
+        w.ctrl->setTransmissionMode(1, DDPController::Full);
+        w.ctrl->sendDmx(UNI, a, true);
+        w.ctrl->sendDmx(1, a, true);
+        QCOMPARE(drain(w.rx).size(), 2);
+        w.ctrl->sendDmx(UNI, b, true);  // universe 1 has not reported yet
+        w.ctrl->sendDmx(UNI, b, false); // universe 0's thread ticks again first
+        w.ctrl->sendDmx(1, a, false);   // completes the burst
+        pkts = drain(w.rx);
+    }
+    else
+    {
+        w.ctrl->sendDmx(UNI, a, true);
+        QCOMPARE(drain(w.rx).size(), 1);
+        w.ctrl->setDestPort(UNI, rx2.localPort());
+        w.ctrl->sendDmx(UNI, a, false);
+        pkts = drain(&rx2);
+    }
+
+    const QByteArray expected = (scenario == 2) ? a : b;
+    bool delivered = false;
+    for (const auto &p : pkts)
+        if (p.offset == 0 && p.payload == expected)
+            delivered = true;
+    QVERIFY(delivered);
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::fpsPacing_toleratesTickJitter_data()
+{
+    QTest::addColumn<int>("maxFps");
+    QTest::addColumn<QList<int>>("callbacks"); // engine callback times, ms
+    QTest::addColumn<int>("expectedFrames");
+
+    QList<int> oneSecond;
+    for (int t = 1000; t < 2000; t += 20)
+        oneSecond << t;
+
+    QTest::newRow("50fps_early_and_late_ticks")
+        << 50 << QList<int>{1000, 1019, 1041, 1059, 1080, 1101, 1119, 1140, 1158, 1180} << 10;
+    QTest::newRow("50fps_one_late_tick")
+        << 50 << QList<int>{1000, 1020, 1047, 1060, 1080, 1100} << 6;
+    QTest::newRow("25fps_jittered_ticks")
+        << 25 << QList<int>{1000, 1020, 1039, 1060, 1081, 1100, 1119, 1140, 1160} << 5;
+    QTest::newRow("25fps_cap_over_one_second") << 25 << oneSecond << 25;
+    QTest::newRow("2fps_cap_over_one_second") << 2 << oneSecond << 2;
+}
+
+void DDP_Partial_Test::fpsPacing_toleratesTickJitter()
+{
+    // MasterTimer ticks at 50 Hz; each universe thread reports a little early
+    // or late depending on its fader work. Pacing must not turn that jitter
+    // into dropped frames, and must still hold the average to maxFps.
+    QFETCH(int, maxFps);
+    QFETCH(QList<int>, callbacks);
+    QFETCH(int, expectedFrames);
+
+    Wire w = makeWire();
+    w.ctrl->setTransmissionMode(UNI, DDPController::Full);
+    w.ctrl->setMaxFpsBypassForTest(false);
+    w.ctrl->setMaxFps(maxFps);
+    const QByteArray frame = rgbFrame(10);
+
+    int frames = 0;
+    {
+        QMutexLocker lock(&w.ctrl->m_dataMutex);
+        DDPUniverseInfo &info = w.ctrl->m_universeMap[UNI];
+        for (int now : callbacks)
+        {
+            info.pendingDataChanged = true;
+            info.pendingData = frame;
+            info.pendingTotalLen = frame.size();
+            info.pendingBpp = 3;
+            info.pendingDataType = DDP_DATATYPE_RGB888;
+            quint8 seq = 1;
+            bool seqAssigned = false;
+            if (w.ctrl->emitUniverse(info, now, seq, seqAssigned, true).emittedPackets)
+                frames++;
+        }
+    }
+    QCOMPARE(frames, expectedFrames);
+    QCOMPARE(drain(w.rx).size(), expectedFrames);
     delete w.ctrl; delete w.rx;
 }
 
@@ -1036,6 +1159,116 @@ void DDP_Partial_Test::destIdChange_dropsPendingBeforeCycleClose()
     delete w.ctrl; delete w.rx;
 }
 
+void DDP_Partial_Test::emptyMember_doesNotStallDestination_data()
+{
+    QTest::addColumn<int>("emptyBytes");
+    QTest::addColumn<int>("components");
+    QTest::addColumn<bool>("emptyReportsFirst");
+    QTest::newRow("no_channels") << 0 << int(DDPController::RGB) << false;
+    QTest::newRow("no_channels_reports_first") << 0 << int(DDPController::RGB) << true;
+    QTest::newRow("less_than_one_rgb_pixel") << 2 << int(DDPController::RGB) << false;
+    QTest::newRow("less_than_one_rgbw_pixel") << 3 << int(DDPController::RGBW) << false;
+}
+
+void DDP_Partial_Test::emptyMember_doesNotStallDestination()
+{
+    // A universe patched to the device before it has any whole pixel (no
+    // fixtures yet) reports every tick but can never be emitted. The burst
+    // must not wait for it.
+    QFETCH(int, emptyBytes);
+    QFETCH(int, components);
+    QFETCH(bool, emptyReportsFirst);
+    const bool rgbw = (components == int(DDPController::RGBW));
+
+    Wire w = makeWire();
+    configureUniverse(w.ctrl, 1, w.rxPort, 300, 1);
+    w.ctrl->setComponents(UNI, DDPController::Components(components));
+    w.ctrl->setComponents(1, DDPController::Components(components));
+    w.ctrl->setKeepAliveIntervalMsForTest(60000);
+
+    QByteArray row0 = rgbw ? rgbwFrame(10) : rgbFrame(10);
+    const QByteArray row1 = rgbw ? rgbwFrame(10, char(0x21), char(0x22), char(0x23), char(0x24))
+                                 : rgbFrame(10, char(0x21), char(0x22), char(0x23));
+    const QByteArray empty(emptyBytes, char(0x55));
+
+    for (int tick = 0; tick < 3; tick++)
+    {
+        row0[0] = char(0x30 + tick);
+        if (emptyReportsFirst)
+            w.ctrl->sendDmx(1, empty, true);
+        w.ctrl->sendDmx(UNI, row0, true);
+        if (!emptyReportsFirst)
+            w.ctrl->sendDmx(1, empty, true);
+        auto pkts = drain(w.rx);
+        QCOMPARE(pkts.size(), 1);
+        QVERIFY(pkts[0].push());
+        QCOMPARE(pkts[0].offset, quint32(0));
+        QCOMPARE(pkts[0].payload.at(0), row0.at(0));
+    }
+
+    // With whole pixels again, universe 1 rejoins the burst.
+    w.ctrl->sendDmx(1, row1, true);
+    w.ctrl->sendDmx(UNI, row0, false);
+    drain(w.rx);
+    row0[0] = char(0x40);
+    w.ctrl->sendDmx(UNI, row0, true);
+    QCOMPARE(drain(w.rx).size(), 0);
+    w.ctrl->sendDmx(1, row1, false);
+    auto burst = drain(w.rx);
+    QCOMPARE(burst.size(), 2);
+    QVERIFY(!burst[0].push());
+    QVERIFY(burst[1].push());
+    QCOMPARE(burst[0].seq, burst[1].seq);
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::largeInstall_tickFitsBudget_data()
+{
+    QTest::addColumn<int>("universes");
+    QTest::addColumn<int>("devices");
+    QTest::newRow("256_universes_one_device") << 256 << 1;
+    QTest::newRow("256_universes_64_devices") << 256 << 64;
+}
+
+void DDP_Partial_Test::largeInstall_tickFitsBudget()
+{
+    // Every universe callback of a tick serializes on the controller mutex,
+    // so one tick's worth of reports must fit in one 20 ms MasterTimer tick.
+    QFETCH(int, universes);
+    QFETCH(int, devices);
+#ifndef QT_NO_DEBUG
+    QSKIP("The tick budget applies to optimized builds");
+#endif
+
+    Wire w = makeWire();
+    const int perDevice = universes / devices;
+    for (int u = 0; u < universes; u++)
+    {
+        configureUniverse(w.ctrl, quint32(u), w.rxPort, quint32(u % perDevice) * 510,
+                          quint8(1 + u / perDevice));
+        w.ctrl->setTransmissionMode(quint32(u), DDPController::Full);
+    }
+
+    QByteArray frame = rgbFrame(170);
+    QVector<qint64> tickNs;
+    for (int tick = 0; tick < 21; tick++)
+    {
+        frame[0] = char(tick);
+        QElapsedTimer timer;
+        timer.start();
+        for (int u = 0; u < universes; u++)
+            w.ctrl->sendDmx(quint32(u), frame, true);
+        tickNs.append(timer.nsecsElapsed());
+        while (w.rx->hasPendingDatagrams())
+            w.rx->readDatagram(nullptr, 0);
+    }
+    std::sort(tickNs.begin(), tickNs.end());
+    const double medianMs = tickNs.at(tickNs.size() / 2) / 1e6;
+    qInfo() << universes << "universes," << devices << "devices: median" << medianMs << "ms per tick";
+    QVERIFY2(medianMs < 20.0, qPrintable(QString("median tick %1 ms").arg(medianMs)));
+    delete w.ctrl; delete w.rx;
+}
+
 // ---------------------------------------------------------------------
 // Coverage shift
 // ---------------------------------------------------------------------
@@ -1122,6 +1355,67 @@ void DDP_Partial_Test::destIdShift_clearsWithOldDestId()
     QCOMPARE(pkts.size(), 1);
     QVERIFY(pkts[0].push());
     QCOMPARE(pkts[0].destId, quint8(2));
+    delete w.ctrl; delete w.rx;
+}
+
+void DDP_Partial_Test::componentChange_clearsAbandonedPixels_data()
+{
+    QTest::addColumn<int>("oldBpp");
+    QTest::addColumn<int>("oldOffset"); // bytes
+    QTest::addColumn<int>("oldPixels");
+    QTest::addColumn<int>("newBpp");
+    QTest::addColumn<int>("newOffset"); // bytes
+    QTest::addColumn<int>("newPixels");
+    QTest::newRow("rgb_to_rgbw_shrinks_tail") << 3 << 0 << 170 << 4 << 0 << 128;
+    QTest::newRow("rgb_to_rgbw_inside_old_range") << 3 << 30 << 100 << 4 << 40 << 40;
+    QTest::newRow("rgbw_to_rgb_grows") << 4 << 0 << 128 << 3 << 0 << 170;
+    QTest::newRow("rgbw_to_rgb_moves_down") << 4 << 40 << 50 << 3 << 0 << 20;
+}
+
+void DDP_Partial_Test::componentChange_clearsAbandonedPixels()
+{
+    QFETCH(int, oldBpp);
+    QFETCH(int, oldOffset);
+    QFETCH(int, oldPixels);
+    QFETCH(int, newBpp);
+    QFETCH(int, newOffset);
+    QFETCH(int, newPixels);
+
+    Wire w = makeWire();
+    w.ctrl->setKeepAliveIntervalMsForTest(60000);
+    auto components = [](int bpp) { return bpp == 4 ? DDPController::RGBW : DDPController::RGB; };
+
+    // WLED handleDDPPacket(): first pixel = offset / bpp, count = dataLen / bpp,
+    // bpp taken from each packet's data type. Untouched pixels keep their colour.
+    QVector<bool> lit(512, false);
+    auto apply = [&](const QVector<ParsedPkt> &pkts) {
+        for (const auto &p : pkts)
+        {
+            const int bpp = (((p.dataType >> 3) & 0x7) == 0x3) ? 4 : 3;
+            for (int i = 0; i < p.dataLen / bpp; i++)
+            {
+                bool on = false;
+                for (int c = 0; c < bpp; c++)
+                    on = on || p.payload[i * bpp + c] != 0;
+                lit[int(p.offset) / bpp + i] = on;
+            }
+        }
+    };
+
+    w.ctrl->setComponents(UNI, components(oldBpp));
+    w.ctrl->setDDPOffset(UNI, oldOffset);
+    w.ctrl->sendDmx(UNI, QByteArray(oldPixels * oldBpp, char(0x7F)), true);
+    apply(drain(w.rx));
+
+    w.ctrl->setComponents(UNI, components(newBpp));
+    w.ctrl->setDDPOffset(UNI, newOffset);
+    w.ctrl->sendDmx(UNI, QByteArray(newPixels * newBpp, char(0x7F)), true);
+    apply(drain(w.rx));
+
+    const int first = newOffset / newBpp;
+    for (int pixel = 0; pixel < lit.size(); pixel++)
+        QVERIFY2(lit[pixel] == (pixel >= first && pixel < first + newPixels),
+                 qPrintable(QString("pixel %1 lit=%2").arg(pixel).arg(lit[pixel])));
     delete w.ctrl; delete w.rx;
 }
 
