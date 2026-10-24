@@ -16597,9 +16597,6 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
         ShowCommandTrack minute;
         QVERIFY(minute.setExtent(60000));
         QVERIFY(b->setCommandTrack(minute));
-        b->start(doc->masterTimer(), FunctionParent::master());
-        tickAndDeliver(doc, 2);
-        QVERIFY(b->isRunning());
     }
     else
     {
@@ -16607,6 +16604,7 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
         QVERIFY(start(target->id()));
     }
 
+    // the failing row is a live handover: Perform starts the next Show itself
     if (change == QLatin1String("engaged on an unchanged deck"))
     {
         fsm->setInputs({ b->id() });
@@ -16615,7 +16613,7 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     }
     else
     {
-        fsm->setInputs({ a->id() });
+        fsm->setInputs({ a->id(), failing });
     }
     QSignalSpy reported(recorder, &ShowCommandRecorder::lastErrorChanged);
     fsm->setPerformEnabled(true);
@@ -16630,7 +16628,7 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     }
     else if (change != QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setInputs({ b->id() });
+        fsm->setInputs({ b->id(), failing });
     }
     Show *next = change == QLatin1String("through a gap") ? c : b;
 
@@ -16639,12 +16637,15 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     QVERIFY(!a->commandRecording());
     if (failing)
     {
-        // disarmed and reported once; B plays unrecorded; A keeps all it accepted
+        // disarmed and reported once; B plays unrecorded, started by the
+        // handover; A keeps all it accepted
         QVERIFY(!recorder->isRecording());
         QCOMPARE(reported.count(), 1);
         QVERIFY(!b->commandRecording());
+        QVERIFY(a->stopped());
         tickAndDeliver(doc, 3);
-        QVERIFY(b->isRunning());
+        QVERIFY(b->isRunning() && !b->isPaused());
+        QCOMPARE(b->syncSource(), int(ShowRunner::External));
         QCOMPARE(b->commandTrack().count(), 0);
         Scene *back = new Scene(doc);
         QVERIFY(doc->addFunction(back, goneId));
@@ -17516,6 +17517,38 @@ void ShowCommandRecorder_Test::appRecordControls_followTargetRename()
     QVERIFY(rig.recorder->isAuthoring());
     QVERIFY(!rig.manager->isPlaying());
     QVERIFY(rig.recorder->setRecording(false));
+}
+
+void ShowCommandRecorder_Test::appPerform_selectionOfTheResolvedShowPassesTheGate()
+{
+    // a bound take refuses another selection, whoever resolved it; the
+    // executor binds Perform's Show before the Show Manager selects it, so
+    // that selection is the bound Show's own
+    AppRig rig;
+    QVERIFY(rig.recorder && rig.manager);
+    auto *bridge = qobject_cast<VdjBridge *>(rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    PerformFsm *fsm = bridge->performFsm();
+    Show *a = rig.addShow(3000);
+    Show *b = rig.addShow(0);
+
+    rig.manager->setCurrentShowID(int(a->id()));
+    QVERIFY(rig.recorder->setRecording(true));
+    QCOMPARE(rig.recorder->boundShowId(), a->id());
+    // a bound take: a manual selection of another Show is refused
+    rig.manager->setCurrentShowID(int(b->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(a->id()));
+
+    QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
+    fsm->setInputs({ b->id() });
+    fsm->setPerformEnabled(true);
+    QCOMPARE(rig.recorder->boundShowId(), b->id());
+    QCOMPARE(rig.manager->currentShowID(), int(b->id()));
+    QVERIFY(rig.recorder->selectionAllowed(b->id()));
+    QVERIFY(!rig.recorder->selectionAllowed(a->id()));
+
+    fsm->setPerformEnabled(false);
+    rig.recorder->setRecording(false);
 }
 
 void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain_data()

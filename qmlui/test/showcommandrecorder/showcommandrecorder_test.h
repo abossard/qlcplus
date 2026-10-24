@@ -458,6 +458,7 @@ private slots:
     void appRecordControls_shareOneRecorder();
     void appRecordControls_followTargetRename_data();
     void appRecordControls_followTargetRename();
+    void appPerform_selectionOfTheResolvedShowPassesTheGate();
     void appPerformEnd_selectionResolvesAgain_data();
     void appPerformEnd_selectionResolvesAgain();
     void editGate_followsPerformEngagement();
