@@ -58,6 +58,9 @@ private slots:
     void alignBands_data();
     void alignBands();
 
+    void arrange_data();
+    void arrange();
+
     void compactPlans_data();
     void compactPlans();
 

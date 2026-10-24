@@ -976,4 +976,59 @@ void GridLayout_Test::validatePlans()
         QVERIFY(!diagnostic.message.isEmpty());
 }
 
+void GridLayout_Test::arrange_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<bool>("fill");
+    QTest::addColumn<int>("columns");
+    QTest::addColumn<QRectF>("content");
+    QTest::addColumn<QList<QSizeF>>("sizes");
+    QTest::addColumn<QList<QRectF>>("expected"); // empty: refused
+    using M = GridLayout::ArrangeMode;
+    const QList<QSizeF> two {QSizeF(100, 80), QSizeF(50, 60)};
+    const QList<QSizeF> four(4, QSizeF(50, 50));
+    QTest::newRow("row") << int(M::Row) << false << 0 << QRectF(0, 30, 500, 200) << two
+                         << QList<QRectF>{QRectF(10, 40, 100, 80), QRectF(120, 40, 50, 60)};
+    QTest::newRow("row-fill") << int(M::Row) << true << 0 << QRectF(0, 30, 500, 200) << two
+                              << QList<QRectF>{QRectF(10, 40, 235, 180), QRectF(255, 40, 235, 180)};
+    QTest::newRow("column") << int(M::Column) << false << 0 << QRectF(0, 30, 500, 200) << two
+                            << QList<QRectF>{QRectF(10, 40, 100, 80), QRectF(10, 130, 50, 60)};
+    QTest::newRow("column-fill") << int(M::Column) << true << 0 << QRectF(0, 30, 500, 200) << two
+                                 << QList<QRectF>{QRectF(10, 40, 480, 85), QRectF(10, 135, 480, 85)};
+    QTest::newRow("grid") << int(M::Grid) << false << 2 << QRectF(0, 0, 500, 500) << four
+                          << QList<QRectF>{QRectF(10, 10, 50, 50), QRectF(70, 10, 50, 50),
+                                           QRectF(10, 70, 50, 50), QRectF(70, 70, 50, 50)};
+    QTest::newRow("grid-fill") << int(M::Grid) << true << 2 << QRectF(0, 0, 210, 110) << four
+                               << QList<QRectF>{QRectF(10, 10, 90, 40), QRectF(110, 10, 90, 40),
+                                                QRectF(10, 60, 90, 40), QRectF(110, 60, 90, 40)};
+    // cells of 21.67 px get whole pixel edges, so neighbours keep the gap
+    QTest::newRow("grid-fill-rounds") << int(M::Grid) << true << 3 << QRectF(0, 0, 105, 40) << QList<QSizeF>(3, QSizeF(10, 10))
+                                      << QList<QRectF>{QRectF(10, 10, 22, 20), QRectF(42, 10, 21, 20), QRectF(73, 10, 22, 20)};
+    QTest::newRow("flow") << int(M::Flow) << false << 0 << QRectF(0, 0, 200, 200) << QList<QSizeF>(3, QSizeF(80, 40))
+                          << QList<QRectF>{QRectF(10, 10, 80, 40), QRectF(100, 10, 80, 40), QRectF(10, 60, 80, 40)};
+    QTest::newRow("too-small-fill") << int(M::Row) << true << 0 << QRectF(0, 0, 60, 100) << two << QList<QRectF>();
+    QTest::newRow("too-wide") << int(M::Row) << false << 0 << QRectF(0, 0, 150, 100) << two << QList<QRectF>();
+    QTest::newRow("too-tall-flow") << int(M::Flow) << false << 0 << QRectF(0, 0, 100, 100) << two << QList<QRectF>();
+    QTest::newRow("empty") << int(M::Grid) << true << 2 << QRectF(0, 0, 100, 100) << QList<QSizeF>() << QList<QRectF>();
+}
+
+void GridLayout_Test::arrange()
+{
+    QFETCH(int, mode);
+    QFETCH(bool, fill);
+    QFETCH(int, columns);
+    QFETCH(QRectF, content);
+    QFETCH(QList<QSizeF>, sizes);
+    QFETCH(QList<QRectF>, expected);
+    GridLayout::ArrangeSpec spec;
+    spec.mode = GridLayout::ArrangeMode(mode);
+    spec.gap = 10;
+    spec.columns = columns;
+    spec.fill = fill;
+
+    const GridLayout::ArrangeResult result = GridLayout::arrange(spec, content, sizes, QList<QSizeF>(sizes.size(), QSizeF(20, 20)));
+    QCOMPARE(result.rects, expected);
+    QCOMPARE(result.error.isEmpty(), !expected.isEmpty() || sizes.isEmpty());
+}
+
 QTEST_MAIN(GridLayout_Test)

@@ -1080,4 +1080,98 @@ Diagnostic validate(const LayoutSnapshot &snapshot, const LayoutPlan &plan, cons
     return Calculation(snapshot, options).validatePlan(plan);
 }
 
+ArrangeResult arrange(const ArrangeSpec &spec, const QRectF &content,
+                      const QList<QSizeF> &sizes, const QList<QSizeF> &minimums)
+{
+    ArrangeResult result;
+    const int count = int(sizes.size());
+    if (spec.mode == ArrangeMode::None || count == 0)
+        return result;
+
+    const qreal gap = spec.gap;
+    const QRectF inner = content.adjusted(gap, gap, -gap, -gap);
+    // exact edges are rounded, so neighbours always keep the gap between them
+    auto place = [](qreal left, qreal top, qreal width, qreal height) {
+        const qreal x = std::round(left), y = std::round(top);
+        return QRectF(x, y, std::round(left + width) - x, std::round(top + height) - y);
+    };
+
+    switch (spec.mode)
+    {
+        case ArrangeMode::Row:
+        case ArrangeMode::Column:
+        {
+            const bool row = spec.mode == ArrangeMode::Row;
+            const qreal mainSpace = row ? inner.width() : inner.height();
+            const qreal crossSpace = row ? inner.height() : inner.width();
+            const qreal shared = (mainSpace - gap * (count - 1)) / count;
+            qreal position = row ? inner.left() : inner.top();
+            for (const QSizeF &size : sizes)
+            {
+                const qreal main = spec.fill ? shared : (row ? size.width() : size.height());
+                const qreal cross = spec.fill ? crossSpace : (row ? size.height() : size.width());
+                result.rects.append(row ? place(position, inner.top(), main, cross)
+                                        : place(inner.left(), position, cross, main));
+                position += main + gap;
+            }
+        }
+        break;
+        case ArrangeMode::Grid:
+        {
+            const int columns = qMax(1, spec.columns);
+            const int rows = (count + columns - 1) / columns;
+            QSizeF cell;
+            for (const QSizeF &size : sizes)
+                cell = cell.expandedTo(size);
+            if (spec.fill)
+                cell = QSizeF((inner.width() - gap * (columns - 1)) / columns,
+                              (inner.height() - gap * (rows - 1)) / rows);
+            for (int i = 0; i < count; i++)
+            {
+                const qreal left = inner.left() + (i % columns) * (cell.width() + gap);
+                const qreal top = inner.top() + (i / columns) * (cell.height() + gap);
+                result.rects.append(spec.fill ? place(left, top, cell.width(), cell.height())
+                                              : place(left, top, sizes.at(i).width(), sizes.at(i).height()));
+            }
+        }
+        break;
+        case ArrangeMode::Flow:
+        {
+            QPointF position = inner.topLeft();
+            qreal rowHeight = 0;
+            for (const QSizeF &size : sizes)
+            {
+                if (position.x() > inner.left() && less(inner.right(), position.x() + size.width()))
+                {
+                    position = QPointF(inner.left(), position.y() + rowHeight + gap);
+                    rowHeight = 0;
+                }
+                result.rects.append(place(position.x(), position.y(), size.width(), size.height()));
+                position.rx() += size.width() + gap;
+                rowHeight = qMax(rowHeight, size.height());
+            }
+        }
+        break;
+        case ArrangeMode::None:
+        break;
+    }
+
+    for (int i = 0; i < count; i++)
+    {
+        const QRectF &rect = result.rects.at(i);
+        const QSizeF minimum = minimums.value(i);
+        if (less(rect.width(), minimum.width()) || less(rect.height(), minimum.height()))
+            result.error = QStringLiteral("Arranged widget %1 would be smaller than its minimum size").arg(i);
+        else if (less(rect.left(), inner.left()) || less(rect.top(), inner.top()) ||
+                 less(inner.right(), rect.right()) || less(inner.bottom(), rect.bottom()))
+            result.error = QStringLiteral("Arranged widgets do not fit the frame");
+        if (!result.error.isEmpty())
+        {
+            result.rects.clear();
+            break;
+        }
+    }
+    return result;
+}
+
 } // namespace GridLayout

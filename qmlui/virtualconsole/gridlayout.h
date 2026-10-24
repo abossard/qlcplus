@@ -157,6 +157,34 @@ LayoutPlan compact(const LayoutSnapshot &snapshot, const LayoutOptions &options)
 // An empty diagnostic code means valid; stale/live-state admission remains the caller's.
 Diagnostic validate(const LayoutSnapshot &snapshot, const LayoutPlan &plan, const LayoutOptions &options);
 
+// Frames that arrange their children on their own
+enum class ArrangeMode { None = 0, Row, Column, Grid, Flow };
+
+struct ArrangeSpec
+{
+    ArrangeMode mode = ArrangeMode::None;
+    // between the children and around them
+    qreal gap = 0;
+    // Grid only
+    int columns = 1;
+    // children share the content instead of keeping their size
+    bool fill = false;
+};
+
+struct ArrangeResult
+{
+    QList<QRectF> rects;
+    QString error;
+};
+
+// Rectangles of the children inside content, in the given order, with whole
+// pixel edges. Row and Column keep sizes or, with fill, share the main axis
+// and take the whole cross axis. Grid makes cells as big as the largest child
+// or, with fill, shares the content. Flow keeps sizes and wraps. Children
+// below their minimum or outside the content refuse the whole arrangement.
+ArrangeResult arrange(const ArrangeSpec &spec, const QRectF &content,
+                      const QList<QSizeF> &sizes, const QList<QSizeF> &minimums);
+
 } // namespace GridLayout
 
 #endif // GRIDLAYOUT_H
