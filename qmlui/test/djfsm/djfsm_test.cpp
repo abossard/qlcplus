@@ -26,7 +26,7 @@ static QStringList songs(const QSignalSpy &spy)
 
 // Feed VDJ writes to a deck: "trigger=value;..." objects of one write, '|'
 // ends the write (onTickEnded). fp, title, artist (empty allowed), bpm, play,
-// elapsed.
+// elapsed, loaded.
 static void feed(DjFsm &fsm, int deck, const QString &writes)
 {
     for (const QString &write : writes.split('|'))
@@ -46,6 +46,8 @@ static void feed(DjFsm &fsm, int deck, const QString &writes)
                 fsm.onDeckTrigger(deck, "play", value);
             else if (key == "elapsed")
                 fsm.onDeckTrigger(deck, "get_time elapsed absolute", value.toDouble());
+            else if (key == "loaded")
+                fsm.onDeckTrigger(deck, "loaded", value);
         }
         if (&write != &writes.split('|').last() || writes.endsWith('|'))
             fsm.onTickEnded();
@@ -638,6 +640,57 @@ void DjFsm_Test::ejectKeepsTheFaderAndTheLastValues()
     QCOMPARE(fsm.activeDeck(), 1);
 }
 
+void DjFsm_Test::ejectAndReload_data()
+{
+    QTest::addColumn<QString>("then");  // deck 1 writes while A plays
+    QTest::addColumn<QStringList>("announced");
+    QTest::addColumn<int>("state");
+
+    // VDJ's eject (measured): the placeholder title, get_bpm 120, loaded off, and
+    // play off after it when the deck played. The same file back resends only
+    // what the eject changed: title, bpm, loaded on, never the filepath.
+    const QString eject = "title=Drag a song on this deck to load it;bpm=120;loaded=off";
+    const QString aLine = "d1 /a | A | X | 125.000";
+    const int empty = int(DjFsm::DeckState::Empty), loaded = int(DjFsm::DeckState::Loaded);
+    QTest::newRow("loaded off then play off") << eject + ";play=off|" << QStringList{ aLine } << empty;
+    QTest::newRow("play off then loaded off") << "play=off;" + eject + "|" << QStringList{ aLine } << empty;
+    QTest::newRow("the eject's bpm 120 is no tempo of A") << "play=off|" + eject + "|" << QStringList{ aLine } << empty;
+    QTest::newRow("the same file back without a bpm: the tempo before the eject")
+        << "play=off|" + eject + "|title=A;loaded=on;elapsed=0|" << QStringList({ aLine, aLine }) << loaded;
+    QTest::newRow("the same file back with its bpm")
+        << "play=off|" + eject + "|title=A;bpm=125;loaded=on;elapsed=0|" << QStringList({ aLine, aLine }) << loaded;
+    QTest::newRow("the same file back at another tempo")
+        << "play=off|" + eject + "|title=A;bpm=128;loaded=on|" << QStringList({ aLine, "d1 /a | A | X | 128.000" }) << loaded;
+    QTest::newRow("loaded on alone brings the file back")
+        << "play=off|" + eject + "|loaded=on|" << QStringList({ aLine, aLine }) << loaded;
+    QTest::newRow("another song without a bpm: 120 is real")
+        << "play=off|" + eject + "|title=B;artist=Y;loaded=on|fp=/b;elapsed=0|"
+        << QStringList({ aLine, "d1 /b | B | Y | 120.000" }) << loaded;
+    QTest::newRow("another song of the same artist: not resent")
+        << "play=off|" + eject + "|title=B;bpm=131;loaded=on|fp=/b|" << QStringList({ aLine, "d1 /b | B | X | 131.000" }) << loaded;
+    QTest::newRow("another song's first write announces nothing until its filepath")
+        << "play=off|" + eject + "|title=B;bpm=131;loaded=on|elapsed=0|fp=/b|"
+        << QStringList({ aLine, "d1 /b | B | X | 131.000" }) << loaded;
+}
+
+void DjFsm_Test::ejectAndReload()
+{
+    QFETCH(QString, then);
+    QFETCH(QStringList, announced);
+    QFETCH(int, state);
+
+    DjFsm fsm;
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
+    feed(fsm, 1, "title=A;artist=X;bpm=125;fp=/a;loaded=on|play=on;elapsed=3000|");
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Playing);
+    feed(fsm, 1, then);
+    QCOMPARE(songs(songSpy), announced);
+    QCOMPARE(updateSpy.count(), 0);
+    QCOMPARE(int(fsm.deckAt(0).state), state);
+    QVERIFY(!fsm.deckAt(0).playing);
+}
+
 void DjFsm_Test::artistAfterTitleChangesActiveSong()
 {
     // automix order: filepath, title, artist; the header shows the artist once it arrives
@@ -762,6 +815,68 @@ void DjFsm_Test::capture_connectSnapshot()
     QCOMPARE(fsm.deckCount(), 2);
     // this capture predates the per-deck master subscription: no active deck
     QCOMPARE(fsm.activeDeck(), 0);
+}
+
+void DjFsm_Test::capture_ejectReload_data()
+{
+    QTest::addColumn<QString>("capture");
+    QTest::addColumn<int>("deck");  // 1-based
+    QTest::addColumn<QStringList>("announced");
+    QTest::addColumn<int>("ejects");
+    QTest::addColumn<int>("state");
+
+    const QString a = "d1 /music/track-6.mp3 | Title 5 | Artist 6 | 125.000";
+    const QString b = "d1 /music/track-7.mp3 | Title 6 | Artist 6 | 131.000";
+    const QString c = "d1 /music/track-5.mp3 | Title 4 | Artist 5 | 125.000";
+    const int empty = int(DjFsm::DeckState::Empty), loaded = int(DjFsm::DeckState::Loaded),
+              paused = int(DjFsm::DeckState::Paused);
+    QTest::newRow("the same file again: announced twice at its bpm")
+        << "eject_reload_same_file" << 1 << QStringList({ a, a }) << 1 << paused;
+    QTest::newRow("the same artist is not resent after the eject")
+        << "eject_load_same_artist" << 1 << QStringList({ a, a, b }) << 2 << loaded;
+    QTest::newRow("the same bpm is resent after the eject")
+        << "eject_load_same_bpm" << 1 << QStringList({ b, a, c }) << 1 << loaded;
+    QTest::newRow("a 120 bpm track after the eject: no get_bpm, 120 is real")
+        << "eject_load_bpm120" << 1 << QStringList({ a, "d1 /music/track-13.mp3 | Title 13 | Artist 11 | 120.000" })
+        << 2 << empty;
+    QTest::newRow("eject while playing: loaded off before play off")
+        << "eject_while_playing" << 1 << QStringList({ c, a }) << 1 << empty;
+    QTest::newRow("eject paused at zero: no position at all")
+        << "eject_paused_at_zero" << 2 << QStringList{ "d2 /music/track-9.mp3 | Title 8 | Artist 7 | 127.999" }
+        << 1 << empty;
+}
+
+void DjFsm_Test::capture_ejectReload()
+{
+    QFETCH(QString, capture);
+    QFETCH(int, deck);
+    QFETCH(QStringList, announced);
+    QFETCH(int, ejects);
+    QFETCH(int, state);
+
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
+    int emptied = 0;
+    bool wasEmpty = true;
+    connect(&fsm, &DjFsm::deckChanged, &fsm, [&](int changed) {
+        if (changed != deck)
+            return;
+        const bool empty = fsm.deckAt(deck - 1).state == DjFsm::DeckState::Empty;
+        if (empty && !wasEmpty)
+            emptied++;
+        wasEmpty = empty;
+    });
+    QVERIFY(VdjCapture::replay(client, capture.toLatin1().constData()) > 0);
+
+    QCOMPARE(songs(songSpy), announced);
+    // the eject's placeholder title and bpm 120 reach no song
+    QCOMPARE(updateSpy.count(), 0);
+    QCOMPARE(emptied, ejects);
+    QCOMPARE(int(fsm.deckAt(deck - 1).state), state);
+    QVERIFY(!fsm.deckAt(deck - 1).playing);
 }
 
 QTEST_MAIN(DjFsm_Test)

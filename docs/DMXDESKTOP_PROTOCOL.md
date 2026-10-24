@@ -127,6 +127,15 @@ Real sample from the capture (note field order and that `pos` can be `-1`,
 | `get_time total`   | int       | **milliseconds** total track length (298,525 … 360,262) |
 | `loaded` / `play`  | string    | **`"on"` / `"off"`** |
 
+Every trigger is a delta against the value VDJ last sent for it, across ejects.
+An eject (measured) is one write: `get_position` 0 (when the deck had moved),
+the placeholder title, `get_bpm` 120, `loaded off`, and `play off` after it when
+the deck was playing; no empty `get_filepath`. Loading the same file again sends
+only what the eject changed: `get_title`, `get_bpm`, `loaded on` (no
+`get_filepath`, artist, key or total). A next song that shares a field with the
+ejected one (artist, or a bpm of 120) does not get it resent either. QLC+ keeps
+the last values per deck across the eject (`qmlui/djfsm.cpp`).
+
 ### Per-deck — EQ / mixer / loop
 
 | Trigger                 | JSON type | Observed | Meaning |

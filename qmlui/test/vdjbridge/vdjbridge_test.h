@@ -39,6 +39,8 @@ private slots:
     void ejectKeepsTheTempo();
     void activeDeckFollowsThePerDeckMasterdeck();
     void capture_ejectReleasesPerform();
+    void capture_ejectPerform_data();
+    void capture_ejectPerform();
     void performAdoptsAndReleasesSyncSource();
     void performAdoptionSuppressesAudioForAlreadyRunningShow();
     void performReleaseOrSwitchClearsTransientAudioSuppression_data();

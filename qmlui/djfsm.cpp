@@ -113,7 +113,9 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
 
     if (trigger == QLatin1String("loaded"))
     {
-        if (!triggerIsOn(value))
+        if (triggerIsOn(value))
+            s.loadedOn = true;
+        else
             ejectDeck(s, deck);
     }
     else if (trigger == QLatin1String("get_filepath"))
@@ -235,9 +237,11 @@ void DjFsm::onTickEnded()
     {
         Slot &s = m_slots[d - 1];
         Pending &p = s.pending;
-        if (p.filepath && *p.filepath != s.deck.song.filepath)
+        if (s.ejectedThisWrite || (p.filepath && *p.filepath != s.last.filepath) || reloadPending(s))
         {
-            // a load: this write's fields with the ones held from the previous write
+            // the eject write's values are VDJ's last ones and no song's; a load
+            // brings this write's fields with the ones held from the previous
+            // write; the ejected file back brings only what the eject changed
             commitPending(s, d);
         }
         else if (p.any())
@@ -251,37 +255,63 @@ void DjFsm::onTickEnded()
         }
         s.touched = false;
         s.positionSeen = false;
+        s.ejectedThisWrite = false;
     }
+}
+
+bool DjFsm::reloadPending(const Slot &s) const
+{
+    // loaded on, no filepath, the ejected file's title: the same file again.
+    // Another title is a manual load's first write, its filepath follows.
+    const Pending &p = s.pending;
+    return s.loadedOn && s.deck.state == DeckState::Empty && !s.last.filepath.isEmpty()
+           && !p.filepath && (!p.title || *p.title == s.last.title);
 }
 
 void DjFsm::commitPending(Slot &s, int deck1)
 {
     Pending &p = s.pending;
-    DeckSong &song = s.deck.song;
-    const bool newSong = p.filepath && *p.filepath != song.filepath;
-    bool changed = false;
-    if (newSong)
+    DeckSong &last = s.last;
+    const bool newFile = p.filepath && *p.filepath != last.filepath;
+    const bool reload = !newFile && reloadPending(s);
+    bool changed = newFile;
+    if (newFile)
     {
-        song.filepath = *p.filepath;
-        song.totalMs = 0;
-        s.deck.positionStale = !s.positionSeen;
-        changed = true;
+        last.filepath = *p.filepath;
+        last.totalMs = 0;
     }
-    // a title VDJ did not resend is the new song's title too
-    if (p.title && song.title != *p.title) { song.title = *p.title; changed = true; }
-    if (p.artist && song.artist != *p.artist) { song.artist = *p.artist; changed = true; }
+    // a field VDJ did not resend is the new song's too
+    if (p.title && last.title != *p.title) { last.title = *p.title; changed = true; }
+    if (p.artist && last.artist != *p.artist) { last.artist = *p.artist; changed = true; }
     if (p.bpm)
     {
         // a displayed change is an integer one, not sub-integer jitter
-        if (qRound(*p.bpm) != qRound(song.bpm))
+        if (qRound(*p.bpm) != qRound(last.bpm))
             changed = true;
-        song.bpm = *p.bpm;
+        last.bpm = *p.bpm;
     }
-    if (p.key && song.key != *p.key) { song.key = *p.key; changed = true; }
+    else if ((newFile || reload) && s.ejected && last.title == s.titleBeforeEject)
+    {
+        // no bpm after the eject: its 120 was real for another title only
+        last.bpm = s.bpmBeforeEject;
+    }
+    if (p.key && last.key != *p.key) { last.key = *p.key; changed = true; }
     if (p.totalMs)
-        song.totalMs = *p.totalMs;
+        last.totalMs = *p.totalMs;
     p = Pending();
 
+    if (!newFile && !reload && s.deck.state == DeckState::Empty)
+        return; // the empty deck's last values moved, no song did
+
+    DeckSong &song = s.deck.song;
+    if (newFile || reload)
+    {
+        s.deck.positionStale = !s.positionSeen;
+        s.loadedOn = false;
+        s.ejected = false;
+        changed = true;
+    }
+    song = last;
     const bool prevPlaying = s.deck.playing;
     recomputeState(s);
     if (song.isValid() && !song.title.isEmpty() && song.filepath != s.committedFilepath)
@@ -371,20 +401,28 @@ DjFsm::Slot &DjFsm::slotForDeck(int deck)
 
 void DjFsm::resetSlot(Slot &s, int deck1)
 {
-    s.deck.song    = DeckSong{};
+    // a disconnect or a new subscription: VDJ's last values start over
+    s.last         = DeckSong{};
     s.deck.volume  = 0.0;
     s.deck.number  = deck1;
     s.master       = false;
     s.pending      = Pending();
     s.touched      = false;
     s.positionSeen = false;
+    s.ejected      = false;
+    s.bpmBeforeEject = 0.0;
+    s.titleBeforeEject.clear();
     emptyDeck(s);
 }
 
 void DjFsm::ejectDeck(Slot &s, int deck1)
 {
+    s.ejectedThisWrite = true;
     if (!s.deck.song.isValid() && s.deck.state == DeckState::Empty)
         return;
+    s.ejected = true;
+    s.bpmBeforeEject = s.deck.song.bpm;
+    s.titleBeforeEject = s.deck.song.title;
     emptyDeck(s);
     emit deckChanged(deck1);
     if (deck1 == m_activeDeck)
@@ -393,13 +431,12 @@ void DjFsm::ejectDeck(Slot &s, int deck1)
 
 void DjFsm::emptyDeck(Slot &s)
 {
-    // the song leaves; VDJ's last artist, bpm and key stay the next song's
-    // until VDJ sends a change, the fader and the master flag are no song fields
+    // the song leaves the deck; VDJ's last values stay in `last` for the next
+    // load, the fader and the master flag are no song fields
     s.deck.state   = DeckState::Empty;
-    s.deck.song.filepath.clear();
-    s.deck.song.title.clear();
-    s.deck.song.totalMs = 0;
+    s.deck.song    = DeckSong{};
     s.deck.playing = false;
+    s.loadedOn     = false;
     s.deck.beatPos = 0.0;
     s.deck.elapsedMs = 0;
     s.deck.remainingMs = 0;

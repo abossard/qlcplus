@@ -819,6 +819,69 @@ void VdjBridge_Test::capture_ejectReleasesPerform()
     QCOMPARE(resolved[1][0].toUInt(), PerformFsm::InvalidShowId);
 }
 
+void VdjBridge_Test::capture_ejectPerform_data()
+{
+    QTest::addColumn<QString>("capture");
+    QTest::addColumn<int>("master");            // deck index
+    QTest::addColumn<QStringList>("files");     // Shows S0, S1, ... mapped to these
+    QTest::addColumn<QStringList>("resolved");  // performShowResolved in order, "-" = released
+    QTest::addColumn<int>("adopted");           // the Show synced at the end, -1 = none
+    QTest::addColumn<bool>("positioned");       // any Show took a position
+
+    QTest::newRow("the same file again: resolved again, its position follows")
+        << "eject_reload_same_file" << 0 << QStringList{ "/music/track-6.mp3" }
+        << QStringList({ "S0", "-", "S0" }) << 0 << true;
+    // the load over S0 releases it before S1 resolves
+    QTest::newRow("eject while playing: released")
+        << "eject_while_playing" << 0 << QStringList({ "/music/track-5.mp3", "/music/track-6.mp3" })
+        << QStringList({ "S0", "-", "S1", "-" }) << -1 << true;
+    QTest::newRow("eject paused at zero: released, no position")
+        << "eject_paused_at_zero" << 1 << QStringList{ "/music/track-9.mp3" }
+        << QStringList({ "S0", "-" }) << -1 << false;
+}
+
+void VdjBridge_Test::capture_ejectPerform()
+{
+    QFETCH(QString, capture);
+    QFETCH(int, master);
+    QFETCH(QStringList, files);
+    QFETCH(QStringList, resolved);
+    QFETCH(int, adopted);
+    QFETCH(bool, positioned);
+
+    PerformRig rig;
+    QList<Show *> shows;
+    for (int i = 0; i < files.size(); ++i)
+        shows << rig.addShow(QStringLiteral("S%1").arg(i), files[i]);
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, &rig.bridge);
+    rig.master(master);
+    rig.bridge.setPerformMode(true);
+    QSignalSpy resolvedSpy(&rig.bridge, &VdjBridge::performShowResolved);
+    int positions = 0;
+    for (Show *show : shows)
+        connect(show, &Show::externalElapsedTimeChanged, &rig.bridge, [&positions]() { positions++; });
+
+    QVERIFY(VdjCapture::replay(client, capture.toLatin1().constData()) > 0);
+    rig.tick(2);
+
+    QStringList sequence;
+    for (const QList<QVariant> &args : resolvedSpy)
+    {
+        const quint32 id = args[0].toUInt();
+        sequence << (id == PerformFsm::InvalidShowId ? QStringLiteral("-") : rig.doc.function(id)->name());
+    }
+    QCOMPARE(sequence, resolved);
+    QCOMPARE(positions > 0, positioned);
+    QCOMPARE(rig.bridge.djFsm()->deckAt(master).state == DjFsm::DeckState::Empty, adopted < 0);
+    for (int i = 0; i < shows.size(); ++i)
+    {
+        QCOMPARE(shows[i]->syncSource() == int(ShowRunner::External), i == adopted);
+        if (i != adopted)
+            QVERIFY(shows[i]->stopped());
+    }
+}
+
 struct PerformShowFixture
 {
     Show *show = nullptr;

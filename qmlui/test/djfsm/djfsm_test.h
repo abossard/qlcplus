@@ -46,6 +46,8 @@ private slots:
     void masterFlagSurvivesTheDeckCount_data();
     void masterFlagSurvivesTheDeckCount();
     void ejectKeepsTheFaderAndTheLastValues();
+    void ejectAndReload_data();
+    void ejectAndReload();
     void artistAfterTitleChangesActiveSong();
     void capture_trackChangeSameBpm();
     void capture_consecutiveLoads();
@@ -53,6 +55,8 @@ private slots:
     void capture_playPauseLoad();
     void capture_masterHandover();
     void capture_connectSnapshot();
+    void capture_ejectReload_data();
+    void capture_ejectReload();
 };
 
 #endif // DJFSM_TEST_H
