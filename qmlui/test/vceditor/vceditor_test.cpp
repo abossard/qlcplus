@@ -861,6 +861,33 @@ void VCEditor_Test::pageSwitchPrunesSelection()
     QCOMPARE(vc()->selectedWidgetIDs(), selectOnTarget ? QVariantList{onTarget} : QVariantList());
 }
 
+void VCEditor_Test::widgetsInRect_data()
+{
+    QTest::addColumn<QString>("container");
+    QTest::addColumn<QRectF>("band");
+    QTest::addColumn<QStringList>("expected");
+    QTest::newRow("page-band") << "page" << QRectF(500, 0, 150, 60) << QStringList{"frame", "loose"};
+    QTest::newRow("page-empty") << "page" << QRectF(1300, 600, 100, 100) << QStringList();
+    QTest::newRow("page-edge-touch") << "page" << QRectF(520, 300, 30, 30) << QStringList();
+    QTest::newRow("frame-band") << "frame" << QRectF(0, 50, 250, 50) << QStringList{"a", "b"};
+    QTest::newRow("frame-nested") << "frame" << QRectF(200, 300, 20, 20) << QStringList{"nested"};
+}
+
+void VCEditor_Test::widgetsInRect()
+{
+    QFETCH(QString, container);
+    QFETCH(QRectF, band);
+    QFETCH(QStringList, expected);
+    const ConsoleIds ids = buildConsole();
+    const QMap<QString, quint32> named {{"page", ids.page}, {"frame", ids.frame}, {"loose", ids.loose},
+                                        {"a", ids.a}, {"b", ids.b}, {"nested", ids.nested}};
+    QVariantList wanted;
+    for (const QString &name : expected)
+        wanted.append(named.value(name));
+
+    QCOMPARE(vc()->widgetsInRect(named.value(container), band), wanted);
+}
+
 void VCEditor_Test::keysIgnoredWhileTyping_data()
 {
     QTest::addColumn<int>("key");

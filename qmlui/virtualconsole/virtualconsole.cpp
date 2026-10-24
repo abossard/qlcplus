@@ -792,6 +792,21 @@ void VirtualConsole::setWidgetSelection(quint32 wID, QQuickItem *item, bool enab
     emit selectedWidgetsCountChanged();
 }
 
+QVariantList VirtualConsole::widgetsInRect(quint32 frameID, QRectF logicalRect) const
+{
+    QVariantList ids;
+    VCFrame *frame = targetFrame(frameID);
+    if (frame == nullptr)
+        return ids;
+    for (VCWidget *child : frame->children(false))
+    {
+        const QRectF overlap = child->logicalGeometry().intersected(logicalRect);
+        if (child->page() == frame->currentPage() && overlap.width() > 0 && overlap.height() > 0)
+            ids.append(child->id());
+    }
+    return ids;
+}
+
 void VirtualConsole::setSelectedWidgetIDs(QVariantList ids)
 {
     QSignalBlocker block(this);

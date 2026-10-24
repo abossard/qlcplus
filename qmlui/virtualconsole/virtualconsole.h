@@ -210,6 +210,10 @@ public:
 
     /** Return a list of the currently selected VC widget IDs */
     Q_INVOKABLE QVariantList selectedWidgetIDs() const;
+
+    /** IDs of the children of $frameID on its shown page that a
+     *  $logicalRect band touches, in child order */
+    Q_INVOKABLE QVariantList widgetsInRect(quint32 frameID, QRectF logicalRect) const;
     Q_INVOKABLE void setSelectedWidgetIDs(QVariantList ids);
     VCOutlineModel *outlineModel() const;
 

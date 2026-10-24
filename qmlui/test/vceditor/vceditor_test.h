@@ -64,6 +64,8 @@ private slots:
 
     void pageSwitchPrunesSelection_data();
     void pageSwitchPrunesSelection();
+    void widgetsInRect_data();
+    void widgetsInRect();
     void keysIgnoredWhileTyping_data();
     void keysIgnoredWhileTyping();
     void pasteRendersIntoFrame();
