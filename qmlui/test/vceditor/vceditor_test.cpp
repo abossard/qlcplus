@@ -272,6 +272,14 @@ static QMap<QString, ConsoleEdit> consoleEdits()
             Tardis::instance()->endBatch();
             return result;
         }},
+        {"arrangedCreate", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            Tardis::instance()->beginBatch();
+            QVariantMap result = vc->editor()->arrangeFrame(ids.frame, {{"mode", int(GridLayout::ArrangeMode::Flow)}});
+            if (result.value("accepted").toBool())
+                result = vc->createWidget(ids.frame, "Button", QPointF(400, 300), 0);
+            Tardis::instance()->endBatch();
+            return result;
+        }},
         {"cloneFirstPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
             frame->setMultiPageMode(true);
@@ -1153,6 +1161,13 @@ void VCEditor_Test::arrangedStructure_data()
         << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50)};
     QTest::newRow("delete") << "delete" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b2", "b3"}
         << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50)};
+    // newcomers join the end; the new button keeps its default size, so only its place is known
+    QTest::newRow("create") << "create" << int(GridLayout::ArrangeMode::Flow) << QStringList{"b0", "b1", "b2", "b3", "new"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50),
+                         QRectF(220, 10, 60, 50), QRectF(10, 70, -1, -1)};
+    QTest::newRow("paste") << "paste" << int(GridLayout::ArrangeMode::Flow) << QStringList{"b0", "b1", "b2", "b3", "new"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50),
+                         QRectF(220, 10, 60, 50), QRectF(10, 70, 100, 80)};
 }
 
 void VCEditor_Test::arrangedStructure()
@@ -1175,16 +1190,32 @@ void VCEditor_Test::arrangedStructure()
         result = vc()->editDrop(ids.loose, ids.empty, 0, QRectF(5, 10, 100, 80));
     else if (edit == "move-out")
         result = vc()->editDrop(named["b0"], ids.page, 0, QRectF(1200, 300, 60, 50));
+    else if (edit == "create")
+        result = vc()->createWidget(ids.empty, "Button", QPointF(5, 200), 0);
+    else if (edit == "paste")
+    {
+        QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
+        vc()->setSelectedWidgetIDs({ids.loose});
+        vc()->copyToClipboard();
+        vc()->setSelectedWidgetIDs({ids.empty});
+        vc()->pasteFromClipboard();
+        result = {{"accepted", rejected.isEmpty()}, {"error", rejected.value(0).value(0)}};
+    }
     else
         result = vc()->deleteAuthoringWidgets({named["b1"]});
     QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
+    const QVariantList children = qobject_cast<VCFrame *>(vc()->widget(ids.empty))->orderedChildIDs(0);
+    named.insert("new", children.last().toUInt());
 
     QVariantList wanted;
     QList<QRectF> actual;
     for (const QString &name : order)
     {
         wanted.append(named.value(name));
-        actual.append(vc()->widget(named.value(name))->logicalGeometry());
+        QRectF rect = vc()->widget(named.value(name))->logicalGeometry();
+        if (expected.at(actual.size()).width() < 0)
+            rect.setSize(QSizeF(-1, -1));
+        actual.append(rect);
     }
     QCOMPARE(qobject_cast<VCFrame *>(vc()->widget(ids.empty))->orderedChildIDs(0), wanted);
     QCOMPARE(actual, expected);

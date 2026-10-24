@@ -558,3 +558,49 @@ void VCEditor::rearrange(const QList<VCFrame *> &frames)
     if (!rectangles.isEmpty())
         m_vc->commitGeometry(rectangles);
 }
+
+bool VCEditor::isArranged(const VCFrame *frame) const
+{
+    return VCArrangement::specOf(frame).mode != GridLayout::ArrangeMode::None;
+}
+
+QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QList<QSizeF> &sizes,
+                              const QList<QSizeF> &minimums) const
+{
+    if (!isArranged(frame))
+        return QString();
+    QList<QSizeF> allSizes, allMinimums;
+    for (const QVariant &id : frame->orderedChildIDs(subpage))
+    {
+        VCWidget *child = m_vc->widget(id.toUInt());
+        allSizes.append(child->logicalGeometry().size());
+        allMinimums.append(child->minimumSize());
+    }
+    allSizes.append(sizes);
+    allMinimums.append(minimums);
+    const GridLayout::ArrangeResult arranged =
+        GridLayout::arrange(VCArrangement::specOf(frame), frame->contentRect(), allSizes, allMinimums);
+    return arranged.error.isEmpty() ? QString() : tr("Frame %1: %2").arg(frame->caption(), arranged.error);
+}
+
+QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining) const
+{
+    QList<QSizeF> sizes, minimums;
+    for (auto it = joining.constBegin(); it != joining.constEnd(); ++it)
+    {
+        sizes.append(it.value().size());
+        minimums.append(m_vc->widget(it.key())->minimumSize());
+    }
+    return arrangedFit(frame, subpage, sizes, minimums);
+}
+
+void VCEditor::arrangeJoined(VCFrame *frame)
+{
+    QMap<quint32, QRectF> rectangles {{frame->id(), frame->logicalGeometry()}};
+    if (!isArranged(frame) || !arrangePlan(rectangles).isEmpty())
+        return;
+    rectangles.remove(frame->id());
+    for (auto it = rectangles.constBegin(); it != rectangles.constEnd(); ++it)
+        if (VCWidget *widget = m_vc->widget(it.key()); widget && widget->logicalGeometry() != it.value())
+            widget->setLogicalGeometry(it.value());
+}

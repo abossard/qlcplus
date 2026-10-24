@@ -150,6 +150,18 @@ public:
     /** Delete the widgets $ids, the arranged frames they leave close up in the same undo step */
     void deleteWidgets(const QVariantList &ids);
 
+    bool isArranged(const VCFrame *frame) const;
+
+    /** Why widgets of $sizes cannot join the end of the arranged $frame, empty when
+     *  they fit or $frame is not arranged */
+    QString arrangedFit(VCFrame *frame, int subpage, const QList<QSizeF> &sizes,
+                        const QList<QSizeF> &minimums) const;
+    /** The same for copies of the widgets keyed in $joining, at their sizes there */
+    QString arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining) const;
+
+    /** Arrange $frame again inside a running edit, whose undo step takes the moves */
+    void arrangeJoined(VCFrame *frame);
+
 signals:
     /** Emitted from a widget item: show the properties of the selection */
     void widgetPropertiesRequested();

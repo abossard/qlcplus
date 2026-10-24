@@ -1802,8 +1802,12 @@ QVariantMap VirtualConsole::createPreflight(quint32 targetID, const QString &typ
         result["requestedRect"] = rect;
         return result;
     }
+    /* an arranged frame places the new control itself */
+    const QString arranged = m_editor->arrangedFit(target, page, {rect.size()}, {minimum});
+    if (!arranged.isEmpty())
+        return editResult(false, false, arranged);
     for (VCWidget *sibling : target->children(false))
-        if (sibling->page() == page &&
+        if (!m_editor->isArranged(target) && sibling->page() == page &&
             less(qMax(rect.left(), sibling->logicalGeometry().left()),
                  qMin(rect.right(), sibling->logicalGeometry().right())) &&
             less(qMax(rect.top(), sibling->logicalGeometry().top()),
@@ -1876,6 +1880,8 @@ QVariantMap VirtualConsole::createWidgetGeometry(quint32 targetID, QString type,
     Tardis *tardis = Tardis::instance();
     if (tardis) tardis->beginBatch("consoleCreate");
     VCWidget *created = commitWidgetCreation(target, type, logicalRect, page);
+    if (created)
+        m_editor->arrangeJoined(target);
     if (tardis) tardis->endBatch();
     if (!created)
     {
@@ -2824,7 +2830,8 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
             rowHeight = 0;
         }
     }
-    error = geometryError(rectangles, target, subpage, true);
+    error = m_editor->isArranged(target) ? m_editor->arrangedFit(target, subpage, rectangles)
+                                         : geometryError(rectangles, target, subpage, true);
     if (!error.isEmpty() && nearPosition && m_editor->placeNear(rectangles, target, subpage, step))
         error.clear();
     if (!error.isEmpty())
@@ -2917,6 +2924,7 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
         page->buildKeySequenceMap();
     }
     updatePageInputs();
+    m_editor->arrangeJoined(target);
     if (tardis)
         tardis->endBatch();
     parentBlockers.clear();
