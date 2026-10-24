@@ -435,6 +435,36 @@ void VdjBridge_Test::theRunnerEndsTheShowUntilAJumpBack()
     QCOMPARE(started.count(), 2);
 }
 
+void VdjBridge_Test::aQueuedFinishWaitsForTheNextTracksSample()
+{
+    // two files of one Show: the first plays past the content, the runner's
+    // finish is queued when the second loads with no sample yet. It is the
+    // first track's end, not the second's: the Show starts at the sample.
+    PerformRig rig;
+    Show *show = rig.addShow("A", "/music/a.mp3", 5000);
+    rig.bridge.showFactory()->registerMapping("/music/b.mp3", show->id());
+    rig.load(0, "/music/a.mp3");
+    rig.master(0);
+    rig.play(0, true);
+    rig.elapsed(0, 1000);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QVERIFY(show->isRunning());
+
+    rig.elapsed(0, 6000);
+    for (int i = 0; i < 3; i++)
+        rig.doc.masterTimer()->timerTick();
+    QVERIFY(!show->isRunning());
+    rig.load(0, "/music/b.mp3");
+    QCoreApplication::processEvents();
+    QCOMPARE(rig.state(), State::Live);
+
+    rig.elapsed(0, 100);
+    rig.tick(2);
+    QVERIFY(show->isRunning());
+    QCOMPARE(show->externalElapsedTime(), 100u);
+}
+
 void VdjBridge_Test::mutedTrackDoesNotRestartTheShow()
 {
     // totalDuration() counts a muted track's clip, the runner skips it: only

@@ -24,6 +24,7 @@ private slots:
     void disconnectThenReconnectAdoptsAgain();
     void stoppedShowStartsAgainInsideTheContent();
     void theRunnerEndsTheShowUntilAJumpBack();
+    void aQueuedFinishWaitsForTheNextTracksSample();
     void mutedTrackDoesNotRestartTheShow();
     void beatShowEndsWhereTheRunnerEnds();
     void recordingKeepsTheShowPastItsContent_data();

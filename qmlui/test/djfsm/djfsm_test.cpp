@@ -26,7 +26,7 @@ static QStringList songs(const QSignalSpy &spy)
 
 // Feed VDJ writes to a deck: "trigger=value;..." objects of one write, '|'
 // ends the write (onTickEnded). fp, title, artist (empty allowed), bpm, play,
-// elapsed, loaded.
+// elapsed, loaded, vu (get_vu_meter), eq (eq_high).
 static void feed(DjFsm &fsm, int deck, const QString &writes)
 {
     for (const QString &write : writes.split('|'))
@@ -48,6 +48,10 @@ static void feed(DjFsm &fsm, int deck, const QString &writes)
                 fsm.onDeckTrigger(deck, "get_time elapsed absolute", value.toDouble());
             else if (key == "loaded")
                 fsm.onDeckTrigger(deck, "loaded", value);
+            else if (key == "vu")
+                fsm.onDeckTrigger(deck, "get_vu_meter", value.toDouble());
+            else if (key == "eq")
+                fsm.onDeckTrigger(deck, "eq_high", value.toDouble());
         }
         if (&write != &writes.split('|').last() || writes.endsWith('|'))
             fsm.onTickEnded();
@@ -310,8 +314,8 @@ void DjFsm_Test::loadWrites_data()
     QTest::newRow("a playing deck's tempo follows at its next tick")
         << "fp=/b;title=B;artist=Y;bpm=128;play=on|bpm=130;elapsed=40|elapsed=80|" << QStringList{ b }
         << QStringList{ "d1 /b | B | Y | 130.000" };
-    QTest::newRow("a paused deck's correction waits for its next event")
-        << "title=B;artist=Y;bpm=128|fp=/b|bpm=126||||" << QStringList{ b } << QStringList{};
+    QTest::newRow("a paused deck's correction waits for its next position sample")
+        << "title=B;artist=Y;bpm=128|fp=/b|bpm=126|vu=0|eq=0.5||" << QStringList{ b } << QStringList{};
 }
 
 void DjFsm_Test::loadWrites()
@@ -375,6 +379,8 @@ void DjFsm_Test::onChangeSemantics_data()
         << a << "artist=Y;bpm=128|fp=/b|" << QStringList({ aLine, "d1 /b | A | Y | 128.000" }) << QStringList{};
     QTest::newRow("same title and artist (the extended mix): announced at its filepath")
         << a << "bpm=128|fp=/b|" << QStringList({ aLine, "d1 /b | A | X | 128.000" }) << QStringList{};
+    QTest::newRow("same title, metadata first, no tags: the empty artist is not an update of A")
+        << a << "artist=;bpm=128|fp=/b|" << QStringList({ aLine, "d1 /b | A |  | 128.000" }) << QStringList{};
     // VDJ sends VU zeros every write for a second after a stop, EQ moves any time
     QTest::newRow("a VU write between a manual load's writes is not B's filepath")
         << a << "title=B;artist=Y;bpm=128|vu=0|fp=/b|" << QStringList({ aLine, "d1 /b | B | Y | 128.000" }) << QStringList{};
