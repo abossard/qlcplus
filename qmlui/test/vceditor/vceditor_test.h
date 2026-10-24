@@ -99,6 +99,8 @@ private slots:
     void pastePlacement();
     void duplicateKeepsClipboard();
     void newWorkspaceShowsFirstPage();
+    void pageDeleteUndo_data();
+    void pageDeleteUndo();
     void destroyedDialogReleasesKeys();
     void editErrorsDoNotBlock_data();
     void editErrorsDoNotBlock();

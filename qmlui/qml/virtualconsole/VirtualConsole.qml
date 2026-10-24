@@ -108,6 +108,12 @@ Rectangle
                 layoutError.open()
             }
         }
+        // a page deleted or restored at the shown index keeps the index, not the page
+        function onPagesCountChanged()
+        {
+            pageLoader.active = false
+            pageLoader.active = true
+        }
     }
 
     Shortcut

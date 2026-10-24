@@ -225,16 +225,18 @@ bool VCEditor::restorePage(int index, const QByteArray &xml)
     m_vc->addWidgetToMap(page);
     m_vc->m_contextManager->registerContext(page->previewContext());
     m_vc->m_pages.insert(index, page);
+    /* like a loaded page, it and its widgets take input again */
+    for (const auto &source : page->inputSources())
+        page->mapInputSource(source, page, false);
+    page->mapChildrenInputSources();
     page->buildKeySequenceMap();
+    m_vc->updatePageInputs();
 
-    emit m_vc->pagesCountChanged();
-
-    /* keep the shown page selected */
+    /* the shown page keeps its place, then undo shows the page it brings back */
     if (index <= m_vc->m_selectedPage && m_vc->m_pages.count() > 1)
-    {
         m_vc->m_selectedPage++;
-        emit m_vc->selectedPageChanged(m_vc->m_selectedPage);
-    }
+    emit m_vc->pagesCountChanged();
+    m_vc->setSelectedPage(index);
     return true;
 }
 

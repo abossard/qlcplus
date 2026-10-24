@@ -46,6 +46,7 @@
 #include "vceditor.h"
 #include "vcframe.h"
 #include "vcpage.h"
+#include "vcslider.h"
 #include "virtualconsole.h"
 
 /* Tardis merges actions closer than this into one undo step */
@@ -1760,6 +1761,61 @@ void VCEditor_Test::newWorkspaceShowsFirstPage()
     QVERIFY(m_app->newWorkspace());
     QCOMPARE(vc()->selectedPage(), 0);
     QTRY_VERIFY(m_app->rootObject()->findChild<QQuickItem *>("vcPage1") == nullptr);
+}
+
+void VCEditor_Test::pageDeleteUndo_data()
+{
+    QTest::addColumn<int>("selected");
+    QTest::addColumn<int>("deleted");
+    QTest::addColumn<int>("shownAfterDelete");
+    QTest::newRow("selected-middle") << 1 << 1 << 1;
+    QTest::newRow("selected-last") << 3 << 3 << 2;
+    QTest::newRow("other") << 0 << 2 << 0;
+}
+
+void VCEditor_Test::pageDeleteUndo()
+{
+    QFETCH(int, selected);
+    QFETCH(int, deleted);
+    QFETCH(int, shownAfterDelete);
+    buildConsole();
+    QMap<int, quint32> buttons; // one per page, to see which page shows
+    for (int i = 0; i < vc()->pagesCount(); i++)
+        buttons.insert(vc()->page(i)->id(), vc()->createWidgetGeometry(vc()->page(i)->id(), "Button", QRectF(20, 300, 100, 80))
+                                               .value("widgetIDs").toList().value(0).toUInt());
+    const quint32 deletedPage = vc()->page(deleted)->id();
+    auto *slider = qobject_cast<VCSlider *>(vc()->widget(vc()->createWidgetGeometry(deletedPage, "Slider", QRectF(200, 300, 60, 200))
+                                                         .value("widgetIDs").toList().value(0).toUInt()));
+    QVERIFY(slider);
+    const quint32 sliderID = slider->id();
+    slider->setSliderMode(VCSlider::Level);
+    slider->setCatchValues(false);
+    vc()->createAndAddInputSource(slider, 0, 497);
+    const auto takesInput = [&](int value) {
+        auto *restored = qobject_cast<VCSlider *>(vc()->widget(sliderID));
+        vc()->setEditMode(false);
+        vc()->page(deleted)->inputValueChanged(497, uchar(value));
+        vc()->setEditMode(true);
+        return restored && restored->value() == value;
+    };
+    QVERIFY(takesInput(64));
+    vc()->setSelectedPage(selected);
+    settleHistory();
+
+    vc()->deletePage(deleted);
+    settleHistory();
+    QCOMPARE(vc()->selectedPage(), shownAfterDelete);
+    // the page now at the shown index is the one on the canvas
+    const quint32 shown = buttons.value(vc()->page(shownAfterDelete)->id());
+    QTRY_VERIFY(vc()->widget(shown)->renderItem() && vc()->widget(shown)->renderItem()->isVisible());
+
+    Tardis::instance()->undoAction();
+    settleHistory();
+    QCOMPARE(vc()->page(deleted)->id(), deletedPage);
+    // undo shows the page it brings back, which takes its input again
+    QCOMPARE(vc()->selectedPage(), deleted);
+    QTRY_VERIFY(vc()->widget(sliderID)->renderItem() && vc()->widget(sliderID)->renderItem()->isVisible());
+    QVERIFY(takesInput(128));
 }
 
 void VCEditor_Test::destroyedDialogReleasesKeys()
