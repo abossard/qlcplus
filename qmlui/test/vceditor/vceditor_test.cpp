@@ -24,6 +24,7 @@
 #include <QQmlContext>
 #include <QQmlExpression>
 #include <QQuickItem>
+#include <QRandomGenerator>
 #include <QSettings>
 #include <QXmlStreamWriter>
 #include <functional>
@@ -421,6 +422,189 @@ void VCEditor_Test::clonesStayOnTheirPage()
     QCOMPARE(frame->orderedChildIDs(1).size(), frame->orderedChildIDs(0).size());
     for (VCWidget *child : frame->children(false))
         QCOMPARE(child->isVisible(), child->page() == frame->currentPage());
+}
+
+/*********************************************************************
+ * Random edit sequences: rejected edits change nothing, accepted ones
+ * keep the console well formed, and every step undoes and redoes
+ *********************************************************************/
+
+/* Overlapping siblings or children outside their frame content */
+static QString structureError(VCFrame *frame)
+{
+    const QRectF content = frame->contentRect();
+    const QList<VCWidget *> children = frame->children(false);
+    for (int i = 0; i < children.size(); i++)
+    {
+        const QRectF rect = children[i]->logicalGeometry();
+        if (!qobject_cast<VCPage *>(frame) && !content.contains(rect))
+            return QString("Widget %1 lies outside frame %2").arg(children[i]->id()).arg(frame->id());
+        for (int j = i + 1; j < children.size(); j++)
+        {
+            const QRectF overlap = rect.intersected(children[j]->logicalGeometry());
+            if (children[i]->page() == children[j]->page() && overlap.width() > 0 && overlap.height() > 0)
+                return QString("Widgets %1 and %2 overlap").arg(children[i]->id()).arg(children[j]->id());
+        }
+        if (VCFrame *child = qobject_cast<VCFrame *>(children[i]))
+        {
+            const QString error = structureError(child);
+            if (!error.isEmpty())
+                return error;
+        }
+    }
+    return QString();
+}
+
+void VCEditor_Test::randomEditSequence_data()
+{
+    QTest::addColumn<quint32>("seed");
+    const int seeds = qEnvironmentVariableIsSet("QLC_VC_FUZZ_SEEDS") ? qEnvironmentVariableIntValue("QLC_VC_FUZZ_SEEDS") : 4;
+    for (int seed = 1; seed <= seeds; seed++)
+        QTest::newRow(qPrintable(QString("seed-%1").arg(seed))) << quint32(seed);
+}
+
+void VCEditor_Test::randomEditSequence()
+{
+    QFETCH(quint32, seed);
+    buildConsole();
+    QRandomGenerator rng(seed);
+    VCFrame *page = vc()->page(0);
+    auto pick = [&](const QList<VCWidget *> &list) { return list.at(rng.bounded(int(list.size()))); };
+    auto frames = [&]() {
+        QList<VCWidget *> list {page};
+        for (VCWidget *widget : page->children(true))
+            if (qobject_cast<VCFrame *>(widget))
+                list.append(widget);
+        return list;
+    };
+    auto delta = [&](int range) { return qreal(rng.bounded(2 * range + 1) - range); };
+
+    /* Each edit describes itself and returns the edit result, if it has one */
+    const QList<std::function<QVariantMap(QString *)>> edits {
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            *what = QString("move %1").arg(w->id());
+            return vc()->editGeometry(w->id(), w->logicalGeometry().translated(delta(80), delta(80)), false);
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            QRectF rect = w->logicalGeometry();
+            rect.setSize(rect.size() + QSizeF(delta(40), delta(40)));
+            *what = QString("resize %1").arg(w->id());
+            return vc()->editGeometry(w->id(), rect, false);
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            *what = QString("delete %1").arg(w->id());
+            return vc()->deleteAuthoringWidgets({w->id()});
+        },
+        [&](QString *what) {
+            auto *frame = qobject_cast<VCFrame *>(pick(frames()));
+            const QStringList types {"Button", "Slider", "Label", "Frame"};
+            const QString type = types.at(rng.bounded(int(types.size())));
+            const QRectF content = frame->contentRect();
+            const QPointF at(content.x() + rng.bounded(qMax(1, int(content.width()))),
+                             content.y() + rng.bounded(qMax(1, int(content.height()))));
+            *what = QString("create %1 in %2").arg(type).arg(frame->id());
+            return vc()->createWidgetGeometry(frame->id(), type, QRectF(at, QSizeF(90, 70)));
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            auto *frame = qobject_cast<VCFrame *>(pick(frames()));
+            const QRectF content = frame->contentRect();
+            const QPointF at(content.x() + rng.bounded(qMax(1, int(content.width()))),
+                             content.y() + rng.bounded(qMax(1, int(content.height()))));
+            *what = QString("drop %1 into %2").arg(w->id()).arg(frame->id());
+            return vc()->editDrop(w->id(), frame->id(), frame->currentPage(),
+                                  QRectF(at, w->logicalGeometry().size()));
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            *what = QString("nudge %1").arg(w->id());
+            vc()->setSelectedWidgetIDs({w->id()});
+            vc()->nudgeWidgets(int(delta(3)), int(delta(3)));
+            return QVariantMap();
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            VCWidget *frame = pick(frames());
+            *what = QString("paste %1 into %2").arg(w->id()).arg(frame->id());
+            vc()->setSelectedWidgetIDs({w->id()});
+            vc()->copyToClipboard();
+            vc()->setSelectedWidgetIDs({frame->id()});
+            vc()->pasteFromClipboard();
+            return QVariantMap();
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            *what = QString("caption %1").arg(w->id());
+            vc()->setSelectedWidgetIDs({w->id()});
+            vc()->setWidgetsCaption(QString("Caption %1").arg(rng.bounded(1000)));
+            return QVariantMap();
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            auto *parent = qobject_cast<VCFrame *>(w->parent());
+            const int index = rng.bounded(int(parent->orderedChildIDs(w->page()).size()));
+            *what = QString("reorder %1 to %2").arg(w->id()).arg(index);
+            return vc()->editStructure({w->id()}, parent->id(), w->page(), index);
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            auto *parent = qobject_cast<VCFrame *>(w->parent());
+            VCWidget *other = pick(parent->children(false));
+            const QList<int> alignments {Qt::AlignLeft, Qt::AlignRight, Qt::AlignTop, Qt::AlignBottom};
+            *what = QString("align %1 to %2").arg(other->id()).arg(w->id());
+            vc()->setSelectedWidgetIDs({other->id(), w->id()});
+            vc()->setWidgetsAlignment(w, alignments.at(rng.bounded(int(alignments.size()))));
+            return QVariantMap();
+        },
+    };
+
+    QList<QByteArray> states {consoleXML()};
+    QStringList steps;
+    const int count = 12;
+    for (int i = 0; i < count && !page->children(true).isEmpty(); i++)
+    {
+        QString what;
+        QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
+        const QString error = editError(edits.at(rng.bounded(int(edits.size())))(&what));
+        vc()->resetWidgetSelection();
+        settleHistory();
+        const QByteArray xml = consoleXML();
+        const QString trail = QString("seed %1: %2").arg(seed).arg((steps + QStringList{what}).join(", "));
+        if (!error.isEmpty() || !rejected.isEmpty())
+        {
+            QVERIFY2(xml == states.last(), qPrintable("Rejected edit changed the console, " + trail + "\n" +
+                                                      firstDifference(states.last(), xml)));
+            continue;
+        }
+        const QString structure = structureError(page);
+        QVERIFY2(structure.isEmpty(), qPrintable(structure + ", " + trail));
+        if (xml != states.last())
+        {
+            states.append(xml);
+            steps.append(what);
+        }
+    }
+
+    qInfo() << "seed" << seed << "accepted" << steps;
+    for (int i = states.size() - 1; i > 0; i--)
+    {
+        Tardis::instance()->undoAction();
+        settleHistory();
+        const QByteArray xml = consoleXML();
+        QVERIFY2(xml == states.at(i - 1), qPrintable(QString("Undo of '%1', seed %2: %3\n").arg(steps.at(i - 1)).arg(seed)
+                                                      .arg(steps.join(", ")) + firstDifference(states.at(i - 1), xml)));
+    }
+    for (int i = 1; i < states.size(); i++)
+    {
+        Tardis::instance()->redoAction();
+        settleHistory();
+        const QByteArray xml = consoleXML();
+        QVERIFY2(xml == states.at(i), qPrintable(QString("Redo of '%1', seed %2: %3\n").arg(steps.at(i - 1)).arg(seed)
+                                                  .arg(steps.join(", ")) + firstDifference(states.at(i), xml)));
+    }
 }
 
 /*********************************************************************
