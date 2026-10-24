@@ -69,8 +69,13 @@ void DjFsm::setDeckCount(int count)
 
     if (m_activeDeck > m_deckCount)
     {
+        // a phantom deck took the master flag before get_decks: the real master is the
+        // tracked deck that holds it
         m_activeDeck = 0;
-        emit activeDeckChanged(0);
+        for (int d = 1; d <= m_deckCount && m_activeDeck == 0; ++d)
+            if (m_slots[d - 1].master)
+                m_activeDeck = d;
+        emit activeDeckChanged(m_activeDeck);
         recomputeActiveSong();
     }
 
@@ -88,12 +93,14 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
 
     Slot &s = slotForDeck(deck);
     DeckSong &song = s.deck.song;
-    bool changed = false;
+    bool changed = false;       //!< a deck field consumers display moved
+    bool metaChanged = false;   //!< title, artist or bpm moved
     const bool prevPlaying = s.deck.playing;
 
     if (trigger == QLatin1String("masterdeck"))
     {
-        if (triggerIsOn(value))
+        s.master = triggerIsOn(value);
+        if (s.master)
             onMasterDeck(deck);
         return;
     }
@@ -113,12 +120,14 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         }
         if (path != song.filepath)
         {
-            // A new song's filepath. Fields that have NOT been freshly set
-            // since the last commit are stale leftovers from the previous song
-            // (filepath-first order) and are cleared; freshly-set fields belong
-            // to this song (metadata-first order) and are kept. This makes song
-            // identification correct under any field arrival order.
-            clearStaleMetadata(s);
+            // A new song. Its artist, bpm and key are the last ones seen until
+            // VDJ sends a change; only a title older than the previous
+            // announcement is the previous song's (filepath-first order).
+            if (!(s.freshMask & F_Title))
+            {
+                song.title.clear();
+                s.gotMask &= ~F_Title;
+            }
             song.filepath = path;
             s.gotMask |= F_Filepath;
             s.freshMask |= F_Filepath;
@@ -128,23 +137,29 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
     else if (trigger == QLatin1String("get_title"))
     {
         const QString title = value.toString();
-        if (!title.isEmpty() && !isPlaceholderTitle(title) && song.title != title)
+        // VDJ shows the placeholder on an empty deck only: an eject's first word
+        if (isPlaceholderTitle(title))
+        {
+            emptyDeck(s, deck);
+            return;
+        }
+        if (!title.isEmpty() && song.title != title)
         {
             song.title = title;
             s.gotMask |= F_Title;
             s.freshMask |= F_Title;
-            changed = true;
+            changed = metaChanged = true;
         }
     }
     else if (trigger == QLatin1String("get_artist"))
     {
+        // an empty artist is a value: a file without tags
         const QString artist = value.toString();
-        if (!artist.isEmpty() && song.artist != artist)
+        if (song.artist != artist || !(s.gotMask & F_Artist))
         {
             song.artist = artist;
             s.gotMask |= F_Artist;
-            s.freshMask |= F_Artist;
-            changed = true;
+            changed = metaChanged = true;
         }
     }
     else if (trigger == QLatin1String("get_bpm"))
@@ -153,14 +168,12 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         const double bpm = value.toDouble(&ok);
         if (ok && bpm > 0.0)
         {
-            // Notify on a real (integer) tempo change — not on sub-integer
+            // Notify on a real (integer) tempo change, not on sub-integer
             // jitter (e.g. 127.999 vs 127.999168, both round to 128).
             const int prevRounded = qRound(song.bpm);
             song.bpm = bpm;
-            s.gotMask |= F_Bpm;
-            s.freshMask |= F_Bpm;
             if (qRound(bpm) != prevRounded)
-                changed = true;
+                changed = metaChanged = true;
         }
     }
     else if (trigger == QLatin1String("get_key"))
@@ -236,7 +249,7 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
     }
 
     recomputeState(s);
-    maybeAnnounceSong(s);
+    maybeAnnounceSong(s, metaChanged);
 
     // A play state that only became effective after recomputeState (e.g. a
     // play=on that arrived before the filepath) must still notify consumers.
@@ -332,6 +345,7 @@ void DjFsm::resetSlot(Slot &s, int deck1)
     s.gotMask      = 0;
     s.freshMask    = 0;
     s.committedFilepath.clear();
+    s.master       = false;
     s.wasPlaying   = false;
     s.rawPlaying   = false;
     s.posEmitSecond = -1;
@@ -346,22 +360,6 @@ void DjFsm::emptyDeck(Slot &s, int deck1)
     emit deckChanged(deck1);
     if (deck1 == m_activeDeck)
         recomputeActiveSong();
-}
-
-void DjFsm::clearStaleMetadata(Slot &s)
-{
-    DeckSong &song = s.deck.song;
-
-    // Required fields: clear only those NOT freshly set since the last commit.
-    if (!(s.freshMask & F_Title))  { song.title.clear();  s.gotMask &= ~F_Title; }
-    if (!(s.freshMask & F_Artist)) { song.artist.clear(); s.gotMask &= ~F_Artist; }
-    if (!(s.freshMask & F_Bpm))    { song.bpm = 0.0;      s.gotMask &= ~F_Bpm; }
-
-    // Optional display-only fields carry no freshness bit; clear them so a new
-    // song never shows the previous song's key. They re-arrive within the
-    // same burst if VirtualDJ sends them.
-    song.key.clear();
-    song.totalMs   = 0;
 }
 
 void DjFsm::recomputeState(Slot &s)
@@ -400,16 +398,21 @@ bool DjFsm::isPlaceholderTitle(const QString &title)
     return title == QLatin1String("Drag a song on this deck to load it");
 }
 
-void DjFsm::maybeAnnounceSong(Slot &s)
+void DjFsm::maybeAnnounceSong(Slot &s, bool metaChanged)
 {
     if ((s.gotMask & RequiredMeta) != RequiredMeta)
         return;
-    if (s.deck.song.filepath == s.committedFilepath)
+    if (s.deck.song.filepath != s.committedFilepath)
+    {
+        s.committedFilepath = s.deck.song.filepath;
+        s.freshMask = 0;
+        emit songChanged(s.deck.number, s.deck.song);
         return;
-
-    s.committedFilepath = s.deck.song.filepath;
-    s.freshMask = 0;
-    emit songChanged(s.deck.number, s.deck.song);
+    }
+    // the announced song's own later artist or bpm; a fresh title opens the
+    // next load instead (metadata-first), whose fields wait for its filepath
+    if (metaChanged && !(s.freshMask & F_Title))
+        emit songUpdated(s.deck.number, s.deck.song);
 }
 
 void DjFsm::maybeEmitPosition(Slot &s, int deck1)

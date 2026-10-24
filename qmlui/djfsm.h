@@ -28,16 +28,16 @@
 /**
  * Typesafe multi-deck finite state machine for VirtualDJ integration.
  *
- * Telemetry fields arrive as a tight burst of separate triggers whose order is
- * unreliable: VirtualDJ sends a deck's metadata (title/artist/bpm) sometimes
- * BEFORE its get_filepath and sometimes AFTER. The FSM updates each deck's song
- * fields *live* (so the deck shows the song name the instant get_title arrives)
- * and uses the title as the freshness signal to decide, when a new filepath
- * arrives, whether buffered metadata belongs to the new song (keep it,
- * metadata-first order) or is stale from the previous song (clear it,
- * filepath-first order). A song is announced exactly once per filepath, when
- * filepath + title + artist + bpm are all present and consistent. No timers,
- * no debounce — synchronous and unit-testable.
+ * VirtualDJ sends a trigger only when its value changes, so the last artist,
+ * bpm or key seen IS the current song's until a new one arrives, and an empty
+ * artist is a value. A load's metadata (title/artist/bpm) arrives sometimes
+ * BEFORE its get_filepath and sometimes AFTER. The FSM updates each deck's
+ * song fields *live* and announces a song exactly once per filepath, as soon
+ * as filepath and title are present: a title set since the previous
+ * announcement (metadata-first) or arriving after the filepath
+ * (filepath-first); an older title is the previous song's and is cleared.
+ * Later artist/bpm/title changes of the announced song are updates. No
+ * timers, no debounce: synchronous and unit-testable.
  *
  * Deck transport state:
  *   Empty   — no song. A song-less deck is never Playing/Paused even if VDJ
@@ -108,8 +108,9 @@ public:
     // --- Event inputs (deck is 1-based) ---
 
     /** Route a per-deck telemetry trigger into the FSM. Ignored when the deck
-     *  number exceeds deckCount. "masterdeck" on names the active deck,
-     *  "loaded" off empties the deck (VDJ sends no empty filepath on eject). */
+     *  number exceeds deckCount. "masterdeck" on names the active deck;
+     *  "loaded" off and the placeholder title empty the deck (VDJ sends no
+     *  empty filepath on eject). */
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
 
     /** Set the active/master deck (1-based). Ignored when beyond deckCount. */
@@ -137,6 +138,8 @@ signals:
     void deckChanged(int deck);
     void positionChanged(int deck);
     void songChanged(int deck, const DjFsm::DeckSong &song);
+    /** Artist or bpm of the announced song arrived or changed after it */
+    void songUpdated(int deck, const DjFsm::DeckSong &song);
     void activeDeckChanged(int deck);
     /** The active deck's song or its title changed (the title may follow the filepath) */
     void activeSongChanged();
@@ -147,9 +150,8 @@ private:
         F_Filepath = 1 << 0,
         F_Title    = 1 << 1,
         F_Artist   = 1 << 2,
-        F_Bpm      = 1 << 3,
     };
-    static constexpr quint16 RequiredMeta = F_Filepath | F_Title | F_Artist | F_Bpm;
+    static constexpr quint16 RequiredMeta = F_Filepath | F_Title;
 
     struct Slot
     {
@@ -157,6 +159,7 @@ private:
         quint16  gotMask = 0;            //!< fields present for the current song
         quint16  freshMask = 0;          //!< fields set since the last commit
         QString  committedFilepath;     //!< last announced filepath
+        bool     master = false;        //!< VDJ's per-deck masterdeck flag
         bool     wasPlaying = false;    //!< distinguishes Paused from Loaded
         bool     rawPlaying = false;    //!< last raw play trigger (pre-validity gating)
         int      posEmitSecond = -1;    //!< last elapsed second a positionChanged was emitted for
@@ -168,10 +171,9 @@ private:
     Slot &slotForDeck(int deck);     // 1-based; clamps invalid input to deck 1
     void resetSlot(Slot &s, int deck1);
     void emptyDeck(Slot &s, int deck1);
-    void clearStaleMetadata(Slot &s);
     void recomputeState(Slot &s);
     static bool isPlaceholderTitle(const QString &title);
-    void maybeAnnounceSong(Slot &s);
+    void maybeAnnounceSong(Slot &s, bool metaChanged);
     void maybeEmitPosition(Slot &s, int deck1);
     void recomputeActiveSong();
 

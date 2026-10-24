@@ -7,8 +7,39 @@
 
 #include "djfsm_test.h"
 #include "djfsm.h"
+#include "vdjcapturereplay.h"
 
 #include <QSignalSpy>
+
+// One line per announced or updated song: "d<deck> <filepath> | <title> | <artist> | <bpm>"
+static QStringList songs(const QSignalSpy &spy)
+{
+    QStringList out;
+    for (const QList<QVariant> &args : spy)
+    {
+        const auto song = args[1].value<DjFsm::DeckSong>();
+        out << QStringLiteral("d%1 %2 | %3 | %4 | %5").arg(args[0].toInt()).arg(song.filepath, song.title, song.artist)
+                   .arg(song.bpm, 0, 'f', 3);
+    }
+    return out;
+}
+
+// Feed "trigger=value;..." steps to a deck: fp, title, artist (empty allowed), bpm
+static void feed(DjFsm &fsm, int deck, const QString &steps)
+{
+    for (const QString &step : steps.split(';', Qt::SkipEmptyParts))
+    {
+        const QString key = step.section('=', 0, 0), value = step.section('=', 1);
+        if (key == "fp")
+            fsm.onDeckTrigger(deck, "get_filepath", value);
+        else if (key == "title")
+            fsm.onDeckTrigger(deck, "get_title", value);
+        else if (key == "artist")
+            fsm.onDeckTrigger(deck, "get_artist", value);
+        else if (key == "bpm")
+            fsm.onDeckTrigger(deck, "get_bpm", value.toDouble());
+    }
+}
 
 // Helper: feed a song burst in FILEPATH-FIRST order (filepath then metadata).
 static void loadSong(DjFsm &fsm, int deck, const QString &filepath,
@@ -49,17 +80,16 @@ void DjFsm_Test::loadSequenceAnnouncesOnceAndReachesLoaded()
 {
     DjFsm fsm;
     QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
 
     loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
 
-    QCOMPARE(songSpy.count(), 1);
-    QCOMPARE(songSpy[0][0].toInt(), 1);
-    auto song = songSpy[0][1].value<DjFsm::DeckSong>();
-    QCOMPARE(song.filepath, QString("/music/a.mp3"));
-    QCOMPARE(song.title, QString("Song A"));
-    QCOMPARE(song.artist, QString("Artist A"));
-    QCOMPARE(song.bpm, 120.0);
-
+    // announced at filepath + title; the artist and bpm that follow are updates
+    QCOMPARE(songs(songSpy), QStringList{ "d1 /music/a.mp3 | Song A |  | 0.000" });
+    QCOMPARE(songs(updateSpy), QStringList({ "d1 /music/a.mp3 | Song A | Artist A | 0.000",
+                                             "d1 /music/a.mp3 | Song A | Artist A | 120.000" }));
+    QCOMPARE(fsm.deckAt(0).song.artist, QString("Artist A"));
+    QCOMPARE(fsm.deckAt(0).song.bpm, 120.0);
     QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Loaded);
 }
 
@@ -90,24 +120,23 @@ void DjFsm_Test::newFilepathOnSameDeckReannounces()
     QCOMPARE(fsm.deckAt(1).song.title, QString("Song B"));
 }
 
-void DjFsm_Test::placeholderTitleIsIgnored()
+void DjFsm_Test::placeholderTitleEmptiesDeck()
 {
+    // VDJ's eject tick: the placeholder title, get_bpm 120, loaded off, and no
+    // empty filepath; the placeholder is the first word of it
     DjFsm fsm;
+    loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
     QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
 
-    fsm.onDeckTrigger(1, "get_filepath", "/music/empty.mp3");
     fsm.onDeckTrigger(1, "get_title", "Drag a song on this deck to load it");
-    fsm.onDeckTrigger(1, "get_artist", "Artist");
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Empty);
     fsm.onDeckTrigger(1, "get_bpm", 120.0);
-
-    // Title never satisfied → no announcement, deck stays Loading.
+    fsm.onDeckTrigger(1, "loaded", "off");
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Empty);
+    QVERIFY(!fsm.deckAt(0).song.isValid());
     QCOMPARE(songSpy.count(), 0);
-    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Loading);
-
-    // A real title completes it.
-    fsm.onDeckTrigger(1, "get_title", "Real Song");
-    QCOMPARE(songSpy.count(), 1);
-    QCOMPARE(songSpy[0][1].value<DjFsm::DeckSong>().title, QString("Real Song"));
+    QCOMPARE(updateSpy.count(), 0);
 }
 
 void DjFsm_Test::playPauseTransitions()
@@ -258,46 +287,84 @@ void DjFsm_Test::filepathFirstAfterPreviousSongIsNotStale()
 
     // Song B, filepath first (B's metadata not yet arrived).
     fsm.onDeckTrigger(1, "get_filepath", "/music/b.mp3");
-    // No announce yet — B has no fresh title.
+    // No announce yet: B has no fresh title, A's is cleared
     QCOMPARE(songSpy.count(), 1);
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Loading);
+    // its title announces it; A's artist and bpm stay until VDJ sends B's
     fsm.onDeckTrigger(1, "get_title", "Song B");
+    QCOMPARE(songs(songSpy).last(), QString("d1 /music/b.mp3 | Song B | Artist A | 120.000"));
     fsm.onDeckTrigger(1, "get_artist", "Artist B");
     fsm.onDeckTrigger(1, "get_bpm", 128.0);
-
     QCOMPARE(songSpy.count(), 2);
-    auto b = songSpy[1][1].value<DjFsm::DeckSong>();
-    QCOMPARE(b.filepath, QString("/music/b.mp3"));
-    QCOMPARE(b.title, QString("Song B"));     // NOT "Song A"
-    QCOMPARE(b.artist, QString("Artist B"));
     QCOMPARE(fsm.deckAt(0).song.title, QString("Song B"));
+    QCOMPARE(fsm.deckAt(0).song.artist, QString("Artist B"));
+    QCOMPARE(fsm.deckAt(0).song.bpm, 128.0);
 }
 
-void DjFsm_Test::splitFieldOrderDoesNotAnnounceStale()
+void DjFsm_Test::announcedSongTakesLaterFieldsAsUpdates()
 {
-    // Robustness: a new song where get_filepath arrives BETWEEN the fresh title
-    // and the fresh artist must not be announced carrying the previous song's
-    // artist. Per-field freshness keeps the fresh title, clears the stale
-    // artist/bpm, and only announces once B's own artist + bpm arrive.
+    // Automix order within one tick: filepath, title, artist, bpm. The song is
+    // announced at the title with the previous artist (VDJ sends only changes,
+    // so that IS the artist until a change arrives) and the change is an update.
     DjFsm fsm;
     QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
 
     loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
-    QCOMPARE(songSpy.count(), 1);
+    updateSpy.clear();
 
-    // Song B in a split order: title, filepath, (stale artist A still buffered)
-    fsm.onDeckTrigger(1, "get_title", "Song B");
     fsm.onDeckTrigger(1, "get_filepath", "/music/b.mp3");
-    // Must NOT have announced B yet (B's own artist/bpm not present).
-    QCOMPARE(songSpy.count(), 1);
-
+    fsm.onDeckTrigger(1, "get_title", "Song B");
+    QCOMPARE(songs(songSpy).last(), QString("d1 /music/b.mp3 | Song B | Artist A | 120.000"));
     fsm.onDeckTrigger(1, "get_artist", "Artist B");
     fsm.onDeckTrigger(1, "get_bpm", 128.0);
-
+    QCOMPARE(songs(updateSpy), QStringList({ "d1 /music/b.mp3 | Song B | Artist B | 120.000",
+                                             "d1 /music/b.mp3 | Song B | Artist B | 128.000" }));
     QCOMPARE(songSpy.count(), 2);
-    auto b = songSpy[1][1].value<DjFsm::DeckSong>();
-    QCOMPARE(b.title, QString("Song B"));
-    QCOMPARE(b.artist, QString("Artist B"));   // NOT "Artist A"
-    QCOMPARE(b.bpm, 128.0);                      // NOT 120.0
+}
+
+void DjFsm_Test::onChangeSemantics_data()
+{
+    QTest::addColumn<QString>("first");     // deck 1 steps
+    QTest::addColumn<QString>("then");      // deck 1 steps
+    QTest::addColumn<QStringList>("announced");
+    QTest::addColumn<QStringList>("updated");
+
+    // A arrives metadata first, so its announcement carries artist and bpm
+    const QString a = "title=A;artist=X;bpm=125;fp=/a";
+    const QString aLine = "d1 /a | A | X | 125.000";
+    QTest::newRow("same bpm not resent: the last one is the new song's")
+        << a << "title=B;artist=Y;fp=/b" << QStringList({ aLine, "d1 /b | B | Y | 125.000" }) << QStringList{};
+    QTest::newRow("same artist not resent")
+        << a << "title=B;bpm=128;fp=/b" << QStringList({ aLine, "d1 /b | B | X | 128.000" }) << QStringList{};
+    QTest::newRow("an empty artist is a value")
+        << a << "title=B;artist=;fp=/b" << QStringList({ aLine, "d1 /b | B |  | 125.000" }) << QStringList{};
+    QTest::newRow("an unchanged bpm resent is nothing, and it stays for the next song")
+        << a << "bpm=125;fp=/b;title=B" << QStringList({ aLine, "d1 /b | B | X | 125.000" }) << QStringList{};
+    QTest::newRow("a jittered bpm is no update") << a << "bpm=125.01" << QStringList{ aLine } << QStringList{};
+    QTest::newRow("a tempo change is an update")
+        << a << "bpm=130" << QStringList{ aLine } << QStringList{ "d1 /a | A | X | 130.000" };
+    QTest::newRow("B never carries A's title: filepath-first B waits for its own")
+        << a << "fp=/b;title=B" << QStringList({ aLine, "d1 /b | B | X | 125.000" }) << QStringList{};
+    QTest::newRow("a fresh title opens the next load: its fields are not updates of A")
+        << a << "title=C;artist=Z;bpm=99" << QStringList{ aLine } << QStringList{};
+}
+
+void DjFsm_Test::onChangeSemantics()
+{
+    QFETCH(QString, first);
+    QFETCH(QString, then);
+    QFETCH(QStringList, announced);
+    QFETCH(QStringList, updated);
+
+    DjFsm fsm;
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    feed(fsm, 1, first);
+    QCOMPARE(songSpy.count(), 1);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
+    feed(fsm, 1, then);
+    QCOMPARE(songs(songSpy), announced);
+    QCOMPARE(songs(updateSpy), updated);
 }
 
 void DjFsm_Test::volumeIsTracked()
@@ -483,6 +550,150 @@ void DjFsm_Test::titleAfterFilepathChangesActiveSong()
     fsm.onDeckTrigger(1, "get_artist", "Artist A");
     fsm.onDeckTrigger(1, "get_bpm", 120.0);
     QCOMPARE(activeSongSpy.count(), 2);
+}
+
+void DjFsm_Test::phantomMasterBeforeDeckCount_data()
+{
+    QTest::addColumn<QString>("flags");
+    QTest::addColumn<int>("activeDeck");
+
+    // the snapshot streams deck 3 (a phantom copy of deck 1) before get_decks
+    QTest::newRow("the real master keeps its flag") << "1:on;3:on" << 1;
+    QTest::newRow("no real deck holds it") << "1:off;3:on" << 0;
+}
+
+void DjFsm_Test::phantomMasterBeforeDeckCount()
+{
+    QFETCH(QString, flags);
+    QFETCH(int, activeDeck);
+
+    DjFsm fsm;
+    fsm.setDeckCount(4);
+    for (const QString &flag : flags.split(';'))
+        fsm.onDeckTrigger(flag.section(':', 0, 0).toInt(), "masterdeck", flag.section(':', 1));
+    QCOMPARE(fsm.activeDeck(), flags.contains("3:on") ? 3 : 1);
+    fsm.setDeckCount(2);
+    QCOMPARE(fsm.activeDeck(), activeDeck);
+}
+
+void DjFsm_Test::capture_trackChangeSameBpm()
+{
+    // Automix replaces the track: get_bpm is not resent, the artist follows the title
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
+    QVERIFY(VdjCapture::replay(client, "track_change_same_deck_same_bpm") > 0);
+
+    // the snapshot and the Automix change both send the filepath first: each song
+    // is announced at its title, its artist (and the snapshot's bpm) follow as updates
+    QCOMPARE(songs(songSpy), QStringList({ "d1 /music/track-1.mp3 | Title 1 |  | 0.000",
+                                           "d1 /music/track-2.mp3 | Title 2 | Artist 1 | 126.000" }));
+    QCOMPARE(songs(updateSpy).last(), QString("d1 /music/track-2.mp3 | Title 2 | Artist 2 | 126.000"));
+    QCOMPARE(fsm.deckAt(0).song.bpm, 126.000122);
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Playing);
+    QCOMPARE(fsm.deckAt(1).state, DjFsm::DeckState::Empty);
+    QCOMPARE(fsm.deckCount(), 2);
+}
+
+void DjFsm_Test::capture_consecutiveLoads()
+{
+    // four manual loads on deck 1 (same bpm, same artist, empty artist), one on deck 2
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QVERIFY(VdjCapture::replay(client, "consecutive_loads_same_bpm_artist_empty_quote") > 0);
+
+    QCOMPARE(songs(songSpy), QStringList({ "d1 /music/track-3.mp3 | Title 3 |  | 0.000",
+                                           "d1 /music/track-5.mp3 | Title 4 | Artist 5 | 125.000",
+                                           "d1 /music/track-6.mp3 | Title 5 | Artist 6 | 125.000",
+                                           "d1 /music/track-7.mp3 | Title 6 | Artist 6 | 131.000",
+                                           "d1 /music/track-8.mp3 | Title 7 |  | 83.488",
+                                           "d2 /music/track-9.mp3 | Title 8 | Artist 7 | 127.999" }));
+}
+
+void DjFsm_Test::capture_eject()
+{
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QSignalSpy updateSpy(&fsm, &DjFsm::songUpdated);
+    QVERIFY(VdjCapture::replay(client, "eject") > 0);
+
+    QCOMPARE(songs(songSpy), QStringList({ "d1 /music/track-3.mp3 | Title 3 |  | 0.000",
+                                           "d2 /music/track-4.mp3 | Title 9 |  | 125.000" }));
+    // the ejected deck is empty; its placeholder title and bpm 120 reach no song:
+    // deck 2's only update is the snapshot's artist
+    QCOMPARE(fsm.deckAt(1).state, DjFsm::DeckState::Empty);
+    QVERIFY(!fsm.deckAt(1).song.isValid());
+    QStringList deck2Updates;
+    for (const QString &line : songs(updateSpy))
+        if (line.startsWith("d2 "))
+            deck2Updates << line;
+    QCOMPARE(deck2Updates, QStringList{ "d2 /music/track-4.mp3 | Title 9 | Artist 4 | 125.000" });
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Paused);
+    QCOMPARE(fsm.deckAt(0).song.filepath, QString("/music/track-3.mp3"));
+}
+
+void DjFsm_Test::capture_playPauseLoad()
+{
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    int playStarts = 0;
+    bool wasPlaying = false;
+    connect(&fsm, &DjFsm::deckChanged, &fsm, [&](int deck) {
+        const bool playing = fsm.deckAt(deck - 1).playing;
+        if (deck == 1 && playing && !wasPlaying)
+            playStarts++;
+        wasPlaying = playing;
+    });
+    QVERIFY(VdjCapture::replay(client, "play_pause_load") > 0);
+
+    // the snapshot's song comes filepath first, the manual load metadata first
+    QCOMPARE(songs(songSpy), QStringList({ "d1 /music/track-10.mp3 | Title 10 |  | 0.000",
+                                           "d1 /music/track-11.mp3 | Title 11 | Artist 9 | 126.000" }));
+    // playing at the snapshot, then play, pause, play
+    QCOMPARE(playStarts, 3);
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Playing);
+}
+
+void DjFsm_Test::capture_masterHandover()
+{
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QSignalSpy activeSpy(&fsm, &DjFsm::activeDeckChanged);
+    QVERIFY(VdjCapture::replay(client, "master_handover") > 0);
+
+    // deck 1 at the snapshot, deck 2 when deck 1's volume drops, deck 1 when deck 2 pauses;
+    // the bare masterdeck flag changes in between name nothing
+    QList<int> active;
+    for (const QList<QVariant> &args : activeSpy)
+        active << args[0].toInt();
+    QCOMPARE(active, QList<int>({ 1, 2, 1 }));
+}
+
+void DjFsm_Test::capture_connectSnapshot()
+{
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QSignalSpy songSpy(&fsm, &DjFsm::songChanged);
+    QVERIFY(VdjCapture::replay(client, "connect_snapshot_playing") > 0);
+
+    QCOMPARE(songs(songSpy), QStringList{ "d1 /music/track-12.mp3 | Title 12 |  | 0.000" });
+    QCOMPARE(fsm.deckAt(0).song.artist, QString("Artist 10"));
+    QCOMPARE(fsm.deckAt(0).song.bpm, 120.0);
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Playing);
+    QCOMPARE(fsm.deckAt(1).state, DjFsm::DeckState::Empty);
+    QCOMPARE(fsm.deckCount(), 2);
+    // this capture predates the per-deck master subscription: no active deck
+    QCOMPARE(fsm.activeDeck(), 0);
 }
 
 QTEST_MAIN(DjFsm_Test)

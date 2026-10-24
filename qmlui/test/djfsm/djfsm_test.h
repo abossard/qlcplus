@@ -20,7 +20,7 @@ private slots:
     void loadSequenceAnnouncesOnceAndReachesLoaded();
     void repeatedMetadataDoesNotReannounce();
     void newFilepathOnSameDeckReannounces();
-    void placeholderTitleIsIgnored();
+    void placeholderTitleEmptiesDeck();
     void playPauseTransitions();
     void masterDeckDrivesActiveDeckAndSong();
     void emptyFilepathResetsDeck();
@@ -30,7 +30,9 @@ private slots:
     void setDeckCountResetsDroppedDecks();
     void metadataFirstOrderAnnouncesCorrectSong();
     void filepathFirstAfterPreviousSongIsNotStale();
-    void splitFieldOrderDoesNotAnnounceStale();
+    void announcedSongTakesLaterFieldsAsUpdates();
+    void onChangeSemantics_data();
+    void onChangeSemantics();
     void volumeIsTracked();
     void positionIsTrackedAndThrottled();
     void playBeforeFilepathIsRecovered();
@@ -40,6 +42,14 @@ private slots:
     void loadedOffEmptiesDeck();
     void disconnectDropsActiveDeckFirst();
     void titleAfterFilepathChangesActiveSong();
+    void phantomMasterBeforeDeckCount_data();
+    void phantomMasterBeforeDeckCount();
+    void capture_trackChangeSameBpm();
+    void capture_consecutiveLoads();
+    void capture_eject();
+    void capture_playPauseLoad();
+    void capture_masterHandover();
+    void capture_connectSnapshot();
 };
 
 #endif // DJFSM_TEST_H
