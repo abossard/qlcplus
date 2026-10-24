@@ -66,6 +66,19 @@ static QString firstDifference(const QByteArray &expected, const QByteArray &act
     return QString();
 }
 
+/* With QLC_VC_ARTIFACTS_DIR set, keep a file per test row for review */
+static void saveArtifact(const QString &name, const QByteArray &data)
+{
+    const QString root = qEnvironmentVariable("QLC_VC_ARTIFACTS_DIR");
+    if (root.isEmpty())
+        return;
+    QDir dir(QDir(root).filePath(QString::fromLatin1(QTest::currentTestFunction())));
+    dir.mkpath(".");
+    QFile file(dir.filePath(QString("%1-%2").arg(QString::fromLatin1(QTest::currentDataTag()), name)));
+    if (file.open(QIODevice::WriteOnly))
+        file.write(data);
+}
+
 static QMap<QString, ConsoleEdit> consoleEdits()
 {
     return {
@@ -86,6 +99,9 @@ static QMap<QString, ConsoleEdit> consoleEdits()
         }},
         {"deleteButton", [](VirtualConsole *vc, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.loose});
+        }},
+        {"deleteFirstChild", [](VirtualConsole *vc, const ConsoleIds &ids) {
+            return vc->deleteAuthoringWidgets({ids.a});
         }},
         {"deleteFrame", [](VirtualConsole *vc, const ConsoleIds &ids) {
             return vc->deleteAuthoringWidgets({ids.frame});
@@ -253,19 +269,23 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     vc()->resetWidgetSelection();
     settleHistory();
     const QByteArray after = consoleXML();
+    saveArtifact("before.xml", before);
+    saveArtifact("after.xml", after);
     QVERIFY2(after != before, "The edit changed nothing");
 
     Tardis::instance()->undoAction();
     settleHistory();
     QByteArray actual = consoleXML();
-    QEXPECT_FAIL("deleteFrame", "Children are queued twice, so undo restores them twice", Abort);
-    QEXPECT_FAIL("deleteNestedFrame", "Children are queued twice, so undo restores them twice", Abort);
+    saveArtifact("undone.xml", actual);
+    QEXPECT_FAIL("deleteFrame", "Undo appends the restored widget to the child order", Abort);
+    QEXPECT_FAIL("deleteFirstChild", "Undo appends the restored widget to the child order", Abort);
     QEXPECT_FAIL("collapse", "Collapsing a frame is not recorded", Abort);
     QVERIFY2(actual == before, qPrintable("Undo: " + firstDifference(before, actual)));
 
     Tardis::instance()->redoAction();
     settleHistory();
     actual = consoleXML();
+    saveArtifact("redone.xml", actual);
     QVERIFY2(actual == after, qPrintable("Redo: " + firstDifference(after, actual)));
 }
 

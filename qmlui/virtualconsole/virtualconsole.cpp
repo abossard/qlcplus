@@ -2370,15 +2370,13 @@ void VirtualConsole::commitWidgetDeletion(const QVariantList &IDList)
         if (parentFrame != nullptr)
             parentFrame->removeWidgetFromPageMap(w);
 
-        /* 2- if the widget is a frame, delete also all its children */
+        /* 2- if the widget is a frame, delete also all its children.
+         *    The frame XML saved below holds them, so they need no undo action of their own */
         if (w->type() == VCWidget::FrameWidget || w->type() == VCWidget::SoloFrameWidget)
         {
             VCFrame *frame = qobject_cast<VCFrame *>(w);
             for (VCWidget *child : frame->children(true))
             {
-                Tardis::instance()->enqueueAction(Tardis::VCWidgetDelete, w->id(),
-                                                  Tardis::instance()->actionToByteArray(Tardis::VCWidgetDelete, child->id()),
-                                                  QVariant());
                 /* Remove any input source/key sequence binding pointing to the
                  * child, otherwise the page maps would keep dangling pointers */
                 for (VCPage *page : m_pages)
