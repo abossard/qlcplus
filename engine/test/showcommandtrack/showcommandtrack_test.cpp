@@ -2307,6 +2307,9 @@ void ShowCommandTrack_Test::recordTransitions_data()
     row("disarming a take that cannot save keeps it", "rec m=1", "rec off", false, "rec m=1", bound, true,
         "report 1");
     row("disarming while armed", "rec", "rec off", true, "off", off, false, "");
+    row("arming again while Perform resolves nothing", "rec m=1 p=-", "rec on", true, "rec m=1 p=-", armed, false,
+        "");
+    row("disarming a take Perform resolved", "rec m=1 p=2", "rec off", true, "off m=1 p=2", off, true, "off 2");
 
     // manual selection
     row("a selection while off is tracked", "off m=1", "manual 2", true, "off m=2", off, false, "track 2");
@@ -2335,6 +2338,8 @@ void ShowCommandTrack_Test::recordTransitions_data()
         false, "track 2, on 2");
     row("Perform ends on another Show: handed back", "rec m=1 p=2", "perform ended", true, "rec m=1", bound, true,
         "off 2, track 1, on 1");
+    row("Perform ends, the take cannot save", "rec m=1 p=2", "perform ended", false, "off m=1", off, true,
+        "off 2, track 1, report 2");
     row("Perform ends where the Show Manager is", "rec m=2 p=2", "perform ended", true, "rec m=2", bound, false,
         "");
     row("Perform ends while it was idle", "off m=1", "perform ended", true, "off m=1", off, false, "");
@@ -2351,6 +2356,8 @@ void ShowCommandTrack_Test::recordTransitions_data()
         "track 1");
     row("deleting another Show drops only its input", "rec m=1", "removed 2", true, "rec m=1", bound, false,
         "drop 2");
+    row("deleting the Show Perform resolved arms", "rec m=1 p=2", "removed 2", true, "rec m=1 p=2x", armed, false,
+        "drop 2, track -, report 2");
     row("restoring an unnamed Show", "rec m=1", "restored 2", true, "rec m=1", bound, false, "");
     row("armed after a deletion binds the next selection", "rec m=1x", "manual 2", true, "rec m=2", bound,
         false, "track 2, on 2");
