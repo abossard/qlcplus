@@ -569,6 +569,55 @@ void VCEditor_Test::randomEditSequence()
             vc()->setWidgetsAlignment(w, alignments.at(rng.bounded(int(alignments.size()))));
             return QVariantMap();
         },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            *what = QString("duplicate %1").arg(w->id());
+            vc()->setSelectedWidgetIDs({w->id()});
+            vc()->duplicateSelection();
+            return QVariantMap();
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            VCWidget *frame = pick(frames());
+            *what = QString("cut %1 into %2").arg(w->id()).arg(frame->id());
+            vc()->setSelectedWidgetIDs({w->id()});
+            vc()->cutToClipboard();
+            vc()->setSelectedWidgetIDs({frame->id()});
+            vc()->pasteFromClipboard();
+            return QVariantMap();
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            auto *parent = qobject_cast<VCFrame *>(w->parent());
+            VCWidget *other = pick(parent->children(false));
+            auto *frame = qobject_cast<VCFrame *>(pick(frames()));
+            const QRectF content = frame->contentRect();
+            const QPointF at(content.x() + rng.bounded(qMax(1, int(content.width()))),
+                             content.y() + rng.bounded(qMax(1, int(content.height()))));
+            *what = QString("drop %1+%2 into %3").arg(w->id()).arg(other->id()).arg(frame->id());
+            return vc()->editSelectionDrop({w->id(), other->id()}, w->id(), frame->id(), frame->currentPage(), at);
+        },
+        [&](QString *what) {
+            QList<VCWidget *> list = frames();
+            list.removeAll(page);
+            if (list.isEmpty())
+                return QVariantMap();
+            auto *frame = qobject_cast<VCFrame *>(pick(list));
+            *what = QString("collapse %1").arg(frame->id());
+            frame->setCollapsed(!frame->isCollapsed());
+            return QVariantMap();
+        },
+        [&](QString *what) {
+            VCWidget *w = pick(page->children(true));
+            QVariantList siblings;
+            for (VCWidget *child : qobject_cast<VCFrame *>(w->parent())->children(false))
+                if (child->page() == w->page())
+                    siblings.append(child->id());
+            *what = QString("distribute around %1").arg(w->id());
+            vc()->setSelectedWidgetIDs(siblings);
+            vc()->setWidgetsDistribution(rng.bounded(2) ? Qt::Horizontal : Qt::Vertical);
+            return QVariantMap();
+        },
     };
 
     QList<QByteArray> states {consoleXML()};
