@@ -14973,41 +14973,45 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::addColumn<QString>("steps");
     QTest::addColumn<QString>("live");
     QTest::addColumn<QString>("saved");
+    QTest::addColumn<bool>("checkpoint"); // the workspace save checkpoints first; an autosave does not
 
     const QString take = QStringLiteral("rec on, at 10000, press, at 12000, release, at 5000, ");
     const QString both = QStringLiteral("6000-7000 10000-12000");
     QTest::newRow("record pair") << QStringLiteral("rec on, at 1000, press, at 2000, release, rec off")
-                                 << QStringLiteral("1000-2000") << QStringLiteral("1000-2000");
+                                 << QStringLiteral("1000-2000") << QStringLiteral("1000-2000") << true;
     QTest::newRow("seek back, earlier pair") << take + QStringLiteral("at 6000, press, at 7000, release, rec off")
-                                             << both << both;
+                                             << both << both << true;
     // a hold ends where the next recorded hold of its control begins
     QTest::newRow("seek back, held into a later pair")
         << take + QStringLiteral("at 6000, press, at 11000, release, rec off")
-        << QStringLiteral("6000-9999 10000-12000") << QStringLiteral("6000-9999 10000-12000");
+        << QStringLiteral("6000-9999 10000-12000") << QStringLiteral("6000-9999 10000-12000") << true;
     // the recording already holds the control there: the press and its release add nothing
     QTest::newRow("seek back, press inside a recorded hold")
         << take + QStringLiteral("at 11000, press, at 13000, release, rec off")
-        << QStringLiteral("10000-12000") << QStringLiteral("10000-12000");
+        << QStringLiteral("10000-12000") << QStringLiteral("10000-12000") << true;
     QTest::newRow("seek back, REC off while held") << take + QStringLiteral("at 6000, press, at 8000, rec off")
                                                    << QStringLiteral("6000-8000 10000-12000")
-                                                   << QStringLiteral("6000-8000 10000-12000");
+                                                   << QStringLiteral("6000-8000 10000-12000") << true;
     QTest::newRow("seek back, save while held") << take + QStringLiteral("at 6000, press, at 8000")
                                                 << QStringLiteral("6000- 10000-12000")
-                                                << QStringLiteral("6000-8000 10000-12000");
+                                                << QStringLiteral("6000-8000 10000-12000") << true;
     // REC off never closes a hold before its own press
     QTest::newRow("loop back while held, REC off")
         << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
-        << QStringLiteral("10000-10000") << QStringLiteral("10000-10000");
+        << QStringLiteral("10000-10000") << QStringLiteral("10000-10000") << true;
     const QString deleted = QStringLiteral("rec on, at 1000, press, at 2000, release, rec off, delete, ");
     const QString again = QStringLiteral("rec on, at 3000, press, at 4000, release, rec off, ");
     QTest::newRow("undo a deletion after a new hold") << deleted + again + QStringLiteral("undo")
                                                       << QStringLiteral("1000-2000 3000-4000")
-                                                      << QStringLiteral("1000-2000 3000-4000");
+                                                      << QStringLiteral("1000-2000 3000-4000") << true;
     QTest::newRow("redo the deletion") << deleted + again + QStringLiteral("undo, redo")
-                                       << QStringLiteral("3000-4000") << QStringLiteral("3000-4000");
+                                       << QStringLiteral("3000-4000") << QStringLiteral("3000-4000") << true;
     QTest::newRow("undo a deletion after the Show was restored")
         << deleted + QStringLiteral("restore, ") + again + QStringLiteral("undo")
-        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000");
+        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
+    // saved without a checkpoint, the file ends the open hold at the authored extent
+    QTest::newRow("save while held, no checkpoint") << QStringLiteral("rec on, at 6000, press, at 8000")
+                                                    << QStringLiteral("6000-") << QStringLiteral("6000-6000") << false;
 }
 
 void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
@@ -15015,6 +15019,7 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QFETCH(QString, steps);
     QFETCH(QString, live);
     QFETCH(QString, saved);
+    QFETCH(bool, checkpoint);
 
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -15090,7 +15095,8 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
 
     // the workspace save: an open hold is closed in the saved snapshot only
-    QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+    if (checkpoint)
+        QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
     Doc reloaded(nullptr, 1);
     QVERIFY(loadShow(saveShow(show), &reloaded));
     auto *copy = qobject_cast<Show *>(reloaded.function(showId));
@@ -16251,6 +16257,69 @@ void ShowCommandRecorder_Test::failedHandover_reasonOutlivesLaterInput()
     Scene *back = new Scene(&r.doc);
     QVERIFY(r.doc.addFunction(back, goneId));
     QVERIFY2(r.recorder.setRecording(false), qPrintable(r.recorder.lastError()));
+}
+
+void ShowCommandRecorder_Test::staleTarget_blocksOnlyItsOwnCommand_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("record unrelated input") << QStringLiteral("record") << true;
+    QTest::newRow("edit the unrelated command") << QStringLiteral("edit other") << true;
+    QTest::newRow("checkpoint") << QStringLiteral("checkpoint") << true;
+    QTest::newRow("retime the stale command") << QStringLiteral("edit stale") << false;
+    QTest::newRow("record a Start on the missing target") << QStringLiteral("record stale") << false;
+}
+
+void ShowCommandRecorder_Test::staleTarget_blocksOnlyItsOwnCommand()
+{
+    QFETCH(QString, action);
+    QFETCH(bool, accepted);
+
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(3000);
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 1000, r.a->id())));
+    QVERIFY(track.insert(ShowCommand::start(1, 2000, goneId)));
+    QVERIFY(r.show->setCommandTrack(track));
+    // the target of a published command goes: the command stays and blocks only itself
+    QVERIFY(r.doc.deleteFunction(goneId));
+    const ShowCommand stale = r.show->commandTrack().commands().at(1);
+    QVERIFY(r.recorder.setRecording(true));
+
+    bool ok = false;
+    if (action == QLatin1String("record"))
+    {
+        r.slider->requestUserValue(51);
+        ok = r.show->commandTrack().count() == 3;
+    }
+    else if (action == QLatin1String("edit other"))
+        ok = r.recorder.retimeCommand(r.show->id(), 0, 1500);
+    else if (action == QLatin1String("checkpoint"))
+        ok = r.recorder.checkpoint();
+    else if (action == QLatin1String("edit stale"))
+        ok = r.recorder.retimeCommand(r.show->id(), 1, 2500);
+    else
+    {
+        ShowCommandInput start;
+        start.origin = ShowCommandOrigin::Pointer;
+        start.action = ShowCommandAction::Start;
+        start.functionId = goneId;
+        ok = r.recorder.submitUserInput(start);
+    }
+    QCOMPARE(ok, accepted);
+    if (!accepted)
+        QVERIFY2(r.recorder.lastError().contains(QStringLiteral("Unknown command target")),
+                 qPrintable(r.recorder.lastError()));
+    const int index = r.show->commandTrack().indexOfId(1);
+    QVERIFY(index >= 0);
+    QVERIFY(r.show->commandTrack().commands().at(index) == stale);
+    r.recorder.discardUnpublished();
+    QVERIFY(r.recorder.setRecording(false));
 }
 
 void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed_data()

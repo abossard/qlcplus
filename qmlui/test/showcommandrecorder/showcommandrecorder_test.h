@@ -438,6 +438,8 @@ private slots:
     void automaticShowChange_handsRecordingOver_data();
     void automaticShowChange_handsRecordingOver();
     void failedHandover_reasonOutlivesLaterInput();
+    void staleTarget_blocksOnlyItsOwnCommand_data();
+    void staleTarget_blocksOnlyItsOwnCommand();
     void manualShowSelection_lockedWhileArmed_data();
     void manualShowSelection_lockedWhileArmed();
     void boundShowDeletion_armsAndUndoRebinds_data();

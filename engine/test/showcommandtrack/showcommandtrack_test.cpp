@@ -1601,6 +1601,9 @@ void ShowCommandTrack_Test::loadIsTransactional_data()
     QTest::newRow("v3 dangling press at a pair's press keeps the pair")
         << track("Version=\"3\"", start + flash(10, 1000, true, 7) + flash(11, 1000, true, 8) +
                                     flash(12, 2000, false, 8)) << true << 3;
+    QTest::newRow("v3 unclosed press before a later pair keeps the later pair")
+        << track("Version=\"3\"", start + flash(10, 1000, true, 7) + flash(11, 3000, true, 8) +
+                                    flash(12, 4000, false, 8)) << true << 3;
     QTest::newRow("v3 overlapping pairs keep the earlier")
         << track("Version=\"3\"", start + flash(10, 1200, true, 7) + flash(11, 1500, true, 8) +
                                     flash(12, 1800, false, 7) + flash(13, 2400, false, 8)) << true << 3;
