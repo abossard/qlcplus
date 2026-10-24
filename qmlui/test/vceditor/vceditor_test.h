@@ -52,7 +52,8 @@ private slots:
     void editUndoRedoRoundTrip_data();
     void editUndoRedoRoundTrip();
 
-    void pageSwitchClearsSelection();
+    void pageSwitchPrunesSelection_data();
+    void pageSwitchPrunesSelection();
     void nudgeStep_data();
     void nudgeStep();
     void alignToLastSelected_data();

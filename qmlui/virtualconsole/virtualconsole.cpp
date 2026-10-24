@@ -595,7 +595,19 @@ void VirtualConsole::setSelectedPage(int selectedPage)
     m_selectedPage = clampedPage;
     emit selectedPageChanged(clampedPage);
     if (m_editMode)
-        emit selectedWidgetChanged();
+    {
+        /* Edits act on the selection, so it never holds widgets of a page out of sight */
+        QVariantList visible;
+        for (const QVariant &id : selectedWidgetIDs())
+        {
+            QObject *owner = widget(id.toUInt());
+            while (owner && owner != m_pages.at(clampedPage))
+                owner = owner->parent();
+            if (owner)
+                visible.append(id);
+        }
+        setSelectedWidgetIDs(visible);
+    }
 }
 
 void VirtualConsole::setPageInteraction(bool enable)

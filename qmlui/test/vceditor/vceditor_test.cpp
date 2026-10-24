@@ -273,15 +273,27 @@ void VCEditor_Test::editUndoRedoRoundTrip()
  * Selection and keyboard editing
  *********************************************************************/
 
-void VCEditor_Test::pageSwitchClearsSelection()
+void VCEditor_Test::pageSwitchPrunesSelection_data()
 {
+    QTest::addColumn<bool>("selectOnTarget");
+    QTest::newRow("other-page") << false;
+    QTest::newRow("target-page") << true;
+}
+
+void VCEditor_Test::pageSwitchPrunesSelection()
+{
+    QFETCH(bool, selectOnTarget);
     const ConsoleIds ids = buildConsole();
-    vc()->setSelectedWidgetIDs({ids.loose, ids.frame});
-    QCOMPARE(vc()->selectedWidgetsCount(), 2);
+    const QVariantMap created = vc()->createWidgetGeometry(vc()->page(1)->id(), "Button", QRectF(20, 20, 100, 80));
+    QVERIFY(created.value("accepted").toBool());
+    const quint32 onTarget = created.value("widgetIDs").toList().first().toUInt();
+    QVariantList selection {ids.loose, ids.frame};
+    if (selectOnTarget)
+        selection.append(onTarget);
+    vc()->setSelectedWidgetIDs(selection);
 
     vc()->setSelectedPage(1);
-    QEXPECT_FAIL("", "The selection survives a page switch", Abort);
-    QCOMPARE(vc()->selectedWidgetIDs(), QVariantList());
+    QCOMPARE(vc()->selectedWidgetIDs(), selectOnTarget ? QVariantList{onTarget} : QVariantList());
 }
 
 void VCEditor_Test::nudgeStep_data()
