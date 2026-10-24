@@ -444,7 +444,7 @@ Rectangle
                             label: qsTr("Alignment")
                         }
 
-                        Row
+                        Flow
                         {
                             Layout.fillWidth: true
                             visible: selectedWidgetsCount > 1 ? true: false
