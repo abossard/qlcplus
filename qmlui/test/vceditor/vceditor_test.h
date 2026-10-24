@@ -53,6 +53,7 @@ private slots:
     void editUndoRedoRoundTrip();
     void liveToggleMakesNoHistory_data();
     void liveToggleMakesNoHistory();
+    void clonesStayOnTheirPage();
 
     void pageSwitchPrunesSelection_data();
     void pageSwitchPrunesSelection();

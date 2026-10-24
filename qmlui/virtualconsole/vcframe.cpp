@@ -776,7 +776,11 @@ void VCFrame::deleteChildren()
 void VCFrame::setupWidget(VCWidget *widget, int page)
 {
     if (m_vc->loadStatus() != VirtualConsole::Loading)
+    {
         widget->setupLookAndFeel(m_vc->pixelDensity(), page);
+        /* a widget joining a frame page out of sight stays hidden, also when undo restores it */
+        widget->setVisible(widget->page() == currentPage());
+    }
 
     addWidgetToPageMap(widget);
     widget->setScaleFactor(qobject_cast<VCPage *>(this) ? qobject_cast<VCPage *>(this)->pageScale() : scaleFactor());
@@ -1189,6 +1193,7 @@ void VCFrame::cloneFirstPage()
     if (m_totalPagesNumber == 1)
         return;
 
+    Tardis::instance()->beginBatch("cloneFirstPage");
     for (int pg = 1; pg < totalPagesNumber(); pg++)
     {
         QListIterator <VCWidget*> it(this->findChildren<VCWidget*>());
@@ -1204,9 +1209,12 @@ void VCFrame::cloneFirstPage()
 
                 setupWidget(newWidget, pg);
                 newWidget->render(m_vc->view(), m_item);
+                Tardis::instance()->enqueueAction(Tardis::VCWidgetCreate, id(), QVariant(),
+                                                  Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, newWidget->id()));
             }
         }
     }
+    Tardis::instance()->endBatch();
 }
 
 /*********************************************************************

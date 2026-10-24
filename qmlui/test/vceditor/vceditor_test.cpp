@@ -367,7 +367,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
-    QEXPECT_FAIL("cloneFirstPage", "Not recorded", Abort);
     QEXPECT_FAIL("addPage", "Not recorded", Abort);
     QEXPECT_FAIL("deletePage", "Not recorded", Abort);
     QEXPECT_FAIL("font", "Undo stores the default font as an explicit one", Abort);
@@ -402,6 +401,19 @@ void VCEditor_Test::liveToggleMakesNoHistory()
         frame->setDisabled(true);
     settleHistory();
     QCOMPARE(tardis->m_history.count(), steps);
+}
+
+void VCEditor_Test::clonesStayOnTheirPage()
+{
+    const ConsoleIds ids = buildConsole();
+    auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.frame));
+    frame->setMultiPageMode(true);
+    frame->setTotalPagesNumber(2);
+
+    frame->cloneFirstPage();
+    QCOMPARE(frame->orderedChildIDs(1).size(), frame->orderedChildIDs(0).size());
+    for (VCWidget *child : frame->children(false))
+        QCOMPARE(child->isVisible(), child->page() == frame->currentPage());
 }
 
 /*********************************************************************
