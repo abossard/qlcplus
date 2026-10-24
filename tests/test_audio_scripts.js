@@ -3507,6 +3507,32 @@ function assertGroupFBugs() {
                 `column ${x}: center rows ${half - 1} and ${half} show V ${upper.toFixed(2)} and ${lower.toFixed(2)}`);
         }
     });
+    runCases('F14 vumeter peak marker moves the same at any render rate', [
+        { label: 'peak falls after a loud hit', loudFor: 0.2 },
+        { label: 'peak falls after a long hit', loudFor: 0.6 }
+    ], c => {
+        const meter = (hz) => {
+            const context = sharedScriptContext();
+            const instance = context.load('audiovumeter.js');
+            setProperty(instance.algo, 'peakPercent', '5');
+            let map;
+            for (let n = 1; n <= hz; n++) {
+                const t = n / hz;
+                const level = t <= c.loudFor ? 0.9 : 0.4;
+                const frame = engineAudio({ deltaSeconds: 1 / hz, volume: level });
+                frame.volume.rawRms = Math.pow(10, ((level - 1) * 100) / 20);
+                map = Array.from(context.render(instance, 100, 1, frame));
+            }
+            const marker = [];
+            for (let x = 0; x < 100; x++) {
+                const [r, g, b] = engineRgb(map[x * 3], map[x * 3 + 1], map[x * 3 + 2]);
+                if (r > 0.95 && g > 0.95 && b > 0.95) marker.push(x);
+            }
+            return marker.length ? Math.max(...marker) : -1;
+        };
+        const slow = meter(25), fast = meter(100);
+        assert(Math.abs(slow - fast) <= 1, `after 1 s the peak marker ends at pixel ${slow} at 25 Hz and ${fast} at 100 Hz`);
+    });
 }
 
 
@@ -5924,7 +5950,7 @@ function assertWorkerDInputRows() {
             const c = rgbAt(m40, x, 0, 100);
             if (c[0] > 0.95 && c[1] > 0.95 && c[2] > 0.95) markerXs.push(x);
         }
-        assert.deepStrictEqual(markerXs, [38, 39, 84, 85], `row60 exact markers mismatch: ${markerXs}`);
+        assert.deepStrictEqual(markerXs, [38, 39, 80, 81], `row60 exact markers mismatch: ${markerXs}`);
 
         const fullScale = render(
             algo,

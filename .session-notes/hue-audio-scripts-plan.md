@@ -227,7 +227,7 @@ Group F
 - [ ] F11 strobe.js:259,386 `setColorStep("abc")` throws (X3).
 - [ ] F12 vumeter.js:104-124 1xN always dark (X6).
 - [-] F13 vumeter.js:107 peak marker 0 px under width 100 at the default 1%. Dropped: LedFx vumeter.py does the same.
-- [ ] F14 vumeter.js:98-100 per-call alphas (X4).
+- [x] F14 vumeter.js:98-100 per-call alphas: own test (X4 could not see it with a 0 px marker); row60 markers 84,85 -> 80,81.
 - [ ] F15 water.js:155,168 Artistic black when width < 5 (X6).
 - [ ] F16 water.js:212-214 ripple steps per call (X4).
 - [ ] F17 waterfall.js:72-76,107-111 bands capped by width*height; columns overwrite each other.
@@ -328,3 +328,10 @@ Group F
   After `cmake build` recopy: buildup isolation and 6 palette rows green; scan/scanflare palette pending (E);
   new failure: audiosoap.js "used before its declaration" warnings (ledAudioIdentity, ledW, ledH) from the
   phase 2 refactor, sent to the G-E fix agent. Always recopy (`cmake build`) before engine runs.
+- 2026-10-24 G-F fixed (1162521c4): F1-F18 except F14, X1-X6 for its scripts. Visible: tunnel/vortex blend on
+  the short hue arc (default palette 0.96->0.33 now via orange/yellow), Diamond corners show the last color;
+  strobe tint stays red; splittower dark in silence, no flicker on steady input, all bands on narrow layouts;
+  spectrum Decay works, default 0.05 -> 0.1 (old hard-coded rate; a saved 0.05 now falls at half speed);
+  spotlight/vumeter 1xN run along the height; water Artistic works under 5 px, LedFx Water ripples per 1/60 s
+  (20% faster at 50 Hz, LedFx timing); waterfall height-independent columns, symmetric even Center fade.
+- 2026-10-24 F14 done centrally after the merge (red test, attackRelease with frames, row60 updated).

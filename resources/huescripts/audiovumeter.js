@@ -86,9 +86,10 @@ var testAlgo;
             state.trough = volume;
             state.initialized = true;
         } else {
-            state.peak += (volume - state.peak) * (volume > state.peak ? 0.99 : alphaDecay);
+            var frames = HSVUtil.elapsedFrames(audio);
+            state.peak = HSVUtil.attackRelease(state.peak, volume, 0.99, alphaDecay, frames);
             if (volume < state.trough) state.trough = volume;
-            else state.trough += (volume - state.trough) * alphaDecay;
+            else state.trough += (volume - state.trough) * (1 - Math.pow(1 - alphaDecay, frames));
         }
         // A single column is a meter along its height.
         var length = width === 1 ? height : width;
