@@ -494,7 +494,8 @@ void Show_Test::commandTrackInvalidLoad()
     valid.setExtent(3000);
     QVERIFY(show.setCommandTrack(valid));
 
-    QVERIFY(loadShow(show, showXML(commandTrack)) == false);
+    // an unreadable command track never costs the Show
+    QVERIFY(loadShow(show, showXML(commandTrack)));
 
     // the previously valid track must be untouched
     QCOMPARE(show.commandTrack().count(), 1);
@@ -547,6 +548,92 @@ void Show_Test::commandTrackRejectedEdit()
     QVERIFY(error.isEmpty() == false);
     QCOMPARE(changed.count(), 0);
     QCOMPARE(show.commandTrack().commands().first().functionId, target->id());
+}
+
+void Show_Test::commandTrackPublishKeepsHoldPairsValid_data()
+{
+    QTest::addColumn<QString>("edges");
+    QTest::addColumn<bool>("published");
+
+    QTest::newRow("closed pair") << QStringLiteral("1 on 1000, 1 off 2000") << true;
+    QTest::newRow("hold in progress") << QStringLiteral("1 on 1000") << true;
+    QTest::newRow("overlapping pairs") << QStringLiteral("1 on 1000, 2 on 1500, 1 off 2000, 2 off 2500") << false;
+    QTest::newRow("release before press") << QStringLiteral("1 off 1000, 1 on 2000") << false;
+}
+
+void Show_Test::commandTrackPublishKeepsHoldPairsValid()
+{
+    QFETCH(QString, edges);
+    QFETCH(bool, published);
+
+    const QUuid flash(QStringLiteral("{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}"));
+    ShowCommandTrack track;
+    quint32 id = 0;
+    for (const QString &edge : edges.split(QStringLiteral(", ")))
+    {
+        ShowCommand cmd = ShowCommand::setButtonState(id++, edge.section(' ', 2).toUInt(), flash,
+                                                      edge.section(' ', 1, 1) == QLatin1String("on"));
+        cmd.role = ShowControlRole::FlashButton;
+        cmd.pairId = edge.section(' ', 0, 0).toUInt();
+        QVERIFY(track.insert(cmd));
+    }
+
+    // the validator a load repairs with refuses to publish a broken pair
+    Show show(m_doc);
+    show.setID(700);
+    QString error;
+    QCOMPARE(show.setCommandTrack(track, {}, &error), published);
+    QCOMPARE(error.isEmpty(), published);
+    QCOMPARE(show.commandTrack().count(), published ? track.count() : 0);
+}
+
+void Show_Test::commandTrackMissingTargetBlocksOnlyItself_data()
+{
+    QTest::addColumn<QString>("edit");
+    QTest::addColumn<bool>("published");
+
+    QTest::newRow("add an unrelated command") << QStringLiteral("add") << true;
+    QTest::newRow("remove the stale command") << QStringLiteral("remove") << true;
+    QTest::newRow("retarget the stale command") << QStringLiteral("retarget") << true;
+    QTest::newRow("move the stale command") << QStringLiteral("move") << false;
+    QTest::newRow("add a command on the missing target") << QStringLiteral("add missing") << false;
+}
+
+void Show_Test::commandTrackMissingTargetBlocksOnlyItself()
+{
+    QFETCH(QString, edit);
+    QFETCH(bool, published);
+
+    Doc doc(this);
+    Scene *kept = new Scene(&doc);
+    QVERIFY(doc.addFunction(kept));
+    Scene *gone = new Scene(&doc);
+    QVERIFY(doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 1000, kept->id())));
+    QVERIFY(track.insert(ShowCommand::start(1, 2000, goneId)));
+    QVERIFY(show->setCommandTrack(track));
+    QVERIFY(doc.deleteFunction(goneId));
+
+    ShowCommandTrack edited = show->commandTrack();
+    if (edit == QLatin1String("add"))
+        QVERIFY(edited.insert(ShowCommand::stop(2, 3000, kept->id())));
+    else if (edit == QLatin1String("remove"))
+        QVERIFY(edited.remove(1));
+    else if (edit == QLatin1String("retarget"))
+        QVERIFY(edited.replace(ShowCommand::start(1, 2000, kept->id())));
+    else if (edit == QLatin1String("move"))
+        QVERIFY(edited.retime(1, 2500));
+    else
+        QVERIFY(edited.insert(ShowCommand::stop(2, 3000, goneId)));
+
+    QString error;
+    QCOMPARE(show->setCommandTrack(edited, {}, &error), published);
+    QCOMPARE(error.isEmpty(), published);
+    QCOMPARE(show->commandTrack().commands(), published ? edited.commands() : track.commands());
 }
 
 void Show_Test::commandTrackControlStatesNeedNoFunction()

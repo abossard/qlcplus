@@ -48,6 +48,10 @@ private slots:
     void commandTrackUnresolvedTargetSurvivesLoad();
     void commandTrackRejectedEdit_data();
     void commandTrackRejectedEdit();
+    void commandTrackPublishKeepsHoldPairsValid_data();
+    void commandTrackPublishKeepsHoldPairsValid();
+    void commandTrackMissingTargetBlocksOnlyItself_data();
+    void commandTrackMissingTargetBlocksOnlyItself();
     void commandTrackControlStatesNeedNoFunction();
     void commandTrackLiveIdsMustBeAuthored_data();
     void commandTrackLiveIdsMustBeAuthored();

@@ -437,8 +437,11 @@ private:
                            std::optional<quint64> appliedTraversal = std::nullopt,
                            bool onlyStopped = false);
 
-    /** Empty when every command target is usable */
-    QString commandTargetError(const ShowCommandTrack &track) const;
+    /** Empty when the track may be published: no hold pair breaks the
+     *  invariant and every command added or changed since the published
+     *  track has a usable target. One whose target was deleted since it was
+     *  published stays, and blocks nothing. */
+    QString commandTrackError(const ShowCommandTrack &track) const;
 
     mutable QMutex m_commandTrackMutex;
     ShowCommandTrack m_commandTrack;

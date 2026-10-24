@@ -603,18 +603,29 @@ void Show::armCommandTrackSaveProjection(const ShowCommandTrack &track)
     m_commandTrackSaveProjectionArmed = true;
 }
 
-QString Show::commandTargetError(const ShowCommandTrack &track) const
+QString Show::commandTrackError(const ShowCommandTrack &track) const
 {
     Doc *document = doc();
+    const ShowCommandTrack published = commandTrack();
 
-    foreach (quint32 functionId, track.referencedFunctionIds())
+    for (const ShowCommand &cmd : track.commands())
     {
-        if (id() != Function::invalidId() && functionId == id())
+        if (ShowCommand::isControlAction(cmd.action))
+            continue;
+
+        if (id() != Function::invalidId() && cmd.functionId == id())
             return tr("A Show cannot command itself");
 
-        if (document != NULL && document->function(functionId) == NULL)
-            return tr("Unknown command target %1").arg(functionId);
+        // a published command whose target was deleted since blocks nothing else
+        const int index = published.indexOfId(cmd.id);
+        if (document != NULL && document->function(cmd.functionId) == NULL &&
+            (index < 0 || published.commands().at(index) != cmd))
+            return tr("Unknown command target %1").arg(cmd.functionId);
     }
+
+    const QVector<quint32> malformed = track.malformedHoldPairs();
+    if (malformed.isEmpty() == false)
+        return tr("Hold pair %1 overlaps another hold or is malformed").arg(malformed.first());
 
     return QString();
 }
@@ -652,7 +663,7 @@ void Show::startRequested()
 bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
                                std::optional<quint64> appliedTraversal, QString *error, bool onlyStopped)
 {
-    QString reason = commandTargetError(track);
+    QString reason = commandTrackError(track);
     // a live mark needs the occurrence the caller executed
     for (auto it = alreadyApplied.cbegin(); reason.isEmpty() && it != alreadyApplied.cend(); ++it)
     {
@@ -1033,18 +1044,13 @@ bool Show::loadXML(QXmlStreamReader &root)
         {
             ShowCommandTrack parsed;
             QString error;
+            // an unreadable command track is dropped: the Show and its clips stay
             if (parsed.loadXML(root, &error) == false)
-            {
-                qWarning() << Q_FUNC_INFO << "Invalid command track:" << error;
-                // leave the reader at the end of this Show, not inside it
-                while (root.readNextStartElement())
-                    root.skipCurrentElement();
-                return false;
-            }
-
-            /** Targets are not resolved here: the functions a Show commands may
-             *  still be further down the workspace. postLoad() diagnoses them. */
-            storeCommandTrack(parsed);
+                qWarning() << Q_FUNC_INFO << "Show" << name() << "dropped its unreadable command track:" << error;
+            else
+                /** Targets are not resolved here: the functions a Show commands may
+                 *  still be further down the workspace. postLoad() diagnoses them. */
+                storeCommandTrack(parsed);
         }
         else
         {
