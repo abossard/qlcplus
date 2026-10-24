@@ -478,8 +478,9 @@ void ShowRunner::write(MasterTimer *timer)
                       (beatSynced && m_elapsedBeats >= m_totalRunBeats);
 
     // REC keeps a command-only or short run alive past its end, and a run it
-    // kept stays alive when REC turns off: REC never stops playback
-    if (timeDone && m_show != NULL && m_show->commandRecording())
+    // kept stays alive when REC turns off: REC never stops playback. Beat
+    // clips still running are no end REC held the run past.
+    if (timeDone && beatsDone && m_show != NULL && m_show->commandRecording())
         m_keptByRecording = true;
     if (m_keptByRecording)
         timeDone = false;

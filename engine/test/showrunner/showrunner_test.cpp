@@ -1561,15 +1561,19 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive_data()
     QTest::addColumn<bool>("recording");
     QTest::addColumn<quint32>("position");
     QTest::addColumn<bool>("recOff"); // REC turns off at position, and the Show plays on past its end
+    QTest::addColumn<bool>("beatClip"); // a beat-based clip of two beats at 120 BPM: done at 1000 ms
     QTest::addColumn<bool>("expectFinished");
 
-    QTest::newRow("legacy empty show finishes") << quint32(0) << false << quint32(0) << false << true;
-    QTest::newRow("extent not reached") << quint32(200) << false << quint32(100) << false << false;
-    QTest::newRow("extent reached") << quint32(200) << false << quint32(200) << false << true;
-    QTest::newRow("recording keeps an empty show alive") << quint32(0) << true << quint32(200) << false << false;
+    QTest::newRow("legacy empty show finishes") << quint32(0) << false << quint32(0) << false << false << true;
+    QTest::newRow("extent not reached") << quint32(200) << false << quint32(100) << false << false << false;
+    QTest::newRow("extent reached") << quint32(200) << false << quint32(200) << false << false << true;
+    QTest::newRow("recording keeps an empty show alive") << quint32(0) << true << quint32(200) << false << false
+                                                         << false;
     // REC never stops playback: a run it kept past its end stays alive
-    QTest::newRow("REC off past the end") << quint32(0) << true << quint32(200) << true << false;
-    QTest::newRow("REC off before the end") << quint32(400) << true << quint32(100) << true << true;
+    QTest::newRow("REC off past the end") << quint32(0) << true << quint32(200) << true << false << false;
+    QTest::newRow("REC off before the end") << quint32(400) << true << quint32(100) << true << false << true;
+    // REC kept nothing while beat clips still ran: the run ends with them
+    QTest::newRow("REC off while beat clips still run") << quint32(0) << true << quint32(200) << true << true << true;
 }
 
 void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
@@ -1578,12 +1582,28 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
     QFETCH(bool, recording);
     QFETCH(quint32, position);
     QFETCH(bool, recOff);
+    QFETCH(bool, beatClip);
     QFETCH(bool, expectFinished);
 
     Doc doc(nullptr);
     auto *timer = doc.masterTimer();
     auto *show = new Show(&doc);
     doc.addFunction(show);
+    if (beatClip)
+    {
+        show->setTempoType(Function::Beats);
+        show->setTimeDivisionBPM(120);
+        auto *scene = new Scene(&doc);
+        scene->setTempoType(Function::Beats);
+        doc.addFunction(scene);
+        auto *track = new Track(scene->id());
+        auto *clip = new ShowFunction(show->getLatestShowFunctionId());
+        clip->setFunctionID(scene->id());
+        clip->setStartTime(1000);
+        clip->setDuration(1000);
+        track->addShowFunction(clip);
+        show->addTrack(track);
+    }
 
     if (extent > 0)
     {
@@ -1600,7 +1620,7 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
     if (recOff)
     {
         show->setCommandRecording(false);
-        for (int i = 0; i < ticksToReach(extent + 200); i++)
+        for (int i = 0; i < ticksToReach(beatClip ? 1500 : extent + 200); i++)
             timer->timerTick();
     }
 
