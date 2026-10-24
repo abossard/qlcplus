@@ -1117,9 +1117,10 @@ void Show::preRun(MasterTimer* timer)
     }
 
     {
-        // a Stop while installing wins: this runner is retired from the start
+        // a Stop while installing, or before this first tick, wins: this
+        // runner is retired from the start
         QMutexLocker locker(&m_commandTrackMutex);
-        if (m_commandStops == stops)
+        if (m_commandStops == stops && stopped() == false)
             m_runnerRetired.store(false, std::memory_order_release);
     }
     m_runner = new ShowRunner(doc(), this->id(), elapsed());
