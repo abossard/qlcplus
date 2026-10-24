@@ -319,8 +319,6 @@ void VCEditor_Test::nudgeStep()
 
     vc()->setSelectedWidgetIDs({ids.loose});
     vc()->nudgeWidgets(steps, 0);
-    QEXPECT_FAIL("free", "Nudge always steps by the snapping size", Abort);
-    QEXPECT_FAIL("free-shift", "Nudge always steps by the snapping size", Abort);
     QCOMPARE(vc()->widget(ids.loose)->logicalGeometry(), before.translated(moved, 0));
 }
 

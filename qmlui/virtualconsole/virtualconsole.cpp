@@ -2486,7 +2486,7 @@ void VirtualConsole::nudgeWidgets(int dx, int dy)
     }
     VCWidget *anchor = roots.first();
     VCFrame *parent = qobject_cast<VCFrame *>(anchor->parent());
-    const qreal step = snappingSize() > 0 ? snappingSize() : 1;
+    const qreal step = snapping() && snappingSize() > 0 ? snappingSize() : 1;
     reportEdit(editSelectionDrop(selectedWidgetIDs(), anchor->id(), parent->id(), anchor->page(),
                                  anchor->logicalGeometry().topLeft() + QPointF(dx * step, dy * step)));
 }
