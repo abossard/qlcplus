@@ -611,3 +611,42 @@ void VCEditor::arrangeJoined(VCFrame *frame)
             widget->setLogicalGeometry(it.value());
 }
 
+void VCEditor::addWidgetMatrix(quint32 targetID, QString matrixType, QPointF logicalPosition,
+                               QSize matrixSize, QSize widgetSize, bool soloFrame)
+{
+    const qreal gap = 5;
+    if (matrixSize.isEmpty() || widgetSize.isEmpty() || (matrixType != "buttonmatrix" && matrixType != "slidermatrix"))
+    {
+        emit m_vc->editRejected(tr("Invalid widget matrix dimensions or type"));
+        return;
+    }
+    const QVariantMap guide = m_vc->snapGuide(targetID);
+    if (guide.value("enabled").toBool())
+    {
+        const qreal step = guide.value("step").toSizeF().width();
+        logicalPosition = QPointF(std::round(logicalPosition.x() / step) * step, std::round(logicalPosition.y() / step) * step);
+    }
+    const QSizeF size(matrixSize.width() * widgetSize.width() + gap * (matrixSize.width() + 1),
+                      matrixSize.height() * widgetSize.height() + gap * (matrixSize.height() + 1));
+    const QString type = matrixType == "buttonmatrix" ? "Button" : "Slider";
+
+    Tardis::instance()->beginBatch("widgetMatrix");
+    QVariantMap result = m_vc->createWidgetGeometry(targetID, soloFrame ? "Solo frame" : "Frame",
+                                                    QRectF(logicalPosition, size), -1);
+    const quint32 frameID = result.value("widgetIDs").toList().value(0).toUInt();
+    if (result.value("accepted").toBool())
+    {
+        qobject_cast<VCFrame *>(m_vc->widget(frameID))->setShowHeader(false);
+        result = arrangeFrame(frameID, {{"mode", int(GridLayout::ArrangeMode::Grid)}, {"columns", matrixSize.width()},
+                                        {"gap", gap}, {"fill", true}});
+    }
+    for (int i = 0; i < matrixSize.width() * matrixSize.height() && result.value("accepted").toBool(); i++)
+        result = m_vc->createWidgetGeometry(frameID, type, QRectF(QPointF(gap, gap), QSizeF(widgetSize)), -1);
+    Tardis::instance()->endBatch();
+    if (!result.value("accepted").toBool())
+    {
+        if (frameID != 0 && m_vc->widget(frameID))
+            m_vc->deleteVCWidgets({frameID});
+        emit m_vc->editRejected(result.value("error").toString());
+    }
+}

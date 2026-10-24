@@ -541,7 +541,7 @@ Rectangle
                 }
             }
 
-        onAccepted: targetFrame.addWidgetMatrix(matrixParent, wType, wPos, Qt.size(mxColumns.value, mxRows.value),
-                                                Qt.size(wWidth.value, wHeight.value), soloFrameCheck.checked)
+        onAccepted: vcEditor.addWidgetMatrix(targetFrame.id, wType, wPos, Qt.size(mxColumns.value, mxRows.value),
+                                             Qt.size(wWidth.value, wHeight.value), soloFrameCheck.checked)
     }
 }

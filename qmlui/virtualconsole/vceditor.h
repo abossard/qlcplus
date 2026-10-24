@@ -165,6 +165,12 @@ public:
     /** Arrange $frame again inside a running edit, whose undo step takes the moves */
     void arrangeJoined(VCFrame *frame);
 
+    /** A frame at $logicalPosition in $targetID with $matrixSize controls of $matrixType
+     *  ("buttonmatrix" or "slidermatrix") of $widgetSize, arranged in a grid that
+     *  keeps them filling the frame. One undo step; errors go to editRejected */
+    Q_INVOKABLE void addWidgetMatrix(quint32 targetID, QString matrixType, QPointF logicalPosition,
+                                     QSize matrixSize, QSize widgetSize, bool soloFrame);
+
 signals:
     /** Emitted from a widget item: show the properties of the selection */
     void widgetPropertiesRequested();

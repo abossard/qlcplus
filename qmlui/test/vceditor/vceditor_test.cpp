@@ -1264,6 +1264,56 @@ void VCEditor_Test::arrangePanel()
     QCOMPARE(rejected.size(), 1);
 }
 
+void VCEditor_Test::widgetMatrix_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<QSize>("matrix");
+    QTest::addColumn<QSize>("control");
+    QTest::newRow("buttons") << "buttonmatrix" << QSize(3, 2) << QSize(60, 50);
+    QTest::newRow("sliders") << "slidermatrix" << QSize(4, 1) << QSize(50, 150);
+}
+
+void VCEditor_Test::widgetMatrix()
+{
+    QFETCH(QString, type);
+    QFETCH(QSize, matrix);
+    QFETCH(QSize, control);
+    buildConsole();
+    vc()->setSnapping(true);
+    vc()->setSnappingSize(10);
+    const QList<VCWidget *> before = vc()->page(0)->children(false);
+    QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
+
+    vc()->editor()->addWidgetMatrix(vc()->page(0)->id(), type, QPointF(1203, 497), matrix, control, false);
+    QVERIFY2(rejected.isEmpty(), qPrintable(rejected.value(0).value(0).toString()));
+    QList<VCWidget *> added = vc()->page(0)->children(false);
+    for (VCWidget *widget : before)
+        added.removeAll(widget);
+    QCOMPARE(added.size(), 1);
+    auto *frame = qobject_cast<VCFrame *>(added.first());
+    QVERIFY(frame);
+    // a 5 pixel gap between the controls and around them, the origin on the snapping grid
+    QCOMPARE(frame->logicalGeometry(), QRectF(1200, 500, matrix.width() * control.width() + 5 * (matrix.width() + 1),
+                                              matrix.height() * control.height() + 5 * (matrix.height() + 1)));
+    QVERIFY(!frame->showHeader());
+    const GridLayout::ArrangeSpec spec = VCArrangement::specOf(frame);
+    QCOMPARE(spec.mode, GridLayout::ArrangeMode::Grid);
+    QCOMPARE(spec.columns, matrix.width());
+    QVERIFY(spec.fill);
+    const QList<VCWidget *> controls = frame->children(false);
+    QCOMPARE(controls.size(), matrix.width() * matrix.height());
+    for (int i = 0; i < controls.size(); i++)
+        QCOMPARE(controls.at(i)->logicalGeometry(),
+                 QRectF(5 + (i % matrix.width()) * (control.width() + 5), 5 + (i / matrix.width()) * (control.height() + 5),
+                        control.width(), control.height()));
+
+    // the whole matrix is one undo step
+    settleHistory();
+    Tardis::instance()->undoAction();
+    settleHistory();
+    QCOMPARE(vc()->page(0)->children(false), before);
+}
+
 void VCEditor_Test::newWorkspaceForgetsArrangement()
 {
     buildConsole();
