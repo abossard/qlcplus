@@ -616,10 +616,11 @@ QString Show::commandTrackError(const ShowCommandTrack &track) const
         if (id() != Function::invalidId() && cmd.functionId == id())
             return tr("A Show cannot command itself");
 
+        if (document == NULL || document->function(cmd.functionId) != NULL)
+            continue;
         // a published command whose target was deleted since blocks nothing else
         const int index = published.indexOfId(cmd.id);
-        if (document != NULL && document->function(cmd.functionId) == NULL &&
-            (index < 0 || published.commands().at(index) != cmd))
+        if (index < 0 || published.commands().at(index) != cmd)
             return tr("Unknown command target %1").arg(cmd.functionId);
     }
 
