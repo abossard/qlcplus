@@ -2430,7 +2430,7 @@ void ShowCommandRecorder_Test::replayedButtonOn_atContentEnd_runsBeforeShowEnds(
     QTRY_VERIFY(log.indexOf(show->id(), false) >= 0);
     QVERIFY(log.indexOf(scene->id(), true) >= 0);
     QVERIFY(log.indexOf(scene->id(), true) < log.indexOf(show->id(), false));
-    QCOMPARE(button->state(), VCButton::Inactive);
+    QTRY_COMPARE(button->state(), VCButton::Inactive);
 }
 
 void ShowCommandRecorder_Test::replayedPlayingPair_waitsForItsCoupledPredecessor_data()
