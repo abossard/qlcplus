@@ -17283,6 +17283,7 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
         // the take on A closes, REC waits for Perform's next Show
         fsm->setActiveShow(PerformFsm::InvalidShowId);
         QCOMPARE(rig.recorder->phaseValue(), int(rec ? ShowRecordPhase::Armed : ShowRecordPhase::Off));
+        QCOMPARE(rig.recorder->editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
     }
     // while Perform is engaged a selection resolves nothing
     rig.manager->setCurrentShowID(int(selected->id()));

@@ -1275,7 +1275,9 @@ QString ShowCommandRecorder::editBlockedReason() const
 {
     // playing, paused and recording Shows take edits too: the runner meets
     // what is published when it gets there, and capture only ever adds
-    return trackedShow() != nullptr ? QString() : tr("No Show to edit");
+    if (trackedShow() != nullptr)
+        return QString();
+    return m_rec.perform ? tr("Perform resolves no Show yet") : tr("No Show to edit");
 }
 
 Show *ShowCommandRecorder::editableShow(quint32 showId)
