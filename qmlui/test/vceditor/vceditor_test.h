@@ -1,0 +1,74 @@
+/*
+  Q Light Controller Plus - Unit test
+  vceditor_test.h
+
+  Copyright (c) Massimo Callegari
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0.txt
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+*/
+
+#ifndef VCEDITOR_TEST_H
+#define VCEDITOR_TEST_H
+
+#include <QObject>
+#include <QTemporaryDir>
+#include <memory>
+
+class App;
+class VirtualConsole;
+
+/** Ids of the standard console built by buildConsole() */
+struct ConsoleIds
+{
+    quint32 page = 0;
+    quint32 frame = 0;   // page child, holds a, b and nested
+    quint32 a = 0;
+    quint32 b = 0;
+    quint32 nested = 0;  // frame child, holds inner
+    quint32 inner = 0;
+    quint32 empty = 0;   // empty page child frame
+    quint32 loose = 0;   // page child button
+};
+
+class VCEditor_Test : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void initTestCase();
+    void init();
+    void cleanupTestCase();
+
+    void editUndoRedoRoundTrip_data();
+    void editUndoRedoRoundTrip();
+
+    void pageSwitchClearsSelection();
+    void nudgeStep_data();
+    void nudgeStep();
+    void alignToLastSelected_data();
+    void alignToLastSelected();
+
+private:
+    VirtualConsole *vc() const;
+    ConsoleIds buildConsole();
+    QByteArray consoleXML() const;
+    /** Wait until the Tardis thread recorded every queued action, then
+     *  leave enough time so the next action starts a new undo step */
+    void settleHistory();
+
+private:
+    QTemporaryDir m_settings;
+    std::unique_ptr<App> m_app;
+};
+
+#endif
