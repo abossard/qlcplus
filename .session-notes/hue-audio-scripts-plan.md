@@ -323,3 +323,8 @@ Group F
   blurz halos keep hue, rate-independent density; new float bounds (aurora, blocks, beatcolors).
 - 2026-10-24 X4 skips samples exactly on a beat: blocks (and unfixed gravimeter) jumped there by design and
   rounding put 25 and 100 Hz on different sides.
+- 2026-10-24 Merged fixes A-D (12ed314c9). Only E/F tests red. Engine-test caveat found: resources are copied
+  into the build tree at configure time, so earlier engine runs in this worktree used the original scripts.
+  After `cmake build` recopy: buildup isolation and 6 palette rows green; scan/scanflare palette pending (E);
+  new failure: audiosoap.js "used before its declaration" warnings (ledAudioIdentity, ledW, ledH) from the
+  phase 2 refactor, sent to the G-E fix agent. Always recopy (`cmake build`) before engine runs.
