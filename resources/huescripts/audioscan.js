@@ -65,17 +65,17 @@ var testAlgo;
     algo.properties.push("name:full_grad_mod_speed|type:float|values:0,1|display:Full Gradient Mod Speed|write:setFullGradModSpeed|read:getFullGradModSpeed");
     algo.properties.push("name:count|type:range|display:Count|values:1,10|write:setCount|read:getCount");
 
-    algo.setBlur = function(v) { algo.blur = parseFloat(v); };
+    algo.setBlur = function(v) { algo.blur = HSVUtil.parseNumber(v, algo.blur, 0, 10); };
     algo.getBlur = function() { return algo.blur; };
     algo.setBounce = function(v) { algo.bounce = (v === "No") ? "No" : "Yes"; };
     algo.getBounce = function() { return algo.bounce; };
-    algo.setScanWidth = function(v) { algo.scan_width = parseFloat(v); };
+    algo.setScanWidth = function(v) { algo.scan_width = HSVUtil.parseNumber(v, algo.scan_width, 1, 100); };
     algo.getScanWidth = function() { return algo.scan_width; };
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 100); };
     algo.getSpeed = function() { return algo.speed; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
-    algo.setMultiplier = function(v) { algo.multiplier = parseFloat(v); };
+    algo.setMultiplier = function(v) { algo.multiplier = HSVUtil.parseNumber(v, algo.multiplier, 0, 5); };
     algo.getMultiplier = function() { return algo.multiplier; };
     algo.setColorIntensity = function(v) { algo.color_intensity = (v === "No") ? "No" : "Yes"; };
     algo.getColorIntensity = function() { return algo.color_intensity; };
@@ -87,12 +87,12 @@ var testAlgo;
     algo.getFullGradMod = function() { return algo.full_grad_mod; };
     algo.setFullGradModSpeed = function(v) { algo.full_grad_mod_speed = Math.max(0, Math.min(1, parseFloat(v) || 0)); };
     algo.getFullGradModSpeed = function() { return algo.full_grad_mod_speed; };
-    algo.setCount = function(v) { algo.count = parseInt(v); };
+    algo.setCount = function(v) { algo.count = Math.round(HSVUtil.parseNumber(v, algo.count, 1, 10)); };
     algo.getCount = function() { return algo.count; };
 
     algo.presetSmoothing = 5;
     algo.properties.push("name:presetSmoothing|type:range|display:Smoothing|values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(v) { algo.presetSmoothing = parseInt(v); };
+    algo.setSmoothing = function(v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo, {
         display: "",
@@ -119,7 +119,7 @@ var testAlgo;
     var lastIdentityKey = "";
 
     function gradientStops() {
-        return (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_GRADIENT;
+        return (algo.hasUserColors && algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_GRADIENT;
     }
 
     function setStrip(strip, idx, color) {
@@ -135,23 +135,12 @@ var testAlgo;
     function boxBlur(strip, amount) {
         var radius = Math.round(amount);
         if (radius <= 0 || strip.length <= 3) return strip;
-        var n = strip.length;
-        var out = new Array(n);
-        for (var i = 0; i < n; i++) {
-            var bh = 0, bs = 0, bv = 0, c = 0;
-            for (var k = -radius; k <= radius; k++) {
-                var idx = i + k;
-                if (idx < 0 || idx >= n) continue;
-                bh += strip[idx].h; bs += strip[idx].s; bv += strip[idx].v; c++;
-            }
-            out[i] = {h: bh / c, s: bs / c, v: bv / c};
-        }
-        return out;
+        return HSVUtil.blurStrip(strip, radius);
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() { return DEFAULT_GRADIENT.slice(); };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
@@ -178,6 +167,7 @@ var testAlgo;
         }
 
         var passed = HSVUtil.audioSeconds(audio);
+        var frames = HSVUtil.elapsedFrames(audio);
         modulationClock += passed;
         var count = Math.max(1, Math.min(10, algo.count));
         var block = span / count;
@@ -186,9 +176,9 @@ var testAlgo;
         var rawPower = HSVUtil.powerForRange(audio, algo.frequency_range, false) * 2.0;
         var power = rawPower;
         if (!ledFxMode) {
-            smoothPower = HSVUtil.smoothFollow(smoothPower, rawPower, algo.presetSmoothing);
+            smoothPower = HSVUtil.smoothFollow(smoothPower, rawPower, algo.presetSmoothing, frames);
             power = smoothPower;
-            HSVUtil.barEnvelope(envelope, rawPower, audio.dt, audio.downbeat, 0.85);
+            HSVUtil.barEnvelope(envelope, rawPower, audio.dt, audio.downbeat, Math.pow(0.85, frames));
         }
 
         // Build-up subtly widens the scan; release flares it

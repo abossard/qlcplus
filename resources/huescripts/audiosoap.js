@@ -24,6 +24,10 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
     algo.presetMode = "Artistic";
+    // LedFx Soap geometry and audio source; setMode clears them to restart the LedFx state.
+    var ledW = 0;
+    var ledH = 0;
+    var ledAudioIdentity = "";
     algo.properties.push("name:mode|type:list|display:Response|values:Artistic,LedFx Soap|write:setMode|read:getMode");
     algo.setMode = function(v) {
         var next = v === "LedFx Soap" ? v : "Artistic";
@@ -57,11 +61,11 @@ var testAlgo;
     algo.properties.push("name:intensity|type:float|display:Intensity|write:setIntensity|read:getIntensity");
     algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
 
-    algo.setDensity = function(v) { algo.density = parseFloat(v); };
+    algo.setDensity = function(v) { algo.density = HSVUtil.parseNumber(v, algo.density, 0, 1); };
     algo.getDensity = function() { return algo.density; };
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 1); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setIntensity = function(v) { algo.intensity = parseFloat(v); };
+    algo.setIntensity = function(v) { algo.intensity = HSVUtil.parseNumber(v, algo.intensity, 0, 2); };
     algo.getIntensity = function() { return algo.intensity; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
@@ -83,9 +87,6 @@ var testAlgo;
     var ledPhaseY = ledPhaseSeedY;
     var ledNoise = null;
     var ledPrevRgb = null;
-    var ledW = 0;
-    var ledH = 0;
-    var ledAudioIdentity = "";
 
     function gradientStops() {
         return algo.hasUserColors ? algo.colors : DEFAULT_HSV_STOPS;

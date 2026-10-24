@@ -85,11 +85,11 @@ var testAlgo;
       "name:presetDecay|type:float|values:0,1|display:Decay|" +
       "write:setDecay|read:getDecay");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setWidth = function(_v) { algo.presetWidth = parseFloat(_v); };
+    algo.setWidth = function(_v) { algo.presetWidth = HSVUtil.parseNumber(_v, algo.presetWidth, 1, 50); };
     algo.getWidth = function() { return algo.presetWidth; };
-    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseFloat(_v); };
+    algo.setMultiplier = function(_v) { algo.presetMultiplier = HSVUtil.parseNumber(_v, algo.presetMultiplier, 1, 500); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
@@ -120,7 +120,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo, {
         display: "",
@@ -270,11 +270,12 @@ var testAlgo;
         }
 
         var dt = HSVUtil.audioSeconds(audio);
+        var frames = HSVUtil.elapsedFrames(audio);
         var beatsPerSec = audio.bpm / 60.0;
         var multiplier = algo.presetMultiplier / 100.0;
         var scanW = Math.max(1, Math.round(n * algo.presetWidth / 100.0));
         var stepPerSec = ledFxMode
-            ? (n / 100.0 * Math.max(0, Math.min(100, algo.presetSpeed)))
+            ? (n * Math.min(1, algo.presetSpeed))
             : (Math.max(1, n - scanW) * algo.presetSpeed * beatsPerSec);
         var bounce = algo.presetBounce === 1;
         var colorIntensity = algo.presetColorIntensity === 1;
@@ -294,20 +295,20 @@ var testAlgo;
             : [audio.low, audio.mid, audio.high];
         for (var sb = 0; sb < 3; sb++) {
             if (!ledFxMode) {
-                smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing);
+                smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing, frames);
                 continue;
             }
             var source = HSVUtil.clamp01(rawPows[sb]) * 2;
             if (algo.presetFilter === "Off") {
                 smoothPow[sb] = source;
             } else {
-                smoothPow[sb] = HSVUtil.attackRelease(smoothPow[sb], source, algo.presetAttack, algo.presetDecay);
+                smoothPow[sb] = HSVUtil.attackRelease(smoothPow[sb], source, algo.presetAttack, algo.presetDecay, frames);
             }
         }
 
         if (!ledFxMode) {
             var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
-            HSVUtil.barEnvelope(envelope, rawEnergy, dt, audio.downbeat, 0.85);
+            HSVUtil.barEnvelope(envelope, rawEnergy, dt, audio.downbeat, Math.pow(0.85, frames));
         }
 
         var cumulative = 1.0;
@@ -333,14 +334,16 @@ var testAlgo;
                 : algo.colors[b];
             var briBoost = colorIntensity ? Math.min(1, smoothPow[b]) : 1.0;
             var cv = baseColor.v * Math.min(1, briBoost + (ledFxMode ? 0 : envelope.flash * 0.5));
-            if (ledFxMode) {
-                var colorRgb = HSVUtil.hsvToRgb(baseColor.h, baseColor.s, cv);
-                if (matrixLedFx)
-                    drawScanMatrixRgb(stripRgb, width, height, n, scan.pos, scanW, colorRgb, algo.presetAxis, b);
+            var colorRgb = ledFxMode ? HSVUtil.hsvToRgb(baseColor.h, baseColor.s, cv) : null;
+            // Without bounce a scanner that crosses the strip end also covers its start.
+            var starts = scan.pos < 0 ? [scan.pos, scan.pos + n] : [scan.pos];
+            for (var si = 0; si < starts.length; si++) {
+                if (!ledFxMode)
+                    drawScan(strip, n, starts[si], scanW, {h: baseColor.h, s: baseColor.s, v: cv});
+                else if (matrixLedFx)
+                    drawScanMatrixRgb(stripRgb, width, height, n, starts[si], scanW, colorRgb, algo.presetAxis, b);
                 else
-                    drawScanRgb(stripRgb, n, scan.pos, scanW, colorRgb);
-            } else {
-                drawScan(strip, n, scan.pos, scanW, {h: baseColor.h, s: baseColor.s, v: cv});
+                    drawScanRgb(stripRgb, n, starts[si], scanW, colorRgb);
             }
             if (ledFxMode)
                 cumulative *= bar;

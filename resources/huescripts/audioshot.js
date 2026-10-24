@@ -39,9 +39,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetMaxShots|type:range|display:Max Shots|" +
       "values:1,20|write:setMaxShots|read:getMaxShots");
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 1, 10); };
     algo.getDecay = function() { return algo.presetDecay; };
-    algo.setSize = function(_v) { algo.presetSize = parseFloat(_v); };
+    algo.setSize = function(_v) { algo.presetSize = HSVUtil.parseNumber(_v, algo.presetSize, 1, 10); };
     algo.getSize = function() { return algo.presetSize; };
     algo.setTrigger = function(_v) {
         if (_v === "Bass") algo.presetTrigger = 1;
@@ -52,7 +52,7 @@ var testAlgo;
     algo.getTrigger = function() {
         return ["Beat", "Bass", "Mids", "Highs"][algo.presetTrigger];
     };
-    algo.setMaxShots = function(_v) { algo.presetMaxShots = parseInt(_v); };
+    algo.setMaxShots = function(_v) { algo.presetMaxShots = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxShots, 1, 20)); };
     algo.getMaxShots = function() { return algo.presetMaxShots; };
     var DECAY_DIVISOR = 200.0;
 
@@ -93,15 +93,16 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
+        // Beat fires on beats, Bass on kicks, Mids and Highs on onsets where that band dominates.
         var trigger;
         if (algo.presetTrigger === 0) trigger = audio.beatFired;
         else if (algo.presetTrigger === 1) trigger = audio.version >= 6 ? audio.kickFired : audio.beatFired;
-        else if (algo.presetTrigger === 2) trigger = audio.onset;
         else trigger = audio.onset;
-        trigger = trigger || audio.onset;
 
         var eventName = algo.presetTrigger === 0 ? "beat" : algo.presetTrigger === 1 ? "kick" : "onset";
-        var count = audio.events ? Math.max(audio.events.delta[eventName], audio.events.delta.onset) : (trigger ? 1 : 0);
+        var count = HSVUtil.eventCount(audio, eventName, trigger);
+        if (algo.presetTrigger >= 2 && HSVUtil.dominantBand(audio) !== algo.presetTrigger - 1)
+            count = 0;
         for (var spawn = 0; spawn < Math.min(count, algo.presetMaxShots); spawn++)
             spawnShot(width, height, audio);
 
