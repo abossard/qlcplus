@@ -19,10 +19,12 @@
 #include <QSignalSpy>
 #include <QXmlStreamReader>
 #include <QtTest>
+#include <algorithm>
 #include <atomic>
 #include <thread>
 #include <array>
 #include <cmath>
+#include <limits>
 #include "../doc/audio_test_capture.h"
 #include "audioanalyzer.h"
 #include "audiochannel.h"
@@ -48,6 +50,102 @@
 #include "doc.h"
 #undef protected
 #undef private
+
+namespace
+{
+class AudioClockChaser : public Chaser
+{
+public:
+    explicit AudioClockChaser(Doc *doc) : Chaser(doc) {}
+    QList<bool> consumedBeats;
+    void write(MasterTimer *timer, QList<Universe *> universes) override
+    {
+        consumedBeats.append(timer->isBeat());
+        Chaser::write(timer, universes);
+    }
+};
+
+struct AudioClockTest
+{
+    Doc doc{nullptr, 0};
+    InputOutputMap *iom = doc.inputOutputMap();
+    AudioProfile *profile = new AudioProfile(7, &doc);
+    AudioSnapshot snapshot;
+    const int64_t origin = AudioRenderView::nowNs() + 100000000000LL;
+
+    AudioClockTest()
+    {
+        auto capture = QSharedPointer<AudioTestCapture>::create();
+        doc.m_inputCapture = capture;
+        capture->setAnalyzer(doc.audioAnalyzer());
+        doc.addAudioProfile(profile);
+        iom->setBeatGeneratorType(InputOutputMap::Audio);
+        iom->m_audioPollTimer.stop();
+        snapshot.sourceId = "stability-test";
+        snapshot.sourceEpoch = 1;
+        snapshot.available = true;
+        snapshot.music.valid = true;
+    }
+
+    bool poll(int repeats = 1)
+    {
+        for (int i = 0; i < repeats; ++i)
+            if (!QMetaObject::invokeMethod(iom, "slotPollAudio", Qt::DirectConnection))
+                return false;
+        return true;
+    }
+
+    bool publish(double bpm, int milliseconds, int repeats = 1)
+    {
+        snapshot.music.bpm = bpm;
+        snapshot.publishTimeNs = origin + int64_t(milliseconds) * 1000000;
+        ++snapshot.frameSequence;
+        profile->channel()->injectSnapshot(snapshot);
+        return poll(repeats);
+    }
+
+    AudioClockChaser *chaser()
+    {
+        auto *chaser = new AudioClockChaser(&doc);
+        chaser->setTempoType(Function::Beats);
+        chaser->setDurationMode(Chaser::PerStep);
+        chaser->setFadeInMode(Chaser::PerStep);
+        chaser->setFadeOutMode(Chaser::PerStep);
+        for (int i = 0; i < 2; ++i)
+        {
+            auto *scene = new Scene(&doc);
+            doc.addFunction(scene);
+            ChaserStep step(scene->id());
+            step.fadeIn = 0;
+            step.fadeOut = 0;
+            step.duration = 1000;
+            step.hold = 1000;
+            chaser->addStep(step);
+        }
+        doc.addFunction(chaser);
+        chaser->start(doc.masterTimer(), FunctionParent::master());
+        return chaser;
+    }
+};
+
+double jitterBpm(int observation, int trace, int milliseconds)
+{
+    static const double traces[][8] = {
+        {119, 120, 121, 120, 121, 119, 120, 120},
+        {119.49, 119.51, 120.49, 120.51, 120.49, 119.51, 120.51, 119.49},
+        {120, 120, 119, 120, 120, 120, 121, 120}
+    };
+    if (trace < 3)
+        return traces[trace][observation % 8];
+    const int time = (milliseconds - 100) % 3000;
+    const int direction = trace == 4 || trace == 6 ? -1 : 1;
+    if (time < 900 || (trace >= 5 && time >= 1000 && time < 1900))
+        return 120 + direction * (1 + (time / 100) % 2);
+    if (trace >= 5 && time == 900)
+        return 120 - direction;
+    return 120;
+}
+}
 
 #define TESTPLUGINDIR "../iopluginstub"
 #define ENGINEDIR "../../src"
@@ -2787,7 +2885,14 @@ void InputOutputMap_Test::canonicalPcmClock()
         previousCount = snapshot.events.beat;
         seeded = true;
         QVERIFY(QMetaObject::invokeMethod(iom, "slotPollAudio", Qt::DirectConnection));
-        QCOMPARE(iom->bpmNumber(), snapshot.music.valid ? qRound(snapshot.music.bpm) : 0);
+        if (snapshot.music.valid)
+        {
+            QVERIFY(iom->bpmNumber() > 0);
+            QVERIFY(std::abs(iom->bpmNumber() - qRound(snapshot.music.bpm)) <= 2);
+            QCOMPARE(doc.masterTimer()->bpmNumber(), iom->bpmNumber());
+        }
+        else
+            QCOMPARE(iom->bpmNumber(), 0);
         while (iom->m_pendingAudioBeats)
             doc.masterTimer()->timerTick();
         QCOMPARE(uint64_t(beats.count()), expectedBeats);
@@ -2796,6 +2901,619 @@ void InputOutputMap_Test::canonicalPcmClock()
     QVERIFY(expectedBeats > 10);
     qInfo() << "Canonical native 110-eighth integration: valid polls" << validPolls
             << "pulses" << expectedBeats << "final BPM" << iom->bpmNumber();
+}
+
+void InputOutputMap_Test::C1_audioBpmJitter_data()
+{
+    QTest::addColumn<int>("cadence");
+    QTest::addColumn<int>("repeats");
+    QTest::addColumn<int>("trace");
+    for (int cadence : {16, 100})
+        for (int repeats : {1, 3})
+            for (int trace = 0; trace < 7; ++trace)
+                QTest::newRow(qPrintable(QString("%1ms-%2polls-trace%3")
+                    .arg(cadence).arg(repeats).arg(trace))) << cadence << repeats << trace;
+}
+
+void InputOutputMap_Test::C1_audioBpmJitter()
+{
+    QFETCH(int, cadence);
+    QFETCH(int, repeats);
+    QFETCH(int, trace);
+    AudioClockTest clock;
+    QVERIFY(clock.publish(120, 0));
+    QSignalSpy accepted(clock.iom, &InputOutputMap::bpmNumberChanged);
+    QSignalSpy master(clock.doc.masterTimer(), &MasterTimer::bpmNumberChanged);
+    int nextObservation = 100, observation = 0;
+    for (int time = cadence; time < 30000 + cadence; time += cadence)
+    {
+        if (time >= nextObservation)
+        {
+            QVERIFY(clock.publish(jitterBpm(observation, trace, nextObservation),
+                nextObservation, repeats));
+            nextObservation += trace < 3 && observation++ % 2 ? 200 : 100;
+        }
+        else
+            QVERIFY(clock.poll(repeats));
+        QCOMPARE(clock.iom->bpmNumber(), 120);
+        QCOMPARE(clock.doc.masterTimer()->bpmNumber(), 120);
+        QCOMPARE(clock.doc.masterTimer()->beatTimeDuration(), 500);
+    }
+    QCOMPARE(accepted.count(), 0);
+    QCOMPARE(master.count(), 0);
+
+    // One changed source frame cannot supply a second supporting observation.
+    AudioClockTest duplicate;
+    duplicate.snapshot.music.bpm = 120;
+    duplicate.snapshot.publishTimeNs = AudioRenderView::nowNs();
+    duplicate.snapshot.frameSequence = 1;
+    duplicate.profile->channel()->injectSnapshot(duplicate.snapshot);
+    QVERIFY(duplicate.poll());
+    duplicate.snapshot.music.bpm = 121;
+    duplicate.snapshot.publishTimeNs = AudioRenderView::nowNs();
+    ++duplicate.snapshot.frameSequence;
+    duplicate.profile->channel()->injectSnapshot(duplicate.snapshot);
+    QVERIFY(duplicate.poll(repeats));
+    QCOMPARE(duplicate.iom->bpmNumber(), 120);
+    for (int elapsed = 0; elapsed < 1100; elapsed += 100)
+    {
+        QTest::qWait(100);
+        QVERIFY(duplicate.poll(repeats));
+        QCOMPARE(duplicate.iom->bpmNumber(), elapsed < 200 ? 120 : 0);
+    }
+    QCOMPARE(duplicate.doc.masterTimer()->bpmNumber(), 120);
+}
+
+void InputOutputMap_Test::C2_audioBeatTiming_data()
+{
+    QTest::addColumn<int>("repeats");
+    QTest::addColumn<int>("batch");
+    QTest::addColumn<int>("trace");
+    QTest::addColumn<QString>("reset");
+    for (int trace = 0; trace < 7; ++trace)
+        for (const QString &reset : {QString("none"), QString("epoch"), QString("profile")})
+            for (int batch : {1, 4})
+                for (int repeats : {1, 3})
+                    QTest::newRow(qPrintable(QString("%1-%2beats-%3polls-trace%4")
+                        .arg(reset).arg(batch).arg(repeats).arg(trace)))
+                        << repeats << batch << trace << reset;
+}
+
+void InputOutputMap_Test::C2_audioBeatTiming()
+{
+    QFETCH(int, repeats);
+    QFETCH(int, batch);
+    QFETCH(int, trace);
+    QFETCH(QString, reset);
+    AudioClockTest control, jitter;
+    QVERIFY(control.publish(120, 0));
+    QVERIFY(jitter.publish(120, 0));
+    auto *constantChaser = control.chaser();
+    auto *jitterChaser = jitter.chaser();
+    QList<QPair<int, int>> constantSteps, jitterSteps;
+    int tick = 0;
+    connect(constantChaser, &Chaser::currentStepChanged, this,
+        [&](int step) { constantSteps.append({tick, step}); });
+    connect(jitterChaser, &Chaser::currentStepChanged, this,
+        [&](int step) { jitterSteps.append({tick, step}); });
+    QSignalSpy beats(jitter.iom, &InputOutputMap::beat);
+    int queued = 0, delivered = 0, observation = 0, nextObservation = 100;
+    bool consumed = false;
+    const int ticks = 16000 / MasterTimer::tick() + batch + 2;
+    for (tick = 0; tick < ticks; ++tick)
+    {
+        const int time = tick * MasterTimer::tick();
+        if (time >= nextObservation)
+        {
+            bool replaced = false;
+            if (time >= 7700 && observation < 10000 && reset != "none")
+            {
+                replaced = true;
+                for (auto *clock : {&control, &jitter})
+                {
+                    if (reset == "epoch")
+                        ++clock->snapshot.sourceEpoch;
+                    else
+                    {
+                        clock->profile = new AudioProfile(29, &clock->doc);
+                        QVERIFY(clock->doc.addAudioProfile(clock->profile));
+                        clock->doc.setActiveAudioProfileId(29);
+                    }
+                    clock->snapshot.events.beat = 100;
+                }
+                queued = 0;
+                observation = 10000;
+            }
+            else if (time > 0 && time / (500 * batch) >
+                     (time - 100) / (500 * batch))
+            {
+                control.snapshot.events.beat += batch;
+                jitter.snapshot.events.beat += batch;
+                queued += batch;
+            }
+            QVERIFY(control.publish(120, nextObservation, repeats));
+            QVERIFY(jitter.publish(replaced ? 120 : jitterBpm(observation, trace, nextObservation),
+                nextObservation, repeats));
+            ++observation;
+            nextObservation += 100;
+        }
+        QVERIFY(jitter.poll(repeats));
+        control.doc.masterTimer()->timerTick();
+        jitter.doc.masterTimer()->timerTick();
+        const bool expected = queued > 0;
+        if (expected)
+        {
+            --queued;
+            ++delivered;
+        }
+        QCOMPARE(jitterChaser->consumedBeats.last(), consumed);
+        QCOMPARE(jitterChaser->consumedBeats.last(), constantChaser->consumedBeats.last());
+        QCOMPARE(beats.count(), delivered);
+        QCOMPARE(jitterSteps, constantSteps);
+        consumed = expected;
+    }
+    QVERIFY(constantSteps.size() >= 30);
+    QCOMPARE(delivered, 32);
+    QCOMPARE(jitterChaser->consumedBeats.size(), ticks);
+}
+
+void InputOutputMap_Test::C3_audioTempoChanges_data()
+{
+    QTest::addColumn<int>("base");
+    QTest::addColumn<int>("offset");
+    QTest::addColumn<int>("cadence");
+    QTest::addColumn<int>("repeats");
+    for (int base : {90, 120, 180})
+        for (int offset : {-18, -8, -3, -2, -1, 1, 2, 3, 8})
+            for (int cadence : {16, 100})
+                for (int repeats : {1, 3})
+                    QTest::newRow(qPrintable(QString("%1-%2-%3ms-%4polls")
+                        .arg(base).arg(offset).arg(cadence).arg(repeats)))
+                        << base << offset << cadence << repeats;
+    QTest::newRow("128-to-110") << 128 << -18 << 16 << 3;
+    QTest::newRow("staircase") << 120 << 0 << 16 << 3;
+}
+
+void InputOutputMap_Test::C3_audioTempoChanges()
+{
+    QFETCH(int, base);
+    QFETCH(int, offset);
+    QFETCH(int, cadence);
+    QFETCH(int, repeats);
+    AudioClockTest clock, control;
+    QVERIFY(clock.publish(base, 0));
+    QVERIFY(control.publish(base, 0));
+    auto *actualChaser = clock.chaser();
+    auto *controlChaser = control.chaser();
+    QList<QPair<int, int>> actualSteps, controlSteps;
+    int tick = 0;
+    connect(actualChaser, &Chaser::currentStepChanged, this,
+        [&](int step) { actualSteps.append({tick, step}); });
+    connect(controlChaser, &Chaser::currentStepChanged, this,
+        [&](int step) { controlSteps.append({tick, step}); });
+    int time = 0, tickRemainder = 0;
+    const QList<int> targets = offset ? QList<int>{base + offset, base}
+                                     : QList<int>{121, 122, 123};
+    for (int target : targets)
+    {
+        int adoptedAt = -1, nextObservation = time + 100;
+        const int firstObservation = nextObservation;
+        for (int elapsed = 0; elapsed <= (offset ? 1400 : 1100); elapsed += cadence)
+        {
+            time += cadence;
+            if (time >= nextObservation)
+            {
+                QVERIFY(clock.publish(target, nextObservation, repeats));
+                nextObservation += 100;
+            }
+            else
+                QVERIFY(clock.poll(repeats));
+            const bool observed = nextObservation > firstObservation;
+            const int expected = observed &&
+                (std::abs(target - base) > 2 ||
+                 nextObservation - 100 >= firstObservation + 1000) ? target : base;
+            QCOMPARE(clock.iom->bpmNumber(), expected);
+            if (clock.iom->bpmNumber() == target && adoptedAt < 0)
+                adoptedAt = nextObservation - 100;
+            if (adoptedAt >= 0)
+                QCOMPARE(clock.iom->bpmNumber(), target);
+            if (nextObservation - 100 >= firstObservation + 1000)
+                QCOMPARE(clock.iom->bpmNumber(), target);
+            if (std::abs(target - base) > 2 && nextObservation > firstObservation)
+                QCOMPARE(clock.iom->bpmNumber(), target);
+            QCOMPARE(clock.doc.masterTimer()->bpmNumber(), clock.iom->bpmNumber());
+            QCOMPARE(clock.doc.masterTimer()->beatTimeDuration(),
+                60000 / clock.iom->bpmNumber());
+            control.iom->setBpmNumber(expected);
+            // Both real runners consume the accepted transition at the same tick.
+            tickRemainder += cadence;
+            while (tickRemainder >= int(MasterTimer::tick()))
+            {
+                clock.doc.masterTimer()->timerTick();
+                control.doc.masterTimer()->timerTick();
+                QCOMPARE(actualSteps, controlSteps);
+                tickRemainder -= MasterTimer::tick();
+                ++tick;
+            }
+        }
+        QVERIFY(adoptedAt >= firstObservation);
+        QVERIFY(adoptedAt - firstObservation <= 1000);
+        if (std::abs(target - base) > 2)
+            QCOMPARE(adoptedAt, firstObservation);
+        base = target;
+    }
+    QVERIFY(actualSteps.size() >= 3);
+}
+
+void InputOutputMap_Test::C4_audioShiftedNoise_data()
+{
+    QTest::addColumn<int>("base");
+    QTest::addColumn<int>("direction");
+    QTest::addColumn<int>("phase");
+    QTest::addColumn<bool>("fractional");
+    QTest::addColumn<int>("cadence");
+    QTest::addColumn<int>("repeats");
+    QTest::addColumn<QString>("interruption");
+    for (int base : {90, 120, 180})
+        for (int direction : {-1, 1})
+            for (int phase : {0, 1})
+                for (bool fractional : {false, true})
+                    for (int cadence : {16, 100})
+                        for (int repeats : {1, 3})
+                            for (const QString &interruption :
+                                 {QString("none"), QString("baseline"), QString("opposite")})
+                                QTest::newRow(qPrintable(QString("%1-%2-phase%3-%4-%5ms-%6polls-%7")
+                                    .arg(base).arg(direction).arg(phase).arg(fractional)
+                                    .arg(cadence).arg(repeats).arg(interruption)))
+                                    << base << direction << phase << fractional
+                                    << cadence << repeats << interruption;
+    QTest::newRow("duplicate-stale") << 120 << 1 << 0 << false << 100 << 3
+                                    << QString("duplicate");
+}
+
+void InputOutputMap_Test::C4_audioShiftedNoise()
+{
+    QFETCH(int, base);
+    QFETCH(int, direction);
+    QFETCH(int, phase);
+    QFETCH(bool, fractional);
+    QFETCH(int, cadence);
+    QFETCH(int, repeats);
+    QFETCH(QString, interruption);
+    AudioClockTest clock, control;
+    if (interruption == "duplicate")
+    {
+        clock.snapshot.music.bpm = base;
+        clock.snapshot.publishTimeNs = AudioRenderView::nowNs();
+        clock.snapshot.frameSequence = 1;
+        clock.profile->channel()->injectSnapshot(clock.snapshot);
+        QVERIFY(clock.poll(repeats));
+        clock.snapshot.music.bpm = base + direction;
+        clock.snapshot.publishTimeNs = AudioRenderView::nowNs();
+        ++clock.snapshot.frameSequence;
+        clock.profile->channel()->injectSnapshot(clock.snapshot);
+        QVERIFY(clock.poll(repeats));
+        QCOMPARE(clock.iom->bpmNumber(), base);
+        QTest::qWait(1100);
+        QVERIFY(clock.poll(repeats));
+        QCOMPARE(clock.iom->bpmNumber(), 0);
+        QCOMPARE(clock.doc.masterTimer()->bpmNumber(), base);
+        QCOMPARE(clock.iom->m_pendingAudioBeats, uint64_t(0));
+        return;
+    }
+    QVERIFY(clock.publish(base, 0));
+    QVERIFY(control.publish(base, 0));
+    auto *actualChaser = clock.chaser();
+    auto *controlChaser = control.chaser();
+    QList<QPair<int, int>> actualSteps, controlSteps;
+    int tick = 0;
+    connect(actualChaser, &Chaser::currentStepChanged, this,
+        [&](int step) { actualSteps.append({tick, step}); });
+    connect(controlChaser, &Chaser::currentStepChanged, this,
+        [&](int step) { controlSteps.append({tick, step}); });
+    QSignalSpy accepted(clock.iom, &InputOutputMap::bpmNumberChanged);
+    QSignalSpy master(clock.doc.masterTimer(), &MasterTimer::bpmNumberChanged);
+    QSignalSpy beats(clock.iom, &InputOutputMap::beat);
+    const int firstSupport = interruption == "none" ? 100 : 1100;
+    const int deadline = firstSupport + 1000;
+    int nextObservation = 100, observedAt = 0, tickRemainder = 0;
+    for (int time = cadence; time < deadline + 30000 + cadence; time += cadence)
+    {
+        if (time >= nextObservation)
+        {
+            observedAt = nextObservation;
+            double raw = base + direction * (1 + ((observedAt / 100 + phase) % 2));
+            if (fractional)
+                raw -= direction * 0.49;
+            if (interruption != "none" && observedAt == 1000)
+                raw = base + (interruption == "opposite" ? -direction : 0);
+            clock.snapshot.events.beat = observedAt / 500;
+            control.snapshot.events.beat = clock.snapshot.events.beat;
+            QVERIFY(clock.publish(raw, observedAt, repeats));
+            const double controlRaw = interruption != "none" && observedAt == 1000
+                ? raw : base + direction;
+            QVERIFY(control.publish(controlRaw, observedAt, repeats));
+            nextObservation += 100;
+        }
+        else
+        {
+            QVERIFY(clock.poll(repeats));
+            QVERIFY(control.poll(repeats));
+        }
+        const int expected = observedAt >= deadline ? base + direction : base;
+        QCOMPARE(clock.iom->bpmNumber(), expected);
+        QCOMPARE(control.iom->bpmNumber(), expected);
+        QCOMPARE(clock.doc.masterTimer()->bpmNumber(), expected);
+        QCOMPARE(clock.doc.masterTimer()->beatTimeDuration(), 60000 / expected);
+        QCOMPARE(accepted.count(), observedAt >= deadline ? 1 : 0);
+        QCOMPARE(master.count(), observedAt >= deadline ? 1 : 0);
+        tickRemainder += cadence;
+        while (tickRemainder >= int(MasterTimer::tick()))
+        {
+            clock.doc.masterTimer()->timerTick();
+            control.doc.masterTimer()->timerTick();
+            QCOMPARE(actualChaser->consumedBeats.last(), controlChaser->consumedBeats.last());
+            QCOMPARE(actualSteps, controlSteps);
+            tickRemainder -= MasterTimer::tick();
+            ++tick;
+        }
+    }
+    QVERIFY(actualSteps.size() > 30);
+    QCOMPARE(beats.count(), observedAt / 500);
+}
+
+void InputOutputMap_Test::C1_audioBpmLifecycle_data()
+{
+    QTest::addColumn<QString>("change");
+    QTest::addColumn<bool>("alternating");
+    for (const QString &change : {QString("invalid"), QString("unavailable"), QString("stale"),
+         QString("zero"), QString("negative"), QString("nan"), QString("infinity"),
+         QString("overflow"), QString("profile"), QString("source"), QString("epoch"),
+         QString("mode")})
+        for (bool alternating : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(change).arg(alternating)))
+                << change << alternating;
+}
+
+void InputOutputMap_Test::C1_audioBpmLifecycle()
+{
+    QFETCH(QString, change);
+    QFETCH(bool, alternating);
+    AudioClockTest clock;
+    QVERIFY(clock.publish(120, 0));
+    clock.snapshot.events.beat = 4;
+    QVERIFY(clock.publish(121, 100));
+    for (int time = 200; time <= 900; time += 100)
+        QVERIFY(clock.publish(alternating && time % 200 == 0 ? 122 : 121, time));
+    QCOMPARE(clock.iom->bpmNumber(), 120);
+    QCOMPARE(clock.iom->m_pendingAudioBeats, uint64_t(4));
+    const bool replacement = change == "profile" || change == "source" ||
+        change == "epoch" || change == "mode";
+    if (change == "profile")
+    {
+        clock.profile = new AudioProfile(29, &clock.doc);
+        QVERIFY(clock.doc.addAudioProfile(clock.profile));
+        clock.doc.setActiveAudioProfileId(29);
+    }
+    else if (change == "source")
+        clock.snapshot.sourceId = "replacement";
+    else if (change == "epoch")
+        ++clock.snapshot.sourceEpoch;
+    else if (change == "mode")
+    {
+        clock.iom->setBeatGeneratorType(InputOutputMap::Plugin);
+        clock.iom->setBeatGeneratorType(InputOutputMap::Audio);
+        clock.iom->m_audioPollTimer.stop();
+    }
+    else if (change == "invalid")
+        clock.snapshot.music.valid = false;
+    else if (change == "unavailable")
+        clock.snapshot.available = false;
+    double bpm = 121;
+    if (change == "zero") bpm = 0;
+    if (change == "negative") bpm = -1;
+    if (change == "nan") bpm = std::numeric_limits<double>::quiet_NaN();
+    if (change == "infinity") bpm = std::numeric_limits<double>::infinity();
+    if (change == "overflow") bpm = double(std::numeric_limits<int>::max()) + 1;
+    if (change == "stale")
+    {
+        clock.snapshot.publishTimeNs = AudioRenderView::nowNs() - 251000000;
+        clock.profile->channel()->injectSnapshot(clock.snapshot);
+        QVERIFY(clock.poll());
+    }
+    else
+        QVERIFY(clock.publish(bpm, 1000));
+    QCOMPARE(clock.iom->m_pendingAudioBeats, uint64_t(0));
+    QCOMPARE(clock.iom->bpmNumber(), replacement ? 121 : 0);
+    QCOMPARE(clock.doc.masterTimer()->bpmNumber(), replacement ? 121 : 120);
+    clock.snapshot.available = true;
+    clock.snapshot.music.valid = true;
+    QVERIFY(clock.publish(121, 1100));
+    QCOMPARE(clock.iom->bpmNumber(), 121);
+    if (!replacement)
+        QCOMPARE(clock.iom->m_pendingAudioBeats, uint64_t(0));
+    while (clock.iom->m_pendingAudioBeats)
+        clock.doc.masterTimer()->timerTick();
+    QSignalSpy beats(clock.iom, &InputOutputMap::beat);
+    ++clock.snapshot.events.beat;
+    QVERIFY(clock.publish(121, 1200));
+    clock.doc.masterTimer()->timerTick();
+    QCOMPARE(beats.count(), 1);
+}
+
+void InputOutputMap_Test::C1_nativeAudioBpm_data()
+{
+    QTest::addColumn<int>("target");
+    QTest::newRow("steady-120") << 120;
+    QTest::newRow("up-121") << 121;
+    QTest::newRow("down-119") << 119;
+    QTest::newRow("up-128") << 128;
+    QTest::newRow("down-110") << 110;
+}
+
+void InputOutputMap_Test::C1_nativeAudioBpm()
+{
+    QFETCH(int, target);
+    AudioClockTest clock;
+    QSignalSpy beats(clock.iom, &InputOutputMap::beat);
+    std::array<float, 500> samples{};
+    AudioFrame frame;
+    frame.samples = samples.data();
+    frame.sourceEpoch = 17;
+    uint64_t previousCount = 0, expectedBeats = 0;
+    bool seeded = false;
+    int validPolls = 0, smallAdoptions = 0, largeAdoptions = 0, completedTransients = 0;
+    int previousRaw = 0, rawSince = 0, baselineRaw = 0, firstShift = -1;
+    int supportSince = -1, supportSide = 0;
+    QList<int> supported;
+    int excursionBpm = 0, excursionSince = 0;
+    bool excursionStable = true;
+    double phase = 0;
+    for (int hop = 0; hop < 4800; ++hop)
+    {
+        double squareSum = 0, peak = 0;
+        const int tempo = hop < 2400 ? 120 : target;
+        for (int i = 0; i < 500; ++i)
+        {
+            const double time = double(hop * 500 + i) / 30000;
+            phase += double(tempo) / 60 / 30000 * 2;
+            const double age = (phase - std::floor(phase)) * 60 / tempo / 2;
+            const double amplitude = int(phase) % 2 ? 0.65 : 0.9;
+            samples[i] = float(amplitude * std::exp(-age * 65) *
+                (0.7 * std::sin(2 * 3.141592653589793 * 65 * time) +
+                 0.3 * std::sin(2 * 3.141592653589793 * 1700 * time)));
+            squareSum += samples[i] * samples[i];
+            peak = std::max(peak, std::abs(double(samples[i])));
+        }
+        frame.frameIndex = hop + 1;
+        frame.sampleTime = hop * 500;
+        frame.rms = std::sqrt(squareSum / 500);
+        frame.peak = peak;
+        frame.rmsDb = 20 * std::log10(std::max(frame.rms, 1e-12));
+        frame.peakDb = 20 * std::log10(std::max(peak, 1e-12));
+        frame.volumeNorm = std::clamp(1 + frame.rmsDb / 100, 0.0, 1.0);
+        clock.doc.audioAnalyzer()->processFrame(frame);
+        auto snapshot = clock.doc.audioSnapshot();
+        // Replay the production observation at its PCM time, independently of CPU speed.
+        snapshot.publishTimeNs = clock.origin + int64_t(hop) * 500 * 1000000000 / 30000;
+        clock.profile->channel()->injectSnapshot(snapshot);
+        const int raw = snapshot.music.valid ? qRound(snapshot.music.bpm) : 0;
+        const int before = clock.iom->bpmNumber();
+        const int durationBefore = clock.doc.masterTimer()->beatTimeDuration();
+        const bool rawChanged = raw != previousRaw;
+        if (rawChanged)
+            rawSince = hop;
+        if (hop < 2400)
+            baselineRaw = raw;
+        if (raw)
+        {
+            ++validPolls;
+            if (seeded)
+                expectedBeats += snapshot.events.beat - previousCount;
+            if (hop >= 2400 && firstShift < 0 && raw != baselineRaw &&
+                (std::abs(raw - baselineRaw) > 2 || hop - rawSince >= 60))
+                firstShift = rawSince;
+        }
+        previousCount = snapshot.events.beat;
+        seeded = snapshot.available;
+        int expected = before;
+        if (!raw || !before || std::abs(raw - before) > 2)
+        {
+            expected = raw;
+            supportSince = -1;
+        }
+        else if (raw == before)
+            supportSince = -1;
+        else
+        {
+            const int side = raw > before ? 1 : -1;
+            if (supportSince < 0 || supportSide != side)
+            {
+                supportSince = hop;
+                supportSide = side;
+                supported.clear();
+            }
+            supported.append(raw);
+            if (hop - supportSince >= 60)
+            {
+                expected = side > 0
+                    ? *std::min_element(supported.begin(), supported.end())
+                    : *std::max_element(supported.begin(), supported.end());
+                ++smallAdoptions;
+                supportSince = -1;
+            }
+        }
+        if (!excursionBpm && before && raw != before && raw &&
+            std::abs(raw - before) <= 2)
+        {
+            excursionBpm = before;
+            excursionSince = hop;
+            excursionStable = durationBefore == 60000 / before;
+        }
+        QVERIFY(clock.poll());
+        const int accepted = clock.iom->bpmNumber();
+        QCOMPARE(accepted, expected);
+        if (!raw)
+            QCOMPARE(accepted, 0);
+        else
+        {
+            if (!before || std::abs(raw - before) > 2)
+            {
+                QCOMPARE(accepted, raw);
+                if (before) ++largeAdoptions;
+            }
+            QCOMPARE(clock.doc.masterTimer()->bpmNumber(), accepted);
+            QCOMPARE(clock.doc.masterTimer()->beatTimeDuration(), 60000 / accepted);
+        }
+        if (excursionBpm)
+        {
+            excursionStable = excursionStable && accepted == excursionBpm &&
+                clock.doc.masterTimer()->beatTimeDuration() == 60000 / excursionBpm;
+            if (raw == excursionBpm && hop - excursionSince < 60)
+            {
+                QVERIFY(excursionStable);
+                ++completedTransients;
+                qInfo() << "native transient returned to" << excursionBpm
+                        << "after ms" << (hop - excursionSince) * 500 / 30;
+                excursionBpm = 0;
+            }
+            else if (!raw || hop - excursionSince >= 60 ||
+                     std::abs(raw - excursionBpm) > 2)
+                excursionBpm = 0;
+        }
+        if (rawChanged || accepted != before)
+            qInfo() << "PCM ms" << hop * 500 / 30 << "raw" << snapshot.music.bpm
+                    << "accepted" << accepted << "beat counter" << snapshot.events.beat
+                    << "phase" << snapshot.music.beatPhase
+                    << "confidence" << snapshot.music.beatConfidence;
+        previousRaw = raw;
+        const auto unchanged = clock.doc.audioSnapshot();
+        QCOMPARE(unchanged.music.bpm, snapshot.music.bpm);
+        QCOMPARE(unchanged.music.beatPhase, snapshot.music.beatPhase);
+        QCOMPARE(unchanged.music.barPhase, snapshot.music.barPhase);
+        QCOMPARE(unchanged.music.beatConfidence, snapshot.music.beatConfidence);
+        QCOMPARE(unchanged.events.onset, snapshot.events.onset);
+        QCOMPARE(unchanged.events.beat, snapshot.events.beat);
+        QCOMPARE(unchanged.events.kick, snapshot.events.kick);
+        QCOMPARE(unchanged.events.bar, snapshot.events.bar);
+        while (clock.iom->m_pendingAudioBeats)
+            clock.doc.masterTimer()->timerTick();
+        QCOMPARE(uint64_t(beats.count()), expectedBeats);
+    }
+    QVERIFY(validPolls > 100);
+    QVERIFY(expectedBeats > 30);
+    if (!completedTransients)
+        qInfo() << "native transient stimulus absent";
+    if (target != 120)
+        QVERIFY(firstShift >= 2400);
+    qInfo() << "Native PCM target" << target << "valid polls" << validPolls
+            << "pulses" << expectedBeats << "delayed sustained shifts" << smallAdoptions
+            << "large adoptions" << largeAdoptions
+            << "completed native transients" << completedTransients
+            << "onset-to-estimate ms"
+            << (firstShift < 0 ? -1 : (firstShift - 2400) * 500 / 30)
+            << "final raw" << clock.doc.audioSnapshot().music.bpm
+            << "accepted" << clock.iom->bpmNumber();
 }
 
 QTEST_GUILESS_MAIN(InputOutputMap_Test)

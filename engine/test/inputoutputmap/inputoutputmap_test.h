@@ -94,6 +94,18 @@ private slots:
     void canonicalPcmClock();
     void canonicalAudioOwnership_data();
     void canonicalAudioOwnership();
+    void C1_audioBpmJitter_data();
+    void C1_audioBpmJitter();
+    void C2_audioBeatTiming_data();
+    void C2_audioBeatTiming();
+    void C3_audioTempoChanges_data();
+    void C3_audioTempoChanges();
+    void C4_audioShiftedNoise_data();
+    void C4_audioShiftedNoise();
+    void C1_audioBpmLifecycle_data();
+    void C1_audioBpmLifecycle();
+    void C1_nativeAudioBpm_data();
+    void C1_nativeAudioBpm();
 
 private:
     Doc* m_doc;
