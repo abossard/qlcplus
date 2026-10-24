@@ -108,12 +108,20 @@ Rectangle
                 layoutError.open()
             }
         }
-        // a page deleted or restored at the shown index keeps the index, not the page
-        function onPagesCountChanged()
-        {
-            pageLoader.active = false
-            pageLoader.active = true
-        }
+        // a page deleted or restored at the shown index keeps the index, not the page.
+        // Check once the console has also moved its selection
+        function onPagesCountChanged() { Qt.callLater(vcContainer.reloadPage) }
+    }
+
+    /** The page on the canvas, to reload only when another one takes its index */
+    property var shownPage: null
+
+    function reloadPage()
+    {
+        if (virtualConsole.page(selectedPage) === shownPage)
+            return
+        pageLoader.active = false
+        pageLoader.active = true
     }
 
     Shortcut
@@ -427,6 +435,7 @@ Rectangle
             {
                 // set the page
                 pageLoader.item.page = selectedPage
+                vcContainer.shownPage = virtualConsole.page(selectedPage)
             }
         }
     }

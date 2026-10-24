@@ -1801,9 +1801,13 @@ void VCEditor_Test::pageDeleteUndo_data()
     QTest::addColumn<int>("selected");
     QTest::addColumn<int>("deleted");
     QTest::addColumn<int>("shownAfterDelete");
-    QTest::newRow("selected-middle") << 1 << 1 << 1;
-    QTest::newRow("selected-last") << 3 << 3 << 2;
-    QTest::newRow("other") << 0 << 2 << 0;
+    QTest::addColumn<bool>("pin");
+    QTest::addColumn<int>("shownAfterUndo");
+    QTest::newRow("selected-middle") << 1 << 1 << 1 << false << 1;
+    QTest::newRow("selected-last") << 3 << 3 << 2 << false << 3;
+    QTest::newRow("other") << 0 << 2 << 0 << false << 2;
+    // a page behind a PIN only shows once the PIN is given
+    QTest::newRow("pin") << 0 << 2 << 0 << true << 0;
 }
 
 void VCEditor_Test::pageDeleteUndo()
@@ -1811,7 +1815,11 @@ void VCEditor_Test::pageDeleteUndo()
     QFETCH(int, selected);
     QFETCH(int, deleted);
     QFETCH(int, shownAfterDelete);
+    QFETCH(bool, pin);
+    QFETCH(int, shownAfterUndo);
     buildConsole();
+    if (pin)
+        vc()->page(deleted)->setPIN(1234);
     QMap<int, quint32> buttons; // one per page, to see which page shows
     for (int i = 0; i < vc()->pagesCount(); i++)
         buttons.insert(vc()->page(i)->id(), vc()->createWidgetGeometry(vc()->page(i)->id(), "Button", QRectF(20, 300, 100, 80))
@@ -1834,6 +1842,8 @@ void VCEditor_Test::pageDeleteUndo()
     QVERIFY(takesInput(64));
     vc()->setSelectedPage(selected);
     settleHistory();
+    // the page area must never show an index that is gone
+    QTest::failOnWarning(QRegularExpression(".*VCPageArea.qml.*(TypeError|Cannot read).*"));
 
     vc()->deletePage(deleted);
     settleHistory();
@@ -1846,9 +1856,34 @@ void VCEditor_Test::pageDeleteUndo()
     settleHistory();
     QCOMPARE(vc()->page(deleted)->id(), deletedPage);
     // undo shows the page it brings back, which takes its input again
-    QCOMPARE(vc()->selectedPage(), deleted);
-    QTRY_VERIFY(vc()->widget(sliderID)->renderItem() && vc()->widget(sliderID)->renderItem()->isVisible());
+    QCOMPARE(vc()->selectedPage(), shownAfterUndo);
+    if (shownAfterUndo == deleted)
+        QTRY_VERIFY(vc()->widget(sliderID)->renderItem() && vc()->widget(sliderID)->renderItem()->isVisible());
     QVERIFY(takesInput(128));
+}
+
+void VCEditor_Test::pageAddKeepsShownArea_data()
+{
+    QTest::addColumn<int>("selected");
+    QTest::addColumn<int>("added");
+    QTest::newRow("after-shown") << 1 << 2;
+    QTest::newRow("at-end") << 0 << 4;
+}
+
+void VCEditor_Test::pageAddKeepsShownArea()
+{
+    QFETCH(int, selected);
+    QFETCH(int, added);
+    vc()->setSelectedPage(selected);
+    QPointer<QQuickItem> area;
+    QTRY_VERIFY((area = vc()->currentPageItem()));
+    settleHistory();
+
+    vc()->addPage(added);
+    settleHistory();
+    // the shown page did not change, so it keeps its scroll and any edit in progress
+    QVERIFY(area);
+    QCOMPARE(vc()->currentPageItem(), area.data());
 }
 
 void VCEditor_Test::destroyedDialogReleasesKeys()

@@ -101,6 +101,8 @@ private slots:
     void newWorkspaceShowsFirstPage();
     void pageDeleteUndo_data();
     void pageDeleteUndo();
+    void pageAddKeepsShownArea_data();
+    void pageAddKeepsShownArea();
     void destroyedDialogReleasesKeys();
     void editErrorsDoNotBlock_data();
     void editErrorsDoNotBlock();
