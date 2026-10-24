@@ -346,13 +346,21 @@ Popup
         }
     }
 
+    // an autosave or a save for a network client fails the same way, and says so here too
+    Connections
+    {
+        target: qlcplus
+        function onSaveErrorChanged() { if (qlcplus.saveError.length) saveFailed() }
+    }
+
     CustomPopupDialog
     {
         id: saveErrorPopup
         objectName: "saveErrorPopup"
         height: mainView.height / 4
         title: qsTr("Error")
-        message: qsTr("The project could not be saved. Nothing was replaced or closed.")
+        message: qsTr("The project could not be saved. Nothing was replaced or closed.") +
+                 (qlcplus.saveError.length ? "\n\n" + qlcplus.saveError : "")
         standardButtons: Dialog.Ok
     }
 

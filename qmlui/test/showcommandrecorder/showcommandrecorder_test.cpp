@@ -17057,11 +17057,18 @@ void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
     QVERIFY(track.setExtent(6000));
     QVERIFY(show->setCommandTrack(track));
 
-    // the save fails and leaves no file, instead of a file that loses the hold
+    // the save fails and leaves no file, instead of a file that loses the hold, and says why
+    const QMetaObject *meta = rig.app->metaObject();
+    const QMetaProperty saveError = meta->property(meta->indexOfProperty("saveError"));
+    QVERIFY(saveError.isValid() && saveError.hasNotifySignal());
+    QSignalSpy reported(rig.app.get(), saveError.notifySignal());
     QTemporaryDir dir;
     const QString path = dir.filePath(QStringLiteral("refused.qxw"));
     QVERIFY(!rig.app->saveWorkspace(path));
     QVERIFY(!QFile::exists(path));
+    QVERIFY(reported.count() >= 1);
+    QVERIFY2(saveError.read(rig.app.get()).toString().contains(QStringLiteral("event id")),
+             qPrintable(saveError.read(rig.app.get()).toString()));
 }
 
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()
