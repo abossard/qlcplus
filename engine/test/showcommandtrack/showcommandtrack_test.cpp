@@ -2298,6 +2298,8 @@ void ShowCommandTrack_Test::recordTransitions_data()
         armed, false, "");
     row("the Show Manager follows an engaged Perform", "rec p=2", "manual 2", true, "rec m=2 p=2", bound, false,
         "");
+    row("a take Perform resolved refuses another selection", "rec m=1 p=2", "manual 3", true, "rec m=1 p=2", bound,
+        false, "refuse");
 
     // Perform
     row("engaging Perform hands the take over", "rec m=1", "perform 2", true, "rec m=1 p=2", bound, true,

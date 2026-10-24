@@ -17494,6 +17494,8 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain_data()
     QTest::newRow("after a gap, A still displayed") << true << QStringLiteral("A") << true;
     QTest::newRow("after a gap, B selected meanwhile") << true << QStringLiteral("B") << true;
     QTest::newRow("on the take the Show Manager displays") << false << QStringLiteral("A") << true;
+    // a bound take keeps its Show selected, whoever resolved it
+    QTest::newRow("B asked for while the take is on A") << false << QStringLiteral("B") << true;
     QTest::newRow("REC off") << true << QStringLiteral("B") << false;
 }
 
@@ -17524,25 +17526,27 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
         QCOMPARE(rig.recorder->phaseValue(), int(rec ? ShowRecordPhase::Armed : ShowRecordPhase::Off));
         QCOMPARE(rig.recorder->editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
     }
-    // while Perform is engaged a selection resolves nothing
+    // while Perform is engaged a selection resolves nothing, and a bound take refuses another Show
+    const bool refused = rec && !gap && selected != a;
+    Show *shown = refused ? a : selected;
     rig.manager->setCurrentShowID(int(selected->id()));
-    QCOMPARE(rig.manager->currentShowID(), int(selected->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(shown->id()));
     QCOMPARE(rig.recorder->boundShowId(), rec && !gap ? a->id() : quint32(Function::invalidId()));
 
     fsm->setPerformEnabled(false);
     QVERIFY(!rig.manager->readOnly());
     // the selection resolves again, and a take on it keeps it
-    QCOMPARE(rig.recorder->targetName(), selected->name());
+    QCOMPARE(rig.recorder->targetName(), shown->name());
     QCOMPARE(rig.recorder->isAuthoring(), rec);
-    QCOMPARE(rig.recorder->boundShowId(), rec ? selected->id() : quint32(Function::invalidId()));
-    QCOMPARE(selected->commandRecording(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? shown->id() : quint32(Function::invalidId()));
+    QCOMPARE(shown->commandRecording(), rec);
     QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
-    Show *other = selected == a ? b : a;
+    Show *other = shown == a ? b : a;
     rig.manager->setCurrentShowID(int(other->id()));
-    QCOMPARE(rig.manager->currentShowID(), int(rec ? selected->id() : other->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(rec ? shown->id() : other->id()));
     if (rec)
     {
-        rig.manager->setCurrentShowID(int(selected->id()));
+        rig.manager->setCurrentShowID(int(shown->id()));
         QCOMPARE(states.count(), 0);
     }
     QCOMPARE(rig.doc->masterTimer()->runningFunctions(), 0);

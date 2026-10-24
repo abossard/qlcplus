@@ -1921,9 +1921,9 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
             {
                 next.perform = ShowRecordSelection{ event.showId, false };
             }
-            else if (!state.perform && bound != ShowCommand::InvalidId && event.showId != bound)
+            else if (bound != ShowCommand::InvalidId && event.showId != bound)
             {
-                // only an automatic source moves a bound take
+                // a bound take keeps its Show selected, whoever resolved it
                 result.effects.append({ Effect::RefuseSelection });
                 return result;
             }
