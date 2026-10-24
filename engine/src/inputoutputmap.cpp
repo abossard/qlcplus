@@ -75,6 +75,7 @@ InputOutputMap::InputOutputMap(const Doc *doc, quint32 universes)
             m_pendingAudioBeats = 0;
         }
         m_audioBeatCursor.reset();
+        m_audioTempo = {};
         updateAudioCaptureSubscription();
         slotPollAudio();
     });
@@ -1152,6 +1153,7 @@ void InputOutputMap::setBeatGeneratorType(InputOutputMap::BeatGeneratorType type
             m_inputCapture->unregisterBandsNumber(4);
         m_inputCapture.clear();
         m_audioBeatCursor.reset();
+        m_audioTempo = {};
     }
 
     m_beatGeneratorType = type;
@@ -1215,12 +1217,15 @@ void InputOutputMap::slotPollAudio()
         return;
     updateAudioCaptureSubscription();
     auto view = AudioRenderView::fromSnapshot(m_doc->audioSnapshot(), AudioRenderView::nowNs());
-    if (view.sourceId != m_audioBeatSourceId || view.sourceEpoch != m_audioBeatEpoch)
+    if (view.sourceId != m_audioBeatSourceId || view.sourceEpoch != m_audioBeatEpoch
+        || view.profileId != m_audioBeatProfileId)
     {
         QMutexLocker locker(&m_audioBeatMutex);
         m_pendingAudioBeats = 0;
         m_audioBeatSourceId = view.sourceId;
         m_audioBeatEpoch = view.sourceEpoch;
+        m_audioBeatProfileId = view.profileId;
+        m_audioTempo = {};
     }
     m_audioBeatCursor.advance(view);
     if (!view.tempoValid || view.bpm > std::numeric_limits<int>::max())
@@ -1229,10 +1234,43 @@ void InputOutputMap::slotPollAudio()
             QMutexLocker locker(&m_audioBeatMutex);
             m_pendingAudioBeats = 0;
         }
+        m_audioTempo = {};
         setBpmNumber(0);
         return;
     }
-    setBpmNumber(qRound(view.bpm));
+    const int bpm = qRound(view.bpm);
+    if (!m_audioTempo.accepted || qAbs(bpm - m_audioTempo.accepted) > 2)
+    {
+        m_audioTempo.accepted = bpm;
+        m_audioTempo.candidate = 0;
+    }
+    else if (view.frameSequence != m_audioTempo.frameSequence
+             && view.publishTimeNs > m_audioTempo.observationTimeNs)
+    {
+        if (bpm == m_audioTempo.accepted)
+            m_audioTempo.candidate = 0;
+        else
+        {
+            if (!m_audioTempo.candidate ||
+                (bpm > m_audioTempo.accepted) !=
+                (m_audioTempo.candidate > m_audioTempo.accepted))
+            {
+                m_audioTempo.candidate = bpm;
+                m_audioTempo.candidateSinceNs = view.publishTimeNs;
+            }
+            else if (qAbs(bpm - m_audioTempo.accepted) <
+                     qAbs(m_audioTempo.candidate - m_audioTempo.accepted))
+                m_audioTempo.candidate = bpm;
+            if (view.publishTimeNs - m_audioTempo.candidateSinceNs >= 1000000000)
+            {
+                m_audioTempo.accepted = m_audioTempo.candidate;
+                m_audioTempo.candidate = 0;
+            }
+        }
+    }
+    m_audioTempo.frameSequence = view.frameSequence;
+    m_audioTempo.observationTimeNs = view.publishTimeNs;
+    setBpmNumber(m_audioTempo.accepted);
     QMutexLocker locker(&m_audioBeatMutex);
     m_pendingAudioBeats += view.deltas[1];
 }

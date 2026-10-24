@@ -125,6 +125,17 @@ freezing spectral filter state. Loss of callbacks marks the source unavailable
 within 250 ms.
 
 The active profile's canonical tempo supplies global Audio BPM and pulses.
+Global Audio BPM ignores adjacent jitter. A sustained change of 1–2 BPM is
+accepted within one second of fresh supporting estimates on the same side
+of the accepted BPM, even when those estimates alternate. The observed rounded
+value nearest the accepted BPM represents that range. Returning to the accepted
+BPM or crossing to its opposite side restarts confirmation. First acquisition
+and changes larger than 2 BPM are immediate. This budget starts with source
+evidence, not PCM onset; native tempo acquisition can take longer. Repeated
+polls of one frame do not confirm a change. Diagnostics keep the raw BPM, and
+beat counters continue to supply pulses independently of tempo acceptance.
+Invalid or stale tempo clears acceptance history; profile/source replacement
+and Audio mode re-entry start with fresh acquisition.
 Restarting or replacing the audio source also clears queued catch-up pulses.
 Internal and Plugin beat sources retain their ownership. The historical
 BeatTracker remains available to its regression tests but no longer processes

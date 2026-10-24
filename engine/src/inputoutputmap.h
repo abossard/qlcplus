@@ -714,7 +714,14 @@ private:
     QTimer m_audioPollTimer;
     AudioEventCursor m_audioBeatCursor;
     QString m_audioBeatSourceId;
+    uint32_t m_audioBeatProfileId = UINT_MAX;
     uint64_t m_audioBeatEpoch = 0;
+    struct AudioTempo
+    {
+        int accepted = 0, candidate = 0;
+        int64_t candidateSinceNs = 0, observationTimeNs = 0;
+        uint64_t frameSequence = 0;
+    } m_audioTempo;
     QMutex m_audioBeatMutex;
     uint64_t m_pendingAudioBeats = 0;
 
