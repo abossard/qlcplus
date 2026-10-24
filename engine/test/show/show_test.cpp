@@ -651,6 +651,32 @@ void Show_Test::commandTrackSaveEndsHoldInProgress()
     QCOMPARE(show.commandTrack().commands(), track.commands());
 }
 
+void Show_Test::commandTrackSaveRefusalReachesTheDocument_data()
+{
+    QTest::addColumn<bool>("document");
+
+    QTest::newRow("the Show") << false;
+    QTest::newRow("the document") << true;
+}
+
+void Show_Test::commandTrackSaveRefusalReachesTheDocument()
+{
+    QFETCH(bool, document);
+
+    // a hold in progress whose release has no event id left: the track cannot be written
+    ShowCommandTrack track = holdTrack(QStringLiteral("1 on 1000"));
+    QVERIFY(track.insert(ShowCommand::setButtonState(ShowCommand::MaxTime, 500, QUuid::createUuid(), true)));
+    QVERIFY(track.setExtent(6000));
+    Show *show = new Show(m_doc);
+    QVERIFY(m_doc->addFunction(show));
+    QVERIFY(show->setCommandTrack(track));
+
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(document ? m_doc->saveXML(&writer) == false : show->saveXML(&writer) == false);
+    m_doc->deleteFunction(show->id());
+}
+
 void Show_Test::commandTrackMissingTargetBlocksOnlyItself_data()
 {
     QTest::addColumn<QString>("edit");

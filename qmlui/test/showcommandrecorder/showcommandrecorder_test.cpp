@@ -17029,6 +17029,30 @@ bool clickDialogButton(QQuickView *window, QObject *dialog, int button)
 }
 } // namespace
 
+void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
+{
+    AppRig rig;
+    QVERIFY(rig.recorder && rig.manager);
+    Scene *target = new Scene(rig.doc);
+    QVERIFY(rig.doc->addFunction(target));
+    Show *show = rig.addShow(0);
+    // a hold in progress whose release has no event id left: the track cannot be written
+    ShowCommand press = ShowCommand::setButtonState(1, 1000, QUuid::createUuid(), true);
+    press.role = ShowControlRole::FlashButton;
+    press.pairId = 1;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(press));
+    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 500, target->id())));
+    QVERIFY(track.setExtent(6000));
+    QVERIFY(show->setCommandTrack(track));
+
+    // the save fails and leaves no file, instead of a file that loses the hold
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("refused.qxw"));
+    QVERIFY(!rig.app->saveWorkspace(path));
+    QVERIFY(!QFile::exists(path));
+}
+
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()
 {
     QTest::addColumn<QString>("route");
