@@ -380,9 +380,26 @@ public:
     quint32 nextEventId() const;
     /** The order the next inserted command gets */
     quint32 nextOrder() const;
-    /** Never issue an id or order below these again, e.g. ones an undo
-     *  history still names */
-    void reserve(quint32 nextEventId, quint32 nextOrder);
+    /** Free hold pair id for the next press, InvalidId when exhausted. Above
+     *  every pair id this track value has held, so a removed pair's id is
+     *  never reissued. */
+    quint32 nextPairId() const;
+    /** Never issue an id, order or pair id below these again, e.g. ones an
+     *  undo history still names */
+    void reserve(quint32 nextEventId, quint32 nextOrder, quint32 nextPairId = 0);
+
+    /** The one hold pair invariant. Per control and role, the SetButtonState
+     *  edges sharing a pair id are one press and at most one release after it,
+     *  and pairs never overlap: a release comes before the next pair's press.
+     *  At most one pair is open (pressed, not released yet), with its press at
+     *  an earlier time than the next pair's, so it can still close before it.
+     *  The ids of the pairs that break it, each once, earliest kept. */
+    QVector<quint32> malformedHoldPairs() const;
+
+    /** Release every open hold at time, clamped into its own span: never
+     *  before its press, before the next pair's press. Fails, unchanged,
+     *  when no event id is left. */
+    bool closeOpenHolds(quint32 time, QString *error = nullptr);
 
     /** A new command, after every command sharing its time. cmd.order is
      *  ignored. Fails on an invalid command or a duplicate id. */
@@ -415,7 +432,9 @@ public:
     /** Retargets every command pointing at `from`. Returns the number changed. */
     int remapFunctionId(quint32 from, quint32 to);
 
-    /** Transactional: on failure the track keeps its previous contents */
+    /** Transactional: on failure the track keeps its previous contents. A
+     *  hold pair that breaks the invariant, or is still open, is dropped
+     *  with a warning instead: the rest of the track stays usable. */
     bool loadXML(QXmlStreamReader &root, QString *error = nullptr);
     bool saveXML(QXmlStreamWriter *doc) const;
 
@@ -424,6 +443,7 @@ private:
     quint32 m_extent = 0;
     quint32 m_nextEventId = 0; //!< high water mark of inserted ids
     quint32 m_nextOrder = 0;   //!< high water mark of issued orders
+    quint32 m_nextPairId = 1;  //!< high water mark of held pair ids
 
     /** Insert at its (time, order) place, raising the high water marks */
     bool place(const ShowCommand &cmd, QString *error);
@@ -550,7 +570,11 @@ namespace ShowCommandFsm
      *  consumed, so the freshly authored command cannot echo back through
      *  advance() during this traversal while every other due command still
      *  executes. The host has already executed the input live, so this returns
-     *  no effects. */
+     *  no effects. A hold press authors nothing where the track would break the
+     *  hold pair invariant, e.g. inside a recorded hold of that control. A hold
+     *  release closes that control's open pair at the position, or just before
+     *  the next pair's press when that comes first, and authors nothing while
+     *  the open press is still ahead of the position. */
     ShowCommandTransition userInput(const ShowCommandTrack &track,
                                     const ShowCommandState &state, const ShowCommandInput &input);
 

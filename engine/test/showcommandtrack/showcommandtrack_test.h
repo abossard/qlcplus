@@ -104,6 +104,14 @@ private slots:
     void liveOccurrence();
     void controlStateInputAuthorsVcRecord();
 
+    // hold pairs: one invariant for recording, closing, publishing and loading
+    void holdRecordingKeepsPairsValid_data();
+    void holdRecordingKeepsPairsValid();
+    void malformedHoldPairs_data();
+    void malformedHoldPairs();
+    void pairIdsAreNeverReissued_data();
+    void pairIdsAreNeverReissued();
+
     // VC state calculations
     void buttonOpReachesDesiredState_data();
     void buttonOpReachesDesiredState();

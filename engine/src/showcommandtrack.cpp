@@ -20,6 +20,7 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QLocale>
+#include <QDebug>
 #include <QHash>
 #include <algorithm>
 #include <cmath>
@@ -469,56 +470,97 @@ namespace
                role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
     }
 
-    quint32 nextPairId(const ShowCommandTrack &track)
+    /** One hold pair: the indices of its press and release, -1 when absent */
+    struct HoldPair
     {
-        quint32 top = 0;
-        for (const ShowCommand &cmd : track.commands())
+        quint32 id = ShowCommand::InvalidId;
+        int press = -1;
+        int release = -1;
+        bool broken = false;
+    };
+
+    /** Every hold pair in the order its first edge appears. A pair is broken
+     *  unless it is one press, then at most one release, of one control and role. */
+    QVector<HoldPair> holdPairs(const QVector<ShowCommand> &commands)
+    {
+        QVector<HoldPair> pairs;
+        QHash<quint32, int> slot;
+        for (int i = 0; i < commands.count(); ++i)
         {
-            if (cmd.pairId != ShowCommand::InvalidId)
-                top = qMax(top, cmd.pairId);
+            const ShowCommand &cmd = commands.at(i);
+            if (cmd.action != ShowCommandAction::SetButtonState || cmd.pairId == ShowCommand::InvalidId)
+                continue;
+            if (!slot.contains(cmd.pairId))
+            {
+                slot.insert(cmd.pairId, pairs.count());
+                pairs.append(HoldPair{cmd.pairId});
+            }
+            HoldPair &pair = pairs[slot.value(cmd.pairId)];
+            const int first = pair.press >= 0 ? pair.press : pair.release;
+            if (first >= 0 && (commands.at(first).controlId != cmd.controlId || commands.at(first).role != cmd.role))
+                pair.broken = true;
+            if (cmd.on ? pair.press >= 0 || pair.release >= 0 : pair.press < 0 || pair.release >= 0)
+                pair.broken = true;
+            (cmd.on ? pair.press : pair.release) = i;
         }
-        if (top == std::numeric_limits<quint32>::max())
-            return ShowCommand::InvalidId;
-        return top + 1;
+        return pairs;
     }
 
-    quint32 activePairId(const ShowCommandTrack &track, const QUuid &controlId, ShowControlRole role)
+    /** The ids of the pairs breaking the invariant, the earliest pairs kept */
+    QVector<quint32> malformedPairs(const QVector<ShowCommand> &commands, const QVector<HoldPair> &pairs)
     {
-        quint32 open = ShowCommand::InvalidId;
-        for (const ShowCommand &cmd : track.commands())
+        /** The last pair kept on one control and role */
+        struct Lane
         {
-            if (cmd.action != ShowCommandAction::SetButtonState || cmd.role != role || cmd.controlId != controlId ||
-                cmd.pairId == ShowCommand::InvalidId)
+            const HoldPair *last = nullptr;
+            bool open = false;
+        };
+        QHash<QPair<QUuid, int>, Lane> lanes;
+        QVector<quint32> malformed;
+        for (const HoldPair &pair : pairs)
+        {
+            if (pair.broken)
             {
+                malformed.append(pair.id);
                 continue;
             }
-            if (cmd.on)
-                open = cmd.pairId;
-            else if (open == cmd.pairId)
-                open = ShowCommand::InvalidId;
+            const ShowCommand &press = commands.at(pair.press);
+            Lane &lane = lanes[qMakePair(press.controlId, int(press.role))];
+            const HoldPair *last = lane.last;
+            const bool fits = last == nullptr ||
+                              (last->release >= 0 ? last->release < pair.press
+                                                  : commands.at(last->press).time < press.time);
+            if (!fits || (pair.release < 0 && lane.open))
+            {
+                malformed.append(pair.id);
+                continue;
+            }
+            lane.last = &pair;
+            lane.open = lane.open || pair.release < 0;
         }
-        return open;
+        return malformed;
     }
 
-    QString validatePairedHoldStructure(const ShowCommandTrack &track)
+    /** The release closing the open pair pressed at index press at time,
+     *  clamped between its press and the next press on its control and role */
+    ShowCommand holdRelease(const QVector<ShowCommand> &commands, int press, quint32 time, quint32 id)
     {
-        QHash<quint32, QVector<const ShowCommand *>> edgesByPair;
-        for (const ShowCommand &cmd : track.commands())
+        const ShowCommand &on = commands.at(press);
+        ShowCommand off = on;
+        off.id = id;
+        off.on = false;
+        off.time = qMax(time, on.time);
+        for (int i = press + 1; i < commands.count(); ++i)
         {
-            if (cmd.action == ShowCommandAction::SetButtonState && cmd.pairId != ShowCommand::InvalidId)
-                edgesByPair[cmd.pairId].append(&cmd);
-        }
-
-        for (auto it = edgesByPair.cbegin(); it != edgesByPair.cend(); ++it)
-        {
-            const QVector<const ShowCommand *> edges = it.value();
-            if (edges.count() != 2 || edges.at(0)->controlId != edges.at(1)->controlId ||
-                edges.at(0)->role != edges.at(1)->role || edges.at(0)->on == edges.at(1)->on)
+            const ShowCommand &next = commands.at(i);
+            if (next.action == ShowCommandAction::SetButtonState && next.pairId != ShowCommand::InvalidId &&
+                next.on && next.controlId == on.controlId && next.role == on.role)
             {
-                return QStringLiteral("malformed hold pair '%1'").arg(it.key());
+                off.time = qMin(off.time, next.time - 1);
+                break;
             }
         }
-        return QString();
+        return off;
     }
 }
 
@@ -1341,12 +1383,38 @@ quint32 ShowCommandTrack::nextOrder() const
     return m_nextOrder;
 }
 
-void ShowCommandTrack::reserve(quint32 nextEventId, quint32 nextOrder)
+quint32 ShowCommandTrack::nextPairId() const
+{
+    return m_nextPairId;
+}
+
+void ShowCommandTrack::reserve(quint32 nextEventId, quint32 nextOrder, quint32 nextPairId)
 {
     if (m_nextEventId != ShowCommand::InvalidId && nextEventId > m_nextEventId)
         m_nextEventId = nextEventId;
     if (m_nextOrder != ShowCommand::InvalidId && nextOrder > m_nextOrder)
         m_nextOrder = nextOrder;
+    if (m_nextPairId != ShowCommand::InvalidId && nextPairId > m_nextPairId)
+        m_nextPairId = nextPairId;
+}
+
+QVector<quint32> ShowCommandTrack::malformedHoldPairs() const
+{
+    return malformedPairs(m_commands, holdPairs(m_commands));
+}
+
+bool ShowCommandTrack::closeOpenHolds(quint32 time, QString *error)
+{
+    ShowCommandTrack closed = *this;
+    for (const HoldPair &pair : holdPairs(m_commands))
+    {
+        if (pair.broken || pair.release >= 0)
+            continue;
+        if (!closed.insert(holdRelease(m_commands, pair.press, time, closed.nextEventId()), error))
+            return false;
+    }
+    *this = closed;
+    return succeed(error);
 }
 
 bool ShowCommandTrack::place(const ShowCommand &original, QString *error)
@@ -1373,6 +1441,12 @@ bool ShowCommandTrack::place(const ShowCommand &original, QString *error)
         m_nextOrder = ShowCommand::InvalidId;
     else if (m_nextOrder != ShowCommand::InvalidId && cmd.order >= m_nextOrder)
         m_nextOrder = cmd.order + 1;
+    if (cmd.pairId == ShowCommand::InvalidId)
+        return succeed(error);
+    if (cmd.pairId >= ShowCommand::MaxTime)
+        m_nextPairId = ShowCommand::InvalidId;
+    else if (m_nextPairId != ShowCommand::InvalidId && cmd.pairId >= m_nextPairId)
+        m_nextPairId = cmd.pairId + 1;
     return succeed(error);
 }
 
@@ -1643,9 +1717,24 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
 
     if (root.hasError())
         return fail(error, root.errorString());
-    const QString pairError = validatePairedHoldStructure(parsed);
-    if (!pairError.isEmpty())
-        return fail(error, pairError);
+
+    // a saved track holds no hold in progress; a bad pair costs only its own edges
+    const QVector<quint32> malformed = parsed.malformedHoldPairs();
+    QSet<quint32> dropped(malformed.cbegin(), malformed.cend());
+    for (const HoldPair &pair : holdPairs(parsed.m_commands))
+    {
+        if (pair.release < 0)
+            dropped.insert(pair.id);
+    }
+    for (int i = parsed.m_commands.count() - 1; i >= 0; --i)
+    {
+        const ShowCommand &cmd = parsed.m_commands.at(i);
+        if (cmd.action == ShowCommandAction::SetButtonState && dropped.contains(cmd.pairId))
+        {
+            qWarning() << "Command track: dropping event" << cmd.id << "of malformed hold pair" << cmd.pairId;
+            parsed.m_commands.remove(i);
+        }
+    }
 
     *this = parsed;
     return succeed(error);
@@ -1887,20 +1976,32 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     cmd.on = input.on;
     cmd.position = input.position;
 
-    if (cmd.action == ShowCommandAction::SetButtonState && isMomentaryHoldRole(cmd.role))
+    if (cmd.id != ShowCommand::InvalidId && cmd.action == ShowCommandAction::SetButtonState &&
+        isMomentaryHoldRole(cmd.role))
     {
-        const quint32 openPair = activePairId(track, cmd.controlId, cmd.role);
         if (cmd.on)
         {
-            if (openPair != ShowCommand::InvalidId)
+            // a press where the track already holds this control starts no hold
+            cmd.pairId = track.nextPairId();
+            ShowCommandTrack pressed = track;
+            if (pressed.insert(cmd) && !pressed.malformedHoldPairs().isEmpty())
                 return result;
-            cmd.pairId = nextPairId(track);
         }
         else
         {
-            if (openPair == ShowCommand::InvalidId)
+            // the open pair closes only from a position at or after its own press
+            const QVector<ShowCommand> &commands = track.commands();
+            int open = -1;
+            for (const HoldPair &pair : holdPairs(commands))
+            {
+                if (pair.broken || pair.release >= 0)
+                    continue;
+                if (commands.at(pair.press).controlId == cmd.controlId && commands.at(pair.press).role == cmd.role)
+                    open = pair.press;
+            }
+            if (open < 0 || commands.at(open).time > cmd.time)
                 return result;
-            cmd.pairId = openPair;
+            cmd = holdRelease(commands, open, cmd.time, cmd.id);
         }
     }
 

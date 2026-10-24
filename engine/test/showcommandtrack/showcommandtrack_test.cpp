@@ -1557,25 +1557,37 @@ void ShowCommandTrack_Test::loadIsTransactional_data()
                "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"Off\" Pair=\"7\"/>"))
         << true << 2;
+    // a bad hold pair costs only its own edges, never the track
     QTest::newRow("v3 orphan hold pair")
-        << track("Version=\"3\"", QStringLiteral(
+        << track("Version=\"3\"", start + QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"))
-        << false << 5;
+        << true << 1;
     QTest::newRow("v3 pair with same edge state")
-        << track("Version=\"3\"", QStringLiteral(
+        << track("Version=\"3\"", start + QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"
                "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"))
-        << false << 5;
+        << true << 1;
     QTest::newRow("v3 pair with mixed controls")
-        << track("Version=\"3\"", QStringLiteral(
+        << track("Version=\"3\"", start + QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"
                "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
                "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"FlashButton\" State=\"Off\" Pair=\"7\"/>"))
-        << false << 5;
+        << true << 1;
+    const auto flash = [](int id, int time, bool on, int pair)
+    {
+        return QStringLiteral("<Command ID=\"%1\" Time=\"%2\" Action=\"SetButtonState\" "
+                              "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" "
+                              "State=\"%3\" Pair=\"%4\"/>").arg(id).arg(time).arg(on ? "On" : "Off").arg(pair);
+    };
+    QTest::newRow("v3 release before its press")
+        << track("Version=\"3\"", start + flash(10, 1200, false, 7) + flash(11, 1800, true, 7)) << true << 1;
+    QTest::newRow("v3 overlapping pairs keep the earlier")
+        << track("Version=\"3\"", start + flash(10, 1200, true, 7) + flash(11, 1500, true, 8) +
+                                    flash(12, 1800, false, 7) + flash(13, 2400, false, 8)) << true << 3;
     QTest::newRow("v4 slider reset")
         << track("Version=\"4\"", QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetSliderReset\" "
@@ -2585,6 +2597,200 @@ void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
     QVERIFY(rejected.authored.isEmpty());
     QVERIFY(!rejected.error.isEmpty());
     QVERIFY(rejected.state == state);
+}
+
+/** The hold pairs in track order as "press-release", an open one as "press-" */
+static QString holdSpans(const ShowCommandTrack &track)
+{
+    QStringList spans;
+    QHash<quint32, int> at;
+    for (const ShowCommand &cmd : track.commands())
+    {
+        if (cmd.action != ShowCommandAction::SetButtonState || cmd.pairId == ShowCommand::InvalidId)
+            continue;
+        if (cmd.on)
+        {
+            at.insert(cmd.pairId, spans.count());
+            spans.append(QString::number(cmd.time) + QLatin1Char('-'));
+        }
+        else
+        {
+            spans[at.value(cmd.pairId)] += QString::number(cmd.time);
+        }
+    }
+    return spans.join(QLatin1Char(' '));
+}
+
+/** A Flash edge "<pair>:<on|off>@<time>", "/B" for the other control */
+static ShowCommand holdEdge(quint32 id, const QString &text)
+{
+    ShowCommand edge = ShowCommand::setButtonState(id, text.section('@', 1).section('/', 0, 0).toUInt(),
+                                                   text.endsWith(QLatin1String("/B")) ? kControlB : kControlA,
+                                                   text.section(':', 1).startsWith(QLatin1String("on")));
+    edge.role = ShowControlRole::FlashButton;
+    edge.pairId = text.section(':', 0, 0).toUInt();
+    return edge;
+}
+
+void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
+{
+    QTest::addColumn<QString>("steps");
+    QTest::addColumn<QString>("spans");
+
+    const QString take = QStringLiteral("press 10000, release 12000, seek 5000, ");
+    QTest::newRow("record pair") << QStringLiteral("press 1000, release 2000") << QStringLiteral("1000-2000");
+    QTest::newRow("seek back, earlier pair") << take + QStringLiteral("press 6000, release 7000")
+                                             << QStringLiteral("6000-7000 10000-12000");
+    // a hold ends where the next recorded hold of its control begins
+    QTest::newRow("seek back, held into a later pair") << take + QStringLiteral("press 6000, release 11000")
+                                                       << QStringLiteral("6000-9999 10000-12000");
+    // the recording already holds the control there: nothing new, its release neither
+    QTest::newRow("seek back, press inside a recorded hold") << take + QStringLiteral("press 11000, release 13000")
+                                                             << QStringLiteral("10000-12000");
+    QTest::newRow("seek back, press at a recorded release") << take + QStringLiteral("press 12000, release 13000")
+                                                            << QStringLiteral("10000-12000 12000-13000");
+    QTest::newRow("second press while held") << QStringLiteral("press 1000, press 1500, release 2000")
+                                             << QStringLiteral("1000-2000");
+    QTest::newRow("release with nothing held") << QStringLiteral("release 1000, press 2000, release 3000")
+                                               << QStringLiteral("2000-3000");
+    QTest::newRow("hold at a frozen position") << QStringLiteral("press 4000, release 4000")
+                                               << QStringLiteral("4000-4000");
+    // a release before its open press closes nothing; REC off never closes before the press
+    QTest::newRow("loop back while held") << QStringLiteral("press 10000, seek 5000, release 6000")
+                                          << QStringLiteral("10000-");
+    QTest::newRow("loop back while held, REC off") << QStringLiteral("press 10000, seek 5000, release 6000, close 6000")
+                                                   << QStringLiteral("10000-10000");
+    QTest::newRow("REC off before a later pair") << take + QStringLiteral("press 6000, close 8000")
+                                                 << QStringLiteral("6000-8000 10000-12000");
+    QTest::newRow("REC off held into a later pair") << take + QStringLiteral("press 6000, close 11000")
+                                                    << QStringLiteral("6000-9999 10000-12000");
+}
+
+void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
+{
+    QFETCH(QString, steps);
+    QFETCH(QString, spans);
+
+    ShowCommandTrack track;
+    ShowCommandState state = ShowCommandFsm::setResolvedShow(ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    for (const QString &step : steps.split(QStringLiteral(", ")))
+    {
+        const QString verb = step.section(' ', 0, 0);
+        const quint32 time = step.section(' ', 1, 1).toUInt();
+        if (verb == QLatin1String("seek"))
+        {
+            state = ShowCommandFsm::seek(state, time);
+            continue;
+        }
+        if (verb == QLatin1String("close"))
+        {
+            QVERIFY(track.closeOpenHolds(time));
+            continue;
+        }
+        state.position = time;
+        ShowCommandInput input;
+        input.origin = ShowCommandOrigin::Pointer;
+        input.action = ShowCommandAction::SetButtonState;
+        input.controlId = kControlA;
+        input.role = ShowControlRole::FlashButton;
+        input.on = verb == QLatin1String("press");
+        const ShowCommandTransition taken = ShowCommandFsm::userInput(track, state, input);
+        QVERIFY2(taken.error.isEmpty(), qPrintable(taken.error));
+        for (const ShowCommand &cmd : taken.authored)
+            QVERIFY(track.insert(cmd));
+        state = taken.state;
+        QVERIFY2(track.malformedHoldPairs().isEmpty(), qPrintable(step));
+    }
+    QCOMPARE(holdSpans(track), spans);
+
+    // closed for saving, the track reads back as it was
+    ShowCommandTrack saved = track;
+    QVERIFY(saved.closeOpenHolds(state.position));
+    ShowCommandTrack loaded;
+    QVERIFY(fromXml(toXml(saved), &loaded));
+    QCOMPARE(loaded.commands(), saved.commands());
+    QVERIFY(loaded.malformedHoldPairs().isEmpty());
+}
+
+void ShowCommandTrack_Test::malformedHoldPairs_data()
+{
+    QTest::addColumn<QString>("edges");
+    QTest::addColumn<QString>("malformed");
+
+    QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << QString();
+    QTest::newRow("open pair") << QStringLiteral("1:on@1000") << QString();
+    QTest::newRow("open before a later pair") << QStringLiteral("1:on@6000 2:on@10000 2:off@12000") << QString();
+    QTest::newRow("touching pairs") << QStringLiteral("1:on@1000 1:off@2000 2:on@2000 2:off@3000") << QString();
+    QTest::newRow("another control overlaps freely")
+        << QStringLiteral("1:on@1000 1:off@3000 2:on@2000/B 2:off@4000/B") << QString();
+    QTest::newRow("open at the next press time") << QStringLiteral("1:on@10000 2:on@10000 2:off@12000")
+                                                 << QStringLiteral("2");
+    QTest::newRow("overlap keeps the earlier") << QStringLiteral("1:on@1000 2:on@2000 1:off@3000 2:off@4000")
+                                               << QStringLiteral("2");
+    QTest::newRow("nested") << QStringLiteral("1:on@1000 2:on@2000 2:off@3000 1:off@5000") << QStringLiteral("2");
+    QTest::newRow("release before press") << QStringLiteral("1:off@1000 1:on@2000") << QStringLiteral("1");
+    QTest::newRow("two presses") << QStringLiteral("1:on@1000 1:on@2000") << QStringLiteral("1");
+    QTest::newRow("two releases") << QStringLiteral("1:on@1000 1:off@2000 1:off@3000") << QStringLiteral("1");
+    QTest::newRow("two open pairs") << QStringLiteral("1:on@1000 2:on@2000") << QStringLiteral("2");
+    QTest::newRow("mixed controls") << QStringLiteral("1:on@1000 1:off@2000/B") << QStringLiteral("1");
+    QTest::newRow("one id, two holds") << QStringLiteral("1:on@1000 1:off@2000 1:on@3000 1:off@4000")
+                                       << QStringLiteral("1");
+}
+
+void ShowCommandTrack_Test::malformedHoldPairs()
+{
+    QFETCH(QString, edges);
+    QFETCH(QString, malformed);
+
+    ShowCommandTrack track;
+    quint32 id = 0;
+    for (const QString &edge : edges.split(QLatin1Char(' ')))
+        QVERIFY(track.insert(holdEdge(id++, edge)));
+
+    QStringList found;
+    for (quint32 pair : track.malformedHoldPairs())
+        found.append(QString::number(pair));
+    QCOMPARE(found.join(QLatin1Char(',')), malformed);
+}
+
+void ShowCommandTrack_Test::pairIdsAreNeverReissued_data()
+{
+    QTest::addColumn<QString>("history");
+    QTest::addColumn<quint32>("pairId");
+
+    QTest::newRow("fresh track") << QString() << 1u;
+    QTest::newRow("after removing the highest pair") << QStringLiteral("remove") << 3u;
+    QTest::newRow("after an undo history reserved one") << QStringLiteral("reserve") << 9u;
+}
+
+void ShowCommandTrack_Test::pairIdsAreNeverReissued()
+{
+    QFETCH(QString, history);
+    QFETCH(quint32, pairId);
+
+    ShowCommandTrack track;
+    if (!history.isEmpty())
+    {
+        QVERIFY(track.insert(holdEdge(0, QStringLiteral("1:on@1000"))));
+        QVERIFY(track.insert(holdEdge(1, QStringLiteral("1:off@2000"))));
+        QVERIFY(track.insert(holdEdge(2, QStringLiteral("2:on@3000"))));
+        QVERIFY(track.insert(holdEdge(3, QStringLiteral("2:off@4000"))));
+        QVERIFY(track.remove(2) && track.remove(3));
+    }
+    if (history == QLatin1String("reserve"))
+        track.reserve(0, 0, 9);
+
+    ShowCommandState state = ShowCommandFsm::setResolvedShow(ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    state.position = 5000;
+    ShowCommandInput press;
+    press.origin = ShowCommandOrigin::Pointer;
+    press.action = ShowCommandAction::SetButtonState;
+    press.controlId = kControlA;
+    press.role = ShowControlRole::FlashButton;
+    press.on = true;
+    const ShowCommandTransition taken = ShowCommandFsm::userInput(track, state, press);
+    QCOMPARE(taken.authored.count(), 1);
+    QCOMPARE(taken.authored.first().pairId, pairId);
 }
 
 void ShowCommandTrack_Test::buttonOpReachesDesiredState_data()
