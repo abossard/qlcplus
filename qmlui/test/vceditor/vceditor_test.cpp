@@ -1131,6 +1131,41 @@ void VCEditor_Test::arrangeNested()
     QCOMPARE(vc()->widget(ids.inner)->logicalGeometry().size(), innerBefore + QSizeF(0, 100));
 }
 
+void VCEditor_Test::arrangePanel()
+{
+    const ConsoleIds ids = buildConsole();
+    const QList<quint32> buttons = fillEmptyFrame(vc(), ids);
+    auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.empty));
+    vc()->setSelectedWidgetIDs({ids.empty});
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QObject *mode = nullptr, *fill = nullptr, *columns = nullptr;
+    QTRY_VERIFY((mode = console->findChild<QObject *>("arrangeModeCombo")));
+
+    // Grid, in two columns, sharing the frame
+    QVERIFY(mode->setProperty("currentIndex", int(VCFrame::ArrangeGrid)));
+    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeGrid);
+    QTRY_VERIFY((columns = console->findChild<QObject *>("arrangeColumnsSpin")) && columns->property("visible").toBool());
+    QVERIFY(QMetaObject::invokeMethod(columns, "decrease"));
+    QVERIFY(QMetaObject::invokeMethod(columns, "decrease"));
+    QVERIFY(QMetaObject::invokeMethod(columns, "valueModified"));
+    QCOMPARE(frame->arrangeColumns(), 2);
+    QTRY_VERIFY((fill = console->findChild<QObject *>("arrangeFillCheck")) && fill->property("visible").toBool());
+    QVERIFY(fill->setProperty("checked", true));
+    QVERIFY(frame->arrangeFill());
+    QCOMPARE(vc()->widget(buttons.last())->logicalGeometry(), QRectF(155, 130, 135, 110));
+    checkScreenshot("arranged");
+
+    // a Row of four does not fit 300 pixels with this gap: refused, the panel shows it unchanged
+    QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
+    QObject *gap = console->findChild<QObject *>("arrangeGapSpin");
+    QVERIFY(gap->setProperty("value", 30));
+    QVERIFY(QMetaObject::invokeMethod(gap, "valueModified"));
+    QVERIFY(mode->setProperty("currentIndex", int(VCFrame::ArrangeRow)));
+    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeGrid);
+    QTRY_COMPARE(mode->property("currentIndex").toInt(), int(VCFrame::ArrangeGrid));
+    QCOMPARE(rejected.size(), 1);
+}
+
 void VCEditor_Test::arrangeSettingsPersist()
 {
     const ConsoleIds ids = buildConsole();

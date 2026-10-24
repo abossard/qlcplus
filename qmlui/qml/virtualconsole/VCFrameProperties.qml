@@ -201,6 +201,127 @@ Rectangle
 
         SectionBox
         {
+            sectionLabel: qsTr("Arrange children")
+
+            sectionContents:
+              GridLayout
+              {
+                id: arrangeGrid
+                width: parent.width
+                columns: 2
+                columnSpacing: 5
+                rowSpacing: 3
+
+                /* every change places the children again, or is refused and shown unchanged */
+                function arrange(settings)
+                {
+                    var result = virtualConsole.arrangeFrame(widgetRef.id, settings)
+                    if (!result.accepted)
+                        virtualConsole.editRejected(result.error)
+                    // once the control finished its own change, it follows the frame again
+                    Qt.callLater(function() {
+                        arrangeModeCombo.currentIndex = Qt.binding(function() { return widgetRef ? widgetRef.arrangeMode : 0 })
+                        arrangeGapSpin.value = Qt.binding(function() { return widgetRef ? widgetRef.arrangeGap : 0 })
+                        arrangeColumnsSpin.value = Qt.binding(function() { return widgetRef ? widgetRef.arrangeColumns : 1 })
+                        arrangeFillCheck.checked = Qt.binding(function() { return widgetRef ? widgetRef.arrangeFill : false })
+                    })
+                }
+
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    Layout.fillWidth: true
+                    label: qsTr("Arrange")
+                }
+
+                CustomComboBox
+                {
+                    id: arrangeModeCombo
+                    objectName: "arrangeModeCombo"
+                    Layout.fillWidth: true
+                    height: gridItemsHeight
+                    model: [
+                        { mLabel: qsTr("Freely"), mValue: VCFrame.ArrangeNone },
+                        { mLabel: qsTr("In a row"), mValue: VCFrame.ArrangeRow },
+                        { mLabel: qsTr("In a column"), mValue: VCFrame.ArrangeColumn },
+                        { mLabel: qsTr("In a grid"), mValue: VCFrame.ArrangeGrid },
+                        { mLabel: qsTr("Wrapping"), mValue: VCFrame.ArrangeFlow }
+                    ]
+                    currentIndex: widgetRef ? widgetRef.arrangeMode : 0
+                    onCurrentIndexChanged:
+                        if (widgetRef && currentIndex !== widgetRef.arrangeMode)
+                            arrangeGrid.arrange({ "mode": currentIndex })
+                }
+
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    Layout.fillWidth: true
+                    label: qsTr("Spacing")
+                    visible: arrangeModeCombo.currentIndex !== VCFrame.ArrangeNone
+                }
+
+                CustomSpinBox
+                {
+                    id: arrangeGapSpin
+                    objectName: "arrangeGapSpin"
+                    Layout.fillWidth: true
+                    height: gridItemsHeight
+                    visible: arrangeModeCombo.currentIndex !== VCFrame.ArrangeNone
+                    suffix: "px"
+                    from: 0
+                    to: 200
+                    value: widgetRef ? widgetRef.arrangeGap : 0
+                    onValueModified: arrangeGrid.arrange({ "gap": value })
+                }
+
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    Layout.fillWidth: true
+                    label: qsTr("Columns")
+                    visible: arrangeModeCombo.currentIndex === VCFrame.ArrangeGrid
+                }
+
+                CustomSpinBox
+                {
+                    id: arrangeColumnsSpin
+                    objectName: "arrangeColumnsSpin"
+                    Layout.fillWidth: true
+                    height: gridItemsHeight
+                    visible: arrangeModeCombo.currentIndex === VCFrame.ArrangeGrid
+                    from: 1
+                    to: 64
+                    value: widgetRef ? widgetRef.arrangeColumns : 1
+                    onValueModified: arrangeGrid.arrange({ "columns": value })
+                }
+
+                RobotoText
+                {
+                    height: gridItemsHeight
+                    Layout.fillWidth: true
+                    label: qsTr("Stretch to fill")
+                    visible: arrangeFillCheck.visible
+                }
+
+                CustomCheckBox
+                {
+                    id: arrangeFillCheck
+                    objectName: "arrangeFillCheck"
+                    implicitWidth: UISettings.iconSizeMedium
+                    implicitHeight: implicitWidth
+                    visible: arrangeModeCombo.currentIndex !== VCFrame.ArrangeNone &&
+                             arrangeModeCombo.currentIndex !== VCFrame.ArrangeFlow
+                    checked: widgetRef ? widgetRef.arrangeFill : false
+                    onCheckedChanged:
+                        if (widgetRef && checked !== widgetRef.arrangeFill)
+                            arrangeGrid.arrange({ "fill": checked })
+                }
+              }
+        }
+
+        SectionBox
+        {
             sectionLabel: qsTr("Shortcuts")
             visible: widgetRef ? widgetRef.totalPagesNumber > 1 : false
 
