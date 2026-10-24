@@ -2022,7 +2022,10 @@ function assertRenderRateIndependence() {
             const frame = loud ? loudFrame(tick, { deltaSeconds: 1 / hz, delta: {} })
                 : engineAudio({ tempoValid: true, bpm: 120, deltaSeconds: 1 / hz, frameSequence: n });
             const map = context.render(instance, 16, 4, frame);
-            if (t > 0.6 && Math.round(t * 100) % 4 === 0)
+            // Samples on a beat (every 0.5 s at 120 BPM) are skipped: patterns may jump there by design,
+            // and float rounding then puts different render rates on different sides of the jump.
+            const onBeat = Math.abs(t * 2 - Math.round(t * 2)) < 1e-9;
+            if (t > 0.6 && Math.round(t * 100) % 4 === 0 && !onBeat)
                 means.push(meanV(map));
         }
         return means;

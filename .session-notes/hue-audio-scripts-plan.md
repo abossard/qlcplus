@@ -317,3 +317,9 @@ Group F
   gameoflife "All" restarts dead/frozen boards; LedFx Glitch colors match LedFx; hierarchy one switch time;
   hueshift wave moves; gravimeter holds the peak; fire no fast-forward after a pause.
 - 2026-10-24 H3 walkLine guard: red test, then `isFinite` check (central).
+- 2026-10-24 G-A fixed (91c148da5): A2-A11, X1/X3/X4/X5 for its scripts. Harness change: row05 fill checks the
+  bottom row. Visible: bleep Fill below the trace and clears on source change; bandsmatrix transforms per row;
+  bands invert odd shift (LedFx); beatcolors steps without tempo; basslaser palette colors and kick beams;
+  blurz halos keep hue, rate-independent density; new float bounds (aurora, blocks, beatcolors).
+- 2026-10-24 X4 skips samples exactly on a beat: blocks (and unfixed gravimeter) jumped there by design and
+  rounding put 25 and 100 Hz on different sides.
