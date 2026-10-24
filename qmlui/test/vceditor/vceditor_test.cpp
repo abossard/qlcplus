@@ -1176,6 +1176,11 @@ void VCEditor_Test::arrangedStructure_data()
     QTest::newRow("paste") << "paste" << int(GridLayout::ArrangeMode::Flow) << QStringList{"b0", "b1", "b2", "b3", "new"}
         << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50),
                          QRectF(220, 10, 60, 50), QRectF(10, 70, 100, 80)};
+    // a full row refuses newcomers, even with free space below it
+    QTest::newRow("paste-full") << "paste" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b1", "b2", "b3"}
+        << QList<QRectF>();
+    QTest::newRow("duplicate-full") << "duplicate" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b1", "b2", "b3"}
+        << QList<QRectF>();
 }
 
 void VCEditor_Test::arrangedStructure()
@@ -1200,17 +1205,41 @@ void VCEditor_Test::arrangedStructure()
         result = vc()->editDrop(named["b0"], ids.page, 0, QRectF(1200, 300, 60, 50));
     else if (edit == "create")
         result = vc()->createWidget(ids.empty, "Button", QPointF(5, 200), 0);
-    else if (edit == "paste")
+    else if (edit == "paste" || edit == "duplicate")
     {
         QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
-        vc()->setSelectedWidgetIDs({ids.loose});
-        vc()->copyToClipboard();
-        vc()->setSelectedWidgetIDs({ids.empty});
-        vc()->pasteFromClipboard();
+        if (edit == "paste")
+        {
+            vc()->setSelectedWidgetIDs({ids.loose});
+            vc()->copyToClipboard();
+            vc()->setSelectedWidgetIDs({ids.empty});
+            vc()->pasteFromClipboard();
+        }
+        else
+        {
+            vc()->setSelectedWidgetIDs({named["b0"]});
+            vc()->duplicateSelection();
+        }
         result = {{"accepted", rejected.isEmpty()}, {"error", rejected.value(0).value(0)}};
+    }
+    else if (edit == "functions")
+    {
+        auto *scene = new Scene(m_app->doc());
+        QVERIFY(m_app->doc()->addFunction(scene));
+        // dropped over b1, the arrangement still places it
+        result = vc()->createFunctions(ids.empty, {scene->id()}, QPointF(80, 10), Qt::NoModifier, 0);
     }
     else
         result = vc()->deleteAuthoringWidgets({named["b1"]});
+    if (expected.isEmpty())
+    {
+        QVERIFY(!result.value("accepted").toBool());
+        QVariantList unchanged;
+        for (const QString &name : order)
+            unchanged.append(named.value(name));
+        QCOMPARE(qobject_cast<VCFrame *>(vc()->widget(ids.empty))->orderedChildIDs(0), unchanged);
+        return;
+    }
     QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
     const QVariantList children = qobject_cast<VCFrame *>(vc()->widget(ids.empty))->orderedChildIDs(0);
     named.insert("new", children.last().toUInt());

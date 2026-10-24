@@ -2831,9 +2831,11 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
             rowHeight = 0;
         }
     }
-    error = m_editor->isArranged(target) ? m_editor->arrangedFit(target, subpage, rectangles)
-                                         : geometryError(rectangles, target, subpage, true);
-    if (!error.isEmpty() && nearPosition && m_editor->placeNear(rectangles, target, subpage, step))
+    const bool arranged = m_editor->isArranged(target);
+    error = arranged ? m_editor->arrangedFit(target, subpage, rectangles)
+                     : geometryError(rectangles, target, subpage, true);
+    // a free spot does not help an arranged frame that has no room left
+    if (!error.isEmpty() && nearPosition && !arranged && m_editor->placeNear(rectangles, target, subpage, step))
         error.clear();
     if (!error.isEmpty())
         return editResult(false, false, error);
