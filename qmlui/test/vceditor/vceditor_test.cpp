@@ -888,6 +888,48 @@ void VCEditor_Test::widgetsInRect()
     QCOMPARE(vc()->widgetsInRect(named.value(container), band), wanted);
 }
 
+void VCEditor_Test::bandSelection_data()
+{
+    QTest::addColumn<int>("modifiers");
+    QTest::addColumn<QStringList>("selected");
+    QTest::addColumn<QStringList>("expected");
+    QTest::newRow("shift") << int(Qt::ShiftModifier) << QStringList{"a"} << QStringList{"frame", "empty", "loose"};
+    QTest::newRow("ctrl-shift-adds") << int(Qt::ShiftModifier | Qt::ControlModifier) << QStringList{"a"}
+                                     << QStringList{"a", "frame", "empty", "loose"};
+    QTest::newRow("plain-drag-pans") << int(Qt::NoModifier) << QStringList{"a"} << QStringList{"a"};
+}
+
+void VCEditor_Test::bandSelection()
+{
+    QFETCH(int, modifiers);
+    QFETCH(QStringList, selected);
+    QFETCH(QStringList, expected);
+    const ConsoleIds ids = buildConsole();
+    const QMap<QString, quint32> named {{"frame", ids.frame}, {"empty", ids.empty}, {"loose", ids.loose}, {"a", ids.a}};
+    auto idsOf = [&](const QStringList &names) {
+        QVariantList list;
+        for (const QString &name : names)
+            list.append(named.value(name));
+        std::sort(list.begin(), list.end(), [](const QVariant &x, const QVariant &y) { return x.toUInt() < y.toUInt(); });
+        return list;
+    };
+    QQuickItem *pageItem = vc()->page(0)->renderItem();
+    QVERIFY(pageItem);
+    const qreal scale = vc()->page(0)->pageScale();
+    auto windowPoint = [&](const QPointF &logical) { return pageItem->mapToScene(logical * scale).toPoint(); };
+    vc()->setSelectedWidgetIDs(idsOf(selected));
+
+    // from empty canvas, up and left over the frame, the empty frame and the loose button
+    const QPoint from = windowPoint(QPointF(1100, 600)), to = windowPoint(QPointF(500, 10));
+    QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers), from);
+    for (int step = 1; step <= 10; step++)
+        QTest::mouseMove(m_app.get(), from + (to - from) * step / 10);
+    QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers), to);
+    QVariantList actual = vc()->selectedWidgetIDs();
+    std::sort(actual.begin(), actual.end(), [](const QVariant &x, const QVariant &y) { return x.toUInt() < y.toUInt(); });
+    QCOMPARE(actual, idsOf(expected));
+}
+
 void VCEditor_Test::keysIgnoredWhileTyping_data()
 {
     QTest::addColumn<int>("key");
