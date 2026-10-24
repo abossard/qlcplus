@@ -7273,8 +7273,9 @@ void ShowCommandRecorder_Test::claimedOperation_sourceSwitchRunsNoStaleWork()
         r.show->requestSeek(0);
         if (boundary == QLatin1String("switch"))
         {
+            // the runner ends this tick on the clock it began with, one tick past the jump
             r.show->setSyncSource(ShowRunner::External);
-            r.show->setExternalElapsedTime(200);
+            r.show->setExternalElapsedTime(200 + MasterTimer::tick());
         }
     }, Qt::DirectConnection);
     r.show->start(r.doc.masterTimer(), FunctionParent::master());

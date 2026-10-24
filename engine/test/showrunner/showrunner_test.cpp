@@ -555,6 +555,108 @@ void ShowRunner_Test::localSeekDoesNotOverrideExternalControl()
     QCOMPARE(output, uchar(51));
 }
 
+void ShowRunner_Test::syncSourceChangeAppliesOnNextTick_data()
+{
+    QTest::addColumn<bool>("toExternal");
+    QTest::addColumn<quint32>("firstTick");
+    QTest::addColumn<quint32>("secondTick");
+
+    QTest::newRow("to external") << true << quint32(MasterTimer::tick()) << quint32(5000);
+    QTest::newRow("to autonomous") << false << quint32(1000) << quint32(1000 + MasterTimer::tick());
+}
+
+void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
+{
+    QFETCH(bool, toExternal);
+    QFETCH(quint32, firstTick);
+    QFETCH(quint32, secondTick);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    const quint32 begin = toExternal ? 0 : 1000;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, begin, QUuid::createUuid(), true)));
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    show->setSyncSource(toExternal ? ShowRunner::Autonomous : ShowRunner::External);
+    show->start(timer, FunctionParent::master());
+    show->setExternalElapsedTime(begin);
+
+    // the GUI switches the source while the runner is inside its write
+    bool switched = false;
+    QObject::connect(show, &Show::controlBatchesReady, show, [&]() {
+        if (std::exchange(switched, true))
+            return;
+        show->setSyncSource(toExternal ? ShowRunner::External : ShowRunner::Autonomous);
+        show->setExternalElapsedTime(5000);
+    }, Qt::DirectConnection);
+    QSignalSpy position(show, &Show::timeChanged);
+
+    // that whole write keeps the source it began with, the next one takes the new one
+    timer->timerTick();
+    QVERIFY(switched);
+    QCOMPARE(position.last().first().toUInt(), firstTick);
+    timer->timerTick();
+    QCOMPARE(position.last().first().toUInt(), secondTick);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::trackIntensityAppliesOnNextTick_data()
+{
+    QTest::addColumn<bool>("paused");
+
+    QTest::newRow("playing") << false;
+    QTest::newRow("paused") << true;
+}
+
+void ShowRunner_Test::trackIntensityAppliesOnNextTick()
+{
+    QFETCH(bool, paused);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(1);
+    QVERIFY(doc.addFixture(fixture));
+    Scene *scene = new Scene(&doc);
+    scene->setValue(fixture->id(), 0, 200);
+    QVERIFY(doc.addFunction(scene));
+    Track *track = new Track(scene->id());
+    ShowFunction *clip = new ShowFunction(show->getLatestShowFunctionId());
+    clip->setFunctionID(scene->id());
+    clip->setStartTime(0);
+    clip->setDuration(60000);
+    track->addShowFunction(clip);
+    QVERIFY(show->addTrack(track));
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+    QVERIFY(scene->isRunning());
+    if (paused)
+    {
+        show->setPause(true);
+        timer->timerTick();
+    }
+
+    // the GUI only stores the value: the runner and its clips take it on the timer thread
+    QVERIFY(show->adjustAttribute(0.5, 0) == 0);
+    QCOMPARE(show->m_runner->m_intensityMap.value(track->id()), 1.0);
+    timer->timerTick();
+    QCOMPARE(show->m_runner->m_intensityMap.value(track->id()), 0.5);
+    QCOMPARE(scene->getAttributeValue(Function::Intensity), 0.5);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+}
+
 void ShowRunner_Test::internalBeatClockUsesSongBpm()
 {
     // With NO global beat source (MasterTimer defaults to None), a beat-based Show

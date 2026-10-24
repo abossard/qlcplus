@@ -139,11 +139,11 @@ private:
      * External sync
      *********************************************************************/
 public:
-    /** Set the sync source for this show's runner. */
+    /** Set the time source. Any thread: the runner takes it at its next tick. */
     void setSyncSource(int source);
 
     /** Get the current sync source. */
-    int syncSource() const { return m_syncSource; }
+    int syncSource() const { return m_syncSource.load(); }
 
     /** Store the latest externally-observed elapsed time in milliseconds. */
     void setExternalElapsedTime(quint32 ms);
@@ -176,7 +176,7 @@ public:
     }
 
 private:
-    int m_syncSource;  // stored as int to avoid header dependency on ShowRunner enum
+    std::atomic<int> m_syncSource{0};  // stored as int to avoid header dependency on ShowRunner enum
     std::atomic<quint32> m_externalElapsedTime{0};
     std::atomic_bool m_performAudioSuppressed;
     static constexpr quint64 NoSeekRequested = std::numeric_limits<quint64>::max();
@@ -537,9 +537,12 @@ signals:
     void showFinished();
 
 protected:
+    /** Timer thread only: preRun creates it, postRun deletes it */
     ShowRunner *m_runner;
     /** Timer thread: the pause state the runner last applied */
     bool m_runnerPaused = false;
+    /** A track intensity changed since the runner last took them all */
+    std::atomic_bool m_trackIntensityChanged{false};
     /** Number of currently running children */
     QSet <quint32> m_runningChildren;
 

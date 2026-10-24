@@ -137,7 +137,6 @@ struct ShowReceiptState
 Show::Show(Doc* doc) : Function(doc, Function::ShowType)
     , m_timeDivisionType(Time)
     , m_timeDivisionBPM(120)
-    , m_syncSource(0) // ShowRunner::Autonomous
     , m_performAudioSuppressed(false)
     , m_latestTrackId(0)
     , m_latestShowFunctionID(0)
@@ -372,8 +371,6 @@ void Show::setSyncSource(int source)
         }
         m_syncSource = source;
     }
-    if (m_runner != NULL)
-        m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
     if (changed)
         emit syncSourceChanged();
 }
@@ -1142,12 +1139,9 @@ void Show::preRun(MasterTimer* timer)
     }
     m_runner = new ShowRunner(doc(), this->id(), elapsed());
     m_runnerPaused = false;
-    m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(m_syncSource));
     const quint64 anchor = m_playFirstSample.load(std::memory_order_acquire);
     m_runner->setExternalElapsedTime(externalElapsedTime(), anchor);
-    int i = 0;
-    foreach (Track *track, m_tracks)
-        m_runner->adjustIntensity(getAttributeValue(i++), track);
+    m_trackIntensityChanged.store(true, std::memory_order_release);
 
     connect(m_runner, SIGNAL(timeChanged(quint32)), this, SIGNAL(timeChanged(quint32)));
     connect(m_runner, SIGNAL(showFinished()), this, SIGNAL(showFinished()));
@@ -1168,6 +1162,13 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
     if (m_runnerRetired.load(std::memory_order_acquire))
         return;
 
+    if (m_trackIntensityChanged.exchange(false, std::memory_order_acq_rel))
+    {
+        int i = 0;
+        foreach (Track *track, m_tracks)
+            m_runner->adjustIntensity(getAttributeValue(i++), track);
+    }
+
     const bool paused = isPaused();
     if (paused != m_runnerPaused)
     {
@@ -1187,12 +1188,15 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
     m_runner->setExternalElapsedTime(externalElapsedTime(), anchor);
     quint64 seekTime;
     quint64 forwardTime;
+    int source;
     {
         QMutexLocker locker(&m_commandTrackMutex);
+        // one source for this whole tick, taken with the seek requests made under it
+        source = m_syncSource;
         seekTime = m_requestedSeekTime.exchange(NoSeekRequested, std::memory_order_acquire);
         forwardTime = m_requestedForwardTime.exchange(NoSeekRequested, std::memory_order_acquire);
         // an external clock ignores it; consumed, what it ends is history
-        if (seekTime != NoSeekRequested && m_syncSource == ShowRunner::Autonomous)
+        if (seekTime != NoSeekRequested && source == ShowRunner::Autonomous)
         {
             for (quint32 id : std::as_const(m_requestedSeekIds))
                 m_commandAppliedIds.remove(id);
@@ -1201,10 +1205,11 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
             seekTime = NoSeekRequested;
         m_requestedSeekIds.clear();
         // the runner reached it since the request was classified: playback crossed it already
-        if (m_syncSource != ShowRunner::Autonomous ||
+        if (source != ShowRunner::Autonomous ||
             forwardTime <= m_commandPosition.load(std::memory_order_relaxed))
             forwardTime = NoSeekRequested;
     }
+    m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
     if (seekTime != NoSeekRequested)
         m_runner->requestSeek(quint32(seekTime));
     else if (forwardTime != NoSeekRequested)
@@ -1243,17 +1248,9 @@ int Show::adjustAttribute(qreal fraction, int attributeId)
 {
     int attrIndex = Function::adjustAttribute(fraction, attributeId);
 
-    if (m_runner != NULL)
-    {
-        QList<Track*> trkList = m_tracks.values();
-        if (trkList.isEmpty() == false &&
-            attrIndex >= 0 && attrIndex < trkList.count())
-        {
-            Track *track = trkList.at(attrIndex);
-            if (track != NULL)
-                m_runner->adjustIntensity(getAttributeValue(attrIndex), track);
-        }
-    }
+    // the runner belongs to the timer thread: it takes the value at its next tick
+    if (attrIndex >= 0)
+        m_trackIntensityChanged.store(true, std::memory_order_release);
 
     return attrIndex;
 }

@@ -50,6 +50,12 @@ private slots:
     void localSeekPreservesOtherOwner();
     void localSeekDoesNotOverrideExternalControl();
 
+    // The GUI never reaches the runner: the timer thread takes its settings once per tick
+    void syncSourceChangeAppliesOnNextTick_data();
+    void syncSourceChangeAppliesOnNextTick();
+    void trackIntensityAppliesOnNextTick_data();
+    void trackIntensityAppliesOnNextTick();
+
     // Beat-clock fallback tests (no global beat source -> run at song BPM)
     void internalBeatClockUsesSongBpm();
     void internalBeatClockScalesWithSongBpm();
