@@ -79,7 +79,8 @@ private slots:
     void allSelectedValuesRoundTrip();
     void loadLeavesReaderUsableAfterFailure();
     void loadRecoversFromNestedTrackNames();
-    void eventIdsRunOutExplicitly();
+    void idsRunOutExplicitly_data();
+    void idsRunOutExplicitly();
 
     // playback transitions
     void advanceAppliesDueCommandsOnce();

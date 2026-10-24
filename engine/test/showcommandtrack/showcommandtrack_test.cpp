@@ -1964,29 +1964,6 @@ void ShowCommandTrack_Test::loadRecoversFromNestedTrackNames()
     }
 }
 
-void ShowCommandTrack_Test::eventIdsRunOutExplicitly(){
-    ShowCommandTrack track;
-    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime - 1, 500, 12)));
-    QCOMPARE(track.nextEventId(), ShowCommand::MaxTime);
-
-    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 900, 12)));
-    QCOMPARE(track.nextEventId(), ShowCommand::InvalidId);
-
-    // the recorder explains the exhaustion instead of dropping the input silently
-    ShowCommandState state = ShowCommandState();
-    state = ShowCommandFsm::setPlaying(state, true);
-
-    ShowCommandInput input;
-    input.origin = ShowCommandOrigin::Pointer;
-    input.action = ShowCommandAction::Start;
-    input.functionId = 12;
-
-    const ShowCommandTransition step = ShowCommandFsm::userInput(track, state, input);
-    QVERIFY(step.authored.isEmpty());
-    QVERIFY(!step.error.isEmpty());
-    QVERIFY(step.state == state);
-}
-
 void ShowCommandTrack_Test::advanceAppliesDueCommandsOnce()
 {
     const ShowCommandTrack track = playbackTrack();
@@ -2893,6 +2870,52 @@ void ShowCommandTrack_Test::malformedHoldPairs()
     for (quint32 pair : track.malformedHoldPairs())
         found.append(QString::number(pair));
     QCOMPARE(found.join(QLatin1Char(',')), malformed);
+}
+
+void ShowCommandTrack_Test::idsRunOutExplicitly_data()
+{
+    QTest::addColumn<bool>("pairs");
+
+    QTest::newRow("event ids") << false;
+    QTest::newRow("hold pair ids") << true;
+}
+
+void ShowCommandTrack_Test::idsRunOutExplicitly()
+{
+    QFETCH(bool, pairs);
+
+    ShowCommandTrack track;
+    ShowCommandInput input;
+    input.origin = ShowCommandOrigin::Pointer;
+    if (pairs)
+    {
+        const QString last = QString::number(ShowCommand::MaxTime);
+        QVERIFY(track.insert(holdEdge(0, last + QStringLiteral(":on@500"))));
+        QVERIFY(track.insert(holdEdge(1, last + QStringLiteral(":off@900"))));
+        QCOMPARE(track.nextPairId(), ShowCommand::InvalidId);
+        input.action = ShowCommandAction::SetButtonState;
+        input.controlId = kControlA;
+        input.role = ShowControlRole::FlashButton;
+        input.on = true;
+    }
+    else
+    {
+        QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime - 1, 500, 12)));
+        QCOMPARE(track.nextEventId(), ShowCommand::MaxTime);
+        QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 900, 12)));
+        QCOMPARE(track.nextEventId(), ShowCommand::InvalidId);
+        input.action = ShowCommandAction::Start;
+        input.functionId = 12;
+    }
+
+    // the recorder explains the exhaustion instead of dropping the input silently
+    ShowCommandState state = ShowCommandState();
+    state = ShowCommandFsm::setPlaying(state, true);
+    state.position = 5000;
+    const ShowCommandTransition step = ShowCommandFsm::userInput(track, state, input);
+    QVERIFY(step.authored.isEmpty());
+    QVERIFY(!step.error.isEmpty());
+    QVERIFY(step.state == state);
 }
 
 void ShowCommandTrack_Test::pairIdsAreNeverReissued_data()

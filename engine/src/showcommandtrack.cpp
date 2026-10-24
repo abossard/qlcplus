@@ -2056,8 +2056,13 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     {
         if (cmd.on)
         {
-            // a press where the track already holds this control starts no hold
             cmd.pairId = track.nextPairId();
+            if (cmd.pairId == ShowCommand::InvalidId)
+            {
+                result.error = QStringLiteral("no free hold pair id left in this track");
+                return result;
+            }
+            // a press where the track already holds this control starts no hold
             ShowCommandTrack pressed = track;
             if (pressed.insert(cmd) && !pressed.malformedHoldPairs().isEmpty())
                 return result;
