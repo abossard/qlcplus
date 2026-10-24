@@ -55,6 +55,9 @@ private slots:
     void liveToggleMakesNoHistory_data();
     void liveToggleMakesNoHistory();
     void clonesStayOnTheirPage();
+    void arrangeFrame_data();
+    void arrangeFrame();
+    void arrangeNested();
     void arrangeSettingsPersist();
     void framePageVisibility_data();
     void framePageVisibility();

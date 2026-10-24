@@ -256,6 +256,15 @@ static QMap<QString, ConsoleEdit> consoleEdits()
             frame->setArrangeFill(true);
             return QVariantMap();
         }},
+        {"arrangeAndResize", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            // one undo step, however long the two edits take
+            Tardis::instance()->beginBatch();
+            QVariantMap result = vc->arrangeFrame(ids.frame, {{"mode", int(VCFrame::ArrangeFlow)}});
+            if (result.value("accepted").toBool())
+                result = vc->editGeometry(ids.frame, QRectF(20, 20, 560, 500), false);
+            Tardis::instance()->endBatch();
+            return result;
+        }},
         {"cloneFirstPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
             frame->setMultiPageMode(true);
@@ -1036,6 +1045,90 @@ void VCEditor_Test::frameCheckboxes()
         QVERIFY(box->setProperty("checked", value));
         QCOMPARE(frame->property(qPrintable(property)).toBool(), value);
     }
+}
+
+/* The empty frame, without header, holding four 60x50 buttons in a row */
+static QList<quint32> fillEmptyFrame(VirtualConsole *vc, const ConsoleIds &ids)
+{
+    qobject_cast<VCFrame *>(vc->widget(ids.empty))->setShowHeader(false);
+    QList<quint32> buttons;
+    for (int i = 0; i < 4; i++)
+        buttons.append(vc->createWidgetGeometry(ids.empty, "Button", QRectF(5 + i * 70, 5, 60, 50))
+                           .value("widgetIDs").toList().value(0).toUInt());
+    return buttons;
+}
+
+void VCEditor_Test::arrangeFrame_data()
+{
+    QTest::addColumn<QVariantMap>("settings");
+    QTest::addColumn<QSizeF>("frameSize"); // then resized to this
+    QTest::addColumn<QList<QRectF>>("expected"); // empty: refused, nothing moves
+    const QVariantMap grid {{"mode", int(VCFrame::ArrangeGrid)}, {"columns", 2}, {"gap", 10}, {"fill", true}};
+    QTest::newRow("grid-fill") << grid << QSizeF(300, 250)
+        << QList<QRectF>{QRectF(10, 10, 135, 110), QRectF(155, 10, 135, 110), QRectF(10, 130, 135, 110), QRectF(155, 130, 135, 110)};
+    QTest::newRow("grid-fill-resized") << grid << QSizeF(400, 250)
+        << QList<QRectF>{QRectF(10, 10, 185, 110), QRectF(205, 10, 185, 110), QRectF(10, 130, 185, 110), QRectF(205, 130, 185, 110)};
+    QTest::newRow("grid-fill-too-small") << grid << QSizeF(60, 60) << QList<QRectF>();
+    QTest::newRow("column") << QVariantMap{{"mode", int(VCFrame::ArrangeColumn)}, {"gap", 5}} << QSizeF(300, 250)
+        << QList<QRectF>{QRectF(5, 5, 60, 50), QRectF(5, 60, 60, 50), QRectF(5, 115, 60, 50), QRectF(5, 170, 60, 50)};
+    QTest::newRow("flow-rewraps") << QVariantMap{{"mode", int(VCFrame::ArrangeFlow)}, {"gap", 10}} << QSizeF(160, 250)
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(10, 70, 60, 50), QRectF(80, 70, 60, 50)};
+    QTest::newRow("row-does-not-fit") << QVariantMap{{"mode", int(VCFrame::ArrangeRow)}, {"gap", 40}} << QSizeF(300, 250)
+        << QList<QRectF>();
+}
+
+void VCEditor_Test::arrangeFrame()
+{
+    QFETCH(QVariantMap, settings);
+    QFETCH(QSizeF, frameSize);
+    QFETCH(QList<QRectF>, expected);
+    const ConsoleIds ids = buildConsole();
+    const QList<quint32> buttons = fillEmptyFrame(vc(), ids);
+    auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.empty));
+    QList<QRectF> before;
+    for (quint32 id : buttons)
+        before.append(vc()->widget(id)->logicalGeometry());
+
+    const QVariantMap result = vc()->arrangeFrame(ids.empty, settings);
+    const bool resized = frameSize != frame->logicalGeometry().size();
+    if (resized && result.value("accepted").toBool())
+        vc()->editGeometry(ids.empty, QRectF(frame->logicalGeometry().topLeft(), frameSize), false);
+    QList<QRectF> actual;
+    for (quint32 id : buttons)
+        actual.append(vc()->widget(id)->logicalGeometry());
+    if (expected.isEmpty())
+    {
+        // a refused arrangement leaves the frame free, a refused resize keeps the arrangement
+        QCOMPARE(actual, resized ? actual : before);
+        QVERIFY(resized || frame->arrangeMode() == VCFrame::ArrangeNone);
+        QVERIFY(!resized || frame->logicalGeometry().size() != frameSize);
+        return;
+    }
+    QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
+    QCOMPARE(frame->arrangeMode(), VCFrame::ArrangeMode(settings.value("mode").toInt()));
+    QCOMPARE(actual, expected);
+}
+
+void VCEditor_Test::arrangeNested()
+{
+    const ConsoleIds ids = buildConsole();
+    // the frame lines up its children in a row, the nested frame fills its grid
+    QVERIFY(vc()->deleteAuthoringWidgets({ids.a, ids.b}).value("accepted").toBool());
+    auto *nested = qobject_cast<VCFrame *>(vc()->widget(ids.nested));
+    nested->setShowHeader(false);
+    QVERIFY(vc()->arrangeFrame(ids.nested, {{"mode", int(VCFrame::ArrangeGrid)}, {"columns", 1}, {"fill", true}})
+                .value("accepted").toBool());
+    QVERIFY(vc()->arrangeFrame(ids.frame, {{"mode", int(VCFrame::ArrangeRow)}, {"fill", true}})
+                .value("accepted").toBool());
+    const QRectF content = qobject_cast<VCFrame *>(vc()->widget(ids.frame))->contentRect();
+    QCOMPARE(nested->logicalGeometry().size(), QSizeF(content.width() - 20, std::round(content.bottom() - 10) - std::round(content.top() + 10)));
+    QCOMPARE(vc()->widget(ids.inner)->logicalGeometry().size(), nested->logicalGeometry().size() - QSizeF(20, 20));
+
+    // growing the outer frame grows the nested frame and its button
+    const QSizeF innerBefore = vc()->widget(ids.inner)->logicalGeometry().size();
+    QVERIFY(vc()->editGeometry(ids.frame, vc()->widget(ids.frame)->logicalGeometry().adjusted(0, 0, 0, 100), false)
+                .value("accepted").toBool());
+    QCOMPARE(vc()->widget(ids.inner)->logicalGeometry().size(), innerBefore + QSizeF(0, 100));
 }
 
 void VCEditor_Test::arrangeSettingsPersist()

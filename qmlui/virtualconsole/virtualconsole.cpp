@@ -1205,10 +1205,13 @@ QVariantMap VirtualConsole::previewGeometry(quint32 id, QRectF logicalRect, bool
     if (!error.isEmpty())
         return editResult(false, false, error);
     QRectF rect = admittedRectangle(entry, qobject_cast<VCFrame *>(entry->parent()), logicalRect, snap, &error);
+    // children of arranged frames move along, checked here and placed again on commit
     QMap<quint32, QRectF> rectangles{{id, rect}};
     if (error.isEmpty())
+        error = arrangePlan(rectangles);
+    if (error.isEmpty())
         error = geometryError(rectangles);
-    return editResult(error.isEmpty(), false, error, error.isEmpty() ? rectangles : QMap<quint32, QRectF>{});
+    return editResult(error.isEmpty(), false, error, error.isEmpty() ? QMap<quint32, QRectF>{{id, rect}} : QMap<quint32, QRectF>{});
 }
 
 QVariantMap VirtualConsole::editGeometry(quint32 id, QRectF logicalRect, bool snap)
@@ -1239,10 +1242,125 @@ QVariantMap VirtualConsole::applyGeometryPlan(const QMap<quint32, QRectF> &recta
             if (!error.isEmpty())
                 return editResult(false, false, error);
         }
-    error = geometryError(candidates);
+    error = arrangePlan(candidates);
+    if (error.isEmpty())
+        error = geometryError(candidates);
     if (!error.isEmpty())
         return editResult(false, false, error);
     return commitGeometry(candidates);
+}
+
+static GridLayout::ArrangeSpec arrangeSpec(const VCFrame *frame)
+{
+    GridLayout::ArrangeSpec spec;
+    spec.mode = GridLayout::ArrangeMode(frame->arrangeMode());
+    spec.gap = frame->arrangeGap();
+    spec.columns = frame->arrangeColumns();
+    spec.fill = frame->arrangeFill();
+    return spec;
+}
+
+QString VirtualConsole::arrangePlan(QMap<quint32, QRectF> &rectangles,
+                                    const QHash<quint32, GridLayout::ArrangeSpec> &specs) const
+{
+    const auto specOf = [&specs](const VCFrame *frame) {
+        return specs.contains(frame->id()) ? specs.value(frame->id()) : arrangeSpec(frame);
+    };
+    QList<VCFrame *> pending;
+    const auto queue = [&](VCFrame *frame) {
+        if (frame && specOf(frame).mode != GridLayout::ArrangeMode::None && !pending.contains(frame))
+            pending.append(frame);
+    };
+    for (auto it = rectangles.constBegin(); it != rectangles.constEnd(); ++it)
+        if (VCWidget *entry = widget(it.key()))
+        {
+            queue(qobject_cast<VCFrame *>(entry));
+            queue(qobject_cast<VCFrame *>(entry->parent()));
+        }
+    // outer frames first, so the frames inside arrange in their new size
+    const auto depth = [](QObject *object) {
+        int level = 0;
+        for (; object; object = object->parent())
+            level++;
+        return level;
+    };
+    std::stable_sort(pending.begin(), pending.end(), [&depth](VCFrame *a, VCFrame *b) { return depth(a) < depth(b); });
+
+    for (int i = 0; i < pending.size(); i++)
+    {
+        VCFrame *frame = pending.at(i);
+        QRectF content = frame->contentRect();
+        if (rectangles.contains(frame->id()))
+        {
+            const QSizeF size = rectangles.value(frame->id()).size();
+            content.setWidth(size.width());
+            content.setHeight(qMax(qreal(0), size.height() - content.top()));
+        }
+        for (int subpage = 0; subpage < frame->totalPagesNumber(); subpage++)
+        {
+            QList<VCWidget *> children;
+            QList<QSizeF> sizes, minimums;
+            for (const QVariant &id : frame->orderedChildIDs(subpage))
+            {
+                VCWidget *child = widget(id.toUInt());
+                children.append(child);
+                sizes.append(rectangles.value(child->id(), child->logicalGeometry()).size());
+                minimums.append(child->minimumSize());
+            }
+            const GridLayout::ArrangeResult arranged = GridLayout::arrange(specOf(frame), content, sizes, minimums);
+            if (!arranged.error.isEmpty())
+                return tr("Frame %1: %2").arg(frame->caption(), arranged.error);
+            for (int c = 0; c < children.size(); c++)
+            {
+                rectangles.insert(children.at(c)->id(), arranged.rects.at(c));
+                if (arranged.rects.at(c).size() != children.at(c)->logicalGeometry().size())
+                    queue(qobject_cast<VCFrame *>(children.at(c)));
+            }
+        }
+    }
+    return QString();
+}
+
+QVariantMap VirtualConsole::arrangeFrame(quint32 frameID, QVariantMap settings)
+{
+    if (m_authoringBusy)
+        return editResult(false, false, tr("Another console edit is being committed"));
+    VCFrame *frame = targetFrame(frameID);
+    if (!frame)
+        return editResult(false, false, tr("Unknown frame %1").arg(frameID));
+    QString error = nativeAuthoringError(frame);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+    for (const QString &key : settings.keys())
+        if (key != "mode" && key != "gap" && key != "columns" && key != "fill")
+            return editResult(false, false, tr("Unknown arrangement setting %1").arg(key));
+
+    GridLayout::ArrangeSpec spec = arrangeSpec(frame);
+    spec.mode = GridLayout::ArrangeMode(settings.value("mode", int(spec.mode)).toInt());
+    spec.gap = settings.value("gap", spec.gap).toReal();
+    spec.columns = settings.value("columns", spec.columns).toInt();
+    spec.fill = settings.value("fill", spec.fill).toBool();
+    if (spec.mode < GridLayout::ArrangeMode::None || spec.mode > GridLayout::ArrangeMode::Flow ||
+        spec.gap < 0 || spec.columns < 1)
+        return editResult(false, false, tr("Invalid arrangement"));
+
+    // the children are placed and checked before anything changes
+    QMap<quint32, QRectF> rectangles {{frame->id(), frame->logicalGeometry()}};
+    error = arrangePlan(rectangles, {{frame->id(), spec}});
+    rectangles.remove(frame->id());
+    if (error.isEmpty() && !rectangles.isEmpty())
+        error = geometryError(rectangles);
+    if (!error.isEmpty())
+        return editResult(false, false, error);
+
+    Tardis::instance()->beginBatch("arrangeFrame");
+    frame->setArrangeMode(VCFrame::ArrangeMode(spec.mode));
+    frame->setArrangeGap(spec.gap);
+    frame->setArrangeColumns(spec.columns);
+    frame->setArrangeFill(spec.fill);
+    const QVariantMap result = rectangles.isEmpty() ? editResult(true, true, {}) : commitGeometry(rectangles);
+    Tardis::instance()->endBatch();
+    return result;
 }
 
 QVariantMap VirtualConsole::previewGeometryPlan(const QMap<quint32, QRectF> &rectangles) const

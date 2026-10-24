@@ -226,6 +226,10 @@ public:
     Q_INVOKABLE QVariantMap editStructureBefore(QVariantList ids, quint32 targetFrameID,
                                                int targetSubpage, int beforeID = -1);
     Q_INVOKABLE QVariantMap editGeometry(quint32 id, QRectF logicalRect, bool snap = true);
+    /** Set how frame $frameID arranges its children, from the optional "mode",
+     *  "gap", "columns" and "fill" of $settings, and arrange them. Refused
+     *  when the children do not fit, then nothing changes */
+    Q_INVOKABLE QVariantMap arrangeFrame(quint32 frameID, QVariantMap settings);
     Q_INVOKABLE QVariantMap previewGeometry(quint32 id, QRectF logicalRect, bool snap = true);
     Q_INVOKABLE QVariantMap editDrop(quint32 id, quint32 targetFrameID, int targetSubpage,
                                     QRectF logicalRect, int insertionIndex = -1);
@@ -318,6 +322,11 @@ private:
     VCFrame *targetFrame(quint32 id) const;
     QString geometryError(const QMap<quint32, QRectF> &rectangles,
                           VCFrame *destination = nullptr, int subpage = -1, bool copying = false) const;
+    /** Add to $rectangles the children of the arranged frames they resize, or
+     *  whose children they resize, from the outer frames in. $specs replace
+     *  the arrangement of the frames they name */
+    QString arrangePlan(QMap<quint32, QRectF> &rectangles,
+                        const QHash<quint32, GridLayout::ArrangeSpec> &specs = {}) const;
     /** With $nearPosition, an occupied $logicalPosition moves the copies to the next free spot */
     QVariantMap pasteWidgets(const QVariantList &ids, quint32 targetID,
                               QPointF logicalPosition, QQuickItem *renderParent, bool nearPosition = false);
