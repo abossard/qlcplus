@@ -79,6 +79,9 @@ private:
     VirtualConsole *vc() const;
     ConsoleIds buildConsole();
     QByteArray consoleXML() const;
+    /** Keep the window as an artifact and compare it with its reference
+     *  in QLC_VC_GOLDEN_DIR, which QLC_VC_UPDATE_GOLDEN=1 rewrites */
+    void checkScreenshot(const QString &name);
     /** Wait until the Tardis thread recorded every queued action, then
      *  leave enough time so the next action starts a new undo step */
     void settleHistory();

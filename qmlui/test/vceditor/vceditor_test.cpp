@@ -21,6 +21,7 @@
 
 #include <QtTest>
 #include <QBuffer>
+#include <QImage>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlExpression>
@@ -37,6 +38,7 @@
 #include "contextmanager.h"
 #include "doc.h"
 #include "mastertimer.h"
+#include "monitorproperties.h"
 #include "scene.h"
 #include "uimanager.h"
 #include "vcframe.h"
@@ -80,6 +82,44 @@ static void saveArtifact(const QString &name, const QByteArray &data)
     QFile file(dir.filePath(QString("%1-%2").arg(QString::fromLatin1(QTest::currentDataTag()), name)));
     if (file.open(QIODevice::WriteOnly))
         file.write(data);
+}
+
+/* An overview page of the screenshots and XML dumps, for review in a browser */
+static void writeContactSheet()
+{
+    const QString root = qEnvironmentVariable("QLC_VC_ARTIFACTS_DIR");
+    if (root.isEmpty())
+        return;
+    QString html = "<!doctype html><html><head><meta charset=\"utf-8\"><title>VC editor artifacts</title><style>"
+                   "body{font-family:sans-serif;background:#1d1d1d;color:#ddd;margin:16px}"
+                   "section{margin:0 0 24px}figure{display:inline-block;margin:0 8px 8px 0}"
+                   "img{width:480px;border:1px solid #555}.bad{color:#ff6b6b}</style></head><body>";
+    const QDir dir(root);
+    for (const QString &function : dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name))
+    {
+        const QDir rows(dir.filePath(function));
+        QMap<QString, QStringList> shots;
+        for (const QString &file : rows.entryList({"*.png"}, QDir::Files, QDir::Name))
+            if (!file.endsWith("-diff.png"))
+                shots[file.left(file.lastIndexOf('-'))].append(file);
+        if (shots.isEmpty())
+            continue;
+        html += QString("<h2>%1</h2>").arg(function);
+        for (auto it = shots.constBegin(); it != shots.constEnd(); ++it)
+        {
+            QFile before(rows.filePath(it.key() + "-before.xml")), undone(rows.filePath(it.key() + "-undone.xml"));
+            const bool mismatch = before.open(QIODevice::ReadOnly) && undone.open(QIODevice::ReadOnly) &&
+                                  before.readAll() != undone.readAll();
+            html += QString("<section><h3>%1%2</h3>").arg(it.key(), mismatch ? " <span class=\"bad\">undo mismatch</span>" : "");
+            for (const QString &file : it.value())
+                html += QString("<figure><img src=\"%1/%2\"><figcaption>%3</figcaption></figure>")
+                            .arg(function, file, file.mid(it.key().size() + 1).chopped(4));
+            html += "</section>";
+        }
+    }
+    QFile index(dir.filePath("index.html"));
+    if (index.open(QIODevice::WriteOnly))
+        index.write((html + "</body></html>").toUtf8());
 }
 
 static QString structureError(VCFrame *frame);
@@ -261,7 +301,6 @@ void VCEditor_Test::initTestCase()
     m_app->startup();
     // Geometry expectations use a fixed scale, independent of the offscreen screen size
     m_app->m_uiManager->setModified("scalingFactor", 1.0);
-    m_app->resize(1200, 800);
     QVERIFY2(m_app->status() == QQuickView::Ready, qPrintable(m_app->errors().value(0).toString()));
     QQmlExpression startupNotice(qmlContext(m_app->rootObject()), m_app->rootObject(), "scalingInfoPopup");
     QObject *notice = startupNotice.evaluate().value<QObject *>();
@@ -275,6 +314,9 @@ void VCEditor_Test::initTestCase()
     QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
     m_app->show();
     QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    // offscreen windows take their size only once shown
+    m_app->resize(1600, 950);
+    QTRY_COMPARE(m_app->size(), QSize(1600, 950));
     auto *contexts = qobject_cast<ContextManager *>(
         m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
     QVERIFY(contexts);
@@ -290,6 +332,13 @@ void VCEditor_Test::init()
         vc()->addPage(vc()->pagesCount());
     QVERIFY(m_app->newWorkspace());
     m_app->doc()->masterTimer()->stop();
+    // a new workspace asks for the 2D point of view, and rejected edits of earlier
+    // rows leave error dialogs: both would cover the console and block its keys
+    m_app->doc()->monitorProperties()->setPointOfView(MonitorProperties::FrontView);
+    for (QObject *object : m_app->rootObject()->findChildren<QObject *>())
+        if (object->inherits("QQuickPopup") && object->property("visible").toBool())
+            QMetaObject::invokeMethod(object, "close");
+    QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
     vc()->setSelectedPage(0);
     vc()->setEditMode(true);
     vc()->setSnapping(false);
@@ -297,6 +346,7 @@ void VCEditor_Test::init()
 
 void VCEditor_Test::cleanupTestCase()
 {
+    writeContactSheet();
     m_app.reset();
 }
 
@@ -326,6 +376,56 @@ ConsoleIds VCEditor_Test::buildConsole()
     vc()->resetWidgetSelection();
     settleHistory();
     return ids;
+}
+
+void VCEditor_Test::checkScreenshot(const QString &name)
+{
+    const QString golden = qEnvironmentVariable("QLC_VC_GOLDEN_DIR");
+    if (golden.isEmpty() && qEnvironmentVariable("QLC_VC_ARTIFACTS_DIR").isEmpty())
+        return;
+    const QImage image = m_app->grabWindow().convertToFormat(QImage::Format_RGB32);
+    QByteArray png;
+    QBuffer buffer(&png);
+    buffer.open(QIODevice::WriteOnly);
+    image.save(&buffer, "PNG");
+    saveArtifact(name + ".png", png);
+    if (golden.isEmpty())
+        return;
+
+    const QString file = QDir(golden).filePath(QString("%1-%2-%3.png").arg(QString::fromLatin1(QTest::currentTestFunction()),
+                                                                           QString::fromLatin1(QTest::currentDataTag()), name));
+    if (qEnvironmentVariableIntValue("QLC_VC_UPDATE_GOLDEN"))
+    {
+        QDir().mkpath(golden);
+        QVERIFY(image.save(file));
+        return;
+    }
+    const QImage reference = QImage(file).convertToFormat(QImage::Format_RGB32);
+    QVERIFY2(!reference.isNull(), qPrintable("No reference screenshot " + file));
+    QCOMPARE(image.size(), reference.size());
+    // the channel tolerance absorbs antialiasing, the pixel budget tiny text shifts
+    QImage diff(image.size(), QImage::Format_RGB32);
+    diff.fill(Qt::black);
+    int different = 0;
+    for (int y = 0; y < image.height(); y++)
+        for (int x = 0; x < image.width(); x++)
+        {
+            const QRgb a = image.pixel(x, y), b = reference.pixel(x, y);
+            if (qAbs(qRed(a) - qRed(b)) > 16 || qAbs(qGreen(a) - qGreen(b)) > 16 || qAbs(qBlue(a) - qBlue(b)) > 16)
+            {
+                diff.setPixel(x, y, qRgb(255, 0, 0));
+                different++;
+            }
+        }
+    if (different > image.width() * image.height() / 10000)
+    {
+        QByteArray diffPng;
+        QBuffer diffBuffer(&diffPng);
+        diffBuffer.open(QIODevice::WriteOnly);
+        diff.save(&diffBuffer, "PNG");
+        saveArtifact(name + "-diff.png", diffPng);
+        QFAIL(qPrintable(QString("Screenshot %1 differs from %2 in %3 pixels").arg(name, file).arg(different)));
+    }
 }
 
 QByteArray VCEditor_Test::consoleXML() const
@@ -365,6 +465,7 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     QFETCH(QString, edit);
     const ConsoleIds ids = buildConsole();
     const QByteArray before = consoleXML();
+    checkScreenshot("before");
 
     QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
     const QString error = editError(consoleEdits().value(edit)(vc(), m_app->doc(), ids));
@@ -375,12 +476,14 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     const QByteArray after = consoleXML();
     saveArtifact("before.xml", before);
     saveArtifact("after.xml", after);
+    checkScreenshot("after");
     QVERIFY2(after != before, "The edit changed nothing");
 
     Tardis::instance()->undoAction();
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
+    checkScreenshot("undone");
     QVERIFY2(actual == before, qPrintable("Undo: " + firstDifference(before, actual)));
 
     Tardis::instance()->redoAction();
