@@ -72,6 +72,13 @@ void VdjBridge_Test::cleanupTestCase()
 
 // --- Helper: a Doc, a bridge and Shows with one Scene clip each, ticked by hand ---
 
+/** One trigger of deck 1's write under way, for a bridge without a rig */
+static void send(VdjBridge &bridge, const char *trigger, const QVariant &value)
+{
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, 0),
+                              Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value));
+}
+
 struct PerformRig
 {
     Doc doc{ nullptr, 4 };
@@ -749,9 +756,10 @@ void VdjBridge_Test::ejectKeepsTheTempo()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("masterdeck", QVariant("on"));
-    deckTrigger("get_filepath", QVariant("/m/a.mp3"));
-    deckTrigger("get_title", QVariant("Song A"));
-    deckTrigger("get_artist", QVariant("Artist A"));
+    // an Automix load: one write
+    send(bridge, "get_filepath", QVariant("/m/a.mp3"));
+    send(bridge, "get_title", QVariant("Song A"));
+    send(bridge, "get_artist", QVariant("Artist A"));
     deckTrigger("get_bpm", QVariant(128.0));
     deckTrigger("play", QVariant("on"));
     QCOMPARE(doc.inputOutputMap()->bpmNumber(), 128);
@@ -1229,9 +1237,10 @@ void VdjBridge_Test::engineBpmFollowsVdjAndIgnoresJitter()
 
     // A song with a steady BPM of 128 on a PLAYING deck → the engine BPM
     // follows it. (BPM only tracks the song tempo while the deck is playing.)
-    deckTrigger("get_filepath", QVariant("/m/a.mp3"));
-    deckTrigger("get_title", QVariant("Song A"));
-    deckTrigger("get_artist", QVariant("Artist A"));
+    // an Automix load: one write
+    send(bridge, "get_filepath", QVariant("/m/a.mp3"));
+    send(bridge, "get_title", QVariant("Song A"));
+    send(bridge, "get_artist", QVariant("Artist A"));
     deckTrigger("get_bpm", QVariant(128.0));
     deckTrigger("play", QVariant("on"));
     QCOMPARE(doc.inputOutputMap()->bpmNumber(), 128);
@@ -1287,9 +1296,10 @@ void VdjBridge_Test::engineBpmDropsLowWhenPaused()
     };
     deckTrigger("masterdeck", QVariant("on"));
 
-    deckTrigger("get_filepath", QVariant("/m/a.mp3"));
-    deckTrigger("get_title", QVariant("Song A"));
-    deckTrigger("get_artist", QVariant("Artist A"));
+    // an Automix load: one write
+    send(bridge, "get_filepath", QVariant("/m/a.mp3"));
+    send(bridge, "get_title", QVariant("Song A"));
+    send(bridge, "get_artist", QVariant("Artist A"));
     deckTrigger("get_bpm", QVariant(128.0));
 
     // Playing → steady song BPM.
@@ -1328,9 +1338,10 @@ void VdjBridge_Test::engineBpmLockReleasedOnDisconnect()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("masterdeck", QVariant("on"));
-    deckTrigger("get_filepath", QVariant("/m/a.mp3"));
-    deckTrigger("get_title", QVariant("Song A"));
-    deckTrigger("get_artist", QVariant("Artist A"));
+    // an Automix load: one write
+    send(bridge, "get_filepath", QVariant("/m/a.mp3"));
+    send(bridge, "get_title", QVariant("Song A"));
+    send(bridge, "get_artist", QVariant("Artist A"));
     deckTrigger("get_bpm", QVariant(128.0));
     deckTrigger("play", QVariant("on"));
     deckTrigger("play", QVariant(playing ? "on" : "off"));

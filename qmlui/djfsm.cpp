@@ -107,10 +107,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
 
     Slot &s = slotForDeck(deck);
     Pending &p = s.pending;
-    // any trigger of the deck: a playing deck's held fields flush at its next
-    // tick, a paused deck's wait for its next event (its load's second write)
-    s.touched = true;
-
     if (trigger == QLatin1String("loaded"))
     {
         if (triggerIsOn(value))
@@ -126,7 +122,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         else
         {
             p.filepath = path;
-            p.fresh = true;
         }
     }
     else if (trigger == QLatin1String("get_title"))
@@ -138,14 +133,12 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         else if (!title.isEmpty())
         {
             p.title = title;
-            p.fresh = true;
         }
     }
     else if (trigger == QLatin1String("get_artist"))
     {
         // an empty artist is a value: a file without tags
         p.artist = value.toString();
-        p.fresh = true;
     }
     else if (trigger == QLatin1String("get_bpm"))
     {
@@ -154,7 +147,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         if (ok && bpm > 0.0)
         {
             p.bpm = bpm;
-            p.fresh = true;
         }
     }
     else if (trigger == QLatin1String("get_key"))
@@ -162,7 +154,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         if (!value.toString().isEmpty())
         {
             p.key = value.toString();
-            p.fresh = true;
         }
     }
     else if (trigger == QLatin1String("get_time total"))
@@ -172,7 +163,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         if (ok && ms > 0.0)
         {
             p.totalMs = static_cast<int>(ms); // VDJ sends milliseconds (verified from live telemetry)
-            p.fresh = true;
         }
     }
     else if (trigger == QLatin1String("play"))
@@ -244,16 +234,14 @@ void DjFsm::onTickEnded()
             // write; the ejected file back brings only what the eject changed
             commitPending(s, d);
         }
-        else if (p.any())
+        else if (p.any() && s.positionSeen)
         {
-            // song fields without a filepath: a manual load's first write, or
-            // the song's own change. The deck's next write tells which.
-            if (p.fresh)
-                p.fresh = false;
-            else if (s.touched)
-                commitPending(s, d);
+            // song fields without a filepath are a manual load's first write
+            // until the deck's position moves on without one: the song's own
+            // change (a tempo ramp, a correction). VU, EQ and fader writes in
+            // between say nothing about it.
+            commitPending(s, d);
         }
-        s.touched = false;
         s.positionSeen = false;
         s.ejectedThisWrite = false;
     }
@@ -407,7 +395,6 @@ void DjFsm::resetSlot(Slot &s, int deck1)
     s.deck.number  = deck1;
     s.master       = false;
     s.pending      = Pending();
-    s.touched      = false;
     s.positionSeen = false;
     s.ejected      = false;
     s.bpmBeforeEject = 0.0;
@@ -437,6 +424,7 @@ void DjFsm::emptyDeck(Slot &s)
     s.deck.song    = DeckSong{};
     s.deck.playing = false;
     s.loadedOn     = false;
+    s.pending      = Pending(); // a held first write dies with the eject
     s.deck.beatPos = 0.0;
     s.deck.elapsedMs = 0;
     s.deck.remainingMs = 0;

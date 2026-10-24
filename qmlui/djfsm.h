@@ -37,8 +37,8 @@
  * commits them at the write boundary (onTickEnded): a write with a new
  * filepath commits a load, announced as one complete snapshot (songChanged)
  * once filepath and title are present; song fields without a filepath are
- * held one more write, so a load's first write waits for its filepath, and
- * flush as songUpdated when the deck's next write brings none. The wire is
+ * held, so a load's first write waits for its filepath, and flush as
+ * songUpdated when the deck's position moves on without one. The wire is
  * a delta against VDJ's last-sent value per trigger, across ejects: an
  * eject (loaded off, the placeholder title) empties the deck at once but
  * keeps every last value, so a reload of the same file (title, bpm, loaded
@@ -168,7 +168,6 @@ private:
         std::optional<QString> key;
         std::optional<double>  bpm;
         std::optional<int>     totalMs;
-        bool fresh = false;              //!< something arrived in the write under way
 
         bool any() const { return filepath || title || artist || key || bpm || totalMs; }
     };
@@ -178,7 +177,6 @@ private:
         Deck     deck;
         DeckSong last;                  //!< VDJ's last-sent song fields, kept across ejects
         Pending  pending;
-        bool     touched = false;       //!< any trigger of the deck in the write under way
         bool     positionSeen = false;  //!< an elapsed sample in the write under way
         bool     ejectedThisWrite = false;
         bool     loadedOn = false;      //!< "loaded" on arrived since the deck emptied

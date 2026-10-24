@@ -375,6 +375,14 @@ void DjFsm_Test::onChangeSemantics_data()
         << a << "artist=Y;bpm=128|fp=/b|" << QStringList({ aLine, "d1 /b | A | Y | 128.000" }) << QStringList{};
     QTest::newRow("same title and artist (the extended mix): announced at its filepath")
         << a << "bpm=128|fp=/b|" << QStringList({ aLine, "d1 /b | A | X | 128.000" }) << QStringList{};
+    // VDJ sends VU zeros every write for a second after a stop, EQ moves any time
+    QTest::newRow("a VU write between a manual load's writes is not B's filepath")
+        << a << "title=B;artist=Y;bpm=128|vu=0|fp=/b|" << QStringList({ aLine, "d1 /b | B | Y | 128.000" }) << QStringList{};
+    QTest::newRow("an EQ write between a manual load's writes is not B's filepath")
+        << a << "title=B;artist=Y;bpm=128|eq=0.6|fp=/b|" << QStringList({ aLine, "d1 /b | B | Y | 128.000" }) << QStringList{};
+    QTest::newRow("a tempo ramp flushes per write")
+        << a << "play=on;elapsed=0|bpm=126;elapsed=40|bpm=127;elapsed=80|bpm=128;elapsed=120|" << QStringList{ aLine }
+        << QStringList({ "d1 /a | A | X | 126.000", "d1 /a | A | X | 127.000", "d1 /a | A | X | 128.000" });
 }
 
 void DjFsm_Test::onChangeSemantics()
@@ -671,6 +679,8 @@ void DjFsm_Test::ejectAndReload_data()
     QTest::newRow("another song's first write announces nothing until its filepath")
         << "play=off|" + eject + "|title=B;bpm=131;loaded=on|elapsed=0|fp=/b|"
         << QStringList({ aLine, "d1 /b | B | X | 131.000" }) << loaded;
+    QTest::newRow("a held first write dies with the eject")
+        << "play=off|title=B;artist=Y;bpm=128|" + eject + "|loaded=on|" << QStringList({ aLine, aLine }) << loaded;
 }
 
 void DjFsm_Test::ejectAndReload()
