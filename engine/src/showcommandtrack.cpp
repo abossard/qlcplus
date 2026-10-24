@@ -1487,14 +1487,9 @@ bool ShowCommandTrack::replace(const ShowCommand &original, QString *error)
     if (!reason.isEmpty())
         return fail(error, reason);
 
+    // one way in for every command, so the high water marks see it
     ShowCommand replaced = cmd;
     replaced.order = m_commands.at(index).order;
-    if (m_commands.at(index).time == cmd.time)
-    {
-        m_commands[index] = replaced;
-        return succeed(error);
-    }
-
     const ShowCommand previous = m_commands.takeAt(index);
     if (place(replaced, error))
         return true;
@@ -1754,6 +1749,13 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
 {
     Q_ASSERT(doc != nullptr);
 
+    // a file holds no hold in progress: one left open ends at the extent
+    ShowCommandTrack closed = *this;
+    if (closed.closeOpenHolds(m_extent) == false)
+        return false;
+    if (closed.count() != count())
+        return closed.saveXML(doc);
+
     // a track of function commands only keeps writing exactly the legacy document
     const bool controlStates = std::any_of(m_commands.cbegin(), m_commands.cend(),
                                            [](const ShowCommand &cmd)
@@ -1919,9 +1921,9 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
             {
                 next.perform = ShowRecordSelection{ event.showId, false };
             }
-            else if (!state.perform && bound != ShowCommand::InvalidId && event.showId != bound)
+            else if (bound != ShowCommand::InvalidId && event.showId != bound)
             {
-                // only an automatic source moves a bound take
+                // a bound take keeps its Show selected, whoever resolved it
                 result.effects.append({ Effect::RefuseSelection });
                 return result;
             }
@@ -1936,14 +1938,18 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
             next.perform.reset();
         break;
         case Kind::Removed:
-        case Kind::Restored:
             for (ShowRecordSelection *selection : { &next.manual, next.perform ? &*next.perform : nullptr })
             {
                 if (selection != nullptr && selection->showId == event.showId)
-                    selection->removed = event.kind == Kind::Removed;
+                    selection->removed = true;
             }
-            if (event.kind == Kind::Removed)
-                result.effects.append({ Effect::DropUnpublished, event.showId });
+            result.effects.append({ Effect::DropUnpublished, event.showId });
+        break;
+        case Kind::Restored:
+            // the Show Manager selects a restored Show again itself; Perform's
+            // Show, which nothing resolves again, rebinds here
+            if (next.perform && next.perform->showId == event.showId)
+                next.perform->removed = false;
         break;
         case Kind::Discard:
             next.recording = false;
@@ -2061,8 +2067,13 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     {
         if (cmd.on)
         {
-            // a press where the track already holds this control starts no hold
             cmd.pairId = track.nextPairId();
+            if (cmd.pairId == ShowCommand::InvalidId)
+            {
+                result.error = QStringLiteral("no free hold pair id left in this track");
+                return result;
+            }
+            // a press where the track already holds this control starts no hold
             ShowCommandTrack pressed = track;
             if (pressed.insert(cmd) && !pressed.malformedHoldPairs().isEmpty())
                 return result;

@@ -78,7 +78,8 @@ ShowManager::ShowManager(QQuickView *view, Doc *doc, QObject *parent)
     });
     connect(m_doc, &Doc::functionAdded, this, [this](quint32 id)
     {
-        if (id == m_removedShowId)
+        // the id may be taken by another Function first: only a Show under it is shown
+        if (id == m_removedShowId && qobject_cast<Show *>(m_doc->function(id)) != nullptr)
             setCurrentShowID(int(id));
     });
 

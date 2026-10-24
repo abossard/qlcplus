@@ -30,6 +30,7 @@
 #undef private
 
 #include <QtTest>
+#include <QMetaProperty>
 #include <QAccessible>
 #include <QStyleHints>
 #include <QBuffer>
@@ -14972,41 +14973,45 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::addColumn<QString>("steps");
     QTest::addColumn<QString>("live");
     QTest::addColumn<QString>("saved");
+    QTest::addColumn<bool>("checkpoint"); // the workspace save checkpoints first; an autosave does not
 
     const QString take = QStringLiteral("rec on, at 10000, press, at 12000, release, at 5000, ");
     const QString both = QStringLiteral("6000-7000 10000-12000");
     QTest::newRow("record pair") << QStringLiteral("rec on, at 1000, press, at 2000, release, rec off")
-                                 << QStringLiteral("1000-2000") << QStringLiteral("1000-2000");
+                                 << QStringLiteral("1000-2000") << QStringLiteral("1000-2000") << true;
     QTest::newRow("seek back, earlier pair") << take + QStringLiteral("at 6000, press, at 7000, release, rec off")
-                                             << both << both;
+                                             << both << both << true;
     // a hold ends where the next recorded hold of its control begins
     QTest::newRow("seek back, held into a later pair")
         << take + QStringLiteral("at 6000, press, at 11000, release, rec off")
-        << QStringLiteral("6000-9999 10000-12000") << QStringLiteral("6000-9999 10000-12000");
+        << QStringLiteral("6000-9999 10000-12000") << QStringLiteral("6000-9999 10000-12000") << true;
     // the recording already holds the control there: the press and its release add nothing
     QTest::newRow("seek back, press inside a recorded hold")
         << take + QStringLiteral("at 11000, press, at 13000, release, rec off")
-        << QStringLiteral("10000-12000") << QStringLiteral("10000-12000");
+        << QStringLiteral("10000-12000") << QStringLiteral("10000-12000") << true;
     QTest::newRow("seek back, REC off while held") << take + QStringLiteral("at 6000, press, at 8000, rec off")
                                                    << QStringLiteral("6000-8000 10000-12000")
-                                                   << QStringLiteral("6000-8000 10000-12000");
+                                                   << QStringLiteral("6000-8000 10000-12000") << true;
     QTest::newRow("seek back, save while held") << take + QStringLiteral("at 6000, press, at 8000")
                                                 << QStringLiteral("6000- 10000-12000")
-                                                << QStringLiteral("6000-8000 10000-12000");
+                                                << QStringLiteral("6000-8000 10000-12000") << true;
     // REC off never closes a hold before its own press
     QTest::newRow("loop back while held, REC off")
         << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
-        << QStringLiteral("10000-10000") << QStringLiteral("10000-10000");
+        << QStringLiteral("10000-10000") << QStringLiteral("10000-10000") << true;
     const QString deleted = QStringLiteral("rec on, at 1000, press, at 2000, release, rec off, delete, ");
     const QString again = QStringLiteral("rec on, at 3000, press, at 4000, release, rec off, ");
     QTest::newRow("undo a deletion after a new hold") << deleted + again + QStringLiteral("undo")
                                                       << QStringLiteral("1000-2000 3000-4000")
-                                                      << QStringLiteral("1000-2000 3000-4000");
+                                                      << QStringLiteral("1000-2000 3000-4000") << true;
     QTest::newRow("redo the deletion") << deleted + again + QStringLiteral("undo, redo")
-                                       << QStringLiteral("3000-4000") << QStringLiteral("3000-4000");
+                                       << QStringLiteral("3000-4000") << QStringLiteral("3000-4000") << true;
     QTest::newRow("undo a deletion after the Show was restored")
         << deleted + QStringLiteral("restore, ") + again + QStringLiteral("undo")
-        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000");
+        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
+    // saved without a checkpoint, the file ends the open hold at the authored extent
+    QTest::newRow("save while held, no checkpoint") << QStringLiteral("rec on, at 6000, press, at 8000")
+                                                    << QStringLiteral("6000-") << QStringLiteral("6000-6000") << false;
 }
 
 void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
@@ -15014,6 +15019,7 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QFETCH(QString, steps);
     QFETCH(QString, live);
     QFETCH(QString, saved);
+    QFETCH(bool, checkpoint);
 
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -15082,6 +15088,8 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
             show = qobject_cast<Show *>(doc.function(showId));
             QVERIFY(show);
             show->setSyncSource(ShowRunner::External);
+            // the Show Manager shows it again
+            QVERIFY(recorder.setResolvedShow(showId));
         }
         tickAndDeliver(&doc);
     }
@@ -15089,7 +15097,8 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
 
     // the workspace save: an open hold is closed in the saved snapshot only
-    QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+    if (checkpoint)
+        QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
     Doc reloaded(nullptr, 1);
     QVERIFY(loadShow(saveShow(show), &reloaded));
     auto *copy = qobject_cast<Show *>(reloaded.function(showId));
@@ -15255,6 +15264,185 @@ void ShowCommandRecorder_Test::replayedHold_releasedWhenAShowIsDeleted()
         tickAndDeliver(&r.doc, 3);
     }
     QCOMPARE(r.button->state(), VCButton::Inactive);
+}
+
+namespace
+{
+/** Shows A and B each replay a hold [1000, 5000] on their own control of
+ *  one kind, A1 and B2: flash buttons or Adjust sliders on one Scene, or
+ *  two FreezeHold buttons. One shared effect, two owners. */
+struct SharedHoldRig
+{
+    Doc doc{nullptr, 1};
+    UiFixture ui{&doc};
+    VCBridgeV5 bridge{&doc, ui.vc()};
+    ShowCommandRecorder recorder{&doc};
+    Scene *target = addTarget(&doc);
+    Show *a = new Show(&doc);
+    Show *b = new Show(&doc);
+    QString role;
+    int frame = -1;
+    VCWidget *a1 = nullptr;
+    VCWidget *b2 = nullptr;
+    qreal baseline = 1.0;
+    bool aDeleted = false;
+    bool userHeld = false;
+
+    bool setUp(const QString &kind)
+    {
+        role = kind;
+        recorder.setVirtualConsole(ui.vc());
+        if (!doc.addFunction(a) || !doc.addFunction(b))
+            return false;
+        frame = addFrame(bridge, 0, QRect(0, 0, 660, 300), QStringLiteral("Shared hold"), false);
+        a1 = control(10);
+        b2 = control(300);
+        if (a1 == nullptr || b2 == nullptr)
+            return false;
+        // A1's own level, which its flash raises to full and its release restores
+        if (auto *slider = qobject_cast<VCSlider *>(a1))
+        {
+            slider->setValue(76);
+            tickAndDeliver(&doc, 2);
+        }
+        baseline = target->getAttributeValue(Function::Intensity);
+        return true;
+    }
+
+    VCWidget *control(int x)
+    {
+        if (role == QLatin1String("slider flash"))
+            return addAdjustSlider(bridge, ui.vc(), frame, target->id(), x);
+        const bool flash = role == QLatin1String("flash");
+        return ui.vc()->widget(bridge.addButton(frame, QRect(x, 10, 80, 48),
+                                                flash ? target->id() : quint32(Function::invalidId()),
+                                                QStringLiteral("Hold"),
+                                                flash ? QStringLiteral("flash") : QStringLiteral("freezehold")));
+    }
+
+    /** show replays a hold [1000, 5000] of control; true once it took effect at 2000 */
+    bool replay(Show *show, VCWidget *control)
+    {
+        ShowCommand on = ShowCommand::setButtonState(1, 1000, control->ensureRecordingId(), true);
+        on.role = role == QLatin1String("flash") ? ShowControlRole::FlashButton
+                : role == QLatin1String("freeze hold") ? ShowControlRole::FreezeHoldButton
+                                                       : ShowControlRole::AdjustSlider;
+        on.pairId = 1;
+        ShowCommand off = on;
+        off.id = 2;
+        off.time = 5000;
+        off.on = false;
+        ShowCommandTrack track;
+        if (!track.insert(on) || !track.insert(off) || !track.setExtent(60000) || !show->setCommandTrack(track))
+            return false;
+        show->setSyncSource(ShowRunner::External);
+        playExternalFromZero(show, &doc);
+        show->setExternalElapsedTime(2000);
+        // the effect may be on already: wait for this Show's own batch instead
+        for (int i = 0; i < 200 && show->commandPosition() < 2000; i++)
+            tickAndDeliver(&doc);
+        for (int i = 0; i < 50 && (show->commandWorkPending() || recorder.pendingControlRuns() > 0); i++)
+            tickAndDeliver(&doc);
+        tickAndDeliver(&doc, 2);
+        return effect();
+    }
+
+    /** The user holds B2 */
+    void userHolds(bool on)
+    {
+        userHeld = on;
+        if (auto *slider = qobject_cast<VCSlider *>(b2))
+            slider->requestUserFlash(on);
+        else
+            qobject_cast<VCButton *>(b2)->requestUserStateChange(on);
+        tickAndDeliver(&doc, 2);
+    }
+
+    /** The shared effect: the Scene flashing, the output frozen, or the level at full */
+    bool effect() const
+    {
+        if (role == QLatin1String("flash"))
+            return target->flashing();
+        if (role == QLatin1String("freeze hold"))
+            return doc.inputOutputMap()->frozenMomentary();
+        return qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0));
+    }
+
+    ~SharedHoldRig()
+    {
+        // the timer still lists a Show deleted while playing: it must not tick again
+        if (aDeleted)
+            return;
+        if (userHeld)
+            userHolds(false);
+        for (Function *f : std::initializer_list<Function *>{a, b, target})
+            f->stop(FunctionParent::master());
+        tickAndDeliver(&doc, 5);
+    }
+};
+}
+
+void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold_data()
+{
+    QTest::addColumn<QString>("role");
+    QTest::addColumn<QString>("other");
+    QTest::addColumn<QString>("end"); // what ends A's hold: a stop, a deletion, or an edit removing it
+
+    for (const char *role : {"flash", "freeze hold", "slider flash"})
+        for (const char *other : {"replay", "user", "none"})
+            for (const char *end : {"stopped", "deleted", "edited"})
+            {
+                // FreezeHold's momentary flag is one shared flag: an edit releasing it releases it
+                if (qstrcmp(end, "edited") == 0 && qstrcmp(role, "freeze hold") == 0)
+                    continue;
+                QTest::newRow(qPrintable(QStringLiteral("%1, %2 holds too, A %3").arg(role, other, end)))
+                    << QString::fromLatin1(role) << QString::fromLatin1(other) << QString::fromLatin1(end);
+            }
+}
+
+void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold()
+{
+    QFETCH(QString, role);
+    QFETCH(QString, other);
+    QFETCH(QString, end);
+
+    SharedHoldRig r;
+    QVERIFY(r.setUp(role));
+    QVERIFY(r.replay(r.a, r.a1));
+    if (other == QLatin1String("replay"))
+        QVERIFY(r.replay(r.b, r.b2));
+    else if (other == QLatin1String("user"))
+        r.userHolds(true);
+    QVERIFY(r.effect());
+
+    if (end == QLatin1String("deleted"))
+    {
+        // like the Function Manager: a stop request, then the deletion before the timer ran it
+        r.a->stop(FunctionParent::master());
+        QVERIFY(r.doc.deleteFunction(r.a->id()));
+        r.aDeleted = true;
+        QCoreApplication::processEvents();
+    }
+    else if (end == QLatin1String("edited"))
+    {
+        // the editor removes A's hold behind the playhead: the replay release follows at once
+        QVERIFY(r.recorder.setResolvedShow(r.a->id()));
+        QVERIFY2(r.recorder.removeCommands(r.a->id(), {1, 2}), qPrintable(r.recorder.lastError()));
+        tickAndDeliver(&r.doc, 1);
+    }
+    else
+    {
+        r.a->stop(FunctionParent::master());
+        tickAndDeliver(&r.doc, 3);
+    }
+
+    // A's end releases only what nobody else holds
+    const bool kept = other != QLatin1String("none");
+    QCOMPARE(r.effect(), kept);
+    if (role == QLatin1String("slider flash"))
+        QCOMPARE(r.target->getAttributeValue(Function::Intensity), kept ? qreal(1.0) : r.baseline);
+    else if (!kept)
+        QCOMPARE(qobject_cast<VCButton *>(r.a1)->state(), VCButton::Inactive);
 }
 
 void ShowCommandRecorder_Test::patchedInput_recordsOnlyUserRoutes_data()
@@ -15927,6 +16115,26 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
     }
 }
 
+void ShowCommandRecorder_Test::editGate_followsPerformEngagement()
+{
+    RequestRig r;
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId()));
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("No Show to edit"));
+
+    // Perform engaged on nothing tracks nothing new, yet the reason changes: QML must hear it
+    const QMetaObject *meta = r.recorder.metaObject();
+    const QMetaProperty reason = meta->property(meta->indexOfProperty("editBlockedReason"));
+    QVERIFY(reason.hasNotifySignal());
+    QSignalSpy gate(&r.recorder, reason.notifySignal());
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId(), ShowRecordSource::Perform));
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
+    QVERIFY(gate.count() >= 1);
+    const int engaged = gate.count();
+    r.recorder.releasePerform();
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("No Show to edit"));
+    QVERIFY(gate.count() > engaged);
+}
+
 void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver_data()
 {
     QTest::addColumn<QString>("change");
@@ -16084,6 +16292,93 @@ void ShowCommandRecorder_Test::failedHandover_reasonOutlivesLaterInput()
     QVERIFY2(r.recorder.setRecording(false), qPrintable(r.recorder.lastError()));
 }
 
+void ShowCommandRecorder_Test::staleTarget_blocksOnlyItsOwnCommand_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("record unrelated input") << QStringLiteral("record") << true;
+    QTest::newRow("edit the unrelated command") << QStringLiteral("edit other") << true;
+    QTest::newRow("checkpoint") << QStringLiteral("checkpoint") << true;
+    QTest::newRow("retime the stale command") << QStringLiteral("edit stale") << false;
+    QTest::newRow("record a Start on the missing target") << QStringLiteral("record stale") << false;
+}
+
+void ShowCommandRecorder_Test::staleTarget_blocksOnlyItsOwnCommand()
+{
+    QFETCH(QString, action);
+    QFETCH(bool, accepted);
+
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(3000);
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 1000, r.a->id())));
+    QVERIFY(track.insert(ShowCommand::start(1, 2000, goneId)));
+    QVERIFY(r.show->setCommandTrack(track));
+    // the target of a published command goes: the command stays and blocks only itself
+    QVERIFY(r.doc.deleteFunction(goneId));
+    const ShowCommand stale = r.show->commandTrack().commands().at(1);
+    QVERIFY(r.recorder.setRecording(true));
+
+    bool ok = false;
+    if (action == QLatin1String("record"))
+    {
+        r.slider->requestUserValue(51);
+        ok = r.show->commandTrack().count() == 3;
+    }
+    else if (action == QLatin1String("edit other"))
+        ok = r.recorder.retimeCommand(r.show->id(), 0, 1500);
+    else if (action == QLatin1String("checkpoint"))
+        ok = r.recorder.checkpoint();
+    else if (action == QLatin1String("edit stale"))
+        ok = r.recorder.retimeCommand(r.show->id(), 1, 2500);
+    else
+    {
+        ShowCommandInput start;
+        start.origin = ShowCommandOrigin::Pointer;
+        start.action = ShowCommandAction::Start;
+        start.functionId = goneId;
+        ok = r.recorder.submitUserInput(start);
+    }
+    QCOMPARE(ok, accepted);
+    if (!accepted)
+        QVERIFY2(r.recorder.lastError().contains(QStringLiteral("Unknown command target")),
+                 qPrintable(r.recorder.lastError()));
+    const int index = r.show->commandTrack().indexOfId(1);
+    QVERIFY(index >= 0);
+    QVERIFY(r.show->commandTrack().commands().at(index) == stale);
+    r.recorder.discardUnpublished();
+    QVERIFY(r.recorder.setRecording(false));
+}
+
+void ShowCommandRecorder_Test::lifecycleEventRaisedByAnEffect_runsAfterIt()
+{
+    RequestRig r;
+    Show *b = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(b));
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId()));
+    QVERIFY(r.recorder.setRecording(true));
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+
+    // a rows subscriber turns REC off while the recorder binds B
+    bool disarmed = false;
+    QObject::connect(&r.recorder, &ShowCommandRecorder::commandsChanged, &r.recorder, [&]() {
+        if (disarmed)
+            return;
+        disarmed = true;
+        r.recorder.setRecording(false);
+    });
+    r.recorder.setResolvedShow(b->id());
+    QVERIFY(disarmed);
+    QVERIFY(!r.recorder.isRecording());
+    QVERIFY(!b->commandRecording());
+    QCOMPARE(r.recorder.targetName(), b->name());
+}
+
 void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed_data()
 {
     QTest::addColumn<QString>("state");
@@ -16192,6 +16487,9 @@ void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
     QVERIFY(Function::loader(reader, &r.doc));
     auto *restored = qobject_cast<Show *>(r.doc.function(showId));
     QVERIFY(restored);
+    // the restored Show binds once the Show Manager shows it again
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+    QVERIFY(r.recorder.setResolvedShow(showId));
     // bound again, to the restored object and its signals
     QVERIFY(r.recorder.isAuthoring());
     QCOMPARE(r.recorder.boundShowId(), showId);
@@ -16689,6 +16987,30 @@ bool clickDialogButton(QQuickView *window, QObject *dialog, int button)
     return clicked.count() == 1;
 }
 } // namespace
+
+void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
+{
+    AppRig rig;
+    QVERIFY(rig.recorder && rig.manager);
+    Scene *target = new Scene(rig.doc);
+    QVERIFY(rig.doc->addFunction(target));
+    Show *show = rig.addShow(0);
+    // a hold in progress whose release has no event id left: the track cannot be written
+    ShowCommand press = ShowCommand::setButtonState(1, 1000, QUuid::createUuid(), true);
+    press.role = ShowControlRole::FlashButton;
+    press.pairId = 1;
+    ShowCommandTrack track;
+    QVERIFY(track.insert(press));
+    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 500, target->id())));
+    QVERIFY(track.setExtent(6000));
+    QVERIFY(show->setCommandTrack(track));
+
+    // the save fails and leaves no file, instead of a file that loses the hold
+    QTemporaryDir dir;
+    const QString path = dir.filePath(QStringLiteral("refused.qxw"));
+    QVERIFY(!rig.app->saveWorkspace(path));
+    QVERIFY(!QFile::exists(path));
+}
 
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()
 {
@@ -17205,6 +17527,8 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain_data()
     QTest::newRow("after a gap, A still displayed") << true << QStringLiteral("A") << true;
     QTest::newRow("after a gap, B selected meanwhile") << true << QStringLiteral("B") << true;
     QTest::newRow("on the take the Show Manager displays") << false << QStringLiteral("A") << true;
+    // a bound take keeps its Show selected, whoever resolved it
+    QTest::newRow("B asked for while the take is on A") << false << QStringLiteral("B") << true;
     QTest::newRow("REC off") << true << QStringLiteral("B") << false;
 }
 
@@ -17235,25 +17559,27 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
         QCOMPARE(rig.recorder->phaseValue(), int(rec ? ShowRecordPhase::Armed : ShowRecordPhase::Off));
         QCOMPARE(rig.recorder->editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
     }
-    // while Perform is engaged a selection resolves nothing
+    // while Perform is engaged a selection resolves nothing, and a bound take refuses another Show
+    const bool refused = rec && !gap && selected != a;
+    Show *shown = refused ? a : selected;
     rig.manager->setCurrentShowID(int(selected->id()));
-    QCOMPARE(rig.manager->currentShowID(), int(selected->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(shown->id()));
     QCOMPARE(rig.recorder->boundShowId(), rec && !gap ? a->id() : quint32(Function::invalidId()));
 
     fsm->setPerformEnabled(false);
     QVERIFY(!rig.manager->readOnly());
     // the selection resolves again, and a take on it keeps it
-    QCOMPARE(rig.recorder->targetName(), selected->name());
+    QCOMPARE(rig.recorder->targetName(), shown->name());
     QCOMPARE(rig.recorder->isAuthoring(), rec);
-    QCOMPARE(rig.recorder->boundShowId(), rec ? selected->id() : quint32(Function::invalidId()));
-    QCOMPARE(selected->commandRecording(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? shown->id() : quint32(Function::invalidId()));
+    QCOMPARE(shown->commandRecording(), rec);
     QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
-    Show *other = selected == a ? b : a;
+    Show *other = shown == a ? b : a;
     rig.manager->setCurrentShowID(int(other->id()));
-    QCOMPARE(rig.manager->currentShowID(), int(rec ? selected->id() : other->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(rec ? shown->id() : other->id()));
     if (rec)
     {
-        rig.manager->setCurrentShowID(int(selected->id()));
+        rig.manager->setCurrentShowID(int(shown->id()));
         QCOMPARE(states.count(), 0);
     }
     QCOMPARE(rig.doc->masterTimer()->runningFunctions(), 0);
@@ -17263,14 +17589,25 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
 void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake_data()
 {
     QTest::addColumn<bool>("rec");
+    QTest::addColumn<QString>("reuse"); // what takes the deleted Show's id meanwhile
 
-    QTest::newRow("REC off") << false;
-    QTest::newRow("REC bound to it") << true;
+    for (bool rec : {false, true})
+    {
+        const QString state = rec ? QStringLiteral("REC bound to it") : QStringLiteral("REC off");
+        QTest::newRow(qPrintable(state)) << rec << QString();
+        // a Scene under the id is not the Show, and goes before the undo
+        QTest::newRow(qPrintable(state + QStringLiteral(", a Scene takes the id first"))) << rec
+                                                                                           << QStringLiteral("scene");
+        // another Show under the id is shown, and bound, as any shown Show
+        QTest::newRow(qPrintable(state + QStringLiteral(", another Show takes the id"))) << rec
+                                                                                          << QStringLiteral("show");
+    }
 }
 
 void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake()
 {
     QFETCH(bool, rec);
+    QFETCH(QString, reuse);
 
     AppRig rig;
     QVERIFY(rig.recorder && rig.manager);
@@ -17294,6 +17631,26 @@ void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake()
     QCOMPARE(rig.recorder->targetName(), QString());
     if (rec)
         QVERIFY2(rig.recorder->lastError().contains(QStringLiteral("Take A")), qPrintable(rig.recorder->lastError()));
+
+    if (reuse == QLatin1String("show"))
+    {
+        Show *another = rig.addShow(0);
+        QCOMPARE(another->id(), aId);
+        QCOMPARE(rig.manager->currentShow(), another);
+        QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));
+        QCOMPARE(another->commandRecording(), rec);
+        rig.recorder->setRecording(false);
+        return;
+    }
+    if (reuse == QLatin1String("scene"))
+    {
+        Scene *scene = new Scene(rig.doc);
+        QVERIFY(rig.doc->addFunction(scene));
+        QCOMPARE(scene->id(), aId);
+        QCOMPARE(rig.manager->currentShowID(), int(Function::invalidId()));
+        QCOMPARE(rig.recorder->boundShowId(), quint32(Function::invalidId()));
+        QVERIFY(rig.doc->deleteFunction(aId));
+    }
 
     // native undo brings it back under its id: shown again, and the take goes on in it
     QTest::qWait(200);

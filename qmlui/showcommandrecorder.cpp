@@ -272,8 +272,23 @@ quint32 ShowCommandRecorder::resolvableShowId(quint32 showId) const
 
 bool ShowCommandRecorder::dispatch(const ShowRecordEvent &event)
 {
+    if (m_dispatching)
+    {
+        // raised by an effect of the transition under way: after it, in order
+        m_queuedEvents.append(event);
+        return true;
+    }
+    const bool result = dispatchNow(event);
+    while (m_queuedEvents.isEmpty() == false)
+        dispatchNow(m_queuedEvents.takeFirst());
+    return result;
+}
+
+bool ShowCommandRecorder::dispatchNow(const ShowRecordEvent &event)
+{
     using Kind = ShowRecordEvent::Kind;
     using Effect = ShowRecordEffect::Kind;
+    QScopedValueRollback<bool> dispatching(m_dispatching, true);
     ShowRecordTransition step = ShowCommandFsm::record(m_rec, event);
     // named before an effect tracks another Show
     const QString take = m_trackedShow != nullptr ? m_trackedShow->name() : QString();
@@ -332,6 +347,7 @@ bool ShowCommandRecorder::dispatch(const ShowRecordEvent &event)
     {
         m_takeId++;
         emit stateChanged();
+        emit editGateChanged();
     }
     return saved && refused == false;
 }
@@ -1971,6 +1987,7 @@ void ShowCommandRecorder::reloadTrack()
 
     emit commandsChanged();
     emit targetNameChanged();
+    emit editGateChanged();
 }
 
 bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *show)
@@ -2064,7 +2081,8 @@ void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
         }
         return on;
     };
-    const ShowControlAction::Holds user{m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
+    ShowControlAction::Holds user{m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
+    user.unite(replayHoldsOfOthers(showId));
     for (ShowControlRole role : {ShowControlRole::FreezeHoldButton, ShowControlRole::FlashButton,
                                  ShowControlRole::AdjustSlider})
     {
@@ -2078,6 +2096,26 @@ void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
             replayHolds(showId, role)->remove(controlId);
         }
     }
+}
+
+ShowControlAction::Holds ShowCommandRecorder::replayHoldsOfOthers(quint32 showId) const
+{
+    ShowControlAction::Holds holds;
+    const auto collect = [this, showId](const QHash<quint32, QSet<QUuid>> &byShow, QSet<quint32> *into)
+    {
+        for (auto it = byShow.cbegin(); it != byShow.cend(); ++it)
+        {
+            if (it.key() == showId || m_vc == nullptr)
+                continue;
+            for (const QUuid &controlId : it.value())
+                for (VCWidget *widget : m_vc->widgetsByRecordingId(controlId))
+                    into->insert(widget->id());
+        }
+    };
+    collect(m_replayFreezeHolds, &holds.freeze);
+    collect(m_replayFlashButtons, &holds.flash);
+    collect(m_replaySliderFlashes, &holds.sliderFlash);
+    return holds;
 }
 
 QSet<quint32> *ShowCommandRecorder::userHolds(ShowControlRole role)
@@ -2545,6 +2583,7 @@ void ShowCommandRecorder::releaseReplayOwned(quint32 showId)
     state.flash = m_replayFlashButtons.value(showId);
     state.sliderFlash = m_replaySliderFlashes.value(showId);
     state.user = {m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
+    state.elsewhere = replayHoldsOfOthers(showId);
     if (m_userFreezeIntent.contains(showId))
         state.freezeIntent = m_userFreezeIntent.value(showId);
     if (m_userBlackoutIntent.contains(showId))

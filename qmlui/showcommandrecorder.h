@@ -149,7 +149,7 @@ class ShowCommandRecorder : public QObject
     Q_PROPERTY(QVariantList commands READ commands NOTIFY commandsChanged)
     Q_PROPERTY(QVariantList groups READ groups NOTIFY commandsChanged)
     Q_PROPERTY(int extent READ extent NOTIFY commandsChanged)
-    Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY targetNameChanged)
+    Q_PROPERTY(QString editBlockedReason READ editBlockedReason NOTIFY editGateChanged)
     Q_PROPERTY(int lastEditSerial READ lastEditSerial NOTIFY commandsChanged)
     Q_PROPERTY(bool editSessionActive READ editSessionActive NOTIFY editSessionChanged)
     Q_PROPERTY(QString editSessionEndReason READ editSessionEndReason NOTIFY editSessionChanged)
@@ -382,6 +382,8 @@ signals:
     void stateChanged();
     /** The tracked Show changed or was renamed */
     void targetNameChanged();
+    /** The tracked Show, or what resolves one, changed: editBlockedReason() may have */
+    void editGateChanged();
     void lastErrorChanged();
     void commandsChanged();
     void referencesChanged();
@@ -448,6 +450,9 @@ private:
     void reconcileReplayOwnedHoldsAtCursor(Show *show);
     /** Release the holds showId's replay owns and restore what its timeline changed */
     void releaseReplayOwned(quint32 showId);
+    /** The holds every other Show's replay keeps, as widget ids: releasing
+     *  showId's holds leaves a shared effect they hold alone */
+    ShowControlAction::Holds replayHoldsOfOthers(quint32 showId) const;
     /** The user's hold set for edges of role, nullptr for a role that holds nothing */
     QSet<quint32> *userHolds(ShowControlRole role);
     /** showId's replay hold set for edges of role, nullptr for a role that holds nothing */
@@ -508,9 +513,13 @@ private:
     /** The request being captured, for the entries it causes */
     const ShowControlRequest *m_tracedRequest = nullptr;
 
-    /** The one REC transition: ShowCommandFsm::record() and its effects.
-     *  False when a selection is refused or the take could not be saved. */
+    /** The one REC transition: ShowCommandFsm::record() and its effects. An
+     *  event an effect raises runs after them, in order. False when a
+     *  selection is refused or the take could not be saved. */
     bool dispatch(const ShowRecordEvent &event);
+    bool dispatchNow(const ShowRecordEvent &event);
+    bool m_dispatching = false;
+    QVector<ShowRecordEvent> m_queuedEvents;
     /** showId when it names a Show, InvalidId otherwise */
     quint32 resolvableShowId(quint32 showId) const;
 

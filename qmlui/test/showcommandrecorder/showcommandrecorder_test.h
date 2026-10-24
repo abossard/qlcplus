@@ -420,6 +420,8 @@ private slots:
     void replayedHold_historyEditReleasesIt();
     void replayedHold_releasedWhenAShowIsDeleted_data();
     void replayedHold_releasedWhenAShowIsDeleted();
+    void replayedHold_endSparesWhatOthersHold_data();
+    void replayedHold_endSparesWhatOthersHold();
     void recordingsEditor_holdPairPasteUndoRedoKeepsFreshPairIds();
     void patchedInput_recordsOnlyUserRoutes_data();
     void patchedInput_recordsOnlyUserRoutes();
@@ -436,6 +438,9 @@ private slots:
     void automaticShowChange_handsRecordingOver_data();
     void automaticShowChange_handsRecordingOver();
     void failedHandover_reasonOutlivesLaterInput();
+    void staleTarget_blocksOnlyItsOwnCommand_data();
+    void staleTarget_blocksOnlyItsOwnCommand();
+    void lifecycleEventRaisedByAnEffect_runsAfterIt();
     void manualShowSelection_lockedWhileArmed_data();
     void manualShowSelection_lockedWhileArmed();
     void boundShowDeletion_armsAndUndoRebinds_data();
@@ -444,6 +449,7 @@ private slots:
     void appPerform_handsRecordingOver();
     void appSave_checkpointsRecording_data();
     void appSave_checkpointsRecording();
+    void appSave_refusedWhenARecordingCannotBeWritten();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState_data();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState();
     void appReplacement_confirmsRecording_data();
@@ -454,6 +460,7 @@ private slots:
     void appRecordControls_followTargetRename();
     void appPerformEnd_selectionResolvesAgain_data();
     void appPerformEnd_selectionResolvesAgain();
+    void editGate_followsPerformEngagement();
     void appShowDeletion_undoRestoresSelectionAndTake_data();
     void appShowDeletion_undoRestoresSelectionAndTake();
     void appMcpReplacement_needsDiscardWhileRecording_data();

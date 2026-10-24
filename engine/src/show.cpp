@@ -981,10 +981,8 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
         commands = m_commandTrackSaveProjectionArmed ? m_commandTrackSaveProjection : m_commandTrack;
         m_commandTrackSaveProjectionArmed = false;
     }
-    // a file holds no hold in progress: one left open ends at the authored extent
-    commands.closeOpenHolds(commands.extent());
-    if (commands.isEmpty() == false || commands.extent() > 0)
-        commands.saveXML(doc);
+    if ((commands.isEmpty() == false || commands.extent() > 0) && commands.saveXML(doc) == false)
+        return false;
 
     /* End the <Function> tag */
     doc->writeEndElement();
@@ -1151,9 +1149,18 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
 
     if (m_trackIntensityChanged.exchange(false, std::memory_order_acq_rel))
     {
+        QVector<qreal> intensities;
+        {
+            QMutexLocker locker(&m_commandTrackMutex);
+            intensities = m_trackIntensities;
+        }
         int i = 0;
         foreach (Track *track, m_tracks)
-            m_runner->adjustIntensity(getAttributeValue(i++), track);
+        {
+            if (i < intensities.count())
+                m_runner->adjustIntensity(intensities.at(i), track);
+            i++;
+        }
     }
 
     const bool paused = isPaused();
@@ -1230,10 +1237,17 @@ void Show::slotChildStopped(quint32 fid)
 int Show::adjustAttribute(qreal fraction, int attributeId)
 {
     int attrIndex = Function::adjustAttribute(fraction, attributeId);
+    if (attrIndex < 0)
+        return attrIndex;
 
-    // the runner belongs to the timer thread: it takes the value at its next tick
-    if (attrIndex >= 0)
-        m_trackIntensityChanged.store(true, std::memory_order_release);
-
+    // the runner belongs to the timer thread: it takes the value at its next
+    // tick, from this copy, while the GUI goes on writing the attribute
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        while (m_trackIntensities.count() <= attrIndex)
+            m_trackIntensities.append(1.0);
+        m_trackIntensities[attrIndex] = getAttributeValue(attrIndex);
+    }
+    m_trackIntensityChanged.store(true, std::memory_order_release);
     return attrIndex;
 }

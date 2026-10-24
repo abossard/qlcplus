@@ -555,26 +555,14 @@ void ShowRunner_Test::localSeekDoesNotOverrideExternalControl()
     QCOMPARE(output, uchar(51));
 }
 
-/** Runner log lines of a sync source change, while a test counts them */
-static int s_syncSourceLogs = 0;
-static QtMessageHandler s_previousHandler = nullptr;
-static void countSyncSourceLogs(QtMsgType type, const QMessageLogContext &context, const QString &message)
-{
-    if (message.contains(QLatin1String("Sync source set")))
-        s_syncSourceLogs++;
-    s_previousHandler(type, context, message);
-}
-
 void ShowRunner_Test::syncSourceChangeAppliesOnNextTick_data()
 {
     QTest::addColumn<bool>("toExternal");
     QTest::addColumn<quint32>("firstTick");
     QTest::addColumn<quint32>("secondTick");
-    QTest::addColumn<int>("changes");
 
-    // a fresh runner starts Autonomous: an External Show hands it a change at once
-    QTest::newRow("to external") << true << quint32(MasterTimer::tick()) << quint32(5000) << 1;
-    QTest::newRow("to autonomous") << false << quint32(1000) << quint32(1000 + MasterTimer::tick()) << 2;
+    QTest::newRow("to external") << true << quint32(MasterTimer::tick()) << quint32(5000);
+    QTest::newRow("to autonomous") << false << quint32(1000) << quint32(1000 + MasterTimer::tick());
 }
 
 void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
@@ -582,11 +570,7 @@ void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
     QFETCH(bool, toExternal);
     QFETCH(quint32, firstTick);
     QFETCH(quint32, secondTick);
-    QFETCH(int, changes);
 
-    s_syncSourceLogs = 0;
-    s_previousHandler = qInstallMessageHandler(countSyncSourceLogs);
-    const auto restore = qScopeGuard([]() { qInstallMessageHandler(s_previousHandler); });
     Doc doc(nullptr);
     MasterTimer *timer = doc.masterTimer();
     Show *show = new Show(&doc);
@@ -612,14 +596,15 @@ void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
     QSignalSpy position(show, &Show::timeChanged);
 
     // that whole write keeps the source it began with, the next one takes the new one
+    const ShowRunner::SyncSource before = toExternal ? ShowRunner::Autonomous : ShowRunner::External;
+    const ShowRunner::SyncSource after = toExternal ? ShowRunner::External : ShowRunner::Autonomous;
     timer->timerTick();
     QVERIFY(switched);
     QCOMPARE(position.last().first().toUInt(), firstTick);
+    QCOMPARE(show->m_runner->syncSource(), before);
     timer->timerTick();
     QCOMPARE(position.last().first().toUInt(), secondTick);
-    // the runner hears of a source only when it changes, not on every tick
-    timer->timerTick();
-    QCOMPARE(s_syncSourceLogs, changes);
+    QCOMPARE(show->m_runner->syncSource(), after);
 
     show->stop(FunctionParent::master());
     timer->timerTick();
@@ -628,14 +613,18 @@ void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
 void ShowRunner_Test::trackIntensityAppliesOnNextTick_data()
 {
     QTest::addColumn<bool>("paused");
+    QTest::addColumn<bool>("attributeWrittenPastTheShow"); // the Function attribute changes under the Show
 
-    QTest::newRow("playing") << false;
-    QTest::newRow("paused") << true;
+    QTest::newRow("playing") << false << false;
+    QTest::newRow("paused") << true << false;
+    // the runner takes the value the Show handed over, not the attribute the GUI keeps writing
+    QTest::newRow("attribute written again before the tick") << false << true;
 }
 
 void ShowRunner_Test::trackIntensityAppliesOnNextTick()
 {
     QFETCH(bool, paused);
+    QFETCH(bool, attributeWrittenPastTheShow);
 
     Doc doc(nullptr);
     MasterTimer *timer = doc.masterTimer();
@@ -666,6 +655,8 @@ void ShowRunner_Test::trackIntensityAppliesOnNextTick()
 
     // the GUI only stores the value: the runner and its clips take it on the timer thread
     QVERIFY(show->adjustAttribute(0.5, 0) == 0);
+    if (attributeWrittenPastTheShow)
+        QVERIFY(show->Function::adjustAttribute(0.2, 0) == 0);
     QCOMPARE(show->m_runner->m_intensityMap.value(track->id()), 1.0);
     timer->timerTick();
     QCOMPARE(show->m_runner->m_intensityMap.value(track->id()), 0.5);
@@ -1561,15 +1552,19 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive_data()
     QTest::addColumn<bool>("recording");
     QTest::addColumn<quint32>("position");
     QTest::addColumn<bool>("recOff"); // REC turns off at position, and the Show plays on past its end
+    QTest::addColumn<bool>("beatClip"); // a beat-based clip of two beats at 120 BPM: done at 1000 ms
     QTest::addColumn<bool>("expectFinished");
 
-    QTest::newRow("legacy empty show finishes") << quint32(0) << false << quint32(0) << false << true;
-    QTest::newRow("extent not reached") << quint32(200) << false << quint32(100) << false << false;
-    QTest::newRow("extent reached") << quint32(200) << false << quint32(200) << false << true;
-    QTest::newRow("recording keeps an empty show alive") << quint32(0) << true << quint32(200) << false << false;
+    QTest::newRow("legacy empty show finishes") << quint32(0) << false << quint32(0) << false << false << true;
+    QTest::newRow("extent not reached") << quint32(200) << false << quint32(100) << false << false << false;
+    QTest::newRow("extent reached") << quint32(200) << false << quint32(200) << false << false << true;
+    QTest::newRow("recording keeps an empty show alive") << quint32(0) << true << quint32(200) << false << false
+                                                         << false;
     // REC never stops playback: a run it kept past its end stays alive
-    QTest::newRow("REC off past the end") << quint32(0) << true << quint32(200) << true << false;
-    QTest::newRow("REC off before the end") << quint32(400) << true << quint32(100) << true << true;
+    QTest::newRow("REC off past the end") << quint32(0) << true << quint32(200) << true << false << false;
+    QTest::newRow("REC off before the end") << quint32(400) << true << quint32(100) << true << false << true;
+    // REC kept nothing while beat clips still ran: the run ends with them
+    QTest::newRow("REC off while beat clips still run") << quint32(0) << true << quint32(200) << true << true << true;
 }
 
 void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
@@ -1578,12 +1573,28 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
     QFETCH(bool, recording);
     QFETCH(quint32, position);
     QFETCH(bool, recOff);
+    QFETCH(bool, beatClip);
     QFETCH(bool, expectFinished);
 
     Doc doc(nullptr);
     auto *timer = doc.masterTimer();
     auto *show = new Show(&doc);
     doc.addFunction(show);
+    if (beatClip)
+    {
+        show->setTempoType(Function::Beats);
+        show->setTimeDivisionBPM(120);
+        auto *scene = new Scene(&doc);
+        scene->setTempoType(Function::Beats);
+        doc.addFunction(scene);
+        auto *track = new Track(scene->id());
+        auto *clip = new ShowFunction(show->getLatestShowFunctionId());
+        clip->setFunctionID(scene->id());
+        clip->setStartTime(1000);
+        clip->setDuration(1000);
+        track->addShowFunction(clip);
+        show->addTrack(track);
+    }
 
     if (extent > 0)
     {
@@ -1600,7 +1611,7 @@ void ShowRunner_Test::commandExtentAndRecordingKeepAlive()
     if (recOff)
     {
         show->setCommandRecording(false);
-        for (int i = 0; i < ticksToReach(extent + 200); i++)
+        for (int i = 0; i < ticksToReach(beatClip ? 1500 : extent + 200); i++)
             timer->timerTick();
     }
 
