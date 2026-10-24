@@ -15088,6 +15088,8 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
             show = qobject_cast<Show *>(doc.function(showId));
             QVERIFY(show);
             show->setSyncSource(ShowRunner::External);
+            // the Show Manager shows it again
+            QVERIFY(recorder.setResolvedShow(showId));
         }
         tickAndDeliver(&doc);
     }
@@ -16430,6 +16432,9 @@ void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
     QVERIFY(Function::loader(reader, &r.doc));
     auto *restored = qobject_cast<Show *>(r.doc.function(showId));
     QVERIFY(restored);
+    // the restored Show binds once the Show Manager shows it again
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+    QVERIFY(r.recorder.setResolvedShow(showId));
     // bound again, to the restored object and its signals
     QVERIFY(r.recorder.isAuthoring());
     QCOMPARE(r.recorder.boundShowId(), showId);
@@ -17556,14 +17561,25 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
 void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake_data()
 {
     QTest::addColumn<bool>("rec");
+    QTest::addColumn<QString>("reuse"); // what takes the deleted Show's id meanwhile
 
-    QTest::newRow("REC off") << false;
-    QTest::newRow("REC bound to it") << true;
+    for (bool rec : {false, true})
+    {
+        const QString state = rec ? QStringLiteral("REC bound to it") : QStringLiteral("REC off");
+        QTest::newRow(qPrintable(state)) << rec << QString();
+        // a Scene under the id is not the Show, and goes before the undo
+        QTest::newRow(qPrintable(state + QStringLiteral(", a Scene takes the id first"))) << rec
+                                                                                           << QStringLiteral("scene");
+        // another Show under the id is shown, and bound, as any shown Show
+        QTest::newRow(qPrintable(state + QStringLiteral(", another Show takes the id"))) << rec
+                                                                                          << QStringLiteral("show");
+    }
 }
 
 void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake()
 {
     QFETCH(bool, rec);
+    QFETCH(QString, reuse);
 
     AppRig rig;
     QVERIFY(rig.recorder && rig.manager);
@@ -17587,6 +17603,26 @@ void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake()
     QCOMPARE(rig.recorder->targetName(), QString());
     if (rec)
         QVERIFY2(rig.recorder->lastError().contains(QStringLiteral("Take A")), qPrintable(rig.recorder->lastError()));
+
+    if (reuse == QLatin1String("show"))
+    {
+        Show *another = rig.addShow(0);
+        QCOMPARE(another->id(), aId);
+        QCOMPARE(rig.manager->currentShow(), another);
+        QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));
+        QCOMPARE(another->commandRecording(), rec);
+        rig.recorder->setRecording(false);
+        return;
+    }
+    if (reuse == QLatin1String("scene"))
+    {
+        Scene *scene = new Scene(rig.doc);
+        QVERIFY(rig.doc->addFunction(scene));
+        QCOMPARE(scene->id(), aId);
+        QCOMPARE(rig.manager->currentShowID(), int(Function::invalidId()));
+        QCOMPARE(rig.recorder->boundShowId(), quint32(Function::invalidId()));
+        QVERIFY(rig.doc->deleteFunction(aId));
+    }
 
     // native undo brings it back under its id: shown again, and the take goes on in it
     QTest::qWait(200);

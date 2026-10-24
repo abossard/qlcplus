@@ -2327,12 +2327,15 @@ void ShowCommandTrack_Test::recordTransitions_data()
     // deletion and its undo
     row("deleting the bound Show arms", "rec m=1", "removed 1", true, "rec m=1x", armed, false,
         "drop 1, track -, report 1");
-    row("undo of that deletion binds again", "rec m=1x", "restored 1", true, "rec m=1", bound, false,
+    // the Show Manager shows a restored Show again itself; nothing shows Perform's again
+    row("undo of that deletion alone binds nothing", "rec m=1x", "restored 1", true, "rec m=1x", armed, false, "");
+    row("the Show Manager shows the restored Show again", "rec m=1x", "manual 1", true, "rec m=1", bound, false,
         "track 1, on 1");
+    row("undo of a deletion binds Perform's Show again", "rec m=1 p=2x", "restored 2", true, "rec m=1 p=2", bound,
+        false, "track 2, on 2");
     row("deleting the tracked Show while off", "off m=1", "removed 1", true, "off m=1x", off, false,
         "drop 1, track -");
-    row("restoring the tracked Show while off", "off m=1x", "restored 1", true, "off m=1", off, false,
-        "track 1");
+    row("restoring the tracked Show while off", "off m=1x", "restored 1", true, "off m=1x", off, false, "");
     row("deleting another Show drops only its input", "rec m=1", "removed 2", true, "rec m=1", bound, false,
         "drop 2");
     row("deleting the Show Perform resolved arms", "rec m=1 p=2", "removed 2", true, "rec m=1 p=2x", armed, false,

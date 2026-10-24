@@ -1938,14 +1938,18 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
             next.perform.reset();
         break;
         case Kind::Removed:
-        case Kind::Restored:
             for (ShowRecordSelection *selection : { &next.manual, next.perform ? &*next.perform : nullptr })
             {
                 if (selection != nullptr && selection->showId == event.showId)
-                    selection->removed = event.kind == Kind::Removed;
+                    selection->removed = true;
             }
-            if (event.kind == Kind::Removed)
-                result.effects.append({ Effect::DropUnpublished, event.showId });
+            result.effects.append({ Effect::DropUnpublished, event.showId });
+        break;
+        case Kind::Restored:
+            // the Show Manager selects a restored Show again itself; Perform's
+            // Show, which nothing resolves again, rebinds here
+            if (next.perform && next.perform->showId == event.showId)
+                next.perform->removed = false;
         break;
         case Kind::Discard:
             next.recording = false;

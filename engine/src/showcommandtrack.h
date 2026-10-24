@@ -516,7 +516,7 @@ enum class ShowRecordSource : quint8
 };
 
 /** The Show one source names. A deleted Show stays named, unresolved, until
- *  it is restored or the source names another. */
+ *  the source names one again, Perform's also when it is restored. */
 struct ShowRecordSelection
 {
     quint32 showId = ShowCommand::InvalidId;
@@ -559,7 +559,7 @@ struct ShowRecordEvent
         Resolved,     //!< source resolved showId, InvalidId for none
         PerformEnded, //!< Perform disengaged: the manual selection resolves again
         Removed,      //!< showId was deleted
-        Restored,     //!< showId exists again, e.g. by undo of its deletion
+        Restored,     //!< a Show exists again under showId, e.g. by undo of its deletion
         Discard       //!< the workspace is replaced: nothing of it carries over
     };
     Kind kind = Kind::Rec;
