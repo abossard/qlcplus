@@ -1005,14 +1005,16 @@ void VCEditor_Test::editKeys_data()
     QTest::addColumn<int>("key");
     QTest::addColumn<int>("modifiers");
     QTest::addColumn<int>("lastClicked"); // what was clicked last in another view
-    QTest::addColumn<bool>("editor");     // a Function editor is open in the side panel
-    QTest::newRow("cut") << int(Qt::Key_X) << int(Qt::ControlModifier) << int(App::NoDragItem) << false;
-    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier) << int(App::NoDragItem) << false;
-    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier) << int(App::NoDragItem) << false;
-    QTest::newRow("delete") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << false;
-    QTest::newRow("delete-after-function") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::FunctionDragItem) << false;
-    QTest::newRow("backspace") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem) << false;
-    QTest::newRow("delete-in-function-editor") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << true;
+    QTest::addColumn<QString>("editor");  // a Scene editor "shown" in the side panel, or "hidden" elsewhere
+    QTest::newRow("cut") << int(Qt::Key_X) << int(Qt::ControlModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("delete") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("delete-after-function") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::FunctionDragItem) << QString();
+    QTest::newRow("backspace") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("delete-editor-shown") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "shown";
+    QTest::newRow("backspace-editor-shown") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem) << "shown";
+    QTest::newRow("delete-editor-hidden") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "hidden";
 }
 
 void VCEditor_Test::editKeys()
@@ -1020,31 +1022,46 @@ void VCEditor_Test::editKeys()
     QFETCH(int, key);
     QFETCH(int, modifiers);
     QFETCH(int, lastClicked);
-    QFETCH(bool, editor);
+    QFETCH(QString, editor);
     const ConsoleIds ids = buildConsole();
     auto *contexts = qobject_cast<ContextManager *>(
         m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
     contexts->setLastClickedType(lastClicked);
     auto *functions = qobject_cast<FunctionManager *>(
         m_app->rootContext()->contextProperty("functionManager").value<QObject *>());
-    std::unique_ptr<QObject> editorItem;
-    if (editor)
+    QObject *panel = rightPanel();
+    std::unique_ptr<QObject> hiddenEditor;
+    if (!editor.isEmpty())
     {
         auto *scene = new Scene(m_app->doc());
         QVERIFY(m_app->doc()->addFunction(scene));
         functions->setEditorFunction(scene->id(), false, false);
-        // stands in for the Scene editor QML, which the side panel would load
-        QQmlComponent component(m_app->engine());
-        component.setData("import QtQuick\nItem { objectName: \"sceneEditorRoot\"; property int deletions: 0;"
-                          " function deleteSelectedItems() { deletions++ } }", QUrl());
-        editorItem.reset(component.create());
-        QVERIFY2(editorItem, qPrintable(component.errorString()));
-        editorItem->setParent(m_app->rootObject());
+        if (editor == "shown")
+        {
+            // as the side panel opens the editor of a Function from its list
+            panel->setProperty("itemID", int(scene->id()));
+            panel->setProperty("loaderSource", functions->getEditorResource(scene->id()));
+            QVERIFY(QMetaObject::invokeMethod(panel, "animatePanel", Q_ARG(QVariant, true)));
+            QTRY_VERIFY(panel->property("isOpen").toBool());
+        }
+        else
+        {
+            // like a Scene editor left open in Fixtures & Functions, out of sight
+            QQmlComponent component(m_app->engine());
+            component.setData("import QtQuick\nItem { objectName: \"sceneEditorRoot\"; property int deletions: 0;"
+                              " function deleteSelectedItems() { deletions++ } }", QUrl());
+            hiddenEditor.reset(component.create());
+            QVERIFY2(hiddenEditor, qPrintable(component.errorString()));
+            hiddenEditor->setParent(m_app->rootObject());
+        }
     }
     const auto closeEditor = qScopeGuard([&]() {
-        editorItem.reset();
-        if (editor)
+        hiddenEditor.reset();
+        if (!editor.isEmpty())
+        {
+            QMetaObject::invokeMethod(panel, "animatePanel", Q_ARG(QVariant, false));
             functions->setEditorFunction(Function::invalidId(), false, false);
+        }
     });
     m_app->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(m_app.get()));
@@ -1054,11 +1071,15 @@ void VCEditor_Test::editKeys()
     const int widgets = vc()->page(0)->children(false).size();
 
     QTest::keyClick(m_app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
-    if (editor)
+    if (editor == "shown")
     {
-        // the open editor deletes its own selection, the console keeps its widgets
-        QCOMPARE(editorItem->property("deletions").toInt(), 1);
+        // the editor asks about its own selection, the console keeps its widgets
+        QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 1);
         QVERIFY(vc()->widget(ids.loose) != nullptr);
+        for (QObject *object : m_app->rootObject()->findChildren<QObject *>())
+            if (object->inherits("QQuickPopup") && object->property("visible").toBool())
+                QMetaObject::invokeMethod(object, "close");
+        QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
     }
     else if (key == Qt::Key_X || key == Qt::Key_C)
         QCOMPARE(vc()->clipboardItemsList(), QVariantList{ids.loose});
@@ -1066,6 +1087,8 @@ void VCEditor_Test::editKeys()
         QCOMPARE(vc()->page(0)->children(false).size(), widgets + 1);
     else
         QVERIFY(vc()->widget(ids.loose) == nullptr);
+    if (hiddenEditor)
+        QCOMPARE(hiddenEditor->property("deletions").toInt(), 0);
     // no question about deleting what was selected in another view
     QCOMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
     contexts->setLastClickedType(App::NoDragItem);

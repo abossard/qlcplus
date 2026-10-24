@@ -27,6 +27,7 @@
 #include "monitorproperties.h"
 #include "genericdmxsource.h"
 #include "functionmanager.h"
+#include "functioneditor.h"
 #include "fixturemanager.h"
 #include "qlcfixturemode.h"
 #include "qlccapability.h"
@@ -577,18 +578,24 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
         }
     }
 
-    // The Virtual Console deletes its own selection, never what was last
-    // clicked in another view. A Function editor open in its side panel
-    // deletes what is selected there, and the console then leaves the key alone
-    if (e->key() == Qt::Key_Delete && currentContext() == "VC")
+    // A Function editor shown in the Virtual Console side panel deletes what
+    // is selected there, and the console then leaves its own selection alone
+    if ((e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace) && currentContext() == "VC")
     {
-        if (m_editingEnabled && m_functionManager->deleteCurrentEditorItems())
+        QObject *panel = m_view->rootObject()->findChild<QObject *>("vcFunctionsPane");
+        FunctionEditor *editor = m_functionManager->currentEditor();
+        if (m_editingEnabled && editor && panel && panel->property("isOpen").toBool() &&
+            panel->property("loaderSource").toString() == m_functionManager->getEditorResource(editor->functionID()) &&
+            m_functionManager->deleteCurrentEditorItems())
+        {
             e->accept();
-        return;
+            return;
+        }
     }
 
-    // 'Delete' key has its own handling
-    if (e->key() == Qt::Key_Delete)
+    // 'Delete' key has its own handling. The Virtual Console deletes its own
+    // selection, never what was last clicked in another view
+    if (e->key() == Qt::Key_Delete && currentContext() != "VC")
     {
         // When a Function editor is open, the selection belongs to the editor
         // (e.g. the Scene Editor fixture list or the EFX Editor head list), so
