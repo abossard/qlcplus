@@ -1314,6 +1314,30 @@ void VCEditor_Test::widgetMatrix()
     QCOMPARE(vc()->page(0)->children(false), before);
 }
 
+void VCEditor_Test::arrangeNoOpMakesNoHistory_data()
+{
+    QTest::addColumn<QVariantMap>("first");
+    QTest::addColumn<QVariantMap>("second");
+    QTest::newRow("free-stays-free") << QVariantMap{{"mode", 0}} << QVariantMap{{"mode", 0}, {"gap", 5}};
+    QTest::newRow("same-again") << QVariantMap{{"mode", int(GridLayout::ArrangeMode::Flow)}}
+                                << QVariantMap{{"mode", int(GridLayout::ArrangeMode::Flow)}};
+}
+
+void VCEditor_Test::arrangeNoOpMakesNoHistory()
+{
+    QFETCH(QVariantMap, first);
+    QFETCH(QVariantMap, second);
+    const ConsoleIds ids = buildConsole();
+    QVERIFY(vc()->editor()->arrangeFrame(ids.frame, first).value("accepted").toBool());
+    settleHistory();
+    const int steps = Tardis::instance()->m_history.count();
+
+    // an undo step that changes nothing visible would make the next undo look broken
+    QVERIFY(vc()->editor()->arrangeFrame(ids.frame, second).value("accepted").toBool());
+    settleHistory();
+    QCOMPARE(Tardis::instance()->m_history.count(), steps);
+}
+
 void VCEditor_Test::newWorkspaceForgetsArrangement()
 {
     buildConsole();

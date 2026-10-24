@@ -63,6 +63,8 @@ private slots:
     void arrangePanel();
     void widgetMatrix_data();
     void widgetMatrix();
+    void arrangeNoOpMakesNoHistory_data();
+    void arrangeNoOpMakesNoHistory();
     void newWorkspaceForgetsArrangement();
     void arrangeSettingsPersist();
     void framePageVisibility_data();

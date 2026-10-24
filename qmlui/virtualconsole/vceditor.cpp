@@ -448,6 +448,9 @@ QVariantMap VCEditor::arrangeFrame(quint32 frameID, QVariantMap settings)
     if (spec.mode < GridLayout::ArrangeMode::None || spec.mode > GridLayout::ArrangeMode::Flow ||
         spec.gap < 0 || spec.columns < 1)
         return m_vc->editResult(false, false, tr("Invalid arrangement"));
+    // a frame left free stays free whatever the settings: nothing to record
+    if (spec.mode == GridLayout::ArrangeMode::None && old.mode == GridLayout::ArrangeMode::None)
+        return m_vc->editResult(true, false, {});
 
     // the children are placed and checked before anything changes
     QMap<quint32, QRectF> rectangles {{frame->id(), frame->logicalGeometry()}};
@@ -457,6 +460,10 @@ QVariantMap VCEditor::arrangeFrame(quint32 frameID, QVariantMap settings)
         error = m_vc->geometryError(rectangles);
     if (!error.isEmpty())
         return m_vc->editResult(false, false, error);
+
+    // the same arrangement again only moves children that strayed
+    if (VCArrangement::toMap(spec) == VCArrangement::toMap(old))
+        return rectangles.isEmpty() ? m_vc->editResult(true, false, {}) : m_vc->commitGeometry(rectangles);
 
     Tardis::instance()->beginBatch("arrangeFrame");
     Tardis::instance()->enqueueAction(Tardis::VCEditorAction, frame->id(),
