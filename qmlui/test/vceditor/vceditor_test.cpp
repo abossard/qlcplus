@@ -878,6 +878,53 @@ void VCEditor_Test::geometryFields()
     checkScreenshot("panel");
 }
 
+QPoint VCEditor_Test::widgetCenter(quint32 id) const
+{
+    QQuickItem *item = vc()->widget(id)->renderItem();
+    return item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
+}
+
+void VCEditor_Test::editKeys_data()
+{
+    QTest::addColumn<int>("key");
+    QTest::addColumn<int>("modifiers");
+    QTest::addColumn<int>("lastClicked"); // what was clicked last in another view
+    QTest::newRow("cut") << int(Qt::Key_X) << int(Qt::ControlModifier) << int(App::NoDragItem);
+    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier) << int(App::NoDragItem);
+    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier) << int(App::NoDragItem);
+    QTest::newRow("delete") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem);
+    QTest::newRow("delete-after-function") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::FunctionDragItem);
+    QTest::newRow("backspace") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem);
+}
+
+void VCEditor_Test::editKeys()
+{
+    QFETCH(int, key);
+    QFETCH(int, modifiers);
+    QFETCH(int, lastClicked);
+    const ConsoleIds ids = buildConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    contexts->setLastClickedType(lastClicked);
+    m_app->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(m_app.get()));
+    QTRY_VERIFY(vc()->widget(ids.loose)->renderItem());
+    QTest::mouseClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, widgetCenter(ids.loose));
+    QCOMPARE(vc()->selectedWidgetIDs(), QVariantList{ids.loose});
+    const int widgets = vc()->page(0)->children(false).size();
+
+    QTest::keyClick(m_app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
+    if (key == Qt::Key_X || key == Qt::Key_C)
+        QCOMPARE(vc()->clipboardItemsList(), QVariantList{ids.loose});
+    else if (key == Qt::Key_D)
+        QCOMPARE(vc()->page(0)->children(false).size(), widgets + 1);
+    else
+        QVERIFY(vc()->widget(ids.loose) == nullptr);
+    // no question about deleting what was selected in another view
+    QCOMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
+    contexts->setLastClickedType(App::NoDragItem);
+}
+
 void VCEditor_Test::frameCheckboxes_data()
 {
     QTest::addColumn<QString>("property");

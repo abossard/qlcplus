@@ -43,6 +43,9 @@ Rectangle
             if (event.key === Qt.Key_C) {
                 virtualConsole.copyToClipboard()
                 event.accepted = true
+            } else if (event.key === Qt.Key_X) {
+                virtualConsole.cutToClipboard()
+                event.accepted = true
             } else if (event.key === Qt.Key_V) {
                 virtualConsole.pasteFromClipboard()
                 event.accepted = true
