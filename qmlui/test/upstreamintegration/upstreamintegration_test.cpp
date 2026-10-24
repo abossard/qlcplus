@@ -351,6 +351,14 @@ OutlineRoutePlugin *installOutlineRoutePlugin(Doc *doc, const QString &name)
 }
 }
 
+/** A refused save opens the modal save error popup; a test that refuses one on purpose closes it */
+static void closeSaveErrorPopup(QQuickItem *root)
+{
+    QObject *popup = root ? root->findChild<QObject *>(QStringLiteral("saveErrorPopup")) : nullptr;
+    if (popup)
+        QMetaObject::invokeMethod(popup, "close");
+}
+
 void UpstreamIntegration_Test::vcCanonicalGeometry_data()
 {
     QTest::addColumn<qreal>("scale");
@@ -3722,6 +3730,7 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
     m_app->doc()->setModified();
     const QJsonObject beforeFailedSave = receipt();
     QVERIFY(!m_app->saveWorkspace(QDir(artifactDirectory).filePath("missing-parent/failed.qxw")));
+    closeSaveErrorPopup(m_app->rootObject());
     QVERIFY(m_app->doc()->isModified());
     QCOMPARE(canonical(receipt()), persisted);
     const QJsonObject afterFailedSave = receipt();
@@ -4182,6 +4191,7 @@ void UpstreamIntegration_Test::vcWorkspacePersistence()
         QCOMPARE(vc->widget(vc->page(index)->id()), vc->page(index));
     m_app->doc()->setModified();
     QVERIFY(m_app->saveXML(files.filePath("missing-parent/failed.qxw")) != QFile::NoError);
+    closeSaveErrorPopup(m_app->rootObject());
     QVERIFY(m_app->doc()->isModified());
 }
 
