@@ -35,6 +35,11 @@ private slots:
     void positionIsTrackedAndThrottled();
     void playBeforeFilepathIsRecovered();
     void playAcceptsBoolAndNumericForms();
+    void perDeckMasterdeckDrivesActiveDeck_data();
+    void perDeckMasterdeckDrivesActiveDeck();
+    void loadedOffEmptiesDeck();
+    void disconnectDropsActiveDeckFirst();
+    void titleAfterFilepathChangesActiveSong();
 };
 
 #endif // DJFSM_TEST_H

@@ -91,18 +91,24 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
     bool changed = false;
     const bool prevPlaying = s.deck.playing;
 
-    if (trigger == QLatin1String("get_filepath"))
+    if (trigger == QLatin1String("masterdeck"))
+    {
+        if (triggerIsOn(value))
+            onMasterDeck(deck);
+        return;
+    }
+    else if (trigger == QLatin1String("loaded"))
+    {
+        if (!triggerIsOn(value))
+            emptyDeck(s, deck);
+        return;
+    }
+    else if (trigger == QLatin1String("get_filepath"))
     {
         const QString path = value.toString();
         if (path.isEmpty())
         {
-            if (song.isValid() || s.deck.state != DeckState::Empty)
-            {
-                resetSlot(s, deck);
-                emit deckChanged(deck);
-                if (deck == m_activeDeck)
-                    recomputeActiveSong();
-            }
+            emptyDeck(s, deck);
             return;
         }
         if (path != song.filepath)
@@ -165,32 +171,12 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
             changed = true;
         }
     }
-    else if (trigger == QLatin1String("get_album"))
-    {
-        song.album = value.toString();
-    }
-    else if (trigger == QLatin1String("get_genre"))
-    {
-        song.genre = value.toString();
-    }
-    else if (trigger == QLatin1String("get_firstbeat"))
-    {
-        bool ok = false;
-        const double fb = value.toDouble(&ok);
-        if (ok)
-            song.firstBeat = fb;
-    }
     else if (trigger == QLatin1String("get_time total"))
     {
         bool ok = false;
         const double ms = value.toDouble(&ok);
         if (ok && ms > 0.0)
             song.totalMs = static_cast<int>(ms); // VDJ sends milliseconds (verified from live telemetry)
-    }
-    else if (trigger == QLatin1String("loaded"))
-    {
-        const bool loaded = triggerIsOn(value);
-        if (s.deck.loaded != loaded) { s.deck.loaded = loaded; changed = true; }
     }
     else if (trigger == QLatin1String("play"))
     {
@@ -213,13 +199,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         {
             s.deck.volume = v; // store fine value without a visible refresh
         }
-    }
-    else if (trigger == QLatin1String("level"))
-    {
-        bool ok = false;
-        const double v = value.toDouble(&ok);
-        if (ok)
-            s.deck.level = v; // continuous metering, no visible refresh
     }
     else if (trigger == QLatin1String("get_beatpos"))
     {
@@ -284,18 +263,18 @@ void DjFsm::onMasterDeck(int deck)
 
 void DjFsm::onDisconnected()
 {
+    // no active deck first: nothing reads the emptied decks as the active one
+    if (m_activeDeck != 0)
+    {
+        m_activeDeck = 0;
+        emit activeDeckChanged(0);
+        recomputeActiveSong();
+    }
     for (int i = 0; i < MaxDecks; ++i)
     {
         resetSlot(m_slots[i], i + 1);
         emit deckChanged(i + 1);
     }
-
-    if (m_activeDeck != 0)
-    {
-        m_activeDeck = 0;
-        emit activeDeckChanged(0);
-    }
-    recomputeActiveSong();
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -344,10 +323,8 @@ void DjFsm::resetSlot(Slot &s, int deck1)
 {
     s.deck.state   = DeckState::Empty;
     s.deck.song    = DeckSong{};
-    s.deck.loaded  = false;
     s.deck.playing = false;
     s.deck.volume  = 0.0;
-    s.deck.level   = 0.0;
     s.deck.beatPos = 0.0;
     s.deck.elapsedMs = 0;
     s.deck.remainingMs = 0;
@@ -361,6 +338,16 @@ void DjFsm::resetSlot(Slot &s, int deck1)
     s.posEmitBeatQ  = -1000;
 }
 
+void DjFsm::emptyDeck(Slot &s, int deck1)
+{
+    if (!s.deck.song.isValid() && s.deck.state == DeckState::Empty)
+        return;
+    resetSlot(s, deck1);
+    emit deckChanged(deck1);
+    if (deck1 == m_activeDeck)
+        recomputeActiveSong();
+}
+
 void DjFsm::clearStaleMetadata(Slot &s)
 {
     DeckSong &song = s.deck.song;
@@ -371,12 +358,9 @@ void DjFsm::clearStaleMetadata(Slot &s)
     if (!(s.freshMask & F_Bpm))    { song.bpm = 0.0;      s.gotMask &= ~F_Bpm; }
 
     // Optional display-only fields carry no freshness bit; clear them so a new
-    // song never shows the previous song's key/album/etc. They re-arrive within
-    // the same burst if VirtualDJ sends them.
-    song.album.clear();
-    song.genre.clear();
+    // song never shows the previous song's key. They re-arrive within the
+    // same burst if VirtualDJ sends them.
     song.key.clear();
-    song.firstBeat = 0.0;
     song.totalMs   = 0;
 }
 
@@ -443,9 +427,10 @@ void DjFsm::maybeEmitPosition(Slot &s, int deck1)
 
 void DjFsm::recomputeActiveSong()
 {
-    const QString fp = activeSong().filepath;
-    if (fp == m_activeFilepath)
+    const DeckSong song = activeSong();
+    const QString key = song.filepath + QLatin1Char('\n') + song.title;
+    if (key == m_activeSongKey)
         return;
-    m_activeFilepath = fp;
+    m_activeSongKey = key;
     emit activeSongChanged();
 }

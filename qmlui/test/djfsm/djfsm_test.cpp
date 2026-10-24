@@ -388,4 +388,101 @@ void DjFsm_Test::playAcceptsBoolAndNumericForms()
     QVERIFY(fsm.deckAt(0).playing);
 }
 
+void DjFsm_Test::perDeckMasterdeckDrivesActiveDeck_data()
+{
+    QTest::addColumn<QString>("flags");    // "deck:on|off;..." as VDJ streams them in one tick
+    QTest::addColumn<int>("activeDeck");
+    QTest::addColumn<int>("changes");
+
+    // measured on VDJ 8.5: at a handover the old master sends off and the new one on
+    QTest::newRow("snapshot: deck 1 master") << "1:on;2:off" << 1 << 1;
+    QTest::newRow("handover to deck 2") << "1:on;1:off;2:on" << 2 << 2;
+    QTest::newRow("back to deck 1") << "1:on;1:off;2:on;2:off;1:on" << 1 << 3;
+    QTest::newRow("off alone keeps the master") << "1:on;1:off" << 1 << 1;
+    QTest::newRow("phantom deck 3 is ignored") << "1:on;3:on" << 1 << 1;
+    QTest::newRow("numeric and boolean forms") << "2:1;1:true" << 1 << 2;
+}
+
+void DjFsm_Test::perDeckMasterdeckDrivesActiveDeck()
+{
+    QFETCH(QString, flags);
+    QFETCH(int, activeDeck);
+    QFETCH(int, changes);
+
+    DjFsm fsm;
+    loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
+    loadSong(fsm, 2, "/music/b.mp3", "Song B", "Artist B", 128.0);
+    QSignalSpy activeSpy(&fsm, &DjFsm::activeDeckChanged);
+
+    for (const QString &flag : flags.split(';'))
+    {
+        const QStringList parts = flag.split(':');
+        const QString value = parts.at(1);
+        fsm.onDeckTrigger(parts.at(0).toInt(), "masterdeck",
+                          value == "1" ? QVariant(1.0) : value == "true" ? QVariant(true) : QVariant(value));
+    }
+    QCOMPARE(fsm.activeDeck(), activeDeck);
+    QCOMPARE(fsm.activeSong().filepath, activeDeck == 1 ? QString("/music/a.mp3") : QString("/music/b.mp3"));
+    QCOMPARE(activeSpy.count(), changes);
+}
+
+void DjFsm_Test::loadedOffEmptiesDeck()
+{
+    // VDJ's eject sends no empty get_filepath: only loaded off, a placeholder
+    // title and get_bpm 120
+    DjFsm fsm;
+    loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
+    fsm.onDeckTrigger(1, "play", "on");
+    fsm.onDeckTrigger(1, "get_time elapsed absolute", 50000.0);
+    QSignalSpy deckSpy(&fsm, &DjFsm::deckChanged);
+
+    fsm.onDeckTrigger(1, "loaded", "off");
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Empty);
+    QVERIFY(!fsm.deckAt(0).song.isValid());
+    QVERIFY(!fsm.deckAt(0).playing);
+    QCOMPARE(deckSpy.count(), 1);
+    fsm.onDeckTrigger(1, "get_title", "Drag a song on this deck to load it");
+    fsm.onDeckTrigger(1, "get_bpm", 120.0);
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Empty);
+
+    // loaded off on an empty deck (the snapshot of an empty deck) is silent,
+    // loaded on changes nothing by itself
+    const int notified = deckSpy.count();
+    fsm.onDeckTrigger(1, "loaded", "off");
+    fsm.onDeckTrigger(1, "loaded", "on");
+    QCOMPARE(deckSpy.count(), notified);
+    QCOMPARE(fsm.deckAt(0).state, DjFsm::DeckState::Empty);
+}
+
+void DjFsm_Test::disconnectDropsActiveDeckFirst()
+{
+    DjFsm fsm;
+    loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
+    fsm.onMasterDeck(1);
+
+    // whoever hears a deck change sees no active deck any more
+    QList<int> activeAtDeckChange;
+    connect(&fsm, &DjFsm::deckChanged, &fsm, [&]() { activeAtDeckChange << fsm.activeDeck(); });
+    fsm.onDisconnected();
+    QCOMPARE(activeAtDeckChange, QList<int>({ 0, 0, 0, 0 }));
+}
+
+void DjFsm_Test::titleAfterFilepathChangesActiveSong()
+{
+    DjFsm fsm;
+    fsm.onMasterDeck(1);
+    QSignalSpy activeSongSpy(&fsm, &DjFsm::activeSongChanged);
+
+    // filepath-first order: the header shows the title once it arrives
+    fsm.onDeckTrigger(1, "get_filepath", "/music/a.mp3");
+    QCOMPARE(activeSongSpy.count(), 1);
+    fsm.onDeckTrigger(1, "get_title", "Song A");
+    QCOMPARE(activeSongSpy.count(), 2);
+    QCOMPARE(fsm.activeSong().title, QString("Song A"));
+    // the rest of the burst is not a song change
+    fsm.onDeckTrigger(1, "get_artist", "Artist A");
+    fsm.onDeckTrigger(1, "get_bpm", 120.0);
+    QCOMPARE(activeSongSpy.count(), 2);
+}
+
 QTEST_MAIN(DjFsm_Test)

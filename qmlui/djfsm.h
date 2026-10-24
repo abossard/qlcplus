@@ -72,11 +72,8 @@ public:
         QString filepath;
         QString title;
         QString artist;
-        QString album;
-        QString genre;
         QString key;
         double  bpm       = 0.0;
-        double  firstBeat = 0.0;
         int     totalMs   = 0;
 
         bool isValid() const { return !filepath.isEmpty(); }
@@ -88,10 +85,8 @@ public:
         int       number  = 0;                   //!< 1-based deck number
         DeckState state   = DeckState::Empty;
         DeckSong  song;
-        bool      loaded  = false;
         bool      playing = false;
         double    volume  = 0.0;                 //!< current fader volume
-        double    level   = 0.0;                 //!< current output level
 
         // --- Play position (continuous) ---
         double    beatPos = 0.0;                 //!< current beat position (get_beatpos)
@@ -113,13 +108,14 @@ public:
     // --- Event inputs (deck is 1-based) ---
 
     /** Route a per-deck telemetry trigger into the FSM. Ignored when the deck
-     *  number exceeds deckCount. */
+     *  number exceeds deckCount. "masterdeck" on names the active deck,
+     *  "loaded" off empties the deck (VDJ sends no empty filepath on eject). */
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
 
     /** Set the active/master deck (1-based). Ignored when beyond deckCount. */
     void onMasterDeck(int deck);
 
-    /** VDJ socket dropped — reset every deck and active state. */
+    /** VDJ socket dropped: no active deck first, then every deck empty. */
     void onDisconnected();
 
     // --- State access ---
@@ -142,6 +138,7 @@ signals:
     void positionChanged(int deck);
     void songChanged(int deck, const DjFsm::DeckSong &song);
     void activeDeckChanged(int deck);
+    /** The active deck's song or its title changed (the title may follow the filepath) */
     void activeSongChanged();
 
 private:
@@ -170,6 +167,7 @@ private:
     bool deckTracked(int deck1) const { return deck1 >= 1 && deck1 <= m_deckCount; }
     Slot &slotForDeck(int deck);     // 1-based; clamps invalid input to deck 1
     void resetSlot(Slot &s, int deck1);
+    void emptyDeck(Slot &s, int deck1);
     void clearStaleMetadata(Slot &s);
     void recomputeState(Slot &s);
     static bool isPlaceholderTitle(const QString &title);
@@ -180,7 +178,7 @@ private:
     std::array<Slot, MaxDecks> m_slots;
     int     m_deckCount  = DefaultDecks;
     int     m_activeDeck = 0;       //!< 1-based; 0 = none
-    QString m_activeFilepath;      //!< tracks active song identity
+    QString m_activeSongKey;        //!< the active song as announced: filepath and title
 };
 
 Q_DECLARE_METATYPE(DjFsm::DeckSong)
