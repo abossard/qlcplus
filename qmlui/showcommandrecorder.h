@@ -303,6 +303,8 @@ public:
      *  identity, caption and current binding, action and value */
     QVariantList commands() const;
     QVariantList groups() const;
+    /** One editor row of a tracked command */
+    QVariantMap commandRow(const ShowCommand &cmd) const;
     /** The listed SetSliderPosition events of the tracked Show as three parallel
      *  lists {ids, times, positions}, in stored (time, Order) order. Other and
      *  unknown ids are skipped; all lists are empty for another Show. A read-only
@@ -474,6 +476,12 @@ private:
     void reconcileReplayOwnedHoldsAtCursor(Show *show);
     /** Release the holds showId's replay owns and restore what its timeline changed */
     void releaseReplayOwned(quint32 showId);
+    /** The user's hold set for edges of role, nullptr for a role that holds nothing */
+    QSet<quint32> *userHolds(ShowControlRole role);
+    /** showId's replay hold set for edges of role, nullptr for a role that holds nothing */
+    QSet<QUuid> *replayHolds(quint32 showId, ShowControlRole role);
+    /** Drop showId's timeline facts */
+    void forgetTimeline(quint32 showId);
     /** Replace one command, for the value and state edits */
     bool replaceCommand(quint32 showId, quint32 id, const std::function<QString(ShowCommand &)> &change);
     /** Move the events by delta ms, keeping their order among themselves */
@@ -586,6 +594,9 @@ private:
     void rollBackTimeline(ControlRun &run);
     /** A replayed slider write the run waits for, then a start it may cause */
     void awaitRecordedWrite(ControlRun &run, VCWidget *control, quint64 generation);
+    /** Every write the run waited for retired: wait for the starts and stops
+     *  they queued, or go on. True once the run is over. */
+    bool resumeAfterWrites(ControlRun &run);
 
     /** Replay executor: every Show hands its batches here, selected or not */
     void attachShow(Show *show);

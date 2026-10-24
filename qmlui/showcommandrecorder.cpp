@@ -49,6 +49,24 @@ namespace
 {
 QString commandActionText(const ShowCommand &cmd);
 
+/** Which hold set an edge of role belongs to: 0 FreezeHold, 1 Flash button,
+ *  2 slider flash, -1 for a role that holds nothing */
+int holdSet(ShowControlRole role)
+{
+    if (ShowCommand::isHoldRole(role) == false)
+        return -1;
+    return role == ShowControlRole::FreezeHoldButton ? 0 : role == ShowControlRole::FlashButton ? 1 : 2;
+}
+
+template <typename Key>
+void setHeld(QSet<Key> *holds, const Key &key, bool on)
+{
+    if (on)
+        holds->insert(key);
+    else
+        holds->remove(key);
+}
+
 QVariantMap nativeDraft(const ShowCommand &command)
 {
     if (ShowCommand::hasTypedPayload(command.action))
@@ -788,38 +806,14 @@ void ShowCommandRecorder::drainUserRequests()
                     fact.superseded = true;
         if (input.action == ShowCommandAction::SetButtonState)
         {
-            const quint32 widgetId = request.control->id();
             const quint32 intentShowId = request.authoredShowId != ShowCommand::InvalidId
                                            ? request.authoredShowId : trackedShowId();
-            if (input.role == ShowControlRole::FreezeHoldButton)
-            {
-                if (input.on)
-                    m_userFreezeHolds.insert(widgetId);
-                else
-                    m_userFreezeHolds.remove(widgetId);
-            }
-            else if (input.role == ShowControlRole::FlashButton)
-            {
-                if (input.on)
-                    m_userFlashHolds.insert(widgetId);
-                else
-                    m_userFlashHolds.remove(widgetId);
-            }
+            if (QSet<quint32> *holds = userHolds(input.role))
+                setHeld(holds, request.control->id(), input.on);
             else if (input.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
-            {
                 m_userFreezeIntent.insert(intentShowId, input.on);
-            }
             else if (input.role == ShowControlRole::BlackoutButton && intentShowId != ShowCommand::InvalidId)
-            {
                 m_userBlackoutIntent.insert(intentShowId, input.on);
-            }
-            else if (ShowCommand::isHoldRole(input.role))
-            {
-                if (input.on)
-                    m_userSliderFlashHolds.insert(widgetId);
-                else
-                    m_userSliderFlashHolds.remove(widgetId);
-            }
         }
         if (authored)
             journal(closure, request.authoredShowId, request.acceptedTimeMs,
@@ -915,9 +909,7 @@ void ShowCommandRecorder::slotFunctionRemoved(quint32 id)
     // its queued stop arrives without it: release what it replayed while that is still known
     if (attached)
         releaseReplayOwned(id);
-    m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
-                                    [id](const TimelineFact &fact) { return fact.showId == id; }),
-                     m_timeline.end());
+    forgetTimeline(id);
     m_userFreezeIntent.remove(id);
     m_userBlackoutIntent.remove(id);
     // accepted input goes with the Show that owned it
@@ -1080,142 +1072,151 @@ QString validateClipboardHoldPairs(const QVector<ShowCommand> &copied)
 QVariantList ShowCommandRecorder::commands() const
 {
     QVariantList list;
-    const quint32 showId = trackedShowId();
     for (const ShowCommand &cmd : m_track.commands())
-    {
-        Function *target = m_doc != nullptr ? m_doc->function(cmd.functionId) : nullptr;
-        QVariantMap entry;
-        entry["id"] = cmd.id;
-        entry["showId"] = showId;
-        entry["time"] = cmd.time;
-        entry["action"] = ShowCommand::actionToString(cmd.action);
-        entry["functionId"] = cmd.functionId;
-        entry["functionName"] = target != nullptr ? target->name() : tr("Missing function");
-        entry["intensity"] = cmd.intensity;
-        entry["isValue"] = cmd.action == ShowCommandAction::SetIntensity;
-
-        QString control = entry["functionName"].toString();
-        QString detail = tr("Function %1").arg(cmd.functionId);
-        QString value;
-        QString field;
-        switch (cmd.action)
-        {
-            case ShowCommandAction::Start: entry["actionLabel"] = tr("Start function"); break;
-            case ShowCommandAction::Stop: entry["actionLabel"] = tr("Stop function"); break;
-            case ShowCommandAction::SetIntensity:
-                entry["actionLabel"] = tr("Set intensity");
-                value = percentText(cmd.intensity);
-                field = QStringLiteral("value");
-            break;
-            case ShowCommandAction::SetButtonState:
-                entry["actionLabel"] = tr("Button state");
-                value = cmd.on ? tr("On") : tr("Off");
-                field = QStringLiteral("state");
-            break;
-            case ShowCommandAction::SetSliderPosition:
-                entry["actionLabel"] = tr("Slider position");
-                value = percentText(cmd.position);
-                field = QStringLiteral("value");
-            break;
-            case ShowCommandAction::SetSliderColors:
-                entry["actionLabel"] = tr("Slider colors");
-                value = tr("RGB/WAUV %1, brightness %2").arg(cmd.nativeArgument(), percentText(cmd.position));
-                field = QStringLiteral("value");
-            break;
-            case ShowCommandAction::SetSliderReset:
-                entry["actionLabel"] = tr("Slider reset");
-                value = tr("Release override");
-                field = QStringLiteral("state");
-            break;
-            case ShowCommandAction::SetXYPadPosition:
-                entry["actionLabel"] = tr("XY position");
-                value = tr("Pan/Tilt %1 (0..255)").arg(cmd.nativeArgument());
-                field = QStringLiteral("value");
-            break;
-            case ShowCommandAction::SetXYPadFloor:
-                entry["actionLabel"] = tr("Floor target (m)");
-                value = tr("X/Y/Z %1 m").arg(cmd.nativeArgument());
-                field = QStringLiteral("value");
-            break;
-            case ShowCommandAction::SetAnimationFader:
-                entry["actionLabel"] = tr("Animation fader");
-                value = percentText(cmd.position);
-                field = QStringLiteral("value");
-            break;
-            case ShowCommandAction::SetXYPadRanges:
-            case ShowCommandAction::SetXYPadPositionPreset:
-            case ShowCommandAction::SetXYPadFunctionPreset:
-            case ShowCommandAction::SetXYPadGroupPreset:
-            case ShowCommandAction::SetAnimationColor:
-            case ShowCommandAction::SetAnimationContent:
-            case ShowCommandAction::SetSliderChannel:
-                entry["actionLabel"] = commandActionText(cmd);
-                value = cmd.payload.encode(cmd.action);
-                field = QStringLiteral("arguments");
-            break;
-        }
-        if (ShowCommand::isControlAction(cmd.action))
-        {
-            // the same resolution replay uses: what this record reaches now
-            const QList<VCWidget *> widgets = m_vc != nullptr ? m_vc->widgetsByRecordingId(cmd.controlId)
-                                                              : QList<VCWidget *>();
-            QVector<ShowControlSnapshot> matches;
-            for (VCWidget *widget : widgets)
-                matches.append(configurationOf(widget).snapshot);
-            QString reason;
-            ShowControlStatus status = ShowCommandFsm::resolveControl(cmd, matches, &reason);
-            if (status == ShowControlStatus::Ready)
-            {
-                reason = ShowControlAction::readiness(widgets.first(), cmd);
-                if (!reason.isEmpty())
-                    status = ShowControlStatus::Incompatible;
-            }
-
-            QStringList parts{cmd.controlId.toString(QUuid::WithoutBraces)};
-            control = widgets.isEmpty() ? tr("Missing control") : widgets.first()->caption();
-            if (!widgets.isEmpty())
-            {
-                const QString binding = bindingText(widgets.first());
-                if (!binding.isEmpty())
-                    parts.append(binding);
-            }
-            switch (status)
-            {
-                case ShowControlStatus::Ready: break;
-                case ShowControlStatus::Missing: parts.append(tr("Missing control")); break;
-                case ShowControlStatus::Ambiguous: parts.append(tr("Ambiguous identity")); break;
-                case ShowControlStatus::Incompatible: parts.append(tr("Incompatible: %1").arg(reason)); break;
-                case ShowControlStatus::Disabled: parts.append(tr("Disabled")); break;
-                case ShowControlStatus::Unbound: parts.append(tr("Unbound")); break;
-            }
-            detail = parts.join(QStringLiteral(" · "));
-            entry["controlReady"] = status == ShowControlStatus::Ready;
-            entry["controlMissing"] = widgets.isEmpty();
-            entry["controlAmbiguous"] = status == ShowControlStatus::Ambiguous;
-        }
-        entry["control"] = control;
-        entry["detail"] = detail;
-        const bool coordinates = cmd.action == ShowCommandAction::SetXYPadPosition ||
-                                 cmd.action == ShowCommandAction::SetXYPadFloor ||
-                                 ShowCommand::hasTypedPayload(cmd.action);
-        entry["valueText"] = field == QStringLiteral("state") || value.isEmpty() || coordinates
-            ? value : value + QLatin1Char('%');
-        entry["valueEdit"] = value;
-        entry["valueField"] = field;
-        entry["typed"] = !nativeDraft(cmd).isEmpty();
-        list.append(entry);
-    }
+        list.append(commandRow(cmd));
     return list;
+}
+
+QVariantMap ShowCommandRecorder::commandRow(const ShowCommand &cmd) const
+{
+    Function *target = m_doc != nullptr ? m_doc->function(cmd.functionId) : nullptr;
+    QVariantMap entry;
+    entry["id"] = cmd.id;
+    entry["showId"] = trackedShowId();
+    entry["time"] = cmd.time;
+    entry["action"] = ShowCommand::actionToString(cmd.action);
+    entry["functionId"] = cmd.functionId;
+    entry["functionName"] = target != nullptr ? target->name() : tr("Missing function");
+    entry["intensity"] = cmd.intensity;
+    entry["isValue"] = cmd.action == ShowCommandAction::SetIntensity;
+
+    QString control = entry["functionName"].toString();
+    QString detail = tr("Function %1").arg(cmd.functionId);
+    QString value;
+    QString field;
+    switch (cmd.action)
+    {
+        case ShowCommandAction::Start: entry["actionLabel"] = tr("Start function"); break;
+        case ShowCommandAction::Stop: entry["actionLabel"] = tr("Stop function"); break;
+        case ShowCommandAction::SetIntensity:
+            entry["actionLabel"] = tr("Set intensity");
+            value = percentText(cmd.intensity);
+            field = QStringLiteral("value");
+        break;
+        case ShowCommandAction::SetButtonState:
+            entry["actionLabel"] = tr("Button state");
+            value = cmd.on ? tr("On") : tr("Off");
+            field = QStringLiteral("state");
+        break;
+        case ShowCommandAction::SetSliderPosition:
+            entry["actionLabel"] = tr("Slider position");
+            value = percentText(cmd.position);
+            field = QStringLiteral("value");
+        break;
+        case ShowCommandAction::SetSliderColors:
+            entry["actionLabel"] = tr("Slider colors");
+            value = tr("RGB/WAUV %1, brightness %2").arg(cmd.nativeArgument(), percentText(cmd.position));
+            field = QStringLiteral("value");
+        break;
+        case ShowCommandAction::SetSliderReset:
+            entry["actionLabel"] = tr("Slider reset");
+            value = tr("Release override");
+            field = QStringLiteral("state");
+        break;
+        case ShowCommandAction::SetXYPadPosition:
+            entry["actionLabel"] = tr("XY position");
+            value = tr("Pan/Tilt %1 (0..255)").arg(cmd.nativeArgument());
+            field = QStringLiteral("value");
+        break;
+        case ShowCommandAction::SetXYPadFloor:
+            entry["actionLabel"] = tr("Floor target (m)");
+            value = tr("X/Y/Z %1 m").arg(cmd.nativeArgument());
+            field = QStringLiteral("value");
+        break;
+        case ShowCommandAction::SetAnimationFader:
+            entry["actionLabel"] = tr("Animation fader");
+            value = percentText(cmd.position);
+            field = QStringLiteral("value");
+        break;
+        case ShowCommandAction::SetXYPadRanges:
+        case ShowCommandAction::SetXYPadPositionPreset:
+        case ShowCommandAction::SetXYPadFunctionPreset:
+        case ShowCommandAction::SetXYPadGroupPreset:
+        case ShowCommandAction::SetAnimationColor:
+        case ShowCommandAction::SetAnimationContent:
+        case ShowCommandAction::SetSliderChannel:
+            entry["actionLabel"] = commandActionText(cmd);
+            value = cmd.payload.encode(cmd.action);
+            field = QStringLiteral("arguments");
+        break;
+    }
+    if (ShowCommand::isControlAction(cmd.action))
+    {
+        // the same resolution replay uses: what this record reaches now
+        const QList<VCWidget *> widgets = m_vc != nullptr ? m_vc->widgetsByRecordingId(cmd.controlId)
+                                                          : QList<VCWidget *>();
+        QVector<ShowControlSnapshot> matches;
+        for (VCWidget *widget : widgets)
+            matches.append(configurationOf(widget).snapshot);
+        QString reason;
+        ShowControlStatus status = ShowCommandFsm::resolveControl(cmd, matches, &reason);
+        if (status == ShowControlStatus::Ready)
+        {
+            reason = ShowControlAction::readiness(widgets.first(), cmd);
+            if (!reason.isEmpty())
+                status = ShowControlStatus::Incompatible;
+        }
+
+        QStringList parts{cmd.controlId.toString(QUuid::WithoutBraces)};
+        control = widgets.isEmpty() ? tr("Missing control") : widgets.first()->caption();
+        if (!widgets.isEmpty())
+        {
+            const QString binding = bindingText(widgets.first());
+            if (!binding.isEmpty())
+                parts.append(binding);
+        }
+        switch (status)
+        {
+            case ShowControlStatus::Ready: break;
+            case ShowControlStatus::Missing: parts.append(tr("Missing control")); break;
+            case ShowControlStatus::Ambiguous: parts.append(tr("Ambiguous identity")); break;
+            case ShowControlStatus::Incompatible: parts.append(tr("Incompatible: %1").arg(reason)); break;
+            case ShowControlStatus::Disabled: parts.append(tr("Disabled")); break;
+            case ShowControlStatus::Unbound: parts.append(tr("Unbound")); break;
+        }
+        detail = parts.join(QStringLiteral(" · "));
+        entry["controlReady"] = status == ShowControlStatus::Ready;
+        entry["controlMissing"] = widgets.isEmpty();
+        entry["controlAmbiguous"] = status == ShowControlStatus::Ambiguous;
+    }
+    entry["control"] = control;
+    entry["detail"] = detail;
+    const bool coordinates = cmd.action == ShowCommandAction::SetXYPadPosition ||
+                             cmd.action == ShowCommandAction::SetXYPadFloor ||
+                             ShowCommand::hasTypedPayload(cmd.action);
+    entry["valueText"] = field == QStringLiteral("state") || value.isEmpty() || coordinates
+        ? value : value + QLatin1Char('%');
+    entry["valueEdit"] = value;
+    entry["valueField"] = field;
+    entry["typed"] = !nativeDraft(cmd).isEmpty();
+    return entry;
 }
 
 QVariantList ShowCommandRecorder::groups() const
 {
-    QHash<quint32, QVariantMap> rows;
-    for (const QVariant &row : commands())
+    // rows of the events that start or end a group only
+    QHash<quint32, int> index;
+    const QVector<ShowCommand> &commands = m_track.commands();
+    for (int i = 0; i < commands.count(); i++)
+        index.insert(commands.at(i).id, i);
+    QHash<quint32, QVariantMap> rowCache;
+    const auto rows = [&](quint32 id) -> const QVariantMap &
     {
-        const QVariantMap entry = row.toMap();
-        rows.insert(entry.value("id").toUInt(), entry);
-    }
+        auto it = rowCache.find(id);
+        if (it == rowCache.end())
+            it = rowCache.insert(id, commandRow(commands.at(index.value(id))));
+        return *it;
+    };
     const QVector<ShowCommandGroup> groups = m_track.groups();
     // one lane per recorded control, numbered by first appearance in the
     // global groups; captions two lanes share (the legacy "Functions" lane
@@ -1238,7 +1239,7 @@ QVariantList ShowCommandRecorder::groups() const
         if (laneIndex.contains(key))
             continue;
         laneIndex.insert(key, laneIndex.size());
-        const QVariantMap first = rows.value(group.eventIds.first());
+        const QVariantMap first = rows(group.eventIds.first());
         QString caption = tr("Functions");
         if (!group.controlId.isNull())
         {
@@ -1255,7 +1256,7 @@ QVariantList ShowCommandRecorder::groups() const
     QVariantList result;
     for (const ShowCommandGroup &group : groups)
     {
-        QVariantMap entry = rows.value(group.eventIds.first());
+        QVariantMap entry = rows(group.eventIds.first());
         const QString key = laneKey(group);
         const QString caption = laneCaption.value(key);
         entry["laneKey"] = key;
@@ -1269,7 +1270,7 @@ QVariantList ShowCommandRecorder::groups() const
         entry["startTime"] = group.startTime;
         entry["endTime"] = group.endTime;
         entry["sampleCount"] = group.eventIds.size();
-        entry["endValueText"] = rows.value(group.eventIds.last()).value("valueText");
+        entry["endValueText"] = rows(group.eventIds.last()).value("valueText");
         entry["slider"] = group.action == ShowCommandAction::SetSliderPosition ||
                           group.action == ShowCommandAction::SetSliderColors;
         result.append(entry);
@@ -2177,62 +2178,49 @@ void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
     // elapsed() of a Show is only where its Play started
     const quint32 cursor = show->commandPosition();
     const QVector<ShowCommand> commands = show->commandTrack().commands();
-    const auto holdStateAt = [&commands, cursor](const QUuid &controlId,
-                                                 const std::function<bool(ShowControlRole)> &acceptRole) {
-        bool seen = false;
+    // whether the authored track holds the control in that set at the cursor
+    const auto heldAt = [&commands, cursor](const QUuid &controlId, int set) {
         bool on = false;
         for (const ShowCommand &cmd : commands)
         {
-            if (cmd.action != ShowCommandAction::SetButtonState || cmd.controlId != controlId || cmd.time > cursor ||
-                !acceptRole(cmd.role))
-            {
-                continue;
-            }
-            seen = true;
-            on = cmd.on;
+            if (cmd.action == ShowCommandAction::SetButtonState && cmd.controlId == controlId && cmd.time <= cursor &&
+                holdSet(cmd.role) == set)
+                on = cmd.on;
         }
-        return seen && on;
+        return on;
     };
     const ShowControlAction::Holds user{m_userFreezeHolds, m_userFlashHolds, m_userSliderFlashHolds};
-
-    const auto isFreezeHoldRole = [](ShowControlRole role) { return role == ShowControlRole::FreezeHoldButton; };
-    QSet<QUuid> replayFreeze = m_replayFreezeHolds.value(showId);
-    for (const QUuid &controlId : replayFreeze)
+    for (ShowControlRole role : {ShowControlRole::FreezeHoldButton, ShowControlRole::FlashButton,
+                                 ShowControlRole::AdjustSlider})
     {
-        if (holdStateAt(controlId, isFreezeHoldRole))
-            continue;
-        const QList<VCWidget *> widgets = m_vc->widgetsByRecordingId(controlId);
-        for (VCWidget *widget : widgets)
-            ShowControlAction::releaseHold(m_vc, widget, ShowControlRole::FreezeHoldButton, replayOwner, user, false);
-        m_replayFreezeHolds[showId].remove(controlId);
+        const QSet<QUuid> held = *replayHolds(showId, role);
+        for (const QUuid &controlId : held)
+        {
+            if (heldAt(controlId, holdSet(role)))
+                continue;
+            for (VCWidget *widget : m_vc->widgetsByRecordingId(controlId))
+                ShowControlAction::releaseHold(m_vc, widget, role, replayOwner, user, false);
+            replayHolds(showId, role)->remove(controlId);
+        }
     }
+}
 
-    const auto isFlashRole = [](ShowControlRole role) { return role == ShowControlRole::FlashButton; };
-    QSet<QUuid> replayFlash = m_replayFlashButtons.value(showId);
-    for (const QUuid &controlId : replayFlash)
-    {
-        if (holdStateAt(controlId, isFlashRole))
-            continue;
-        const QList<VCWidget *> widgets = m_vc->widgetsByRecordingId(controlId);
-        for (VCWidget *widget : widgets)
-            ShowControlAction::releaseHold(m_vc, widget, ShowControlRole::FlashButton, replayOwner, user, false);
-        m_replayFlashButtons[showId].remove(controlId);
-    }
+QSet<quint32> *ShowCommandRecorder::userHolds(ShowControlRole role)
+{
+    QSet<quint32> *sets[] = { &m_userFreezeHolds, &m_userFlashHolds, &m_userSliderFlashHolds };
+    const int set = holdSet(role);
+    return set < 0 ? nullptr : sets[set];
+}
 
-    const auto isSliderRole = [](ShowControlRole role) {
-        return role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
-               role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
-    };
-    QSet<QUuid> replaySliderFlash = m_replaySliderFlashes.value(showId);
-    for (const QUuid &controlId : replaySliderFlash)
+QSet<QUuid> *ShowCommandRecorder::replayHolds(quint32 showId, ShowControlRole role)
+{
+    switch (holdSet(role))
     {
-        if (holdStateAt(controlId, isSliderRole))
-            continue;
-        const QList<VCWidget *> widgets = m_vc->widgetsByRecordingId(controlId);
-        for (VCWidget *widget : widgets)
-            ShowControlAction::releaseHold(m_vc, widget, ShowControlRole::AdjustSlider, replayOwner, user, false);
-        m_replaySliderFlashes[showId].remove(controlId);
+        case 0: return &m_replayFreezeHolds[showId];
+        case 1: return &m_replayFlashButtons[showId];
+        case 2: return &m_replaySliderFlashes[showId];
     }
+    return nullptr;
 }
 
 bool ShowCommandRecorder::editFailed(const QString &error)
@@ -2632,24 +2620,22 @@ void ShowCommandRecorder::slotTimelineReset()
     Show *show = qobject_cast<Show *>(sender());
     if (show == nullptr)
         return;
-    const quint32 showId = show->id();
-    m_userFreezeIntent.remove(showId);
-    m_userBlackoutIntent.remove(showId);
-    m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
-                                    [showId](const TimelineFact &fact) { return fact.showId == showId; }),
-                     m_timeline.end());
+    m_userFreezeIntent.remove(show->id());
+    m_userBlackoutIntent.remove(show->id());
+    forgetTimeline(show->id());
 }
 
 void ShowCommandRecorder::slotShowPlayback()
 {
     if (auto *show = qobject_cast<Show *>(sender()); show != nullptr && show->isRunning())
-    {
-        const quint32 showId = show->id();
-        m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
-                                       [showId](const TimelineFact &fact) { return fact.showId == showId; }),
-                         m_timeline.end());
-    }
-    emit editGateChanged();
+        forgetTimeline(show->id());
+}
+
+void ShowCommandRecorder::forgetTimeline(quint32 showId)
+{
+    m_timeline.erase(std::remove_if(m_timeline.begin(), m_timeline.end(),
+                                    [showId](const TimelineFact &fact) { return fact.showId == showId; }),
+                     m_timeline.end());
 }
 
 void ShowCommandRecorder::slotShowStopped(quint32)
@@ -3061,21 +3047,8 @@ void ShowCommandRecorder::slotRecordedWriteRetired(quint64 generation, int outco
         if (!run.waitingWrites.isEmpty())
             return;
 
-        if (run.show.isNull())
-        {
+        if (resumeAfterWrites(run))
             m_controlRuns.removeAt(i);
-        }
-        else if (!run.barrier.isEmpty())
-        {
-            // the writes only queued their starts and stops: done once the timer ran them
-            run.waitingOp = ++m_lastReceiptOp;
-            run.show->requestFunctionReceipt(run.batch.traversal, run.waitingOp,
-                                             std::exchange(run.barrier, QVector<ShowFunctionExpectation>()));
-        }
-        else if (continueControlRun(run))
-        {
-            m_controlRuns.removeAt(i);
-        }
         drainUserRequests();
         return;
     }
@@ -3259,31 +3232,8 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
                 m_userFreezeIntent.remove(run.show->id());
             else if (cmd.role == ShowControlRole::BlackoutButton)
                 m_userBlackoutIntent.remove(run.show->id());
-            if (cmd.role == ShowControlRole::FreezeHoldButton)
-            {
-                QSet<QUuid> &holds = m_replayFreezeHolds[run.show->id()];
-                if (cmd.on)
-                    holds.insert(cmd.controlId);
-                else
-                    holds.remove(cmd.controlId);
-            }
-            else if (cmd.role == ShowControlRole::FlashButton)
-            {
-                QSet<QUuid> &holds = m_replayFlashButtons[run.show->id()];
-                if (cmd.on)
-                    holds.insert(cmd.controlId);
-                else
-                    holds.remove(cmd.controlId);
-            }
-            else if (cmd.role == ShowControlRole::LevelSlider || cmd.role == ShowControlRole::AdjustSlider ||
-                     cmd.role == ShowControlRole::SubmasterSlider || cmd.role == ShowControlRole::GrandMasterSlider)
-            {
-                QSet<QUuid> &holds = m_replaySliderFlashes[run.show->id()];
-                if (cmd.on)
-                    holds.insert(cmd.controlId);
-                else
-                    holds.remove(cmd.controlId);
-            }
+            else if (QSet<QUuid> *holds = replayHolds(run.show->id(), cmd.role))
+                setHeld(holds, cmd.controlId, cmd.on);
         }
         journal(closure, run.show->id(), cmd.time, receipt.buttonOp == ShowButtonOp::Start, replayOwner, receipt);
         if (receipt.buttonOp != ShowButtonOp::None)
@@ -3352,33 +3302,25 @@ void ShowCommandRecorder::slotObservedControlDestroyed(QObject *object)
             continue;
         }
 
-        if (!run.waitingWrites.isEmpty())
-        {
-            i++;
-            continue;
-        }
-
-        if (run.show.isNull())
-        {
+        if (run.waitingWrites.isEmpty() && resumeAfterWrites(run))
             m_controlRuns.removeAt(i);
-        }
-        else if (!run.barrier.isEmpty())
-        {
-            run.waitingOp = ++m_lastReceiptOp;
-            run.show->requestFunctionReceipt(run.batch.traversal, run.waitingOp,
-                                             std::exchange(run.barrier, QVector<ShowFunctionExpectation>()));
-            i++;
-        }
-        else if (continueControlRun(run))
-        {
-            m_controlRuns.removeAt(i);
-        }
         else
-        {
             i++;
-        }
     }
     drainUserRequests();
+}
+
+bool ShowCommandRecorder::resumeAfterWrites(ControlRun &run)
+{
+    if (run.show.isNull())
+        return true;
+    if (run.barrier.isEmpty())
+        return continueControlRun(run);
+    // the writes only queued their starts and stops: done once the timer ran them
+    run.waitingOp = ++m_lastReceiptOp;
+    run.show->requestFunctionReceipt(run.batch.traversal, run.waitingOp,
+                                     std::exchange(run.barrier, QVector<ShowFunctionExpectation>()));
+    return false;
 }
 
 QVector<ShowCommandRecorder::TimelineFact> ShowCommandRecorder::closureOf(VCWidget *control, const FunctionParent &owner) const
