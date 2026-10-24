@@ -1718,23 +1718,28 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
     if (root.hasError())
         return fail(error, root.errorString());
 
-    // a saved track holds no hold in progress; a bad pair costs only its own edges
-    const QVector<quint32> malformed = parsed.malformedHoldPairs();
-    QSet<quint32> dropped(malformed.cbegin(), malformed.cend());
-    for (const HoldPair &pair : holdPairs(parsed.m_commands))
+    // a saved track holds no hold in progress: unclosed pairs go first, so the
+    // invariant judges only the rest; a bad pair costs only its own edges
+    const auto drop = [&parsed](const QSet<quint32> &pairs, const char *why)
     {
-        if (pair.release < 0)
-            dropped.insert(pair.id);
-    }
-    for (int i = parsed.m_commands.count() - 1; i >= 0; --i)
-    {
-        const ShowCommand &cmd = parsed.m_commands.at(i);
-        if (cmd.action == ShowCommandAction::SetButtonState && dropped.contains(cmd.pairId))
+        for (int i = parsed.m_commands.count() - 1; i >= 0; --i)
         {
-            qWarning() << "Command track: dropping event" << cmd.id << "of malformed hold pair" << cmd.pairId;
+            const ShowCommand &cmd = parsed.m_commands.at(i);
+            if (cmd.action != ShowCommandAction::SetButtonState || !pairs.contains(cmd.pairId))
+                continue;
+            qWarning() << "Command track: dropping event" << cmd.id << "of" << why << "hold pair" << cmd.pairId;
             parsed.m_commands.remove(i);
         }
+    };
+    QSet<quint32> unclosed;
+    for (const HoldPair &pair : holdPairs(parsed.m_commands))
+    {
+        if (!pair.broken && pair.release < 0)
+            unclosed.insert(pair.id);
     }
+    drop(unclosed, "unclosed");
+    const QVector<quint32> malformed = parsed.malformedHoldPairs();
+    drop(QSet<quint32>(malformed.cbegin(), malformed.cend()), "malformed");
 
     *this = parsed;
     return succeed(error);
