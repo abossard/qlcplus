@@ -1033,6 +1033,10 @@ void VCFrame::setMultiPageMode(bool multiPageMode)
     if (multiPageMode)
         ensureFirstPage();
 
+    // without pages only the first one shows
+    for (VCWidget *child : children(false))
+        child->setVisible(child->page() == currentPage());
+
     emit multiPageModeChanged(multiPageMode);
     setDocModified();
 }
@@ -1081,6 +1085,10 @@ void VCFrame::setTotalPagesNumber(int num)
     setDocModified();
     emit totalPagesNumberChanged(num);
     emit pageLabelsChanged();
+
+    // widgets of removed pages stay, hidden, until pages are added back
+    if (m_currentPage >= num)
+        setCurrentPage(num - 1);
 }
 
 int VCFrame::totalPagesNumber() const

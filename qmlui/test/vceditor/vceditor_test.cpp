@@ -432,6 +432,11 @@ void VCEditor_Test::clonesStayOnTheirPage()
  * keep the console well formed, and every step undoes and redoes
  *********************************************************************/
 
+static QString rectText(const QRectF &rect)
+{
+    return QString("%1,%2 %3x%4").arg(rect.x()).arg(rect.y()).arg(rect.width()).arg(rect.height());
+}
+
 /* Overlapping siblings or children outside their frame content */
 static QString structureError(VCFrame *frame)
 {
@@ -440,12 +445,14 @@ static QString structureError(VCFrame *frame)
     for (int i = 0; i < children.size(); i++)
     {
         const QRectF rect = children[i]->logicalGeometry();
-        if (!qobject_cast<VCPage *>(frame) && !content.contains(rect))
-            return QString("Widget %1 lies outside frame %2").arg(children[i]->id()).arg(frame->id());
+        // geometry carries the header height measured in QML, compare with a tolerance
+        if (!qobject_cast<VCPage *>(frame) && !content.adjusted(-0.01, -0.01, 0.01, 0.01).contains(rect))
+            return QString("Widget %1 (%2) lies outside frame %3 content (%4)").arg(children[i]->id())
+                .arg(rectText(rect), QString::number(frame->id()), rectText(content));
         for (int j = i + 1; j < children.size(); j++)
         {
             const QRectF overlap = rect.intersected(children[j]->logicalGeometry());
-            if (children[i]->page() == children[j]->page() && overlap.width() > 0 && overlap.height() > 0)
+            if (children[i]->page() == children[j]->page() && overlap.width() > 0.01 && overlap.height() > 0.01)
                 return QString("Widgets %1 and %2 overlap").arg(children[i]->id()).arg(children[j]->id());
         }
         if (VCFrame *child = qobject_cast<VCFrame *>(children[i]))
@@ -608,6 +615,36 @@ void VCEditor_Test::randomEditSequence()
         QVERIFY2(xml == states.at(i), qPrintable(QString("Redo of '%1', seed %2: %3\n").arg(steps.at(i - 1)).arg(seed)
                                                   .arg(steps.join(", ")) + firstDifference(states.at(i), xml)));
     }
+}
+
+void VCEditor_Test::framePageVisibility_data()
+{
+    QTest::addColumn<QString>("change");
+    QTest::addColumn<int>("shownPage");
+    QTest::newRow("fewer-pages") << QString("fewer-pages") << 1;
+    QTest::newRow("multipage-off") << QString("multipage-off") << 0;
+}
+
+void VCEditor_Test::framePageVisibility()
+{
+    QFETCH(QString, change);
+    QFETCH(int, shownPage);
+    const ConsoleIds ids = buildConsole();
+    auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.frame));
+    frame->setMultiPageMode(true);
+    frame->setTotalPagesNumber(3);
+    for (int subpage : {1, 2})
+        QVERIFY(vc()->createWidgetGeometry(ids.frame, "Button", QRectF(10, 60, 100, 80), subpage)
+                    .value("accepted").toBool());
+    frame->setCurrentPage(2);
+
+    if (change == "fewer-pages")
+        frame->setTotalPagesNumber(2);
+    else
+        frame->setMultiPageMode(false);
+    QCOMPARE(frame->currentPage(), shownPage);
+    for (VCWidget *child : frame->children(false))
+        QCOMPARE(child->isVisible(), child->page() == shownPage);
 }
 
 /*********************************************************************
