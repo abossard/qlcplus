@@ -58,11 +58,6 @@ var testAlgo;
         geometryKey: ""
     };
 
-    function beatOscillator(audio) {
-        var p = audio && audio.tempo && isFinite(audio.tempo.beatPhase) ? audio.tempo.beatPhase : (audio && isFinite(audio.phase) ? audio.phase : 0);
-        return HSVUtil.mod1(p + algo.presetBeatOffset);
-    }
-
     function eased(x) {
         if (algo.presetEaseMethod === "ease_in_out") return 0.5 * Math.sin(Math.PI * (x - 0.5)) + 0.5;
         if (algo.presetEaseMethod === "ease_in") return x * x;
@@ -72,11 +67,8 @@ var testAlgo;
 
     function countedBeat(audio) {
         var counters = audio && audio.events && audio.events.counters;
-        var raw = null;
-        if (counters && isFinite(counters.beat)) raw = counters.beat;
-        else if (audio && audio.tempo && isFinite(audio.tempo.beatCount)) raw = audio.tempo.beatCount;
-        if (!isFinite(raw)) return null;
-        var wrapped = Math.floor(raw) % 4;
+        if (!counters || !isFinite(counters.beat)) return null;
+        var wrapped = Math.floor(counters.beat) % 4;
         return wrapped < 0 ? wrapped + 4 : wrapped;
     }
 
@@ -100,17 +92,12 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "x" + height;
-        if (audioKey !== state.audioKey || geometryKey !== state.geometryKey) {
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
             resetState();
-            state.audioKey = audioKey;
-            state.geometryKey = geometryKey;
-        }
         var beatCount = countedBeat(audio);
         if (beatCount !== null) state.beatCount = beatCount;
         var validBeat = !!(audio && audio.tempo && audio.tempo.valid && isFinite(audio.tempo.beatPhase));
-        var beatOsc = validBeat ? beatOscillator(audio) : state.lastBeatOsc;
+        var beatOsc = validBeat ? HSVUtil.mod1(audio.tempo.beatPhase + algo.presetBeatOffset) : state.lastBeatOsc;
         if (validBeat && state.hasValidBeat && state.lastBeatOsc > 0.2 && beatOsc < 0.1) {
             advanceStateOnWrap();
         }
@@ -131,7 +118,7 @@ var testAlgo;
             if (state.phase === 0) { barEnd = easedX; barStart = 0; }
             else { barEnd = 1 - easedX; barStart = 0; }
         }
-        var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.0, s: 1, v: 1}], state.colorIdx);
+        var color = HSVUtil.gradientLedfxAt(algo.colors, state.colorIdx);
         if (algo.presetBeatSkip !== "none") {
             var skipped = (((algo.presetSkipEvery === 2 ? (state.beatCount === 0 || state.beatCount === 1) : ((state.beatCount % 2) === 0))) === (algo.presetBeatSkip === "even"));
             if (skipped) color = {h: 0, s: 0, v: 0};
@@ -139,17 +126,11 @@ var testAlgo;
         var n = width * height;
         var startPx = Math.floor(n * HSVUtil.clamp01(barStart));
         var endPx = Math.floor(n * HSVUtil.clamp01(barEnd));
-        for (var p = 0; p < n; p++) {
+        for (var p = startPx; p < endPx; p++) {
             var i = p * 3;
-            if (p >= startPx && p < endPx) {
-                map[i] = color.h;
-                map[i + 1] = color.s;
-                map[i + 2] = color.v;
-            } else {
-                map[i] = 0;
-                map[i + 1] = 0;
-                map[i + 2] = 0;
-            }
+            map[i] = color.h;
+            map[i + 1] = color.s;
+            map[i + 2] = color.v;
         }
         HSVUtil.applyStripTransforms(map, width, height, outputOptions());
         return map;

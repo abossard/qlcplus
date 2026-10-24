@@ -42,19 +42,11 @@ var testAlgo;
     algo.getDropSeconds = function() { return algo.presetDropSeconds; };
     algo.setFadeOut = function(v) { algo.presetFade = Math.max(0, Math.min(1, parseFloat(v) || 0)); };
     algo.getFadeOut = function() { return algo.presetFade; };
-    algo.setFade = function(v) {
-        if (v === "On") algo.presetFade = 1;
-        else if (v === "Off") algo.presetFade = 0;
-        else algo.setFadeOut(v);
-    };
-    algo.getFade = function() { return algo.presetFade > 0 ? "On" : "Off"; };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo);
 
     var state = { geometryKey: "", audioKey: "", rows: [], dropRemainder: 0 };
 
-    function reset(geometryKey, audioKey, width, height) {
-        state.geometryKey = geometryKey;
-        state.audioKey = audioKey;
+    function reset(width, height) {
         state.rows = [];
         for (var i = 0; i < height; i++) {
             state.rows.push(makeEmptyRow(width));
@@ -68,8 +60,9 @@ var testAlgo;
         return row;
     }
 
-    function bandVolumes(values, width, height) {
-        var pixelCount = Math.max(1, width * height);
+    // Bands split the new row, so they are sampled across its width.
+    function bandVolumes(values, width) {
+        var pixelCount = Math.max(1, width);
         var samples = HSVUtil.interpolate(values, pixelCount);
         for (var i = 0; i < samples.length; i++)
             samples[i] = HSVUtil.clamp01(samples[i]);
@@ -96,17 +89,14 @@ var testAlgo;
         return out;
     }
 
-    function buildRow(width, height, values) {
-        var grouped = bandVolumes(values, width, height);
+    function buildRow(width, values) {
+        var grouped = bandVolumes(values, width);
         var bands = grouped.length;
         var row = new Array(width);
-        var colors = algo.colors && algo.colors.length
-            ? algo.colors
-            : [{ h: 0, s: 1, v: 1 }, { h: 0.58, s: 1, v: 1 }];
         for (var i = 0; i < bands; i++) {
             var start = Math.floor((width / bands) * i);
             var end = Math.max(start, Math.floor((width / bands) * (i + 1) - 1));
-            var rgb = HSVUtil.gradientRgbAt(colors, HSVUtil.clamp01(grouped[i]));
+            var rgb = HSVUtil.gradientRgbAt(algo.colors, HSVUtil.clamp01(grouped[i]));
             for (var x = start; x <= end && x < width; x++)
                 row[x] = [rgb[0], rgb[1], rgb[2]];
         }
@@ -148,10 +138,8 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var geometryKey = [width, height].join("|");
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        if (state.geometryKey !== geometryKey || state.audioKey !== audioKey || state.rows.length !== height)
-            reset(geometryKey, audioKey, width, height);
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
+            reset(width, height);
 
         var dt = HSVUtil.audioSeconds(audio);
         var dropTick = Math.max(0.0001, algo.presetDropSeconds / Math.max(1, height));
@@ -172,15 +160,17 @@ var testAlgo;
 
         var bank = audio && audio.banks && audio.banks.full;
         var values = bank && bank.count ? (bank.novelty || bank.processed || []) : [];
-        var row = buildRow(width, height, values);
+        var row = buildRow(width, values);
         writeTopRow(row, width, height);
 
         var halfHeight = Math.max(1, Math.floor(height / 2));
+        var evenHeight = (height % 2) === 0;
         for (var y = 0; y < height; y++) {
             var fade = 1;
             if (algo.presetFade > 0) {
                 if (algo.presetCenter === "On") {
-                    var dist = Math.abs(y - halfHeight);
+                    // Rows from the nearest newest row; even heights write two center rows.
+                    var dist = evenHeight && y < halfHeight ? halfHeight - 1 - y : Math.abs(y - halfHeight);
                     fade = Math.max(0, 1 - (dist / halfHeight) * algo.presetFade * 2);
                 } else {
                     fade = Math.max(0, 1 - (y / halfHeight) * algo.presetFade);

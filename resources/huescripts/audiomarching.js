@@ -46,35 +46,27 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var geometryKey = width + "x" + height;
-        if (audioKey !== state.audioKey || geometryKey !== state.geometryKey) {
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
             resetState();
-            state.audioKey = audioKey;
-            state.geometryKey = geometryKey;
-        }
         var dt = HSVUtil.audioSeconds(audio);
         var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
-        var alpha = rawLow > state.lowsPower ? 0.2 : 0.05;
-        state.lowsPower += (rawLow - state.lowsPower) * alpha;
+        state.lowsPower = HSVUtil.attackRelease(state.lowsPower, rawLow, 0.2, 0.05, HSVUtil.elapsedFrames(audio));
         state.t1 = HSVUtil.mod1(state.t1 + dt * algo.presetSpeed * 20);
         state.t2 = HSVUtil.mod1(state.t2 + dt * algo.presetSpeed);
         var reactiveOffset = algo.presetReactivity * state.lowsPower * 20;
+        var n = width * height;
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                var w = (width * height) <= 1 ? 0 : ((y * width + x) / (width * height - 1));
+                var w = n <= 1 ? 0 : ((y * width + x) / (n - 1));
                 var w1 = HSVUtil.sin01(state.t1 + w);
                 var hWave = HSVUtil.sin01(w1 - w);
                 hWave = HSVUtil.sin01(hWave);
                 var w2 = HSVUtil.sin01(state.t2 - w * 10 + 2 + reactiveOffset);
-                var v = w1 - w2;
-                var intensity = HSVUtil.clamp01(v);
-                var hue = HSVUtil.mod1(0.5 + 0.5 * hWave);
-                var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.58, s: 1, v: 1}], hue);
+                var color = HSVUtil.gradientLedfxAt(algo.colors, HSVUtil.mod1(0.5 + 0.5 * hWave));
                 var i = (y * width + x) * 3;
                 map[i] = color.h;
                 map[i + 1] = color.s;
-                map[i + 2] = intensity;
+                map[i + 2] = HSVUtil.clamp01(w1 - w2);
             }
         }
         HSVUtil.applyStripTransforms(map, width, height, outputOptions());

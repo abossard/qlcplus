@@ -38,8 +38,6 @@ var testAlgo;
     algo.getFadeRate = function() { return algo.presetFadeRate; };
     algo.setResponsiveness = function(v) { algo.presetResponsiveness = HSVUtil.clamp01(parseFloat(v) || 0); };
     algo.getResponsiveness = function() { return algo.presetResponsiveness; };
-    algo.setFade = function(v) { algo.setFadeRate(v); };
-    algo.getFade = function() { return algo.getFadeRate(); };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo);
 
     var state = {
@@ -52,12 +50,8 @@ var testAlgo;
     };
 
     function ensure(width, height, audio) {
-        var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var nextGeometryKey = width + "|" + height;
         var n = width * height;
-        if (state.audioKey !== nextAudioKey || state.geometryKey !== nextGeometryKey || state.pixels.length !== n) {
-            state.audioKey = nextAudioKey;
-            state.geometryKey = nextGeometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height) || state.pixels.length !== n) {
             state.avgMidi = 0;
             state.hasValidPitch = false;
             state.hasCapturedFrame = false;
@@ -76,7 +70,6 @@ var testAlgo;
         var n = width * height;
 
         var nominalSteps = HSVUtil.audioSeconds(audio) * 60;
-        if (!isFinite(nominalSteps) || nominalSteps < 0) nominalSteps = 0;
 
         var bank = audio && audio.banks && audio.banks.full;
         var mel = bank && bank.count ? HSVUtil.interpolate(bank.processed || [], n) : new Array(n).fill(0);
@@ -97,7 +90,7 @@ var testAlgo;
         var noteColor = [0, 0, 0];
         if (state.hasValidPitch && state.avgMidi >= 21) {
             var scaled = HSVUtil.clamp01((state.avgMidi - 21) / (108 - 21));
-            var hsv = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.0, s: 1, v: 1}, {h: 0.66, s: 1, v: 1}], scaled);
+            var hsv = HSVUtil.gradientLedfxAt(algo.colors, scaled);
             noteColor = HSVUtil.hsvToRgb(hsv.h, hsv.s, hsv.v);
         }
 
@@ -125,16 +118,11 @@ var testAlgo;
             state.hasCapturedFrame = true;
         }
 
-        var out = new Array(n);
         for (var p = 0; p < n; p++) {
             var hsvOut = HSVUtil.rgbToHsvUnclipped(state.pixels[p][0], state.pixels[p][1], state.pixels[p][2]);
-            out[p] = hsvOut;
-        }
-        for (var j = 0; j < n; j++) {
-            var o = j * 3;
-            map[o] = out[j].h;
-            map[o + 1] = out[j].s;
-            map[o + 2] = out[j].v;
+            map[p * 3] = hsvOut.h;
+            map[p * 3 + 1] = hsvOut.s;
+            map[p * 3 + 2] = hsvOut.v;
         }
         HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
         return map;

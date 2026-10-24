@@ -60,17 +60,8 @@ var testAlgo;
         filteredPower: 0
     };
 
-    function hexToHsv(hex) {
-        var rgb = HSVUtil.parseHexRgb(hex);
-        return HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
-    }
-
     function ensureState(width, height, audio) {
-        var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var nextGeometryKey = width + "|" + height;
-        if (state.audioKey !== nextAudioKey || state.geometryKey !== nextGeometryKey) {
-            state.audioKey = nextAudioKey;
-            state.geometryKey = nextGeometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             state.selected = "low";
             state.lowBelowSec = 0;
             state.midBelowSec = 0;
@@ -89,11 +80,12 @@ var testAlgo;
         var low = HSVUtil.powerForRange(audio, "Lows (beat+bass)", false);
         var mid = HSVUtil.powerForRange(audio, "Mids", false);
         var high = HSVUtil.powerForRange(audio, "High", false);
+        // Time since the mids last took over; the lows do not reset it (LedFx last_mid).
+        state.midBelowSec += dt;
         if (low > algo.presetThresholdLows) {
             state.selected = "low";
             state.filteredPower = low;
             state.lowBelowSec = 0;
-            state.midBelowSec = 0;
         } else {
             state.lowBelowSec += dt;
             if (state.selected === "low") state.filteredPower = low;
@@ -103,7 +95,6 @@ var testAlgo;
                     state.filteredPower = mid;
                     state.midBelowSec = 0;
                 } else {
-                    state.midBelowSec += dt;
                     if (state.selected === "mid") state.filteredPower = mid;
                     if (state.midBelowSec > algo.presetSwitchTime) {
                         state.selected = "high";
@@ -114,9 +105,9 @@ var testAlgo;
                 }
             }
         }
-        var color = state.selected === "low"
-            ? hexToHsv(algo.presetColorLows)
-            : (state.selected === "mid" ? hexToHsv(algo.presetColorMids) : hexToHsv(algo.presetColorHigh));
+        var color = HSVUtil.hexToHsv(state.selected === "low"
+            ? algo.presetColorLows
+            : (state.selected === "mid" ? algo.presetColorMids : algo.presetColorHigh));
         var brightness = HSVUtil.aggressiveTopEndBias(state.filteredPower, algo.presetBrightnessBoost);
 
         for (var y = 0; y < height; y++) {

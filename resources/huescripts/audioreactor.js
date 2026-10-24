@@ -47,9 +47,9 @@ var testAlgo;
 
     algo.setPalette = function(_v) { algo.presetPalette = (_v === "Pitch Hue") ? 1 : 0; };
     algo.getPalette = function() { return algo.presetPalette ? "Pitch Hue" : "Band Colors"; };
-    algo.setSensitivity = function(_v) { algo.presetSensitivity = parseFloat(_v); };
+    algo.setSensitivity = function(_v) { algo.presetSensitivity = HSVUtil.parseNumber(_v, algo.presetSensitivity, 0, 10); };
     algo.getSensitivity = function() { return algo.presetSensitivity; };
-    algo.setFlash = function(_v) { algo.presetFlash = parseFloat(_v); };
+    algo.setFlash = function(_v) { algo.presetFlash = HSVUtil.parseNumber(_v, algo.presetFlash, 0, 1); };
     algo.getFlash = function() { return algo.presetFlash; };
     algo.setSparkles = function(_v) { algo.presetSparkles = (_v === "On") ? 1 : 0; };
     algo.getSparkles = function() { return algo.presetSparkles ? "On" : "Off"; };
@@ -58,15 +58,14 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPow = [0, 0, 0];
 
-    // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
+    // Bar-level build-up / release state; beats counts the beats since the last downbeat.
+    var barState = {bar: 0, flash: 0, beats: 0};
+    var state = {audioKey: "", geometryKey: ""};
 
     // Default band palette, pre-expressed in HSV: red-ish, green-ish, blue-ish.
     var DEFAULT_BAND_HSV = [
@@ -74,8 +73,10 @@ var testAlgo;
         { h: 0.389, s: 0.875, v: 1.0 }, // ~0x20FF80
         { h: 0.583, s: 0.498, v: 1.0 }  // ~0x80C0FF
     ];
-    var PITCH_CONF_THRESH = 0.2;
     var FLASH_DECAY = 0.82;
+    var BAR_DECAY = 0.85;
+    // Without a downbeat for one 4/4 bar plus a beat, the build-up drains instead of growing.
+    var BAR_TIMEOUT_BEATS = 5;
     var SPARKLE_DECAY = 0.70;
     var SPARKLE_DENSITY = 0.10;
     var BASE_OVERALL = 0.35;
@@ -83,7 +84,7 @@ var testAlgo;
     var SPARKLE_HSV = { h: 0, s: 0, v: 1 };
 
     // BPM-scaled wall clock (one unit per beat). No audio in time scale.
-    var timeState = { position: 0 };
+    var time = 0;
     var flash = 0;
     var sparkleLevel = 0;
 
@@ -91,20 +92,28 @@ var testAlgo;
     // frames to avoid GC and the QV4 numeric-key→string conversion that an
     // object literal `{}` would trigger when indexed with `y * width + x`.
     var sparkleBitmap = null;
-    var sparkleBitmapLen = 0;
 
-    // Resolve a band color as {h,s,v}. Uses power-band proportions for palette selection.
+    function resetState() {
+        smoothPow = [0, 0, 0];
+        barState = {bar: 0, flash: 0, beats: 0};
+        time = 0;
+        flash = 0;
+        sparkleLevel = 0;
+    }
+
+    // Resolve a band color as {h,s,v}. Pitch Hue maps the pitch class to the hue wheel,
+    // or the band proportions while no pitch is detected.
     function colorFor(audio, bandIndex) {
         if (algo.presetPalette) {
-            // Use band proportions for hue generation
+            var pitch = audio.pitch;
+            if (pitch && pitch.valid && isFinite(pitch.midi))
+                return { h: HSVUtil.mod1(pitch.midi / 12 + bandIndex / 3.0), s: 0.85, v: 1.0 };
             var powers = [audio.low, audio.mid, audio.high];
             var total = powers[0] + powers[1] + powers[2] + 0.001;
             var hue = HSVUtil.mod1(powers[bandIndex] / total + bandIndex / 3.0);
             return { h: hue, s: 0.85, v: 1.0 };
         }
-        var stops = (algo.hasUserColors && algo.colors.length >= 3)
-                    ? algo.colors : DEFAULT_BAND_HSV;
-        return stops[bandIndex] || DEFAULT_BAND_HSV[bandIndex];
+        return (algo.hasUserColors ? algo.colors : DEFAULT_BAND_HSV)[bandIndex];
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -117,38 +126,31 @@ var testAlgo;
     {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
+        if (HSVUtil.audioStateChanged(state, audio, width, height))
+            resetState();
+        var frames = HSVUtil.elapsedFrames(audio);
 
-        var dt = audio.dt;
         // BPM-scaled free-running time: one unit per beat (matches seconds at 60 BPM).
-        var time = ((timeState.position = (timeState.position || 0) + audio.dt) && timeState.position);
+        time += audio.dt;
 
         var sensitivity = algo.presetSensitivity;
-        // Asymmetric EMA per band (brightness path)
         var rawPows = [audio.low, audio.mid, audio.high];
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        for (var sb = 0; sb < 3; sb++) {
-            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
-            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
-        }
+        for (var sb = 0; sb < 3; sb++)
+            smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing, frames);
         var lowVis = Math.min(1, smoothPow[0] * sensitivity);
         var midVis = Math.min(1, smoothPow[1] * sensitivity);
         var highVis = Math.min(1, smoothPow[2] * sensitivity);
 
         // --- Bar-level build-up ---
         var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
-        barEnergy += rawEnergy * audio.dt;
-        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-        if (audio.downbeat) {
-            releaseFlash = Math.min(1, peakEnergy * 0.5);
-            barEnergy = 0;
-            peakEnergy = 0;
-        }
-        releaseFlash *= 0.85;
+        barState.beats = audio.downbeat ? 0 : barState.beats + audio.dt;
+        var building = barState.beats <= BAR_TIMEOUT_BEATS;
+        HSVUtil.barEnvelope(barState, building ? rawEnergy : 0, audio.dt, audio.downbeat, Math.pow(BAR_DECAY, frames));
+        if (!building)
+            barState.bar *= Math.pow(BAR_DECAY, frames);
 
-        var dominant = (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})();
-        var dominantIndex = dominant === "high" ? 2 : (dominant === "mid" ? 1 : 0);
+        var dominant = HSVUtil.dominantBand(audio);
+        var dominantIndex = Math.max(0, dominant);
         var dominantValue = [lowVis, midVis, highVis][dominantIndex];
         var lowColor = colorFor(audio, 0);
         var midColor = colorFor(audio, 1);
@@ -158,10 +160,10 @@ var testAlgo;
         // Onset → flash overlay (single trigger source, no double-dipping).
         if (audio.onset)
             flash = Math.max(flash, audio.onsetIntensity * algo.presetFlash);
-        flash *= FLASH_DECAY;
+        flash *= Math.pow(FLASH_DECAY, frames);
 
         // Beat → sparkle intensity envelope (single behavior).
-        sparkleLevel *= SPARKLE_DECAY;
+        sparkleLevel *= Math.pow(SPARKLE_DECAY, frames);
         if (algo.presetSparkles)
             sparkleLevel = Math.max(sparkleLevel, audio.cosPulse * highVis);
 
@@ -169,13 +171,9 @@ var testAlgo;
         var sparkleActive = false;
         if (algo.presetSparkles && sparkleLevel > 0.02) {
             var pixelCount = width * height;
-            if (sparkleBitmap === null || sparkleBitmapLen !== pixelCount) {
+            if (sparkleBitmap === null || sparkleBitmap.length !== pixelCount)
                 sparkleBitmap = new Array(pixelCount);
-                sparkleBitmapLen = pixelCount;
-                for (var b = 0; b < pixelCount; b++) sparkleBitmap[b] = 0;
-            } else {
-                for (var b2 = 0; b2 < pixelCount; b2++) sparkleBitmap[b2] = 0;
-            }
+            for (var b = 0; b < pixelCount; b++) sparkleBitmap[b] = 0;
             sparkleActive = true;
             var sparkRows = Math.max(1, Math.floor(height / 2));
             var sparkCount = Math.max(1, Math.floor(width * sparkRows * SPARKLE_DENSITY * sparkleLevel));
@@ -188,7 +186,7 @@ var testAlgo;
 
         var barPhase = audio.barPhase;
         // Build-up swells overall brightness, downbeat release adds a burst
-        var overall = BASE_OVERALL + dominantValue + peakEnergy * 0.08 + releaseFlash * 0.35;
+        var overall = BASE_OVERALL + dominantValue + barState.bar * 0.08 + barState.flash * 0.35;
         var flashActive = flash > 0.01;
         var flashAmount = Math.min(1, flash);
 
@@ -201,21 +199,23 @@ var testAlgo;
                 var x01 = width <= 1 ? 0 : x / (width - 1);
                 var color, level;
 
-                if (dominant === "low") {
-                    var wave = 0.5 + 0.5 * Math.sin((x01 * 2.5 + time + barPhase) * Math.PI * 2);
+                if (dominant === 0) {
+                    var wave = HSVUtil.sin01(x01 * 2.5 + time + barPhase);
                     var pulseHeight = Math.min(1, 0.15 + lowVis * 1.15);
-                    level = Math.max(0, (pulseHeight - bottom) / Math.max(0.001, pulseHeight));
+                    // A single row has no height to fill: it shows the column's mean level.
+                    level = height <= 1 ? pulseHeight * 0.5
+                        : Math.max(0, (pulseHeight - bottom) / Math.max(0.001, pulseHeight));
                     level *= 0.55 + 0.45 * wave;
                     color = lowColor;
-                } else if (dominant === "mid") {
+                } else if (dominant === 1) {
                     var dx = Math.abs(x01 - barPhase);
                     dx = Math.min(dx, 1 - dx);
                     var ripple = Math.max(0, 1 - dx * (4 + midVis * 8));
-                    var rowWave = 0.5 + 0.5 * Math.sin((y01 * 3 + time * 0.65) * Math.PI * 2);
+                    var rowWave = HSVUtil.sin01(y01 * 3 + time * 0.65);
                     level = Math.max(ripple, rowWave * midVis * 0.65);
                     color = midColor;
                 } else {
-                    var shimmer = 0.5 + 0.5 * Math.sin((x01 * 9 + y01 * 5 + time * 1.8) * Math.PI * 2);
+                    var shimmer = HSVUtil.sin01(x01 * 9 + y01 * 5 + time * 1.8);
                     level = highVis * (0.25 + 0.75 * top) * (0.45 + 0.55 * shimmer);
                     color = highColor;
                 }

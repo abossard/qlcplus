@@ -63,17 +63,8 @@ var testAlgo;
         return HSVUtil.clamp01(1 + (20 * Math.log10(rawRms)) / 100);
     }
 
-    function hexToHsv(hex) {
-        var rgb = HSVUtil.parseHexRgb(hex);
-        return HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
-    }
-
     function ensureState(width, height, audio) {
-        var nextAudioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var nextGeometryKey = width + "|" + height;
-        if (state.audioKey !== nextAudioKey || state.geometryKey !== nextGeometryKey) {
-            state.audioKey = nextAudioKey;
-            state.geometryKey = nextGeometryKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             state.peak = 0;
             state.trough = 1;
             state.initialized = false;
@@ -95,33 +86,34 @@ var testAlgo;
             state.trough = volume;
             state.initialized = true;
         } else {
-            state.peak += (volume - state.peak) * (volume > state.peak ? 0.99 : alphaDecay);
+            var frames = HSVUtil.elapsedFrames(audio);
+            state.peak = HSVUtil.attackRelease(state.peak, volume, 0.99, alphaDecay, frames);
             if (volume < state.trough) state.trough = volume;
-            else state.trough += (volume - state.trough) * alphaDecay;
+            else state.trough += (volume - state.trough) * (1 - Math.pow(1 - alphaDecay, frames));
         }
-        var volumeMin = algo.presetMinVolume;
-        var volumeMax = algo.presetMaxVolume;
-        var volumePixels = Math.floor(width * volume);
-        var minPixels = Math.max(0, Math.min(width, Math.floor(width * volumeMin)));
-        var maxPixels = Math.max(0, Math.min(width, Math.floor(width * volumeMax)));
-        var peakSize = Math.floor(algo.presetPeakPercent * (width / 100));
-        if (peakSize < 0) peakSize = 0;
-        var peakStart = Math.min(Math.floor(width * state.peak), width);
-        var peakEnd = Math.min(peakStart + peakSize, width);
-        var troughEnd = Math.max(0, Math.min(Math.floor(width * state.trough), width));
-        var troughStart = Math.max(0, troughEnd - peakSize);
-        var colorMin = hexToHsv(algo.presetColorMin);
-        var colorMid = hexToHsv(algo.presetColorMid);
-        var colorMax = hexToHsv(algo.presetColorMax);
-        var colorPeak = hexToHsv(algo.presetColorPeak);
+        // A single column is a meter along its height.
+        var length = width === 1 ? height : width;
+        var volumePixels = Math.floor(length * volume);
+        var minPixels = Math.floor(length * algo.presetMinVolume);
+        var maxPixels = Math.floor(length * algo.presetMaxVolume);
+        var peakSize = Math.floor(algo.presetPeakPercent * (length / 100));
+        var peakStart = Math.floor(length * state.peak);
+        var peakEnd = peakStart + peakSize;
+        var troughEnd = Math.min(Math.floor(length * state.trough), length);
+        var troughStart = troughEnd - peakSize;
+        var colorMin = HSVUtil.hexToHsv(algo.presetColorMin);
+        var colorMid = HSVUtil.hexToHsv(algo.presetColorMid);
+        var colorMax = HSVUtil.hexToHsv(algo.presetColorMax);
+        var colorPeak = HSVUtil.hexToHsv(algo.presetColorPeak);
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
+                var p = width === 1 ? y : x;
                 var c = {h: 0, s: 0, v: 0};
-                if (x >= peakStart && x < peakEnd) c = colorPeak;
-                else if (x >= troughStart && x < troughEnd) c = colorPeak;
-                else if (x < volumePixels && x < minPixels) c = colorMin;
-                else if (x < volumePixels && x < maxPixels) c = colorMid;
-                else if (x < volumePixels) c = colorMax;
+                if (p >= peakStart && p < peakEnd) c = colorPeak;
+                else if (p >= troughStart && p < troughEnd) c = colorPeak;
+                else if (p < volumePixels && p < minPixels) c = colorMin;
+                else if (p < volumePixels && p < maxPixels) c = colorMid;
+                else if (p < volumePixels) c = colorMax;
                 var i = (y * width + x) * 3;
                 map[i] = c.h;
                 map[i + 1] = c.s;

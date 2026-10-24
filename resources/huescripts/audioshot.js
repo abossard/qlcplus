@@ -39,9 +39,9 @@ var testAlgo;
     algo.properties.push(
       "name:presetMaxShots|type:range|display:Max Shots|" +
       "values:1,20|write:setMaxShots|read:getMaxShots");
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 1, 10); };
     algo.getDecay = function() { return algo.presetDecay; };
-    algo.setSize = function(_v) { algo.presetSize = parseFloat(_v); };
+    algo.setSize = function(_v) { algo.presetSize = HSVUtil.parseNumber(_v, algo.presetSize, 1, 10); };
     algo.getSize = function() { return algo.presetSize; };
     algo.setTrigger = function(_v) {
         if (_v === "Bass") algo.presetTrigger = 1;
@@ -52,7 +52,7 @@ var testAlgo;
     algo.getTrigger = function() {
         return ["Beat", "Bass", "Mids", "Highs"][algo.presetTrigger];
     };
-    algo.setMaxShots = function(_v) { algo.presetMaxShots = parseInt(_v); };
+    algo.setMaxShots = function(_v) { algo.presetMaxShots = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxShots, 1, 20)); };
     algo.getMaxShots = function() { return algo.presetMaxShots; };
     var DECAY_DIVISOR = 200.0;
 
@@ -64,7 +64,7 @@ var testAlgo;
     algo.rgbMapGetColors = function() { return []; };
 
     function spawnShot(width, height, audio) {
-        var band = (audio.mid > audio.low && audio.mid >= audio.high) ? 1 : (audio.high > audio.low) ? 2 : 0;
+        var band = HSVUtil.dominantBand(audio);
         var color = (algo.colors && algo.colors.length >= 3) ? algo.colors[band] : {h: 0, s: 0, v: 1};
         var hitScale = Math.min(1.0, 0.4 + 0.6 * audio.onsetIntensity);
         var y;
@@ -93,15 +93,16 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
+        // Beat fires on beats, Bass on kicks, Mids and Highs on onsets where that band dominates.
         var trigger;
         if (algo.presetTrigger === 0) trigger = audio.beatFired;
         else if (algo.presetTrigger === 1) trigger = audio.version >= 6 ? audio.kickFired : audio.beatFired;
-        else if (algo.presetTrigger === 2) trigger = audio.onset;
         else trigger = audio.onset;
-        trigger = trigger || audio.onset;
 
         var eventName = algo.presetTrigger === 0 ? "beat" : algo.presetTrigger === 1 ? "kick" : "onset";
-        var count = audio.events ? Math.max(audio.events.delta[eventName], audio.events.delta.onset) : (trigger ? 1 : 0);
+        var count = HSVUtil.eventCount(audio, eventName, trigger);
+        if (algo.presetTrigger >= 2 && HSVUtil.dominantBand(audio) !== algo.presetTrigger - 1)
+            count = 0;
         for (var spawn = 0; spawn < Math.min(count, algo.presetMaxShots); spawn++)
             spawnShot(width, height, audio);
 
@@ -131,25 +132,7 @@ var testAlgo;
                     var dist = Math.sqrt(dx * dx + dy * dy);
                     if (dist > sz) continue;
                     var falloff = b * (1 - dist / (sz + 0.5));
-
-                    var i3 = (py * width + px) * 3;
-                    var existingV = map[i3 + 2];
-                    var newV = Math.min(1, existingV + falloff);
-                    if (existingV < 0.001) {
-                        map[i3] = shot.h;
-                        map[i3 + 1] = shot.s;
-                        map[i3 + 2] = newV;
-                    } else {
-                        // Blend hue toward brighter contributor
-                        var total = existingV + falloff;
-                        var t = falloff / Math.max(0.001, total);
-                        var dh = shot.h - map[i3];
-                        if (dh > 0.5) dh -= 1;
-                        else if (dh < -0.5) dh += 1;
-                        map[i3] = (map[i3] + t * dh) - Math.floor(map[i3] + t * dh);
-                        map[i3 + 1] = map[i3 + 1] * (1 - t) + shot.s * t;
-                        map[i3 + 2] = newV;
-                    }
+                    HSVUtil.blendPixel(map, (py * width + px) * 3, shot.h, shot.s, falloff);
                 }
             }
         }

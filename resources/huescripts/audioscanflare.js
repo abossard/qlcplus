@@ -89,21 +89,21 @@ var testAlgo;
       "name:presetUseGradient|type:list|display:Gradient|" +
       "values:No,Yes|write:setUseGradient|read:getUseGradient");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setWidth = function(_v) { algo.presetWidth = parseFloat(_v); };
+    algo.setWidth = function(_v) { algo.presetWidth = HSVUtil.parseNumber(_v, algo.presetWidth, 1, 50); };
     algo.getWidth = function() { return algo.presetWidth; };
-    algo.setMultiplier = function(_v) { algo.presetMultiplier = parseFloat(_v); };
+    algo.setMultiplier = function(_v) { algo.presetMultiplier = HSVUtil.parseNumber(_v, algo.presetMultiplier, 1, 500); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
     algo.setBounce = function(_v) { algo.presetBounce = (_v === "Yes") ? 1 : 0; };
     algo.getBounce = function() { return algo.presetBounce ? "Yes" : "No"; };
-    algo.setMaxSparkles = function(_v) { algo.presetMaxSparkles = parseInt(_v); };
+    algo.setMaxSparkles = function(_v) { algo.presetMaxSparkles = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxSparkles, 1, 20)); };
     algo.getMaxSparkles = function() { return algo.presetMaxSparkles; };
-    algo.setSparkleSize = function(_v) { algo.presetSparkleSize = parseFloat(_v); };
+    algo.setSparkleSize = function(_v) { algo.presetSparkleSize = HSVUtil.parseNumber(_v, algo.presetSparkleSize, 1, 30); };
     algo.getSparkleSize = function() { return algo.presetSparkleSize; };
-    algo.setSparkleTime = function(_v) { algo.presetSparkleTime = parseFloat(_v); };
+    algo.setSparkleTime = function(_v) { algo.presetSparkleTime = HSVUtil.parseNumber(_v, algo.presetSparkleTime, 100, 2000); };
     algo.getSparkleTime = function() { return algo.presetSparkleTime; };
-    algo.setSparkleThreshold = function(_v) { algo.presetSparkleThreshold = parseFloat(_v); };
+    algo.setSparkleThreshold = function(_v) { algo.presetSparkleThreshold = HSVUtil.parseNumber(_v, algo.presetSparkleThreshold, 10, 90); };
     algo.getSparkleThreshold = function() { return algo.presetSparkleThreshold; };
     algo.setColorIntensity = function(_v) { algo.presetColorIntensity = (_v === "Yes") ? 1 : 0; };
     algo.getColorIntensity = function() { return algo.presetColorIntensity ? "Yes" : "No"; };
@@ -118,7 +118,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo, {
         display: "",
@@ -133,11 +133,10 @@ var testAlgo;
     });
 
     var smoothLow = 0;
+    var prevPower = 0;
 
     // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
+    var envelope = {bar: 0, flash: 0};
 
     var SPARKLE_MIN_INTERVAL_MS = 50;
 
@@ -181,11 +180,24 @@ var testAlgo;
         return out;
     }
 
+    // Age and move a sparkle; false once it faded out or, unless it wraps, left the strip.
+    // It slows down as it fades: the distance is the integral of speed x health since its birth.
+    function advanceSparkle(sp, n, wraps) {
+        var age = (algo.elapsedMs - sp.bornMs) / 1000;
+        var life = sp.dieMs / 1000;
+        sp.health = 1 - age / life;
+        if (sp.health <= 0) return false;
+        sp.pos = sp.startPos + sp.speed * (age - age * age / (2 * life));
+        if (wraps) {
+            sp.pos = wrapPosition(sp.pos, n);
+            return true;
+        }
+        return sp.pos >= -sp.width && sp.pos < n;
+    }
+
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return bandColors().slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
@@ -198,9 +210,9 @@ var testAlgo;
         lastIdentityKey = identityKey;
         if (identityChanged) {
             smoothLow = 0;
-            barEnergy = 0;
-            peakEnergy = 0;
-            releaseFlash = 0;
+            prevPower = 0;
+            envelope.bar = 0;
+            envelope.flash = 0;
             algo.scanPos = 0;
             algo.returning = false;
             algo.sparkles = [];
@@ -216,41 +228,27 @@ var testAlgo;
             algo.lastMode = algo.presetMode;
         }
 
-        var dt = ledFxMode ? HSVUtil.audioSeconds(audio) : (audio.dt * 60.0 / audio.bpm);
+        var dt = HSVUtil.audioSeconds(audio);
+        var frames = HSVUtil.elapsedFrames(audio);
         algo.elapsedMs += dt * 1000;
-        var bpmEff = (audio.bpm > 0) ? audio.bpm : 120;
-        var beatsPerSec = bpmEff / 60.0;
+        var beatsPerSec = audio.bpm / 60.0;
 
         var rawLow = HSVUtil.powerForRange(audio, algo.presetFrequencyRange, false) * 2.0;
         var power = rawLow;
         if (!ledFxMode) {
-            var smoothing = algo.presetSmoothing / 10.0;
-            var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-            var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-            smoothLow += (rawLow > smoothLow ? riseAlpha : decayAlpha) * (rawLow - smoothLow);
+            smoothLow = HSVUtil.smoothFollow(smoothLow, rawLow, algo.presetSmoothing, frames);
             power = smoothLow;
-        }
-
-        // --- Bar-level build-up ---
-        if (!ledFxMode) {
-            barEnergy += rawLow * dt;
-            if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-            if (audio.downbeat) {
-                releaseFlash = Math.min(1, peakEnergy * 0.5);
-                barEnergy = 0;
-                peakEnergy = 0;
-            }
-            releaseFlash *= 0.85;
+            HSVUtil.barEnvelope(envelope, rawLow, dt, audio.downbeat, Math.pow(0.85, frames));
         }
 
         var multiplier = algo.presetMultiplier / 100.0;
-        var bar = power * multiplier;
+        var bar = (ledFxMode ? power : (prevPower + power) / 2) * multiplier;
+        prevPower = power;
         var scanW = Math.max(1, Math.round(n * algo.presetWidth / 100.0));
         var stepPerSec = ledFxMode
-            ? (n / 100.0 * Math.max(0, Math.min(100, algo.presetSpeed)))
+            ? (n * Math.min(1, algo.presetSpeed))
             : (Math.max(1, n - scanW) * algo.presetSpeed * beatsPerSec);
         var stepSize = dt * stepPerSec * bar;
-        var bounce = algo.presetBounce === 1;
 
         if (algo.returning) algo.scanPos -= stepSize;
         else algo.scanPos += stepSize;
@@ -258,13 +256,22 @@ var testAlgo;
         var maxStart = n - scanW;
         if (maxStart < 0) maxStart = 0;
 
-        if (bounce) {
+        if (algo.presetBounce === 1 && !ledFxMode && maxStart > 0) {
+            // Artistic folds the travel back at both ends, so no distance is lost at any render rate.
+            var period = 2 * maxStart;
+            var folded = wrapPosition(algo.scanPos, period);
+            algo.returning = (folded > maxStart) !== algo.returning;
+            algo.scanPos = folded > maxStart ? period - folded : folded;
+        } else if (algo.presetBounce === 1) {
             if (algo.scanPos > maxStart) { algo.scanPos = maxStart; algo.returning = true; }
             if (algo.scanPos < 0) { algo.scanPos = 0; algo.returning = false; }
         } else {
-            algo.scanPos = ((algo.scanPos % n) + n) % n;
+            algo.scanPos = wrapPosition(algo.scanPos, n);
             if (algo.scanPos > maxStart) algo.scanPos = algo.scanPos - n;
         }
+
+        // Sparkles move before the spawn check, so a slot freed in this render is reused at once.
+        algo.sparkles = algo.sparkles.filter(function(sp) { return advanceSparkle(sp, n, ledFxMode); });
 
         var threshold = algo.presetSparkleThreshold / 100.0;
         var sparkleGate = ledFxMode ? (threshold * 2.0) : threshold;
@@ -272,7 +279,16 @@ var testAlgo;
             algo.sparkles.length < algo.presetMaxSparkles &&
             (algo.elapsedMs - algo.lastSparkleMs) >= SPARKLE_MIN_INTERVAL_MS) {
 
-            var pixelPos = Math.max(0, Math.min(Math.floor(algo.scanPos), n));
+            // Sparkles are born on a fixed SPARKLE_MIN_INTERVAL_MS grid of audio time, at most one
+            // render back, where the scanner was then; so they do not depend on the render rate.
+            var born = Math.max(Math.floor(algo.elapsedMs / SPARKLE_MIN_INTERVAL_MS) * SPARKLE_MIN_INTERVAL_MS,
+                algo.elapsedMs - dt * 1000);
+            var scanAtBirth = algo.scanPos;
+            if (dt > 0)
+                scanAtBirth -= (algo.returning ? -stepSize : stepSize) * (algo.elapsedMs - born) / (dt * 1000);
+            if (algo.presetBounce === 1)
+                scanAtBirth = Math.max(0, Math.min(maxStart, scanAtBirth));
+            var pixelPos = Math.floor(wrapPosition(scanAtBirth, n));
             var sparkleW = Math.max(1, Math.round(scanW * algo.presetSparkleSize / 100.0));
             var trailingPos = algo.returning
                 ? (pixelPos + scanW)
@@ -281,14 +297,17 @@ var testAlgo;
                 ? (algo.returning ? -stepPerSec : stepPerSec)
                 : (stepPerSec * (algo.returning ? 1 : -1));
 
-            algo.sparkles.push({
-                pos: wrapPosition(trailingPos, n),
+            // Artistic sparkles never wrap, so they spawn unwrapped next to the scanner.
+            var sparkle = {
+                startPos: ledFxMode ? wrapPosition(trailingPos, n) : trailingPos,
                 width: sparkleW,
                 speed: sparkleSpeed,
-                bornMs: algo.elapsedMs,
+                bornMs: born,
                 dieMs: algo.presetSparkleTime
-            });
-            algo.lastSparkleMs = algo.elapsedMs;
+            };
+            if (advanceSparkle(sparkle, n, ledFxMode))
+                algo.sparkles.push(sparkle);
+            algo.lastSparkleMs = born;
         }
 
         var strip = new Array(n);
@@ -307,61 +326,42 @@ var testAlgo;
         if (algo.presetColorIntensity === 1)
             scanHsv = {h: scanHsv.h, s: scanHsv.s, v: scanHsv.v * Math.min(1, power)};
         // Release flares the scanner brightness on downbeat
-        if (!ledFxMode && releaseFlash > 0.01)
-            scanHsv = {h: scanHsv.h, s: scanHsv.s, v: Math.min(1, scanHsv.v + releaseFlash * 0.5)};
-        if (!ledFxMode) {
-            drawSegment(strip, n, algo.scanPos, scanW, scanHsv);
-        } else {
-            var scanRgb = HSVUtil.hsvToRgb(scanHsv.h, scanHsv.s, scanHsv.v);
-            var start = Math.max(0, Math.min(Math.floor(algo.scanPos), n));
-            for (var s = 0; s < scanW; s++) {
-                var idx = start + s;
-                if (idx >= n) break;
-                stripRgb[idx] = [scanRgb[0], scanRgb[1], scanRgb[2]];
+        if (!ledFxMode && envelope.flash > 0.01)
+            scanHsv = {h: scanHsv.h, s: scanHsv.s, v: Math.min(1, scanHsv.v + envelope.flash * 0.5)};
+        // Without bounce a scanner that crosses the strip end also covers its start.
+        var scanStarts = [Math.floor(algo.scanPos)];
+        if (algo.scanPos < 0)
+            scanStarts.push(scanStarts[0] + n);
+        var scanRgb = ledFxMode ? HSVUtil.hsvToRgb(scanHsv.h, scanHsv.s, scanHsv.v) : null;
+        for (var si = 0; si < scanStarts.length; si++) {
+            if (!ledFxMode) {
+                drawSegment(strip, n, scanStarts[si], scanW, scanHsv);
+                continue;
             }
-            var overflow = (start + scanW) - n;
-            if (!bounce && overflow > 0) {
-                for (var o = 0; o < overflow; o++)
-                    stripRgb[o] = [scanRgb[0], scanRgb[1], scanRgb[2]];
+            for (var s = 0; s < scanW; s++) {
+                var idx = scanStarts[si] + s;
+                if (idx >= 0 && idx < n)
+                    stripRgb[idx] = [scanRgb[0], scanRgb[1], scanRgb[2]];
             }
         }
 
-        var alive = [];
         for (var i = 0; i < algo.sparkles.length; i++) {
             var sp = algo.sparkles[i];
-            var age = algo.elapsedMs - sp.bornMs;
-            var health = 1 - (age / sp.dieMs);
-            if (health <= 0) continue;
-            sp.pos += sp.speed * dt * health;
-            if (ledFxMode)
-                sp.pos = wrapPosition(sp.pos, n);
-            if (!ledFxMode && (sp.pos < -sp.width || sp.pos >= n)) continue;
             if (!ledFxMode) {
-                var sparkleColor = {h: 0, s: 0, v: health};
-                drawSegment(strip, n, sp.pos, sp.width, sparkleColor);
-            } else {
-                var base = Math.floor(sp.pos);
-                for (var ws = 0; ws < sp.width; ws++) {
-                    var wi = (base + ws) % n;
-                    stripRgb[wi][0] = HSVUtil.clamp01(stripRgb[wi][0] + health);
-                    stripRgb[wi][1] = HSVUtil.clamp01(stripRgb[wi][1] + health);
-                    stripRgb[wi][2] = HSVUtil.clamp01(stripRgb[wi][2] + health);
-                }
+                drawSegment(strip, n, sp.pos, sp.width, {h: 0, s: 0, v: sp.health});
+                continue;
             }
-            alive.push(sp);
+            var base = Math.floor(sp.pos);
+            for (var ws = 0; ws < sp.width; ws++) {
+                var wi = (base + ws) % n;
+                stripRgb[wi][0] = HSVUtil.clamp01(stripRgb[wi][0] + sp.health);
+                stripRgb[wi][1] = HSVUtil.clamp01(stripRgb[wi][1] + sp.health);
+                stripRgb[wi][2] = HSVUtil.clamp01(stripRgb[wi][2] + sp.health);
+            }
         }
-        algo.sparkles = alive;
 
-        if (ledFxMode) {
-            for (var li = 0; li < n; li++) {
-                var hsv = HSVUtil.rgbToHsvUnclipped(stripRgb[li][0], stripRgb[li][1], stripRgb[li][2]);
-                var lo = li * 3;
-                map[lo] = hsv.h;
-                map[lo + 1] = hsv.s;
-                map[lo + 2] = HSVUtil.clamp01(hsv.v);
-            }
-            return HSVUtil.applyStripTransforms(map, width, height, readOutputControls());
-        }
+        if (ledFxMode)
+            return HSVUtil.applyStripTransforms(HSVUtil.writeRgbPixels(map, stripRgb), width, height, readOutputControls());
 
         if (algo.presetAxis === "Vertical") {
             for (var y = 0; y < height; y++) {

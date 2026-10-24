@@ -29,16 +29,31 @@ var testAlgo;
         {h: 0.611, s: 0.75, v: 1.0}
     ];
 
-    algo.presetRules = "30,90,110,150";
+    function parseRulePool(spec) {
+      if (spec === "All") {
+        var arr = new Array(256);
+        for (var i = 0; i < 256; i++) arr[i] = i;
+        return arr;
+      }
+      var parts = spec.split(",");
+      var out = [];
+      for (var p = 0; p < parts.length; p++) {
+        var n = parseInt(parts[p]);
+        if (!isNaN(n)) out.push(HSVUtil.wrap(n, 256));
+      }
+      if (out.length === 0) out.push(30);
+      return out;
+    }
+
     algo.properties.push(
       "name:presetRules|type:string|display:Rule Pool|" +
       "write:setRules|read:getRules");
     algo.setRules = function(_v) {
       algo.presetRules = _v;
-      algo.rulePoolCache = null;
-      algo.rulePoolKey = null;
+      algo.rulePool = parseRulePool(_v);
     };
     algo.getRules = function() { return algo.presetRules; };
+    algo.setRules("30,90,110,150");
 
     algo.presetSeedMode = "Center";
     algo.properties.push(
@@ -58,7 +73,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetScrollHz|type:float|display:Scroll Rate (rows/beat)|" +
       "write:setScrollHz|read:getScrollHz");
-    algo.setScrollHz = function(_v) { algo.presetScrollHz = parseFloat(_v); };
+    algo.setScrollHz = function(_v) { algo.presetScrollHz = HSVUtil.parseNumber(_v, algo.presetScrollHz, 0, 32); };
     algo.getScrollHz = function() { return algo.presetScrollHz; };
 
     algo.history = null;
@@ -69,32 +84,6 @@ var testAlgo;
     algo.scrollAccum = 0;
     algo.lastW = -1;
     algo.lastH = -1;
-    algo.rulePoolCache = null;
-    algo.rulePoolKey = null;
-
-    function parseRulePool(spec) {
-      if (spec === "All") {
-        var arr = new Array(256);
-        for (var i = 0; i < 256; i++) arr[i] = i;
-        return arr;
-      }
-      var parts = spec.split(",");
-      var out = [];
-      for (var p = 0; p < parts.length; p++) {
-        var n = parseInt(parts[p]);
-        if (!isNaN(n)) out.push(((n % 256) + 256) % 256);
-      }
-      if (out.length === 0) out.push(30);
-      return out;
-    }
-
-    function getRulePool() {
-      if (algo.rulePoolCache && algo.rulePoolKey === algo.presetRules)
-        return algo.rulePoolCache;
-      algo.rulePoolCache = parseRulePool(algo.presetRules);
-      algo.rulePoolKey = algo.presetRules;
-      return algo.rulePoolCache;
-    }
 
     function ensureHistory(width, height) {
       if (algo.history && algo.lastW === width && algo.lastH === height) return;
@@ -122,7 +111,7 @@ var testAlgo;
       ensureHistory(width, height);
       var N = width;
       var H = height;
-      var rulePool = getRulePool();
+      var rulePool = algo.rulePool;
 
       if (audio.beatFired) {
         algo.ruleIdx = (algo.ruleIdx + 1) % rulePool.length;
@@ -140,11 +129,10 @@ var testAlgo;
         if (algo.presetSeedMode === "Center") {
           seedX = Math.floor(N / 2);
         } else if (algo.presetSeedMode === "Bass") {
-          seedX = Math.min(N - 1, Math.floor(N * audio.low));
+          seedX = Math.min(N - 1, Math.floor(N * HSVUtil.clamp01(audio.low)));
         } else {
           seedX = Math.floor(Math.random() * N);
         }
-        if (seedX < 0) seedX = 0; else if (seedX > N - 1) seedX = N - 1;
         algo.history[algo.row * N + seedX] = 1;
       }
 

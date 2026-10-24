@@ -128,6 +128,12 @@ private slots:
        on-CPU compute from time not running on that thread. */
     void workerCpuDistinguishesBusyFromSleeping();
 
+    /* Audio HUE scripts at the engine boundary: shared QJSEngine, RGBMatrix::setProperty */
+    void audioScriptPropertyWriteKeepsThePalette_data();
+    void audioScriptPropertyWriteKeepsThePalette();
+    void audioScriptInstancesKeepTheirOwnProperties_data();
+    void audioScriptInstancesKeepTheirOwnProperties();
+
 private:
     Doc *m_doc;
 };

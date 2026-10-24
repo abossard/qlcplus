@@ -23,17 +23,16 @@ var testAlgo;
     algo.acceptColors = 5;
     algo.usesAudio = true;
     algo.properties = new Array();
-    var ledW;
-    var ledH;
-    var ledAudioIdentity;
-    var ledGeometryKey;
     algo.presetMode = "Artistic";
+    // LedFx Soap geometry and audio source; setMode clears them to restart the LedFx state.
+    var ledW = 0;
+    var ledH = 0;
+    var ledAudioIdentity = "";
     algo.properties.push("name:mode|type:list|display:Response|values:Artistic,LedFx Soap|write:setMode|read:getMode");
     algo.setMode = function(v) {
         var next = v === "LedFx Soap" ? v : "Artistic";
         if (next !== algo.presetMode) {
             ledAudioIdentity = "";
-            ledGeometryKey = "";
             ledW = 0;
             ledH = 0;
         }
@@ -62,11 +61,11 @@ var testAlgo;
     algo.properties.push("name:intensity|type:float|display:Intensity|write:setIntensity|read:getIntensity");
     algo.properties.push("name:frequency_range|type:list|display:Frequency Range|values:Beat,Bass,Lows (beat+bass),Mids,High|write:setFrequencyRange|read:getFrequencyRange");
 
-    algo.setDensity = function(v) { algo.density = parseFloat(v); };
+    algo.setDensity = function(v) { algo.density = HSVUtil.parseNumber(v, algo.density, 0, 1); };
     algo.getDensity = function() { return algo.density; };
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 1); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setIntensity = function(v) { algo.intensity = parseFloat(v); };
+    algo.setIntensity = function(v) { algo.intensity = HSVUtil.parseNumber(v, algo.intensity, 0, 2); };
     algo.getIntensity = function() { return algo.intensity; };
     algo.setFrequencyRange = function(v) { algo.frequency_range = String(v); };
     algo.getFrequencyRange = function() { return algo.frequency_range; };
@@ -80,7 +79,6 @@ var testAlgo;
     var noiseField = null;
     var prevPixels = null;
     var lastW = 0, lastH = 0;
-    var needSeed = true;
 
     // LedFx Soap state.
     var ledPhaseSeedX = Math.random() * 256;
@@ -89,37 +87,37 @@ var testAlgo;
     var ledPhaseY = ledPhaseSeedY;
     var ledNoise = null;
     var ledPrevRgb = null;
-    ledW = 0;
-    ledH = 0;
-    var ledNeedSeed = true;
-    ledAudioIdentity = "";
-    ledGeometryKey = "";
 
     function gradientStops() {
         return algo.hasUserColors ? algo.colors : DEFAULT_HSV_STOPS;
     }
 
     function powerFor(audio) {
-        if (algo.frequency_range === "Beat") return audio.beat;
-        if (algo.frequency_range === "Bass") return audio.bass;
-        if (algo.frequency_range === "Mids") return audio.mid;
-        if (algo.frequency_range === "High") return audio.high;
-        return audio.low;
+        var power = audio.low;
+        if (algo.frequency_range === "Beat") power = audio.beat;
+        else if (algo.frequency_range === "Bass") power = audio.bass;
+        else if (algo.frequency_range === "Mids") power = audio.mid;
+        else if (algo.frequency_range === "High") power = audio.high;
+        return HSVUtil.clamp01(isFinite(power) ? power : 0);
+    }
+
+    function phaseStep(audio, dtSec) {
+        var impulse = powerFor(audio) * 6.0;
+        var audioSpeed = (algo.intensity === 0)
+            ? algo.speed
+            : (algo.speed * impulse * algo.intensity);
+        return audioSpeed * audioSpeed * 0.5 * dtSec;
     }
 
     function initBuffers(w, h) {
         noiseField = new Array(h);
-        prevPixels = new Array(h);
         for (var y = 0; y < h; y++) {
             noiseField[y] = new Array(w);
-            prevPixels[y] = new Array(w);
-            for (var x = 0; x < w; x++) {
+            for (var x = 0; x < w; x++)
                 noiseField[y][x] = 0.5;
-                prevPixels[y][x] = {h: 0, s: 0, v: 0};
-            }
         }
+        prevPixels = null;
         lastW = w; lastH = h;
-        needSeed = true;
     }
 
     function genNoiseField(w, h) {
@@ -142,35 +140,24 @@ var testAlgo;
 
     function syncLedStateIdentity(w, h, audio) {
         var nextAudioIdentity = HSVUtil.audioIdentityKey(audio, ledAudioIdentity);
-        var nextGeometryKey = w + "x" + h;
-        if (ledAudioIdentity !== nextAudioIdentity ||
-            ledGeometryKey !== nextGeometryKey ||
-            ledW !== w ||
-            ledH !== h) {
+        if (ledAudioIdentity !== nextAudioIdentity || ledW !== w || ledH !== h) {
             ledAudioIdentity = nextAudioIdentity;
-            ledGeometryKey = nextGeometryKey;
-            initLedState(w, h, true);
+            initLedState(w, h);
         }
     }
 
-    function initLedState(w, h, resetPhase) {
+    function initLedState(w, h) {
         ledNoise = new Array(h);
-        ledPrevRgb = new Array(h);
         for (var y = 0; y < h; y++) {
             ledNoise[y] = new Array(w);
-            ledPrevRgb[y] = new Array(w);
-            for (var x = 0; x < w; x++) {
+            for (var x = 0; x < w; x++)
                 ledNoise[y][x] = 0;
-                ledPrevRgb[y][x] = [0, 0, 0];
-            }
         }
+        ledPrevRgb = null;
         ledW = w;
         ledH = h;
-        ledNeedSeed = true;
-        if (resetPhase) {
-            ledPhaseX = ledPhaseSeedX;
-            ledPhaseY = ledPhaseSeedY;
-        }
+        ledPhaseX = ledPhaseSeedX;
+        ledPhaseY = ledPhaseSeedY;
     }
 
     function updateLedNoise(w, h, dtSeconds) {
@@ -197,7 +184,23 @@ var testAlgo;
         return x * x * (3 - 2 * x);
     }
 
-    function smearRgb(source, palette, amount, axis, w, h) {
+    function mixRgb(a, b, wA, wB) {
+        return [
+            a[0] * wA + b[0] * wB,
+            a[1] * wA + b[1] * wB,
+            a[2] * wA + b[2] * wB
+        ];
+    }
+
+    function mixHsv(a, b, wA, wB) {
+        return {
+            h: HSVUtil.lerpHue(a.h, b.h, wB),
+            s: a.s * wA + b.s * wB,
+            v: a.v * wA + b.v * wB
+        };
+    }
+
+    function smear(source, palette, amount, axis, w, h, mix) {
         var out = new Array(h);
         for (var y = 0; y < h; y++) out[y] = new Array(w);
         if (axis === 1) {
@@ -217,11 +220,7 @@ var testAlgo;
                     else { var cx = Math.max(0, Math.min(w - 1, zD)); a = palette[row][cx]; }
                     if (zF >= 0 && zF < w) b = source[row][zF];
                     else { var cx2 = Math.max(0, Math.min(w - 1, zF)); b = palette[row][cx2]; }
-                    out[row][x] = [
-                        a[0] * wA + b[0] * wB,
-                        a[1] * wA + b[1] * wB,
-                        a[2] * wA + b[2] * wB
-                    ];
+                    out[row][x] = mix(a, b, wA, wB);
                 }
             }
             return out;
@@ -242,24 +241,45 @@ var testAlgo;
                 else { var cy = Math.max(0, Math.min(h - 1, zDCol)); aCol = palette[cy][col]; }
                 if (zFCol >= 0 && zFCol < h) bCol = source[zFCol][col];
                 else { var cy2 = Math.max(0, Math.min(h - 1, zFCol)); bCol = palette[cy2][col]; }
-                out[y2][col] = [
-                    aCol[0] * wACol + bCol[0] * wBCol,
-                    aCol[1] * wACol + bCol[1] * wBCol,
-                    aCol[2] * wACol + bCol[2] * wBCol
-                ];
+                out[y2][col] = mix(aCol, bCol, wACol, wBCol);
             }
         }
         return out;
     }
 
+    function buildPalette(noise, w, h, sample) {
+        var gradient = gradientStops();
+        var palette = new Array(h);
+        for (var y = 0; y < h; y++) {
+            palette[y] = new Array(w);
+            for (var x = 0; x < w; x++)
+                palette[y][x] = sample(gradient, HSVUtil.mod1((1 - noise[y][x]) * 3.0));
+        }
+        return palette;
+    }
+
+    function smearFrame(prev, palette, noise, w, h, mix) {
+        var ampFactor = 1 + 7 * algo.density;
+        var ampX = Math.max(1, (w - 8) / 8) * ampFactor;
+        var ampY = Math.max(1, (h - 8) / 8) * ampFactor;
+        var amtRows = new Array(h);
+        for (var row = 0; row < h; row++)
+            amtRows[row] = (noise[row][0] - 0.5) * ampX;
+        var amtCols = new Array(w);
+        for (var col = 0; col < w; col++)
+            amtCols[col] = (noise[0][col] - 0.5) * ampY;
+        var afterRows = smear(prev, palette, amtRows, 1, w, h, mix);
+        return smear(afterRows, palette, amtCols, 0, w, h, mix);
+    }
+
     function writeMapFromRgb(map, rgb2d, width, height) {
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                var hsv = HSVUtil.rgbToHsvUnclipped(rgb2d[y][x][0], rgb2d[y][x][1], rgb2d[y][x][2]);
+                var hsv = HSVUtil.rgbToHsv(rgb2d[y][x][0], rgb2d[y][x][1], rgb2d[y][x][2]);
                 var i3 = (y * width + x) * 3;
-                map[i3] = HSVUtil.clamp01(hsv.h);
-                map[i3 + 1] = HSVUtil.clamp01(hsv.s);
-                map[i3 + 2] = HSVUtil.clamp01(hsv.v);
+                map[i3] = hsv.h;
+                map[i3 + 1] = hsv.s;
+                map[i3 + 2] = hsv.v;
             }
         }
         return map;
@@ -268,111 +288,21 @@ var testAlgo;
     function renderArtistic(map, width, height, audio) {
         if (lastW !== width || lastH !== height) initBuffers(width, height);
 
-        var dtSec = (isFinite(audio.dt) && isFinite(audio.bpm) && audio.bpm > 0)
-            ? Math.max(0, audio.dt * 60 / audio.bpm)
-            : HSVUtil.audioSeconds(audio);
-        var power = HSVUtil.clamp01(isFinite(powerFor(audio)) ? powerFor(audio) : 0);
-        var impulse = power * 6.0;
-        var audioSpeed = (algo.intensity === 0)
-            ? algo.speed
-            : (algo.speed * impulse * algo.intensity);
-        var move = audioSpeed * audioSpeed * 0.5 * dtSec;
+        var move = phaseStep(audio, HSVUtil.audioSeconds(audio));
         phaseX += move;
         phaseY += move;
 
         genNoiseField(width, height);
+        var palette = buildPalette(noiseField, width, height, HSVUtil.gradientAt);
 
-        var gradient = gradientStops();
-        var palette = new Array(height);
-        for (var y = 0; y < height; y++) {
-            palette[y] = new Array(width);
-            for (var x = 0; x < width; x++) {
-                var palIdx = ((1 - noiseField[y][x]) * 3.0) % 1;
-                if (palIdx < 0) palIdx += 1;
-                palette[y][x] = HSVUtil.gradientAt(gradient, palIdx);
-            }
-        }
-
-        if (needSeed) {
-            for (var sy = 0; sy < height; sy++)
-                for (var sx = 0; sx < width; sx++)
-                    prevPixels[sy][sx] = {
-                        h: palette[sy][sx].h,
-                        s: palette[sy][sx].s,
-                        v: palette[sy][sx].v
-                    };
-            needSeed = false;
-        }
-
-        var ampX = Math.max(1, (width - 8) / 8) * (1 + 7 * algo.density);
-        var ampY = Math.max(1, (height - 8) / 8) * (1 + 7 * algo.density);
-
-        var amtRows = new Array(height);
-        for (var yRow = 0; yRow < height; yRow++)
-            amtRows[yRow] = (noiseField[yRow][0] - 0.5) * ampX;
-        var amtCols = new Array(width);
-        for (var xCol = 0; xCol < width; xCol++)
-            amtCols[xCol] = (noiseField[0][xCol] - 0.5) * ampY;
-
-        var afterRow = new Array(height);
-        for (var yMix = 0; yMix < height; yMix++) {
-            afterRow[yMix] = new Array(width);
-            var amt = amtRows[yMix];
-            var sgn = amt > 0 ? 1 : (amt < 0 ? -1 : 0);
-            var mag = Math.abs(amt);
-            var di = Math.floor(mag);
-            var frac = mag - di;
-            var wB = frac * frac * (3 - 2 * frac);
-            var wA = 1 - wB;
-            for (var xMix = 0; xMix < width; xMix++) {
-                var zD = xMix + sgn * di;
-                var zF = zD + sgn;
-                var a, b;
-                if (zD >= 0 && zD < width) a = prevPixels[yMix][zD];
-                else { var cx = Math.max(0, Math.min(width - 1, zD)); a = palette[yMix][cx]; }
-                if (zF >= 0 && zF < width) b = prevPixels[yMix][zF];
-                else { var cx2 = Math.max(0, Math.min(width - 1, zF)); b = palette[yMix][cx2]; }
-                var dh = b.h - a.h;
-                if (dh > 0.5) dh -= 1;
-                else if (dh < -0.5) dh += 1;
-                var rh = a.h + wB * dh;
-                rh = rh - Math.floor(rh);
-                afterRow[yMix][xMix] = {
-                    h: rh,
-                    s: a.s * wA + b.s * wB,
-                    v: a.v * wA + b.v * wB
-                };
-            }
-        }
-
-        for (var xOut = 0; xOut < width; xOut++) {
-            var amtY = amtCols[xOut];
-            var sgnY = amtY > 0 ? 1 : (amtY < 0 ? -1 : 0);
-            var magY = Math.abs(amtY);
-            var diY = Math.floor(magY);
-            var fracY = magY - diY;
-            var wBY = fracY * fracY * (3 - 2 * fracY);
-            var wAY = 1 - wBY;
-            for (var yOut = 0; yOut < height; yOut++) {
-                var zDY = yOut + sgnY * diY;
-                var zFY = zDY + sgnY;
-                var aY, bY;
-                if (zDY >= 0 && zDY < height) aY = afterRow[zDY][xOut];
-                else { var cyY = Math.max(0, Math.min(height - 1, zDY)); aY = palette[cyY][xOut]; }
-                if (zFY >= 0 && zFY < height) bY = afterRow[zFY][xOut];
-                else { var cy2Y = Math.max(0, Math.min(height - 1, zFY)); bY = palette[cy2Y][xOut]; }
-                var dhY = bY.h - aY.h;
-                if (dhY > 0.5) dhY -= 1;
-                else if (dhY < -0.5) dhY += 1;
-                var rhY = aY.h + wBY * dhY;
-                rhY = rhY - Math.floor(rhY);
-                var rsY = aY.s * wAY + bY.s * wBY;
-                var rvY = aY.v * wAY + bY.v * wBY;
-                prevPixels[yOut][xOut] = {h: rhY, s: rsY, v: rvY};
+        prevPixels = smearFrame(prevPixels || palette, palette, noiseField, width, height, mixHsv);
+        for (var yOut = 0; yOut < height; yOut++) {
+            for (var xOut = 0; xOut < width; xOut++) {
+                var px = prevPixels[yOut][xOut];
                 var i3 = (yOut * width + xOut) * 3;
-                map[i3] = rhY;
-                map[i3 + 1] = Math.max(0, Math.min(1, rsY));
-                map[i3 + 2] = Math.max(0, Math.min(1, rvY));
+                map[i3] = px.h;
+                map[i3 + 1] = HSVUtil.clamp01(px.s);
+                map[i3 + 2] = HSVUtil.clamp01(px.v);
             }
         }
 
@@ -383,57 +313,21 @@ var testAlgo;
         syncLedStateIdentity(width, height, audio);
 
         var dtSec = HSVUtil.audioSeconds(audio);
-        var power = HSVUtil.clamp01(isFinite(powerFor(audio)) ? powerFor(audio) : 0);
-        var impulse = power * 6.0;
-        var audioSpeed = (algo.intensity === 0)
-            ? algo.speed
-            : (algo.speed * impulse * algo.intensity);
-
         if (dtSec > 0) {
-            var move = audioSpeed * audioSpeed * 0.5 * dtSec;
+            var move = phaseStep(audio, dtSec);
             ledPhaseX += move;
             ledPhaseY += move;
             updateLedNoise(width, height, dtSec);
         }
 
-        var gradient = gradientStops();
-        var palette = new Array(height);
-        for (var y = 0; y < height; y++) {
-            palette[y] = new Array(width);
-            for (var x = 0; x < width; x++) {
-                var palIdx = ((1 - ledNoise[y][x]) * 3.0) % 1;
-                if (palIdx < 0) palIdx += 1;
-                palette[y][x] = HSVUtil.gradientRgbAt(gradient, palIdx);
-            }
-        }
-
-        if (ledNeedSeed) {
-            for (var sy = 0; sy < height; sy++) {
-                for (var sx = 0; sx < width; sx++) {
-                    var src = palette[sy][sx];
-                    ledPrevRgb[sy][sx] = [src[0], src[1], src[2]];
-                }
-            }
-            ledNeedSeed = false;
-        }
-
+        var palette = buildPalette(ledNoise, width, height, HSVUtil.gradientRgbAt);
+        if (!ledPrevRgb)
+            ledPrevRgb = palette;
         if (dtSec <= 0)
             return writeMapFromRgb(map, ledPrevRgb, width, height);
 
-        var ampFactor = 1 + 7 * algo.density;
-        var ampX = Math.max(1, (width - 8) / 8) * ampFactor;
-        var ampY = Math.max(1, (height - 8) / 8) * ampFactor;
-        var amtRows = new Array(height);
-        for (var row = 0; row < height; row++)
-            amtRows[row] = (ledNoise[row][0] - 0.5) * ampX;
-        var amtCols = new Array(width);
-        for (var col = 0; col < width; col++)
-            amtCols[col] = (ledNoise[0][col] - 0.5) * ampY;
-
-        var afterRows = smearRgb(ledPrevRgb, palette, amtRows, 1, width, height);
-        var outFrame = smearRgb(afterRows, palette, amtCols, 0, width, height);
-        ledPrevRgb = outFrame;
-        return writeMapFromRgb(map, outFrame, width, height);
+        ledPrevRgb = smearFrame(ledPrevRgb, palette, ledNoise, width, height, mixRgb);
+        return writeMapFromRgb(map, ledPrevRgb, width, height);
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };

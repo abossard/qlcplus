@@ -84,8 +84,6 @@ var testAlgo;
     algo.getDecay = function() { return algo.presetDecay; };
     algo.setRoll = function(v) { algo.presetRoll = HSVUtil.clamp01(parseFloat(v) || 0); };
     algo.getRoll = function() { return algo.presetRoll; };
-    algo.setBands = function(v) { algo.setBandCount(v); };
-    algo.getBands = function() { return algo.getBandCount(); };
 
     var state = {
         geometryKey: "",
@@ -98,13 +96,13 @@ var testAlgo;
 
     function sourceSamples(audio, count) {
         var bank = audio && audio.banks && audio.banks.full;
-        var values = null;
+        var values = [];
         if (bank && bank.count) {
             if (algo.presetSource === "Novelty") values = bank.novelty || bank.processed || [];
             else values = bank.processed || bank.novelty || [];
         }
-        if (!values || values.length === 0) values = [audio && audio.low || 0, audio && audio.mid || 0, audio && audio.high || 0];
-        var out = HSVUtil.interpolate(values, Math.max(1, count));
+        if (values.length === 0) values = [audio && audio.low || 0, audio && audio.mid || 0, audio && audio.high || 0];
+        var out = HSVUtil.interpolate(values, count);
         for (var i = 0; i < out.length; i++) out[i] = HSVUtil.clamp01(out[i]);
         return out;
     }
@@ -116,18 +114,14 @@ var testAlgo;
         var cursor = 0;
         for (var i = 0; i < bands; i++) {
             var len = base + (i < extra ? 1 : 0);
-            var end = cursor + Math.max(1, len);
             var sum = 0;
             var peak = 0;
-            var n = 0;
-            for (var j = cursor; j < end && j < samples.length; j++) {
-                var v = HSVUtil.clamp01(samples[j]);
-                sum += v;
-                if (v > peak) peak = v;
-                n++;
+            for (var j = cursor; j < cursor + len; j++) {
+                sum += samples[j];
+                if (samples[j] > peak) peak = samples[j];
             }
-            out[i] = n > 0 ? (algo.presetAggregation === "Max" ? peak : sum / n) : 0;
-            cursor = end;
+            out[i] = algo.presetAggregation === "Max" ? peak : sum / len;
+            cursor += len;
         }
         return out;
     }
@@ -135,28 +129,20 @@ var testAlgo;
     function updatePeaks(levels, dt) {
         for (var i = 0; i < levels.length; i++) {
             if (levels[i] >= state.peaks[i]) state.peaks[i] = levels[i];
-            else state.peaks[i] *= Math.pow(1 - algo.presetPeakDecay, Math.max(0, dt) * 60);
+            else state.peaks[i] = Math.max(levels[i], state.peaks[i] * Math.pow(1 - algo.presetPeakDecay, dt * 60));
         }
     }
 
     function updateSpin(audio, dt) {
         var target = HSVUtil.powerForRange(audio, algo.presetSpinSource, false) * algo.presetMultiplier;
-        var alpha = target > state.spinImpulse ? 0.99 : algo.presetDecay;
-        state.spinImpulse += (target - state.spinImpulse) * alpha;
+        state.spinImpulse = HSVUtil.attackRelease(state.spinImpulse, target, 0.99, algo.presetDecay,
+            HSVUtil.elapsedFrames(audio));
         if (algo.presetSpin > 0)
-            state.spinAngle = HSVUtil.mod1(state.spinAngle + state.spinImpulse * Math.max(0, dt) * algo.presetSpin * 0.5);
-    }
-
-    function updateRoll(audio, dt) {
-        if (audio && audio.timing && isFinite(audio.timing.absoluteSeconds)) {
-            state.rollPhase = HSVUtil.mod1(audio.timing.absoluteSeconds * algo.presetRoll);
-            return;
-        }
-        state.rollPhase = HSVUtil.mod1(state.rollPhase + Math.max(0, dt) * algo.presetRoll);
+            state.spinAngle = HSVUtil.mod1(state.spinAngle + state.spinImpulse * dt * algo.presetSpin * 0.5);
     }
 
     function gradientColor(coord) {
-        return HSVUtil.gradientLedfxAt(algo.colors || [{ h: 0.6, s: 1, v: 1 }], HSVUtil.mod1(coord + state.rollPhase));
+        return HSVUtil.gradientLedfxAt(algo.colors, HSVUtil.mod1(coord + state.rollPhase));
     }
 
     function modeColor(mode, bandIndex, bands, level, coord) {
@@ -194,7 +180,7 @@ var testAlgo;
         var cy = height / 2;
         var verts = new Array(bands + 1);
         for (var i = 0; i <= bands; i++) {
-            var angle = (2 * Math.PI * i / Math.max(1, bands)) + rotation;
+            var angle = (2 * Math.PI * i / bands) + rotation;
             verts[i] = {
                 x: cx + ((width - 1) * 0.5) * Math.cos(angle),
                 y: cy + ((height - 1) * 0.5) * Math.sin(angle)
@@ -206,14 +192,6 @@ var testAlgo;
         return { center: { x: cx, y: cy }, verts: verts, mids: mids };
     }
 
-    function setPixel(map, width, x, y, color) {
-        if (x < 0 || y < 0) return;
-        var o = (y * width + x) * 3;
-        map[o] = color.h;
-        map[o + 1] = color.s;
-        map[o + 2] = color.v;
-    }
-
     function paintSquare(map, width, height, x, y, color, size) {
         var start = -Math.floor((size - 1) * 0.5);
         var end = Math.ceil((size - 1) * 0.5);
@@ -223,28 +201,15 @@ var testAlgo;
             for (var dx = start; dx <= end; dx++) {
                 var xx = x + dx;
                 if (xx < 0 || xx >= width) continue;
-                setPixel(map, width, xx, yy, color);
+                HSVUtil.setPixel(map, width, xx, yy, color.h, color.s, color.v);
             }
         }
     }
 
     function drawLine(map, width, height, a, b, color, size) {
-        var x0 = Math.round(a.x);
-        var y0 = Math.round(a.y);
-        var x1 = Math.round(b.x);
-        var y1 = Math.round(b.y);
-        var dx = Math.abs(x1 - x0);
-        var sx = x0 < x1 ? 1 : -1;
-        var dy = -Math.abs(y1 - y0);
-        var sy = y0 < y1 ? 1 : -1;
-        var err = dx + dy;
-        while (true) {
-            paintSquare(map, width, height, x0, y0, color, size);
-            if (x0 === x1 && y0 === y1) break;
-            var e2 = err * 2;
-            if (e2 >= dy) { err += dy; x0 += sx; }
-            if (e2 <= dx) { err += dx; y0 += sy; }
-        }
+        HSVUtil.walkLine(Math.round(a.x), Math.round(a.y), Math.round(b.x), Math.round(b.y), function(x, y) {
+            paintSquare(map, width, height, x, y, color, size);
+        });
     }
 
     function barCoord(y, level, height) {
@@ -278,12 +243,16 @@ var testAlgo;
         return algo.presetCenter === "On" ? dist : (1 - dist);
     }
 
+    function bandColumns(width, bands, i) {
+        var start = Math.floor((width / bands) * i);
+        return { start: start, end: Math.max(start, Math.floor((width / bands) * (i + 1) - 1)) };
+    }
+
     function drawBars(map, width, height, levels, peakColor) {
         var bands = levels.length;
         var half = Math.floor(height / 2);
         for (var i = 0; i < bands; i++) {
-            var start = Math.floor((width / bands) * i);
-            var end = Math.max(start, Math.floor((width / bands) * (i + 1) - 1));
+            var columns = bandColumns(width, bands, i);
             var level = levels[i];
             var volumeScaled = Math.floor(height * level);
             var bottom;
@@ -298,46 +267,55 @@ var testAlgo;
             for (var y = bottom; y <= top; y++) {
                 var coord = barCoord(y, level, height);
                 var color = modeColor(algo.presetColorMode, i, bands, level, coord);
-                for (var x = start; x <= end && x < width; x++) setPixel(map, width, x, y, color);
+                for (var x = columns.start; x <= columns.end && x < width; x++)
+                    HSVUtil.setPixel(map, width, x, y, color.h, color.s, color.v);
             }
         }
 
+        var thickness = algo.presetPeakThickness;
         for (var p = 0; p < bands; p++) {
-            var ps = Math.floor((width / bands) * p);
-            var pe = Math.max(ps, Math.floor((width / bands) * (p + 1) - 1));
+            columns = bandColumns(width, bands, p);
             if (algo.presetCenter === "On") {
+                // One marker on each side of the center, as LedFx _draw_normal_peaks().
                 var peakScaledC = Math.floor(half * state.peaks[p]);
-                var low = Math.max(0, half - peakScaledC - algo.presetPeakThickness + 1);
-                var high = Math.min(height - 1, half + peakScaledC + algo.presetPeakThickness - 1);
-                for (var yc = low; yc <= high; yc++)
-                    for (var xc = ps; xc <= pe && xc < width; xc++) setPixel(map, width, xc, yc, peakColor);
+                paintRows(map, width, height, columns, half + peakScaledC, half + peakScaledC + thickness - 1, peakColor);
+                paintRows(map, width, height, columns, half - peakScaledC - thickness + 1, half - peakScaledC, peakColor);
             } else {
                 var peakScaled = Math.floor((height - 1) * state.peaks[p]);
-                var markerTop = Math.max(0, (height - 1) - peakScaled - algo.presetPeakThickness + 1);
-                var markerBottom = Math.min(height - 1, (height - 1) - peakScaled);
-                for (var y0 = markerTop; y0 <= markerBottom; y0++)
-                    for (var x0 = ps; x0 <= pe && x0 < width; x0++) setPixel(map, width, x0, y0, peakColor);
+                paintRows(map, width, height, columns, (height - 1) - peakScaled - thickness + 1, (height - 1) - peakScaled, peakColor);
             }
         }
     }
 
+    function paintRows(map, width, height, columns, top, bottom, color) {
+        for (var y = Math.max(0, top); y <= Math.min(height - 1, bottom); y++)
+            for (var x = columns.start; x <= columns.end && x < width; x++)
+                HSVUtil.setPixel(map, width, x, y, color.h, color.s, color.v);
+    }
+
     function drawRing(map, width, height, levels, peakColor) {
         var bands = levels.length;
-        var geometry = calcRingGeometry(width, height, bands, state.spinAngle * 2 * Math.PI);
+        // One or two bands give segments without area (a point or a line through the center),
+        // so each band then spans several segments: at least a triangle overall.
+        var split = bands < 3 ? Math.ceil(3 / bands) : 1;
+        var segments = bands * split;
+        var geometry = calcRingGeometry(width, height, segments, state.spinAngle * 2 * Math.PI);
 
-        for (var i = 0; i < bands; i++) {
+        for (var i = 0; i < segments; i++) {
+            var band = Math.floor(i / split);
+            var level = levels[band];
             var tri;
             if (algo.presetCenter === "On") {
                 tri = [
-                    lerpPoint(geometry.center, geometry.verts[i], levels[i]),
-                    lerpPoint(geometry.center, geometry.verts[i + 1], levels[i]),
+                    lerpPoint(geometry.center, geometry.verts[i], level),
+                    lerpPoint(geometry.center, geometry.verts[i + 1], level),
                     geometry.center
                 ];
             } else {
                 tri = [
                     geometry.verts[i],
                     geometry.verts[i + 1],
-                    lerpPoint(geometry.mids[i], geometry.center, levels[i])
+                    lerpPoint(geometry.mids[i], geometry.center, level)
                 ];
             }
 
@@ -349,25 +327,26 @@ var testAlgo;
             for (var y = minY; y <= maxY; y++) {
                 for (var x = minX; x <= maxX; x++) {
                     if (!pointInTriangle(x + 0.5, y + 0.5, tri[0], tri[1], tri[2])) continue;
-                    var coord = ringCoord(x + 0.5, y + 0.5, width, height, levels[i]);
-                    var color = modeColor(algo.presetColorMode, i, bands, levels[i], coord);
-                    setPixel(map, width, x, y, color);
+                    var coord = ringCoord(x + 0.5, y + 0.5, width, height, level);
+                    var color = modeColor(algo.presetColorMode, band, bands, level, coord);
+                    HSVUtil.setPixel(map, width, x, y, color.h, color.s, color.v);
                 }
             }
         }
 
-        for (var p = 0; p < bands; p++) {
+        for (var p = 0; p < segments; p++) {
             var a;
             var b;
-            var nextPeak = state.peaks[(p + 1) % bands];
+            var peak = state.peaks[Math.floor(p / split)];
+            var nextPeak = state.peaks[Math.floor(((p + 1) % segments) / split)];
             if (algo.presetCenter === "On") {
-                a = lerpPoint(geometry.center, geometry.mids[p], state.peaks[p]);
+                a = lerpPoint(geometry.center, geometry.mids[p], peak);
                 b = lerpPoint(geometry.center, geometry.mids[p + 1], nextPeak);
             } else {
-                a = lerpPoint(geometry.mids[p], geometry.center, state.peaks[p]);
+                a = lerpPoint(geometry.mids[p], geometry.center, peak);
                 b = lerpPoint(geometry.mids[p + 1], geometry.center, nextPeak);
             }
-            drawLine(map, width, height, a, b, peakColor, Math.max(1, algo.presetPeakThickness));
+            drawLine(map, width, height, a, b, peakColor, algo.presetPeakThickness);
         }
     }
 
@@ -380,7 +359,7 @@ var testAlgo;
         var bands = Math.max(1, Math.min(algo.presetBandCount, Math.max(1, width * height)));
         var geometryKey = [width, height, bands].join("|");
         var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        if (state.geometryKey !== geometryKey || state.audioKey !== audioKey || state.peaks.length !== bands) {
+        if (state.geometryKey !== geometryKey || state.audioKey !== audioKey) {
             state.geometryKey = geometryKey;
             state.audioKey = audioKey;
             state.peaks = new Array(bands).fill(0);
@@ -390,14 +369,13 @@ var testAlgo;
         }
 
         var dt = HSVUtil.audioSeconds(audio);
-        updateRoll(audio, dt);
+        state.rollPhase = HSVUtil.mod1(state.rollPhase + dt * algo.presetRoll);
         updateSpin(audio, dt);
         var samples = sourceSamples(audio, Math.max(1, width * height));
         var levels = aggregateBands(samples, bands);
         updatePeaks(levels, dt);
 
-        var peakRgb = HSVUtil.parseHexRgb(algo.presetPeakColor);
-        var peakColor = HSVUtil.rgbToHsv(peakRgb[0], peakRgb[1], peakRgb[2]);
+        var peakColor = HSVUtil.hexToHsv(algo.presetPeakColor);
 
         if (algo.presetMode === "Ring") drawRing(map, width, height, levels, peakColor);
         else drawBars(map, width, height, levels, peakColor);

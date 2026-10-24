@@ -23,6 +23,7 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
+    var referenceState = null;
     algo.presetMode = "Artistic";
     algo.properties.push("name:mode|type:list|display:Response|values:Artistic,Reference,LedFx Energy 2|write:setMode|read:getMode");
     algo.setMode = function(v) {
@@ -132,53 +133,9 @@ var testAlgo;
     }
 
     function parseReferenceStops() {
-        var colors = algo.referencePalette.split(",");
-        var stops = [];
-        for (var i = 0; i < colors.length; i++) {
-            var rgb = HSVUtil.parseHexRgb(colors[i]);
-            var hsv = HSVUtil.rgbToHsv(rgb[0], rgb[1], rgb[2]);
-            stops.push({h: hsv.h, s: hsv.s, v: hsv.v});
-        }
-        if (!stops.length) stops = [{h: 0, s: 0, v: 0}];
-        return stops;
-    }
-
-    function rangedValues(values) {
-        if (!values || !values.length) return [];
-        var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
-        var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
-        var from = Math.max(0, Math.floor(start * values.length));
-        var to = Math.min(values.length, Math.ceil(end * values.length));
-        return to > from ? values.slice(from, to) : [];
-    }
-
-    function referenceOutput(pixels, width, height) {
-        var n = pixels.length;
-        var map = HSVUtil.createMap(width, height);
-        for (var i = 0; i < n; i++) {
-            var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
-            map[i * 3] = hsv.h;
-            map[i * 3 + 1] = hsv.s;
-            map[i * 3 + 2] = hsv.v;
-        }
-        HSVUtil.applyStripTransforms(map, width, height, {
-            flip: algo.referenceFlip,
-            mirror: algo.referenceMirror,
-            backgroundMode: algo.referenceBackgroundMode,
-            backgroundColor: algo.referenceBackgroundColor,
-            backgroundBrightness: algo.referenceBackgroundBrightness,
-            brightness: algo.referenceBrightness,
-            blur: algo.referenceBlur
+        return algo.referencePalette.split(",").map(function(hex) {
+            return HSVUtil.hexToHsv(hex);
         });
-        if (algo.referenceDiagnostics) {
-            var transformed = new Array(n);
-            for (var j = 0; j < n; j++) {
-                var o = j * 3;
-                transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
-            }
-            algo.referenceFrame = {pre: pixels, transformed: transformed};
-        }
-        return map;
     }
 
     function referenceMap(width, height, audio) {
@@ -190,7 +147,8 @@ var testAlgo;
         ].join(":") : "";
         if (!referenceState || referenceState.n !== n || referenceState.epoch !== epoch)
             referenceState = {n: n, epoch: epoch, rollPhase: 0};
-        var values = bank && bank.count ? rangedValues(bank.novelty || []) : [];
+        var values = bank && bank.count
+            ? HSVUtil.rangeSlice(bank.novelty, algo.referenceRangeStart, algo.referenceRangeEnd) : [];
         values = HSVUtil.interpolate(values, n);
         var seconds = HSVUtil.audioSeconds(audio);
         if (seconds > 0)
@@ -200,12 +158,11 @@ var testAlgo;
         for (var i = 0; i < n; i++) {
             var u = n <= 1 ? 0 : i / (n - 1);
             var t = u + referenceState.rollPhase;
-            if (t < 0 || t > 1) t = t - Math.floor(t);
-            if (u >= 1 && referenceState.rollPhase === 0) t = 1;
+            if (t > 1) t -= Math.floor(t);
             var rgb = HSVUtil.gradientRgbAt(stops, t, algo.referencePositions);
             pixels[i] = [rgb[0] * values[i], rgb[1] * values[i], rgb[2] * values[i]];
         }
-        return referenceOutput(pixels, width, height);
+        return HSVUtil.referenceOutput(algo, pixels, width, height);
     }
 
     algo.presetSpeed = 0.075;
@@ -218,7 +175,7 @@ var testAlgo;
       "name:presetReactivity|type:float|display:Reactivity|" +
       "write:setReactivity|read:getReactivity");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 1); };
     algo.getSpeed = function() { return algo.presetSpeed; };
     algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
     algo.getReactivity = function() { return algo.presetReactivity; };
@@ -227,18 +184,18 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) {
+        algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10));
+    };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothLow = 0;
 
-    var REACTIVITY_SCALE = 5.0;
     var SAT_BASE = 0.9;
     var SAT_REACT_ADD = 0.3;
     var OFFSET_AMP = 2.0;
 
     algo.phase = 0;
-    var energyState = { phase: 0 };
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
     algo.rgbMapSetColors = function(rawColors) { };
@@ -254,26 +211,19 @@ var testAlgo;
         var dt = HSVUtil.audioSeconds(audio);
         var speed = algo.presetSpeed;
         var reactivity01 = algo.presetReactivity;
-        var reactivity = reactivity01 * REACTIVITY_SCALE;
-        var rawLow = ledFxMode && audio.powers && audio.powers.raw && isFinite(audio.powers.raw.low)
-            ? HSVUtil.clamp01(audio.powers.raw.low)
-            : audio.low;
-        // Asymmetric EMA smoothing (fast attack, slow decay)
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
         var frameScale = dt * 60;
         if (ledFxMode) {
-            riseAlpha = 0.1;
-            decayAlpha = 0.1;
+            var rawLow = HSVUtil.powerForRange(audio, "Lows", true);
+            smoothLow = HSVUtil.attackRelease(smoothLow, rawLow, 0.1, 0.1, frameScale);
+        } else {
+            // Asymmetric EMA smoothing (fast attack, slow decay)
+            smoothLow = HSVUtil.smoothFollow(smoothLow, audio.low, algo.presetSmoothing, frameScale);
         }
-        var alpha = rawLow > smoothLow ? riseAlpha : decayAlpha;
-        if (frameScale > 0) alpha = 1 - Math.pow(1 - alpha, frameScale);
-        else alpha = 0;
-        smoothLow += alpha * (rawLow - smoothLow);
         var lowPower = smoothLow;
 
-        algo.phase = (energyState.phase = HSVUtil.mod1(energyState.phase + dt * speed));
+        // Artistic speed is cycles per beat while a tempo is detected; LedFx counts seconds
+        var cycleTime = !ledFxMode && audio.tempo && audio.tempo.valid ? audio.dt : dt;
+        algo.phase = HSVUtil.mod1(algo.phase + cycleTime * speed);
 
         var hue = HSVUtil.mod1(lowPower + algo.phase);
         var satThreshold = SAT_BASE - (reactivity01 + SAT_REACT_ADD) * lowPower;

@@ -69,10 +69,6 @@ var testAlgo;
 
     var state = { audioKey: "", spots: [], carry: 0, prevActivity: 0, gradientPhase: 0, activity: 0 };
 
-    function sourcePower(audio) {
-        return HSVUtil.powerForRange(audio, algo.presetSource, false);
-    }
-
     function weightedActivity(audio) {
         var low = HSVUtil.clamp01(audio && audio.low || 0);
         var mid = HSVUtil.clamp01(audio && audio.mid || 0);
@@ -93,22 +89,10 @@ var testAlgo;
         return Math.random();
     }
 
-    function colorAt(t) {
-        var stops = algo.colors && algo.colors.length ? algo.colors : [{ h: 0.6, s: 1, v: 1 }];
-        if (algo.presetGradient === "No") return stops[0];
-        return HSVUtil.gradientLedfxAt(stops, HSVUtil.mod1(t));
-    }
-
-    function toRgb(color) {
+    function rgbAt(t) {
+        var color = algo.presetGradient === "No" ? algo.colors[0]
+            : HSVUtil.gradientLedfxAt(algo.colors, HSVUtil.mod1(t));
         return HSVUtil.hsvToRgb(color.h, color.s, color.v);
-    }
-
-    function eventCount(deltaEvents, key, legacyFired) {
-        if (deltaEvents && isFinite(deltaEvents[key])) {
-            var count = Math.floor(deltaEvents[key]);
-            return count > 0 ? count : 0;
-        }
-        return legacyFired ? 1 : 0;
     }
 
     algo.rgbMapStepCount = function() { return 1; };
@@ -127,7 +111,6 @@ var testAlgo;
             state.activity = 0;
         }
         var dt = HSVUtil.audioSeconds(audio);
-        var deltaEvents = audio && audio.events && audio.events.delta ? audio.events.delta : null;
         for (var si = state.spots.length - 1; si >= 0; si--) {
             state.spots[si].life -= dt;
             if (state.spots[si].life <= 0) state.spots.splice(si, 1);
@@ -136,15 +119,17 @@ var testAlgo;
         var delta = Math.max(0, activity - state.prevActivity);
         state.prevActivity = activity;
         state.gradientPhase = HSVUtil.mod1(state.gradientPhase + dt * algo.presetGradientSpeed);
+        // The rise boosts the follower's input for one 20 ms frame; the rest of the render follows activity.
+        var frames = HSVUtil.elapsedFrames(audio);
+        var boosted = Math.min(1, frames);
         var activityInput = HSVUtil.clamp01(activity + delta * 1.2);
-        var alpha = activityInput > state.activity ? 0.6 : 0.25;
-        state.activity += (activityInput - state.activity) * alpha;
-        state.activity = HSVUtil.clamp01(state.activity);
+        state.activity = HSVUtil.attackRelease(state.activity, activityInput, 0.6, 0.25, boosted);
+        state.activity = HSVUtil.clamp01(HSVUtil.attackRelease(state.activity, activity, 0.6, 0.25, frames - boosted));
         state.carry += dt * (2.5 + 14.0 * state.activity);
         state.carry += delta * algo.presetBirthGain;
-        state.carry += sourcePower(audio) * dt * 1.5;
-        var onsets = eventCount(deltaEvents, "onset", !!(audio && audio.onset));
-        var kicks = eventCount(deltaEvents, "kick", !!(audio && audio.kickFired));
+        state.carry += HSVUtil.powerForRange(audio, algo.presetSource, false) * dt * 1.5;
+        var onsets = HSVUtil.eventCount(audio, "onset", audio && audio.onset);
+        var kicks = HSVUtil.eventCount(audio, "kick", audio && audio.kickFired);
         if (onsets > 0 || kicks > 0) {
             state.carry += (onsets + kicks) * (1.8 + delta * 1.2);
         }
@@ -159,56 +144,42 @@ var testAlgo;
                 life: algo.presetFadeSeconds,
                 maxLife: algo.presetFadeSeconds,
                 anchor: anchor,
-                color: colorAt(anchor)
+                rgb: rgbAt(anchor)
             });
         }
         if (state.spots.length >= dynamicCap && state.carry > 0.999)
             state.carry = 0.999;
 
-        // sigma and the per-spot gradient endpoint colors depend only on
-        // frame-constant presets and each spot's anchor, never on the pixel
-        // position, so compute them once per frame instead of per pixel.
+        // Everything except the distance falloff depends only on the spot and
+        // frame-constant presets, so compute it once per frame, not per pixel.
         var sigma = Math.max(0.02, algo.presetWidth);
         var sigmaSq = sigma * sigma;
         var gradientOn = algo.presetGradient === "Yes";
-        var spotCenterRgb = null, spotEdgeRgb = null;
-        if (gradientOn) {
-            spotCenterRgb = new Array(state.spots.length);
-            spotEdgeRgb = new Array(state.spots.length);
-            for (var sp = 0; sp < state.spots.length; sp++) {
-                var spotSp = state.spots[sp];
-                spotCenterRgb[sp] = toRgb(colorAt(spotSp.anchor));
-                spotEdgeRgb[sp] = toRgb(colorAt(spotSp.anchor + algo.presetColorSpan));
-            }
-        }
+        var lit = state.spots.map(function(spot) {
+            return {
+                x: spot.x,
+                life: Math.pow(HSVUtil.clamp01(spot.life / Math.max(1e-6, spot.maxLife)), 1.4),
+                center: gradientOn ? rgbAt(spot.anchor) : spot.rgb,
+                edge: gradientOn ? rgbAt(spot.anchor + algo.presetColorSpan) : spot.rgb
+            };
+        });
 
+        // A single column runs along its height.
+        var length = width === 1 ? height : width;
         for (var y = 0; y < height; y++) {
             for (var x2 = 0; x2 < width; x2++) {
-                var pos = width <= 1 ? 0 : x2 / (width - 1);
+                var along = width === 1 ? y : x2;
+                var pos = length <= 1 ? 0 : along / (length - 1);
                 var r = 0, g = 0, b = 0;
-                for (var s = 0; s < state.spots.length; s++) {
-                    var spot = state.spots[s];
+                for (var s = 0; s < lit.length; s++) {
+                    var spot = lit[s];
                     var d = Math.abs(pos - spot.x);
                     d = Math.min(d, 1 - d);
-                    var spatial = Math.exp(-(d * d) / sigmaSq);
-                    var life = Math.pow(HSVUtil.clamp01(spot.life / Math.max(1e-6, spot.maxLife)), 1.4);
-                    var w = spatial * life;
-                    var srgb = null;
-                    if (gradientOn) {
-                        var centerRgb = spotCenterRgb[s];
-                        var edgeRgb = spotEdgeRgb[s];
-                        var mix = HSVUtil.clamp01(d / sigma);
-                        srgb = [
-                            centerRgb[0] * (1 - mix) + edgeRgb[0] * mix,
-                            centerRgb[1] * (1 - mix) + edgeRgb[1] * mix,
-                            centerRgb[2] * (1 - mix) + edgeRgb[2] * mix
-                        ];
-                    } else {
-                        srgb = toRgb(spot.color);
-                    }
-                    r += srgb[0] * w;
-                    g += srgb[1] * w;
-                    b += srgb[2] * w;
+                    var w = Math.exp(-(d * d) / sigmaSq) * spot.life;
+                    var mix = gradientOn ? HSVUtil.clamp01(d / sigma) : 0;
+                    r += (spot.center[0] * (1 - mix) + spot.edge[0] * mix) * w;
+                    g += (spot.center[1] * (1 - mix) + spot.edge[1] * mix) * w;
+                    b += (spot.center[2] * (1 - mix) + spot.edge[2] * mix) * w;
                 }
                 var hsv = HSVUtil.rgbToHsvUnclipped(r, g, b);
                 var i = (y * width + x2) * 3;

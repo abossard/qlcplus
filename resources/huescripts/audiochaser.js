@@ -44,11 +44,15 @@ var testAlgo;
       "name:presetBounce|type:list|display:Bounce|" +
       "values:No,Yes|write:setBounce|read:getBounce");
 
-    algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = parseFloat(_v); };
+    algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = HSVUtil.parseNumber(_v, algo.presetBaseSpeed, 1, 10); };
     algo.getBaseSpeed = function() { return algo.presetBaseSpeed; };
-    algo.setDotCount = function(_v) { algo.presetDotCount = parseInt(_v); };
+    algo.setDotCount = function(_v) {
+        algo.presetDotCount = Math.round(HSVUtil.parseNumber(_v, algo.presetDotCount, 1, 15));
+    };
     algo.getDotCount = function() { return algo.presetDotCount; };
-    algo.setTrailLength = function(_v) { algo.presetTrailLength = parseInt(_v); };
+    algo.setTrailLength = function(_v) {
+        algo.presetTrailLength = Math.round(HSVUtil.parseNumber(_v, algo.presetTrailLength, 1, 10));
+    };
     algo.getTrailLength = function() { return algo.presetTrailLength; };
     algo.setSpeedMode = function(_v) {
         if (_v === "Bass") algo.presetSpeedMode = 1;
@@ -65,21 +69,15 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) {
+        algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10));
+    };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPow = [0, 0, 0];
 
     // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
-
-    var DEFAULT_BAND_COLORS = [
-        {h: 0.958, s: 1.0, v: 1.0},
-        {h: 0.167, s: 1.0, v: 1.0},
-        {h: 0.611, s: 0.75, v: 1.0}
-    ];
+    var barState = {bar: 0, flash: 0};
 
     // Dots: [{pos, row, speed, dir, band}]  band: 0=low, 1=mid, 2=high
     var dots = null;
@@ -105,7 +103,7 @@ var testAlgo;
     var blendAddHsv = function(map, idx, nh, ns, nv) {
         var ev = map[idx + 2];
         if (ev < 0.001) {
-            map[idx] = nh; map[idx + 1] = ns; map[idx + 2] = nv;
+            map[idx] = nh; map[idx + 1] = ns; map[idx + 2] = Math.min(1, nv);
             return;
         }
         var eh = map[idx];
@@ -122,9 +120,7 @@ var testAlgo;
     algo.rgbMapStepCount = function(width, height) { return 1; };
 
     algo.rgbMapSetColors = function(rawColors) { };
-    algo.rgbMapGetColors = function() {
-        return algo.colors ? algo.colors.slice() : DEFAULT_BAND_COLORS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -138,50 +134,36 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
 
-        var dt = audio.dt * 60.0 / audio.bpm;
+        var dt = HSVUtil.audioSeconds(audio);
+        var frames = HSVUtil.elapsedFrames(audio);
 
         // Get 3 mel-bank powers; smooth (for brightness) and keep raw (for speed)
         var rawPows = [audio.low, audio.mid, audio.high];
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        for (var sb = 0; sb < 3; sb++) {
-            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
-            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
-        }
-        var powers = rawPows;        // for speed (responsive)
-        var briPowers = smoothPow;   // for brightness (smoothed)
-        var vol = audio.low;
-        var colorStops = algo.colors || DEFAULT_BAND_COLORS;
+        for (var sb = 0; sb < 3; sb++)
+            smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing, frames);
 
         // --- Bar-level build-up ---
         var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
-        barEnergy += rawEnergy * dt;
-        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-        if (audio.downbeat) {
-            releaseFlash = Math.min(1, peakEnergy * 0.5);
-            barEnergy = 0;
-            peakEnergy = 0;
-        }
-        releaseFlash *= 0.85;
+        HSVUtil.barEnvelope(barState, rawEnergy, dt, audio.downbeat, Math.pow(0.85, frames));
 
         // Speed multiplier from audio
         var speedMult;
         if (algo.presetSpeedMode === 0) {
-            speedMult = 0.5 + vol * 4;
+            var volume = audio.volume && isFinite(audio.volume.normalized) ? audio.volume.normalized : audio.low;
+            speedMult = 0.5 + volume * 4;
         } else if (algo.presetSpeedMode === 1) {
-            speedMult = 0.5 + powers[1] * 5;
+            speedMult = 0.5 + audio.bass * 5;
         } else {
-            speedMult = 0.5 + (powers[0] + powers[1] + powers[2]) * 2.0;
+            speedMult = 0.5 + (rawPows[0] + rawPows[1] + rawPows[2]) * 2.0;
         }
 
         var baseSpeed = algo.presetBaseSpeed * 5;
         var trailLen = algo.presetTrailLength;
 
         // Bar build-up subtly accelerates dots through the bar; the release
-        // burst on downbeat resets accumulation (peakEnergy=0) so speed dips
-        // to its baseline, producing a natural "swing".
-        var buildupBoost = 1.0 + Math.min(0.4, peakEnergy * 0.25);
+        // burst on downbeat resets accumulation so speed dips to its
+        // baseline, producing a natural "swing".
+        var buildupBoost = 1.0 + Math.min(0.4, barState.bar * 0.25);
         speedMult *= buildupBoost;
 
         // Kick flash for speed boost
@@ -191,7 +173,7 @@ var testAlgo;
         // Move dots
         for (var di = 0; di < dots.length; di++) {
             var dot = dots[di];
-            var bandPower = powers[dot.band];
+            var bandPower = rawPows[dot.band];
 
             // Each dot's speed is modulated by its band's power
             var dotSpeed = baseSpeed * speedMult * dot.speed * (0.3 + bandPower * 0.7);
@@ -207,10 +189,10 @@ var testAlgo;
             }
 
             // Render dot with trail
-            var color = colorStops[dot.band];
+            var color = algo.colors[dot.band];
             var beatBoost = 1.0 + 0.25 * audio.cosPulse;
             // Release adds a brightness burst on the downbeat
-            var brightness = (0.5 + briPowers[dot.band] * 0.5) * beatBoost + releaseFlash * 0.35;
+            var brightness = (0.5 + smoothPow[dot.band] * 0.5) * beatBoost + barState.flash * 0.35;
             brightness = Math.min(1.5, brightness);
             var headX = Math.floor(dot.pos);
 
@@ -219,7 +201,7 @@ var testAlgo;
                 if (algo.presetBounce) {
                     if (tx < 0 || tx >= width) continue;
                 } else {
-                    tx = ((tx % width) + width) % width;
+                    tx = HSVUtil.wrap(tx, width);
                 }
 
                 var trailFade = 1 - (t / (trailLen + 1));

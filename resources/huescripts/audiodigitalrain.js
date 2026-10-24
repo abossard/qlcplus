@@ -30,8 +30,6 @@ var testAlgo;
     algo.presetTailSegments = 10;
     algo.presetImpulseDecay = 0.01;
     algo.presetMultiplier = 10.0;
-    algo.presetSpeedScalar = 1.0;
-    algo.presetMaxStreams = 0;
     algo.properties.push("name:count|type:float|values:0.01,4|display:Count|write:setCount|read:getCount");
     algo.properties.push("name:addSpeed|type:float|values:0.1,30|display:Add Speed|write:setAddSpeed|read:getAddSpeed");
     algo.properties.push("name:lineWidth|type:range|display:Line Width (%)|values:1,30|write:setLineWidth|read:getLineWidth");
@@ -48,7 +46,11 @@ var testAlgo;
     algo.getLineWidth = function() { return algo.presetWidth; };
     algo.setRunSeconds = function(v) { algo.presetRunSeconds = Math.max(1, Math.min(10, parseFloat(v) || 1)); };
     algo.getRunSeconds = function() { return algo.presetRunSeconds; };
-    algo.setTail = function(v) { algo.presetTail = Math.max(1, Math.min(100, parseInt(v) || 1)); };
+    algo.setTail = function(v) {
+        var f = parseFloat(v);
+        if (isFinite(f) && f > 0 && f < 1) v = f * 100;
+        algo.presetTail = Math.max(1, Math.min(100, parseInt(v) || 1));
+    };
     algo.getTail = function() { return algo.presetTail; };
     algo.setTailSegments = function(v) { algo.presetTailSegments = Math.max(2, Math.min(30, parseInt(v) || 2)); };
     algo.getTailSegments = function() { return algo.presetTailSegments; };
@@ -56,46 +58,25 @@ var testAlgo;
     algo.getImpulseDecay = function() { return algo.presetImpulseDecay; };
     algo.setMultiplier = function(v) { algo.presetMultiplier = Math.max(0, Math.min(10, parseFloat(v) || 0)); };
     algo.getMultiplier = function() { return algo.presetMultiplier; };
-    algo.setSpeed = function(v) {
-        var f = parseFloat(v);
-        if (!isFinite(f)) f = 1;
-        algo.presetSpeedScalar = Math.max(0, f);
-    };
-    algo.getSpeed = function() { return algo.presetSpeedScalar; };
-    algo.setMaxStreams = function(v) {
-        var i = parseInt(v);
-        if (!isFinite(i) || i < 0) i = 0;
-        algo.presetMaxStreams = i;
-    };
-    algo.getMaxStreams = function() { return algo.presetMaxStreams; };
-    algo.setBirthsPerSecond = function(v) { algo.setAddSpeed(v); };
-    algo.getBirthsPerSecond = function() { return algo.getAddSpeed(); };
-    var _setTail = algo.setTail;
-    algo.setTail = function(v) {
-        var f = parseFloat(v);
-        if (isFinite(f) && f > 0 && f < 1) _setTail(f * 100);
-        else _setTail(v);
-    };
     var readOutputControls = HSVUtil.attachStripTransformControls(algo);
 
     var state = {
-        key: "",
         audioKey: "",
+        geometryKey: "",
         lines: [],
         lastAdded: 0,
         low: 0, mid: 0, high: 0
     };
 
     function makeFadeMultipliers() {
-        var n = Math.max(2, algo.presetTailSegments);
+        var n = algo.presetTailSegments;
         var out = new Array(n);
         for (var i = 0; i < n; i++) out[i] = 1 - i / (n - 1);
         return out;
     }
 
-    function updateImpulse(current, target) {
-        var alpha = target > current ? 0.99 : algo.presetImpulseDecay;
-        return current + (target - current) * alpha;
+    function updateImpulse(current, target, frames) {
+        return HSVUtil.attackRelease(current, target, 0.99, algo.presetImpulseDecay, frames);
     }
 
     function rawPower(audio, name) {
@@ -105,9 +86,9 @@ var testAlgo;
         return HSVUtil.clamp01(value);
     }
 
-    function createLine(width, fadeMultipliers) {
+    function createLine(fadeMultipliers) {
         var r = Math.random();
-        var color = HSVUtil.gradientLedfxAt(algo.colors || [{h: 0.39, s: 1, v: 1}], r);
+        var color = HSVUtil.gradientLedfxAt(algo.colors, r);
         return {
             nx: Math.random(),
             ny: 0,
@@ -125,11 +106,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
-        var key = [width, height, audioKey].join("|");
-        if (key !== state.key) {
-            state.key = key;
-            state.audioKey = audioKey;
+        if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             state.lines = [];
             state.lastAdded = 0;
             state.low = 0;
@@ -138,37 +115,32 @@ var testAlgo;
         }
         var dt = HSVUtil.audioSeconds(audio);
         var beatOsc = audio && audio.tempo && isFinite(audio.tempo.beatPhase) ? HSVUtil.clamp01(audio.tempo.beatPhase) : 0;
+        var frames = HSVUtil.elapsedFrames(audio);
+        state.low = updateImpulse(state.low, rawPower(audio, "low") * algo.presetMultiplier, frames);
+        state.mid = updateImpulse(state.mid, rawPower(audio, "mid") * algo.presetMultiplier, frames);
+        state.high = updateImpulse(state.high, rawPower(audio, "high") * algo.presetMultiplier, frames);
         var impulses = [state.low, state.mid, state.high];
-        var lowTarget = rawPower(audio, "low") * algo.presetMultiplier;
-        var midTarget = rawPower(audio, "mid") * algo.presetMultiplier;
-        var highTarget = rawPower(audio, "high") * algo.presetMultiplier;
-        state.low = updateImpulse(state.low, lowTarget);
-        state.mid = updateImpulse(state.mid, midTarget);
-        state.high = updateImpulse(state.high, highTarget);
-        impulses[0] = state.low;
-        impulses[1] = state.mid;
-        impulses[2] = state.high;
 
-        var lineCap = algo.presetMaxStreams > 0 ? algo.presetMaxStreams : Math.max(1, Math.floor(algo.presetCount * width));
+        var lineCap = Math.max(1, Math.floor(algo.presetCount * width));
         var fadeMultipliers = makeFadeMultipliers();
         var lineWidth = Math.max(1, Math.floor(width * (algo.presetWidth / 100)));
         var tailPixels = Math.floor(height * (algo.presetTail / 100)) - lineWidth;
         var segment = tailPixels > 0 ? tailPixels / fadeMultipliers.length : 0;
 
         state.lastAdded += dt;
-        var spawnPeriod = 1 / Math.max(0.1, algo.presetAddSpeed);
+        var spawnPeriod = 1 / algo.presetAddSpeed;
         var attempts = Math.floor(state.lastAdded / spawnPeriod);
         if (attempts > 0) state.lastAdded -= attempts * spawnPeriod;
         var maxAttempts = Math.max(4, lineCap * 4);
         if (attempts > maxAttempts) attempts = maxAttempts;
         while (attempts-- > 0) {
-            if (state.lines.length < lineCap) state.lines.push(createLine(width, fadeMultipliers));
+            if (state.lines.length < lineCap) state.lines.push(createLine(fadeMultipliers));
         }
 
         var alive = [];
         for (var li = 0; li < state.lines.length; li++) {
             var line = state.lines[li];
-            var movement = dt / algo.presetRunSeconds * algo.presetSpeedScalar * (1 + impulses[line.impulseIndex]);
+            var movement = dt / algo.presetRunSeconds * (1 + impulses[line.impulseIndex]);
             line.ny += movement * line.speed;
             var tailNorm = algo.presetTail / 100;
             if (line.ny > (1 + tailNorm)) continue;
@@ -196,7 +168,7 @@ var testAlgo;
                 }
             }
             var beatRoll = HSVUtil.mod1(beatOsc + line.offset);
-            var headV = HSVUtil.clamp01(0.5 + beatRoll * 0.5);
+            var headV = 0.5 + beatRoll * 0.5;
             for (var hw = 0; hw < lineWidth; hw++) {
                 var hx = x + hw;
                 if (hx < 0 || hx >= width || y < 0 || y >= height) continue;

@@ -114,32 +114,23 @@ var testAlgo;
       });
     }
 
-    function parseCyclePalette(base) {
-      var tokens = typeof algo.referenceCyclePalette === "string"
-        ? algo.referenceCyclePalette.split(",") : [];
+    function parseCyclePalette() {
+      var tokens = algo.referenceCyclePalette.split(",");
       var parsed = [];
       for (var i = 0; i < tokens.length; i++) {
         var token = String(tokens[i]).trim();
         if (/^#[0-9a-f]{6}$/i.test(token)) parsed.push(HSVUtil.parseHexRgb(token));
       }
       if (parsed.length) return parsed;
-      if (algo.colors && algo.colors.length) {
-        return algo.colors.map(function(stop) {
-          return HSVUtil.hsvToRgb(stop.h, stop.s, stop.v);
-        });
-      }
-      return base.map(function(color) { return color.slice(); });
+      return algo.colors.map(function(stop) {
+        return HSVUtil.hsvToRgb(stop.h, stop.s, stop.v);
+      });
     }
 
     function rangedThirdMeans(audio) {
       var bank = audio && audio.banks && audio.banks.full;
-      var values = bank && bank.count ? bank.processed : [];
-      if (!values || values.length === 0) return [0, 0, 0];
-      var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var from = Math.max(0, Math.floor(start * values.length));
-      var to = Math.min(values.length, Math.ceil(end * values.length));
-      values = to > from ? values.slice(from, to) : [];
+      var values = HSVUtil.rangeSlice(bank && bank.count ? bank.processed : [],
+        algo.referenceRangeStart, algo.referenceRangeEnd);
       if (!values.length) return [0, 0, 0];
       var bounds = [0, Math.floor(values.length * 0.2), Math.floor(values.length * 0.5), values.length];
       var means = [0, 0, 0];
@@ -150,47 +141,6 @@ var testAlgo;
         means[band] = total / count;
       }
       return means;
-    }
-
-    function consumeKickDelta(audio, state) {
-      var delta = audio && audio.events && audio.events.delta && isFinite(audio.events.delta.kick)
-        ? Math.max(0, Math.floor(audio.events.delta.kick)) : 0;
-      if (!audio || !isFinite(audio.frameSequence)) return delta;
-      var signature = [
-        audio.sourceId, audio.profileId, audio.sourceEpoch, audio.configRevision, audio.frameSequence
-      ].join(":");
-      if (state.lastKickSignature === signature) return 0;
-      state.lastKickSignature = signature;
-      return delta;
-    }
-
-    function referenceOutput(pixels, width, height) {
-        var n = pixels.length;
-        var map = HSVUtil.createMap(width, height);
-        for (var i = 0; i < n; i++) {
-            var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
-            map[i * 3] = hsv.h;
-            map[i * 3 + 1] = hsv.s;
-            map[i * 3 + 2] = hsv.v;
-        }
-        HSVUtil.applyStripTransforms(map, width, height, {
-          flip: algo.referenceFlip,
-          mirror: algo.referenceMirror,
-          backgroundMode: algo.referenceBackgroundMode,
-          backgroundColor: algo.referenceBackgroundColor,
-          backgroundBrightness: algo.referenceBackgroundBrightness,
-          brightness: algo.referenceBrightness,
-          blur: algo.referenceBlur
-        });
-        if (algo.referenceDiagnostics) {
-          var transformed = new Array(n);
-          for (var j = 0; j < n; j++) {
-            var o = j * 3;
-            transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
-          }
-          algo.referenceFrame = {pre: pixels, transformed: transformed};
-        }
-        return map;
     }
 
     function referenceMap(width, height, audio) {
@@ -205,12 +155,10 @@ var testAlgo;
                 n: n,
                 epoch: epoch,
                 pixels: null,
-                initialized: false,
                 colorCycler: 0,
                 lowsColor: baseColors[0].slice(),
                 midsColor: baseColors[1].slice(),
-                highColor: baseColors[2].slice(),
-                lastKickSignature: ""
+                highColor: baseColors[2].slice()
             };
         }
         var state = referenceState;
@@ -220,9 +168,9 @@ var testAlgo;
             return Math.max(0, Math.floor(n * multiplier * means[band]));
         });
         if (algo.referenceColorCycler === "On") {
-            var kicks = consumeKickDelta(audio, state);
+            var kicks = HSVUtil.eventCount(audio, "kick", false);
             if (kicks > 0) {
-                var pool = parseCyclePalette(parseReferencePalette());
+                var pool = parseCyclePalette();
                 for (var k = 0; k < kicks; k++) {
                     state.colorCycler = (state.colorCycler + 1) % 3;
                     var nextColor = pool[Math.floor(Math.random() * pool.length)];
@@ -253,25 +201,20 @@ var testAlgo;
         }
         if (!state.pixels || state.pixels.length !== n) {
             state.pixels = target.map(function(pixel) { return pixel.slice(); });
-            state.initialized = true;
         } else {
             var scale = HSVUtil.audioSeconds(audio) * 60;
             if (scale > 0) {
-                var sensitivity = Math.max(0.3, Math.min(0.99, algo.referenceSensitivity));
-                var alphaRise = sensitivity;
-                var alphaDecay = (sensitivity - 0.1) * 0.7;
+                var alphaRise = algo.referenceSensitivity;
+                var alphaDecay = (algo.referenceSensitivity - 0.1) * 0.7;
                 for (var p = 0; p < n; p++) {
                     for (var c = 0; c < 3; c++) {
-                        var current = state.pixels[p][c];
-                        var next = target[p][c];
-                        var alpha = next > current ? alphaRise : alphaDecay;
-                        alpha = 1 - Math.pow(1 - alpha, scale);
-                        state.pixels[p][c] = current + alpha * (next - current);
+                        state.pixels[p][c] = HSVUtil.attackRelease(state.pixels[p][c], target[p][c],
+                            alphaRise, alphaDecay, scale);
                     }
                 }
             }
         }
-        return referenceOutput(state.pixels, width, height);
+        return HSVUtil.referenceOutput(algo, state.pixels, width, height);
     }
 
     algo.presetMultiplier = 1.6;
@@ -286,21 +229,16 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) {
+      algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10));
+    };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothPow = [0, 0, 0];
 
     // Bar-level build-up / release state
-    var barEnergy = 0;
-    var peakEnergy = 0;
-    var releaseFlash = 0;
+    var barState = {bar: 0, flash: 0};
 
-    var DEFAULT_BAND_COLORS = [
-      {h: 0.958, s: 1.0, v: 1.0},
-      {h: 0.167, s: 1.0, v: 1.0},
-      {h: 0.611, s: 0.75, v: 1.0}
-    ];
     var BEAT_PULSE_AMP = 0.25;
     var idx = new Array(3);
 
@@ -311,12 +249,7 @@ var testAlgo;
 
     algo.rgbMapSetColors = function(rawColors) { };
 
-    algo.rgbMapGetColors = function()
-    {
-        return algo.colors
-            ? algo.colors.slice()
-            : DEFAULT_BAND_COLORS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, rgb, step, audio)
     {
@@ -329,35 +262,19 @@ var testAlgo;
         var rawPows = [audio.low, audio.mid, audio.high];
         var frameScale = audio.timing ? audio.timing.deltaSeconds * 50 : 1;
         // Asymmetric EMA: fast attack, slow decay on bar-fill power
-        var smoothing = algo.presetSmoothing / 10.0;
-        var riseAlpha = 0.5 * (1 - smoothing) + 0.05;
-        var decayAlpha = 0.02 + 0.03 * (1 - smoothing);
-        for (var sb = 0; sb < 3; sb++) {
-            var sa = rawPows[sb] > smoothPow[sb] ? riseAlpha : decayAlpha;
-            sa = 1 - Math.pow(1 - sa, frameScale);
-            smoothPow[sb] += sa * (rawPows[sb] - smoothPow[sb]);
-        }
-        var bandPowers = smoothPow;
-        var bandColors = algo.colors || DEFAULT_BAND_COLORS;
+        for (var sb = 0; sb < 3; sb++)
+            smoothPow[sb] = HSVUtil.smoothFollow(smoothPow[sb], rawPows[sb], algo.presetSmoothing, frameScale);
 
         // --- Bar-level build-up ---
         var rawEnergy = (rawPows[0] + rawPows[1] * 0.5 + rawPows[2] * 0.3) / 1.8;
-        barEnergy += rawEnergy * audio.dt;
-        if (barEnergy > peakEnergy) peakEnergy = barEnergy;
-        if (audio.downbeat) {
-            releaseFlash = Math.min(1, peakEnergy * 0.5);
-            barEnergy = 0;
-            peakEnergy = 0;
-        }
-        releaseFlash *= Math.pow(0.85, frameScale);
+        HSVUtil.barEnvelope(barState, rawEnergy, audio.dt, audio.downbeat, Math.pow(0.85, frameScale));
 
         var beatBoost = 1.0 + BEAT_PULSE_AMP * audio.cosPulse;
 
-        var multiplier = algo.presetMultiplier;
         // Release momentarily extends bar fill so bars "breathe" with the phrase
-        var fillBoost = 1.0 + releaseFlash * 0.35;
+        var fillBoost = 1.0 + barState.flash * 0.35;
         for (var k = 0; k < 3; k++)
-            idx[k] = Math.min(width, Math.floor(multiplier * fillBoost * width * bandPowers[k]));
+            idx[k] = Math.min(width, Math.floor(algo.presetMultiplier * fillBoost * width * smoothPow[k]));
 
         for (var y = 0; y < height; y++)
         {
@@ -366,11 +283,12 @@ var testAlgo;
                 // Widest-reaching band's color wins (last band covering x)
                 var col = null;
                 for (var k = 0; k < 3; k++) {
-                    if (x < idx[k]) col = bandColors[k];
+                    if (x < idx[k]) col = algo.colors[k];
                 }
 
                 if (col) {
-                    var brightness = Math.min(1.0, beatBoost + releaseFlash * 0.4);
+                    // Full brightness on the beat; between beats the bars rest lower
+                    var brightness = Math.min(1.0, (beatBoost + barState.flash * 0.4) / (1.0 + BEAT_PULSE_AMP));
                     HSVUtil.setPixel(map, width, x, y, col.h, col.s, col.v * brightness);
                 }
             }

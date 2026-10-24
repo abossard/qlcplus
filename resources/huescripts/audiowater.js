@@ -56,12 +56,11 @@ var testAlgo;
     algo.setViscosity = function(v) { algo.viscosity = clamp(v, 2, 12); };
     algo.getViscosity = function() { return algo.viscosity; };
 
-    var buf0 = null, buf1 = null, curBuf = 0;
+    var buf0 = null, buf1 = null, curBuf = 0, rippleCarry = 0;
     var EMITTER_DRIFT_RATE = 0.0002;
     var midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
     var highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
@@ -71,18 +70,9 @@ var testAlgo;
         buf0 = new Array(w); buf1 = new Array(w);
         for (var i = 0; i < w; i++) { buf0[i] = 0; buf1[i] = 0; }
         curBuf = 0;
+        rippleCarry = 0;
         midsEmitters = [[0.25, 1.0], [0.75, -1.0]];
         highEmitters = [[0.125, 1.5], [0.375, -2.5], [0.625, 2.5], [0.875, -1.5]];
-    }
-
-    function ledFxGradientStops() {
-        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
-            return algo.colors;
-        return [
-            {h: 0 / 3, s: 1, v: 1},
-            {h: 1 / 3, s: 1, v: 1},
-            {h: 2 / 3, s: 1, v: 1}
-        ];
     }
 
     function createDrop(pos, h, w) {
@@ -113,20 +103,13 @@ var testAlgo;
     }
 
     function thirdMaxPowers(audio) {
-        var bank = audio && audio.banks && audio.banks.full;
-        if (!bank || !bank.count) {
+        var bank = audio.banks && audio.banks.full;
+        var values = bank && Array.isArray(bank.processed) ? bank.processed : [];
+        if (!bank || !bank.count || !values.length) {
             return {
-                low: HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0),
-                mid: HSVUtil.clamp01(audio && isFinite(audio.mid) ? audio.mid : 0),
-                high: HSVUtil.clamp01(audio && isFinite(audio.high) ? audio.high : 0)
-            };
-        }
-        var values = Array.isArray(bank.processed) ? bank.processed : [];
-        if (!values.length) {
-            return {
-                low: HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0),
-                mid: HSVUtil.clamp01(audio && isFinite(audio.mid) ? audio.mid : 0),
-                high: HSVUtil.clamp01(audio && isFinite(audio.high) ? audio.high : 0)
+                low: HSVUtil.clamp01(isFinite(audio.low) ? audio.low : 0),
+                mid: HSVUtil.clamp01(isFinite(audio.mid) ? audio.mid : 0),
+                high: HSVUtil.clamp01(isFinite(audio.high) ? audio.high : 0)
             };
         }
         var count = Math.min(bank.count, values.length);
@@ -152,15 +135,13 @@ var testAlgo;
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
         var ledFxMode = algo.presetMode === "LedFx Water";
-        var stripLength = ledFxMode ? Math.max(1, width * height) : Math.max(1, width);
-        var stops = ledFxMode ? ledFxGradientStops() : null;
+        // Artistic ripples along the columns when the rows are too short for a ripple.
+        var vertical = !ledFxMode && width < 5 && height > width;
+        var stripLength = ledFxMode ? Math.max(1, width * height) : Math.max(1, vertical ? height : width);
+        var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;
         var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-                ledFxAudioIdentityKey = audioIdentityKey;
-                ledFxGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
                 init(stripLength);
             }
         }
@@ -174,7 +155,8 @@ var testAlgo;
         var speed = algo.speed;
         var dampFactor = Math.pow(2, algo.viscosity);
         var shift = algo.vertical_shift;
-        var ledFxDrift = ledFxMode ? (HSVUtil.audioSeconds(audio) * 60) : 1;
+        // Ripple steps and emitter drift follow elapsed time: LedFx frames are 1/60 s, Artistic frames 20 ms.
+        var frames = ledFxMode ? HSVUtil.audioSeconds(audio) * 60 : HSVUtil.elapsedFrames(audio);
 
         var power = ledFxMode ? thirdMaxPowers(audio) : {
             low: HSVUtil.clamp01(audio.low),
@@ -185,32 +167,28 @@ var testAlgo;
         var midP = Math.pow(power.mid, 2);
         var hiP  = Math.pow(power.high, 2);
 
+        function injectEmitters(emitters, size) {
+            for (var i = 0; i < emitters.length; i++) {
+                var pos = 1 + Math.floor(emitters[i][0] * (stripLength - 2));
+                createDrop(pos, size, stripLength);
+                emitters[i][0] += EMITTER_DRIFT_RATE * emitters[i][1] * speed * frames;
+                if (emitters[i][0] < 0) emitters[i][0] += 1;
+                else if (emitters[i][0] > 1) emitters[i][0] -= 1;
+            }
+        }
+
         function injectDrops() {
             createDrop(1, lowP * algo.bass_size, stripLength);
             createDrop(Math.floor(stripLength / 2), lowP * algo.bass_size, stripLength);
             createDrop(stripLength - 2, lowP * algo.bass_size, stripLength);
-
-            for (var i = 0; i < midsEmitters.length; i++) {
-                var pos = 1 + Math.floor(midsEmitters[i][0] * (stripLength - 2));
-                createDrop(pos, midP * algo.mids_size, stripLength);
-                midsEmitters[i][0] += EMITTER_DRIFT_RATE * midsEmitters[i][1] * speed * ledFxDrift;
-                if (midsEmitters[i][0] < 0) midsEmitters[i][0] += 1;
-                else if (midsEmitters[i][0] > 1) midsEmitters[i][0] -= 1;
-            }
-
-            for (var i = 0; i < highEmitters.length; i++) {
-                var pos = 1 + Math.floor(highEmitters[i][0] * (stripLength - 2));
-                createDrop(pos, hiP * algo.high_size, stripLength);
-                highEmitters[i][0] += EMITTER_DRIFT_RATE * highEmitters[i][1] * speed * ledFxDrift;
-                if (highEmitters[i][0] < 0) highEmitters[i][0] += 1;
-                else if (highEmitters[i][0] > 1) highEmitters[i][0] -= 1;
-            }
+            injectEmitters(midsEmitters, midP * algo.mids_size);
+            injectEmitters(highEmitters, hiP * algo.high_size);
         }
         if (!ledFxMode)
             injectDrops();
 
-        var speedSteps = ledFxMode ? Math.floor(speed) : Math.round(speed);
-        for (var s = 0; s < speedSteps; s++)
+        rippleCarry += (ledFxMode ? Math.floor(speed) : Math.round(speed)) * frames;
+        for (; rippleCarry >= 1; rippleCarry--)
             doRipple(dampFactor, stripLength);
 
         if (ledFxMode)
@@ -218,8 +196,6 @@ var testAlgo;
 
         var current = (curBuf === 0) ? buf0 : buf1;
         for (var i = 0; i < stripLength; i++) {
-            var x = ledFxMode ? (i % width) : i;
-            var yBase = ledFxMode ? Math.floor(i / width) : 0;
             var val = current[i];
             var h = HSVUtil.triangle(val);
             var vScaled = (val + shift) / (1 + shift);
@@ -227,16 +203,20 @@ var testAlgo;
             var v = Math.max(0, Math.min(1, vScaled));
 
             if (ledFxMode) {
-                var base = HSVUtil.gradientRgbAt(stops, h);
-                var maxRgb = Math.max(base[0], Math.max(base[1], base[2]));
-                var r = (base[0] + (maxRgb - base[0]) * (1 - sv)) * v;
-                var g = (base[1] + (maxRgb - base[1]) * (1 - sv)) * v;
-                var b = (base[2] + (maxRgb - base[2]) * (1 - sv)) * v;
-                var hsvOut = HSVUtil.rgbToHsvUnclipped(r, g, b);
-                HSVUtil.setPixel(map, width, x, yBase, hsvOut.h, hsvOut.s, hsvOut.v);
+                var hsvOut = HSVUtil.ledFxColor(stops, h, sv, v);
+                map[i * 3] = hsvOut.h;
+                map[i * 3 + 1] = hsvOut.s;
+                map[i * 3 + 2] = hsvOut.v;
+            } else if (vertical) {
+                for (var x = 0; x < width; x++) {
+                    var j3 = (i * width + x) * 3;
+                    map[j3] = h;
+                    map[j3 + 1] = sv;
+                    map[j3 + 2] = v;
+                }
             } else {
                 for (var y = 0; y < height; y++) {
-                    var i3 = (y * width + x) * 3;
+                    var i3 = (y * width + i) * 3;
                     map[i3] = h;
                     map[i3 + 1] = sv;
                     map[i3 + 2] = v;

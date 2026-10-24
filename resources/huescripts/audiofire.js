@@ -38,43 +38,33 @@ var testAlgo;
     algo.properties.push("name:intensity|type:range|display:Intensity|values:1,64|write:setIntensity|read:getIntensity");
     algo.properties.push("name:fade_chance|type:float|display:Fade Chance|write:setFadeChance|read:getFadeChance");
 
-    algo.setSpeed = function(v) { algo.speed = parseFloat(v); };
+    algo.setSpeed = function(v) { algo.speed = HSVUtil.parseNumber(v, algo.speed, 0, 1); };
     algo.getSpeed = function() { return algo.speed; };
-    algo.setColorShift = function(v) { algo.color_shift = parseFloat(v); };
+    algo.setColorShift = function(v) { algo.color_shift = HSVUtil.parseNumber(v, algo.color_shift, 0, 1); };
     algo.getColorShift = function() { return algo.color_shift; };
-    algo.setIntensity = function(v) { algo.intensity = parseInt(v, 10); };
+    algo.setIntensity = function(v) { algo.intensity = Math.round(HSVUtil.parseNumber(v, algo.intensity, 1, 64)); };
     algo.getIntensity = function() { return algo.intensity; };
-    algo.setFadeChance = function(v) { algo.fade_chance = parseFloat(v); };
+    algo.setFadeChance = function(v) { algo.fade_chance = HSVUtil.parseNumber(v, algo.fade_chance, 0, 1); };
     algo.getFadeChance = function() { return algo.fade_chance; };
 
     var sparkPixels = null;
     var sparks = null;
     var sparkX = null;
     var emaLows = 0;
-    var cooling = 0.95;
-    var curSpeed = 0.04;
-    var curFadeChance = 0.05;
-    var ledFxStepAccumMs = 0;
+    var stepAccumMs = 0;
     var LEDFX_STEP_MS = 1000 / 60;
     var MAX_STEPS_PER_FRAME = 240;
     var NOMINAL_HZ = 50;
-    var ledFxAudioIdentityKey = "";
-    var ledFxGeometryKey = "";
+    var ledFxKeys = {audioKey: "", geometryKey: ""};
     var getLedFxOutputOptions = HSVUtil.attachStripTransformControls(algo, {
         prefix: "ledFx",
         display: "LedFx "
     });
 
-    function lowPower(audio, ledFxMode) {
-        if (ledFxMode && audio && audio.powers && audio.powers.raw && isFinite(audio.powers.raw.low))
-            return HSVUtil.clamp01(audio.powers.raw.low);
-        return HSVUtil.clamp01(audio && isFinite(audio.low) ? audio.low : 0);
-    }
-
     function init(n) {
         sparkPixels = new Array(n);
         for (var i = 0; i < n; i++) sparkPixels[i] = 0;
-        ledFxStepAccumMs = 0;
+        stepAccumMs = 0;
         var sc = algo.intensity;
         sparks = new Array(sc);
         sparkX = new Array(sc);
@@ -82,16 +72,6 @@ var testAlgo;
             sparks[i] = 0;
             sparkX[i] = Math.random() * 5;
         }
-    }
-
-    function ledFxGradientStops() {
-        if (algo.hasUserColors && Array.isArray(algo.colors) && algo.colors.length >= 2)
-            return algo.colors;
-        return [
-            {h: 0 / 3, s: 1, v: 1},
-            {h: 1 / 3, s: 1, v: 1},
-            {h: 2 / 3, s: 1, v: 1}
-        ];
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -106,30 +86,22 @@ var testAlgo;
         var ledFxMode = algo.presetMode === "LedFx Fire";
         var N = ledFxMode ? Math.max(1, width * height) : Math.max(1, width);
         if (ledFxMode) {
-            var audioIdentityKey = HSVUtil.audioIdentityKey(audio, ledFxAudioIdentityKey);
-            var geometryKey = width + "x" + height;
-            if (audioIdentityKey !== ledFxAudioIdentityKey || geometryKey !== ledFxGeometryKey) {
-                ledFxAudioIdentityKey = audioIdentityKey;
-                ledFxGeometryKey = geometryKey;
+            if (HSVUtil.audioStateChanged(ledFxKeys, audio, width, height)) {
                 init(N);
                 emaLows = 0;
             }
         }
         if (!sparkPixels || sparkPixels.length !== N || sparks.length !== algo.intensity) init(N);
-        var dt = audio.dt;
-        var dtSeconds = audio.timing
-            ? Math.max(0, audio.timing.deltaSeconds || 0)
-            : ((audio.bpm > 0 && isFinite(dt)) ? dt * 60 / audio.bpm : 0);
+        var dtSeconds = HSVUtil.audioSeconds(audio);
 
         // EMA filter on lows (decay=0.05, rise=0.99)
-        var rawLows = lowPower(audio, ledFxMode);
-        var alphaL = (rawLows > emaLows) ? 0.99 : 0.05;
-        emaLows = alphaL * rawLows + (1 - alphaL) * emaLows;
+        var rawLows = HSVUtil.powerForRange(audio, "Lows", ledFxMode);
+        emaLows = HSVUtil.attackRelease(emaLows, rawLows, 0.99, 0.05, HSVUtil.elapsedFrames(audio));
 
         // Audio modulation
-        cooling = 0.75 + emaLows * 0.25;
-        curSpeed = algo.speed + emaLows * 0.01;
-        curFadeChance = algo.fade_chance / 10;
+        var cooling = 0.75 + emaLows * 0.25;
+        var curSpeed = algo.speed + emaLows * 0.01;
+        var curFadeChance = algo.fade_chance / 10;
 
         function simulateFireStep(stepMs, fadeChance) {
             for (var i = 0; i < N; i++)
@@ -163,46 +135,23 @@ var testAlgo;
             }
         }
 
-        if (ledFxMode) {
-            ledFxStepAccumMs += dtSeconds * 1000.0;
-            var steps = Math.floor(ledFxStepAccumMs / LEDFX_STEP_MS);
-            if (steps > MAX_STEPS_PER_FRAME) steps = MAX_STEPS_PER_FRAME;
-            if (steps > 0)
-                ledFxStepAccumMs -= steps * LEDFX_STEP_MS;
-            var stepFadeChance = 1 - Math.pow(1 - curFadeChance, (LEDFX_STEP_MS / 1000.0) * NOMINAL_HZ);
-            for (var n = 0; n < steps; n++)
-                simulateFireStep(LEDFX_STEP_MS, stepFadeChance);
+        // Fixed simulation steps: LedFx's 60 Hz, Artistic's 50 Hz reference frame.
+        var stepMs = ledFxMode ? LEDFX_STEP_MS : 1000 / NOMINAL_HZ;
+        stepAccumMs += dtSeconds * 1000.0;
+        var steps = Math.floor(stepAccumMs / stepMs);
+        if (steps > MAX_STEPS_PER_FRAME) {
+            // After a stall, drop the backlog instead of fast-forwarding through it.
+            steps = MAX_STEPS_PER_FRAME;
+            stepAccumMs = 0;
         } else {
-            var deltaScaled = (audio.dt * 60000 / audio.bpm) * curSpeed;
-            var sc = sparks.length;
-            for (var i = 0; i < N; i++)
-                sparkPixels[i] *= cooling;
-            if (N > 5) {
-                for (var i = N - 1; i >= 5; i--)
-                    sparkPixels[i] = (sparkPixels[i - 1] + sparkPixels[i - 2] + sparkPixels[i - 3] * 2 + sparkPixels[i - 4] * 3) / 7;
-            }
-            for (var i = 0; i < sc; i++) {
-                if (sparks[i] <= 0) {
-                    sparks[i] = 0.5 + Math.random() * 0.5;
-                    sparkX[i] = Math.random() * 5;
-                }
-                var stepPx = sparks[i] * sparks[i] * deltaScaled * (N / 100);
-                sparkX[i] += stepPx;
-                if (sparkX[i] >= N || Math.random() < curFadeChance) {
-                    sparks[i] = 0;
-                    sparkX[i] = 0;
-                    continue;
-                }
-                var jStart = Math.max(0, Math.floor(sparkX[i] - stepPx));
-                var jEnd = Math.floor(sparkX[i]);
-                var heat = Math.max(0, Math.min(1, 1 - sparks[i] * 0.4)) * 0.5;
-                for (var j = jStart; j < jEnd && j < N; j++)
-                    sparkPixels[j] += heat;
-            }
+            stepAccumMs -= steps * stepMs;
         }
+        var stepFadeChance = 1 - Math.pow(1 - curFadeChance, (stepMs / 1000.0) * NOMINAL_HZ);
+        for (var n = 0; n < steps; n++)
+            simulateFireStep(stepMs, stepFadeChance);
 
         var colorShift = algo.color_shift;
-        var stops = ledFxMode ? ledFxGradientStops() : null;
+        var stops = ledFxMode ? HSVUtil.ledFxGradientStops(algo) : null;
         var ledFxOutputOptions = ledFxMode ? getLedFxOutputOptions() : null;
         for (var i = 0; i < N; i++) {
             var x = ledFxMode ? (i % width) : i;
@@ -214,12 +163,7 @@ var testAlgo;
             var v = px * 2;
 
             if (ledFxMode) {
-                var base = HSVUtil.gradientRgbAt(stops, h);
-                var maxRgb = Math.max(base[0], Math.max(base[1], base[2]));
-                var r = (base[0] + (maxRgb - base[0]) * (1 - s)) * v;
-                var g = (base[1] + (maxRgb - base[1]) * (1 - s)) * v;
-                var b = (base[2] + (maxRgb - base[2]) * (1 - s)) * v;
-                var hsvOut = HSVUtil.rgbToHsvUnclipped(r, g, b);
+                var hsvOut = HSVUtil.ledFxColor(stops, h, s, v);
                 HSVUtil.setPixel(map, width, x, y, hsvOut.h, hsvOut.s, hsvOut.v);
             } else {
                 var hc = HSVUtil.mod1(h);

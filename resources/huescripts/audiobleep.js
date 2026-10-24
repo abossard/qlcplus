@@ -50,43 +50,8 @@ var testAlgo;
     algo.getScrollSeconds = function() { return algo.presetScrollSeconds; };
     algo.setLineWidth = function(v) { algo.presetLineWidth = Math.max(1, Math.min(8, parseInt(v) || 1)); };
     algo.getLineWidth = function() { return algo.presetLineWidth; };
-    // Compatibility aliases used by older tests.
-    algo.setDecay = function(v) { algo.setScrollSeconds(Math.max(0.05, (1 - HSVUtil.clamp01(parseFloat(v) || 0)) * 2)); };
-    algo.getDecay = function() { return HSVUtil.clamp01(1 - (algo.presetScrollSeconds / 2)); };
-    algo.setSpeed = function(v) {
-        var speed = Math.max(1, Math.min(30, parseFloat(v) || 1));
-        algo.setScrollSeconds(30 / speed);
-    };
-    algo.getSpeed = function() { return 30 / algo.presetScrollSeconds; };
 
     var state = { key: "", audioKey: "", amplitudes: [0], progress: 0 };
-
-    function seconds(audio) {
-        return HSVUtil.audioSeconds(audio);
-    }
-
-    function sample(audio) {
-        var value = 0;
-        if (algo.presetSource === "Beat") value = audio && audio.beat || 0;
-        else if (algo.presetSource === "Bass") value = audio && audio.bass || 0;
-        else if (algo.presetSource === "Lows") value = audio && audio.low || 0;
-        else if (algo.presetSource === "Mids") value = audio && audio.mid || 0;
-        else value = audio && audio.high || 0;
-        return HSVUtil.clamp01(value);
-    }
-
-    function bresenham(x0, y0, x1, y1, visit) {
-        var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
-        var dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
-        var err = dx + dy;
-        while (true) {
-            visit(x0, y0);
-            if (x0 === x1 && y0 === y1) break;
-            var e2 = 2 * err;
-            if (e2 >= dy) { err += dy; x0 += sx; }
-            if (e2 <= dx) { err += dx; y0 += sy; }
-        }
-    }
 
     function paint(map, width, height, x, y, color, size) {
         var thickness = Math.max(1, size || 1);
@@ -118,7 +83,7 @@ var testAlgo;
     }
 
     function advanceHistory(current, dt) {
-        if (!isFinite(dt) || dt <= 0) return;
+        if (dt <= 0) return;
         var stepTime = Math.max(0.0001, algo.presetScrollSeconds / Math.max(1, state.amplitudes.length));
         state.progress += dt;
         var shifts = Math.floor(state.progress / stepTime);
@@ -130,8 +95,6 @@ var testAlgo;
             state.amplitudes.unshift(current);
         }
     }
-
-    function lerp(a, b, t) { return a + (b - a) * t; }
 
     function yForAmplitude(amp, height) {
         if (height <= 1) return 0;
@@ -150,7 +113,7 @@ var testAlgo;
         var t = algo.presetColorBy === "Time"
             ? (count <= 1 ? 0 : (index / (count - 1)))
             : HSVUtil.clamp01(amp);
-        return HSVUtil.gradientLedfxAt(algo.colors || [{ h: 0.58, s: 1, v: 1 }], HSVUtil.clamp01(t));
+        return HSVUtil.gradientLedfxAt(algo.colors, HSVUtil.clamp01(t));
     }
 
     function pointAtIndex(index, count, width) {
@@ -165,12 +128,13 @@ var testAlgo;
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
         var audioKey = HSVUtil.audioIdentityKey(audio, state.audioKey);
+        if (audioKey !== state.audioKey)
+            state.amplitudes = [0];
         state.audioKey = audioKey;
         var k = [width, height, audioKey].join("|");
-        var current = sample(audio);
+        var current = HSVUtil.powerForRange(audio, algo.presetSource, false);
         initHistory(k);
-        var dt = seconds(audio);
-        advanceHistory(current, dt);
+        advanceHistory(current, HSVUtil.audioSeconds(audio));
 
         var points = Math.max(1, algo.presetPoints);
         var coords = [];
@@ -198,28 +162,26 @@ var testAlgo;
             return map;
         }
 
+        function stroke(a, b, x, y) {
+            var t = b.x === a.x ? 1 : (x - a.x) / (b.x - a.x);
+            var color = HSVUtil.gradientLedfxAt([a.color, b.color], HSVUtil.clamp01(t));
+            paint(map, width, height, x, y, color, algo.presetLineWidth);
+            return color;
+        }
+
         for (var i2 = 1; i2 < coords.length; i2++) {
             var a = coords[i2 - 1];
             var b = coords[i2];
             if (algo.presetMirror === "Yes") {
-                bresenham(a.x, a.yTop, b.x, b.yTop, function(x, y) {
-                    var t = b.x === a.x ? 1 : (x - a.x) / (b.x - a.x);
-                    var color = HSVUtil.gradientLedfxAt([a.color, b.color], HSVUtil.clamp01(t));
-                    paint(map, width, height, x, y, color, algo.presetLineWidth);
-                });
-                bresenham(a.x, a.yBottom, b.x, b.yBottom, function(x, y) {
-                    var t = b.x === a.x ? 1 : (x - a.x) / (b.x - a.x);
-                    var color = HSVUtil.gradientLedfxAt([a.color, b.color], HSVUtil.clamp01(t));
-                    paint(map, width, height, x, y, color, algo.presetLineWidth);
-                });
+                HSVUtil.walkLine(a.x, a.yTop, b.x, b.yTop, function(x, y) { stroke(a, b, x, y); });
+                HSVUtil.walkLine(a.x, a.yBottom, b.x, b.yBottom, function(x, y) { stroke(a, b, x, y); });
                 if (algo.presetMode === "Fill") {
                     var x0 = Math.min(a.x, b.x);
                     var x1 = Math.max(a.x, b.x);
-                    var span = Math.max(1, x1 - x0);
                     for (var x = x0; x <= x1; x++) {
-                        var tx = span === 0 ? 1 : (x - a.x) / Math.max(1e-6, b.x - a.x);
-                        var yTop = Math.round(lerp(a.yTop, b.yTop, tx));
-                        var yBottom = Math.round(lerp(a.yBottom, b.yBottom, tx));
+                        var tx = (x - a.x) / Math.max(1e-6, b.x - a.x);
+                        var yTop = Math.round(a.yTop + (b.yTop - a.yTop) * tx);
+                        var yBottom = Math.round(a.yBottom + (b.yBottom - a.yBottom) * tx);
                         var yStart = Math.min(yTop, yBottom);
                         var yEnd = Math.max(yTop, yBottom);
                         var fillColor = HSVUtil.gradientLedfxAt([a.color, b.color], HSVUtil.clamp01(tx));
@@ -230,12 +192,10 @@ var testAlgo;
                 continue;
             }
 
-            bresenham(a.x, a.y, b.x, b.y, function(x2, y2) {
-                var t = b.x === a.x ? 1 : (x2 - a.x) / (b.x - a.x);
-                var color = HSVUtil.gradientLedfxAt([a.color, b.color], HSVUtil.clamp01(t));
-                paint(map, width, height, x2, y2, color, algo.presetLineWidth);
+            HSVUtil.walkLine(a.x, a.y, b.x, b.y, function(x2, y2) {
+                var color = stroke(a, b, x2, y2);
                 if (algo.presetMode === "Fill")
-                    for (var yy2 = 0; yy2 <= y2; yy2++) paint(map, width, height, x2, yy2, color, 1);
+                    for (var yy2 = y2; yy2 < height; yy2++) paint(map, width, height, x2, yy2, color, 1);
             });
         }
         return map;

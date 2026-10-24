@@ -28,96 +28,89 @@ var testAlgo;
     algo.usesAudio = true;
     algo.properties = new Array();
 
-    // 0x000010=very dark blue, 0x004080=dark blue, 0x00FFC0=cyan-green, 0xFFFFFF=white
-    var DEFAULT_GRADIENT = [
-        {h: 0.667, s: 1.0, v: 0.063},
-        {h: 0.583, s: 1.0, v: 0.502},
-        {h: 0.458, s: 1.0, v: 1.0},
-        {h: 0.0,   s: 0.0, v: 1.0}
-    ];
-
     // Gray-Scott safe parameter ranges.
     var F_MIN = 0.01, F_MAX = 0.10;
     var K_MIN = 0.04, K_MAX = 0.07;
     var DU_MIN = 0.10, DU_MAX = 0.30;
     var DV_MIN = 0.05, DV_MAX = 0.15;
-
+    // Simulated time per render is capped, so a stalled render does not run thousands of steps.
+    var MAX_SECONDS_PER_RENDER = 0.25;
 
     algo.presetFeedBase = 30;
     algo.properties.push(
       "name:presetFeedBase|type:range|display:Feed Base (x1e-3)|" +
       "values:10,80|write:setFeedBase|read:getFeedBase");
-    algo.setFeedBase = function(_v) { algo.presetFeedBase = parseFloat(_v); };
+    algo.setFeedBase = function(_v) { algo.presetFeedBase = HSVUtil.parseNumber(_v, algo.presetFeedBase, 10, 80); };
     algo.getFeedBase = function() { return algo.presetFeedBase; };
 
     algo.presetKillBase = 55;
     algo.properties.push(
       "name:presetKillBase|type:range|display:Kill Base (x1e-3)|" +
       "values:40,70|write:setKillBase|read:getKillBase");
-    algo.setKillBase = function(_v) { algo.presetKillBase = parseFloat(_v); };
+    algo.setKillBase = function(_v) { algo.presetKillBase = HSVUtil.parseNumber(_v, algo.presetKillBase, 40, 70); };
     algo.getKillBase = function() { return algo.presetKillBase; };
 
     algo.presetDu = 16;
     algo.properties.push(
       "name:presetDu|type:range|display:Diffusion U (x1e-2)|" +
       "values:10,30|write:setDu|read:getDu");
-    algo.setDu = function(_v) { algo.presetDu = parseFloat(_v); };
+    algo.setDu = function(_v) { algo.presetDu = HSVUtil.parseNumber(_v, algo.presetDu, 10, 30); };
     algo.getDu = function() { return algo.presetDu; };
 
     algo.presetDv = 8;
     algo.properties.push(
       "name:presetDv|type:range|display:Diffusion V (x1e-2)|" +
       "values:5,15|write:setDv|read:getDv");
-    algo.setDv = function(_v) { algo.presetDv = parseFloat(_v); };
+    algo.setDv = function(_v) { algo.presetDv = HSVUtil.parseNumber(_v, algo.presetDv, 5, 15); };
     algo.getDv = function() { return algo.presetDv; };
 
     algo.presetSimDt = 90;
     algo.properties.push(
       "name:presetSimDt|type:range|display:Sim dt (x1e-2)|" +
       "values:10,100|write:setSimDt|read:getSimDt");
-    algo.setSimDt = function(_v) { algo.presetSimDt = parseFloat(_v); };
+    algo.setSimDt = function(_v) { algo.presetSimDt = HSVUtil.parseNumber(_v, algo.presetSimDt, 10, 100); };
     algo.getSimDt = function() { return algo.presetSimDt; };
 
     algo.presetStepsPerFrame = 4;
     algo.properties.push(
       "name:presetStepsPerFrame|type:range|display:Sim Steps per Frame|" +
       "values:1,12|write:setStepsPerFrame|read:getStepsPerFrame");
-    algo.setStepsPerFrame = function(_v) { algo.presetStepsPerFrame = parseInt(_v); };
+    algo.setStepsPerFrame = function(_v) { algo.presetStepsPerFrame = Math.round(HSVUtil.parseNumber(_v, algo.presetStepsPerFrame, 1, 12)); };
     algo.getStepsPerFrame = function() { return algo.presetStepsPerFrame; };
 
     algo.presetSeedSize = 2;
     algo.properties.push(
       "name:presetSeedSize|type:range|display:Kick Seed Size (px)|" +
       "values:1,6|write:setSeedSize|read:getSeedSize");
-    algo.setSeedSize = function(_v) { algo.presetSeedSize = parseFloat(_v); };
+    algo.setSeedSize = function(_v) { algo.presetSeedSize = HSVUtil.parseNumber(_v, algo.presetSeedSize, 1, 6); };
     algo.getSeedSize = function() { return algo.presetSeedSize; };
 
     algo.presetFlatnessModulation = 40;
     algo.properties.push(
       "name:presetFlatnessModulation|type:range|display:Flatness->F Mod (x1e-3)|" +
       "values:0,90|write:setFlatnessMod|read:getFlatnessMod");
-    algo.setFlatnessMod = function(_v) { algo.presetFlatnessModulation = parseFloat(_v); };
+    algo.setFlatnessMod = function(_v) { algo.presetFlatnessModulation = HSVUtil.parseNumber(_v, algo.presetFlatnessModulation, 0, 90); };
     algo.getFlatnessMod = function() { return algo.presetFlatnessModulation; };
 
     algo.presetMidModulation = 20;
     algo.properties.push(
       "name:presetMidModulation|type:range|display:Mid->k Mod (x1e-3)|" +
       "values:0,30|write:setMidMod|read:getMidMod");
-    algo.setMidMod = function(_v) { algo.presetMidModulation = parseFloat(_v); };
+    algo.setMidMod = function(_v) { algo.presetMidModulation = HSVUtil.parseNumber(_v, algo.presetMidModulation, 0, 30); };
     algo.getMidMod = function() { return algo.presetMidModulation; };
 
     algo.presetHighModulation = 50;
     algo.properties.push(
       "name:presetHighModulation|type:range|display:High->Dv Mod (%)|" +
       "values:0,200|write:setHighMod|read:getHighMod");
-    algo.setHighMod = function(_v) { algo.presetHighModulation = parseFloat(_v); };
+    algo.setHighMod = function(_v) { algo.presetHighModulation = HSVUtil.parseNumber(_v, algo.presetHighModulation, 0, 200); };
     algo.getHighMod = function() { return algo.presetHighModulation; };
 
     algo.presetGain = 200;
     algo.properties.push(
       "name:presetGain|type:range|display:Render Gain (%)|" +
       "values:50,800|write:setGain|read:getGain");
-    algo.setGain = function(_v) { algo.presetGain = parseFloat(_v); };
+    algo.setGain = function(_v) { algo.presetGain = HSVUtil.parseNumber(_v, algo.presetGain, 50, 800); };
     algo.getGain = function() { return algo.presetGain; };
 
     algo.U = null;
@@ -158,10 +151,7 @@ var testAlgo;
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-      return (algo.colors && algo.colors.length >= 3)
-        ? algo.colors.slice() : DEFAULT_GRADIENT.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
       ensureGrids(width, height);
@@ -177,7 +167,7 @@ var testAlgo;
       var Dv = Math.max(DV_MIN, Math.min(DV_MAX, DvBase * (1.0 + DvMod)));
 
       // Canonical timing: derive simulation budget from engine dt.
-      var dt = audio.dt * 60.0 / audio.bpm;
+      var dt = Math.min(MAX_SECONDS_PER_RENDER, audio.dt * 60.0 / audio.bpm);
       var simDt = algo.presetSimDt / 100.0;
       var steps = Math.max(1, Math.round(algo.presetStepsPerFrame * dt * 25));
 
@@ -219,19 +209,14 @@ var testAlgo;
         algo.Unext = U; algo.Vnext = V;
       }
 
-      var gradient = (algo.colors && algo.colors.length > 0)
-        ? algo.colors : DEFAULT_GRADIENT;
       var gain = algo.presetGain / 100.0;
 
       var map = HSVUtil.createMap(width, height);
-      var Vfinal = algo.V;
-      for (var ry = 0; ry < H; ry++) {
-        for (var rx = 0; rx < W; rx++) {
-          var t = Vfinal[ry * W + rx] * gain;
-          if (t < 0) t = 0; else if (t > 1) t = 1;
-          var c = HSVUtil.gradientAt(gradient, t);
-          HSVUtil.setPixel(map, width, rx, ry, c.h, c.s, c.v);
-        }
+      for (var p = 0; p < W * H; p++) {
+        var c = HSVUtil.gradientAt(algo.colors, HSVUtil.clamp01(algo.V[p] * gain));
+        map[p * 3] = c.h;
+        map[p * 3 + 1] = c.s;
+        map[p * 3 + 2] = c.v;
       }
       return map;
     };

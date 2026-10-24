@@ -86,45 +86,6 @@ var testAlgo;
     };
     algo.getReferenceBackgroundBrightness = function() { return algo.referenceBackgroundBrightness; };
 
-    function rangedValues(values) {
-      if (!values || !values.length) return [];
-      var start = Math.min(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var end = Math.max(algo.referenceRangeStart, algo.referenceRangeEnd);
-      var from = Math.max(0, Math.floor(start * values.length));
-      var to = Math.min(values.length, Math.ceil(end * values.length));
-      return to > from ? values.slice(from, to) : [];
-    }
-
-    // Linear RGB stays unclipped until the final HSV wire conversion.
-    function referenceOutput(pixels, width, height) {
-      var n = pixels.length;
-      var map = HSVUtil.createMap(width, height);
-      for (var i = 0; i < n; i++) {
-        var hsv = HSVUtil.rgbToHsvUnclipped(pixels[i][0], pixels[i][1], pixels[i][2]);
-        map[i * 3] = hsv.h;
-        map[i * 3 + 1] = hsv.s;
-        map[i * 3 + 2] = hsv.v;
-      }
-      HSVUtil.applyStripTransforms(map, width, height, {
-        flip: algo.referenceFlip,
-        mirror: algo.referenceMirror,
-        backgroundMode: algo.referenceBackgroundMode,
-        backgroundColor: algo.referenceBackgroundColor,
-        backgroundBrightness: algo.referenceBackgroundBrightness,
-        brightness: algo.referenceBrightness,
-        blur: algo.referenceBlur
-      });
-      if (algo.referenceDiagnostics) {
-        var transformed = new Array(n);
-        for (var j = 0; j < n; j++) {
-          var o = j * 3;
-          transformed[j] = HSVUtil.hsvToRgb(map[o], map[o + 1], map[o + 2]);
-        }
-        algo.referenceFrame = {pre: pixels, transformed: transformed};
-      }
-      return map;
-    }
-
     function referenceMap(width, height, audio) {
       var n = width * height, bank = audio && audio.banks && audio.banks.full;
       var epoch = audio ? [
@@ -134,8 +95,9 @@ var testAlgo;
       if (!referenceState || referenceState.n !== n || referenceState.epoch !== epoch)
         referenceState = {n: n, epoch: epoch, previous: new Array(n).fill(0), envelope: null};
       var state = referenceState;
-      var processed = bank && bank.count ? rangedValues(bank.processed || []) : [];
-      var noveltyBank = bank && bank.count ? rangedValues(bank.novelty || []) : [];
+      var start = algo.referenceRangeStart, end = algo.referenceRangeEnd;
+      var processed = bank && bank.count ? HSVUtil.rangeSlice(bank.processed, start, end) : [];
+      var noveltyBank = bank && bank.count ? HSVUtil.rangeSlice(bank.novelty, start, end) : [];
       var y = HSVUtil.interpolate(processed, n);
       var novelty = HSVUtil.interpolate(noveltyBank, n);
       var scale = audio && audio.timing ? audio.timing.deltaSeconds * 60 : 1;
@@ -145,7 +107,7 @@ var testAlgo;
         state.output = new Array(n);
         for (var i = 0; i < n; i++) {
           var value = y[i];
-          var retention = Math.pow(value > state.envelope[i] ? 0.5 : 0.9, scale);
+          var retention = Math.pow(value > state.envelope[i] ? 0.5 : 1 - algo.presetDecay, scale);
           state.envelope[i] = value + (state.envelope[i] - value) * retention;
           var channels = [0, 0, 0];
           channels[mix[0]] = novelty[i] * 1000 / 255;
@@ -155,67 +117,44 @@ var testAlgo;
         }
         state.previous = y.slice();
       }
-      return referenceOutput(state.output, width, height);
+      return HSVUtil.referenceOutput(algo, state.output, width, height);
     }
 
     algo.presetRgbMix = 0;
     algo.properties.push(
       "name:rgb_mix|type:range|display:RGB Mix|" +
       "values:0,5|write:setRgbMix|read:getRgbMix");
-    algo.setRgbMix = function(_v) { algo.presetRgbMix = parseFloat(_v); };
+    algo.setRgbMix = function(_v) { algo.presetRgbMix = Math.round(HSVUtil.parseNumber(_v, algo.presetRgbMix, 0, 5)); };
     algo.getRgbMix = function() { return algo.presetRgbMix; };
 
-    algo.presetDecay = 0.05;
+    // Falling rate of the smoothed channel per 1/60 s; LedFx uses 0.1.
+    algo.presetDecay = 0.1;
     algo.properties.push(
       "name:decay|type:float|display:Decay|" +
       "write:setDecay|read:getDecay");
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 0, 1); };
     algo.getDecay = function() { return algo.presetDecay; };
 
     var prevY = null;
     var bFilter = null;
-    var lastPixelCount = -1;
 
     function ensureState(pixelCount) {
-      if (lastPixelCount === pixelCount && prevY) return;
-      prevY = new Array(pixelCount);
+      if (prevY && prevY.length === pixelCount) return;
+      prevY = new Array(pixelCount).fill(0);
       bFilter = null;
-      for (var i = 0; i < pixelCount; i++) prevY[i] = 0;
-      lastPixelCount = pixelCount;
     }
 
     function updateFilter(values, frameScale) {
       if (!bFilter || bFilter.length !== values.length) {
         bFilter = values.slice();
-        return bFilter.slice();
+        return bFilter;
       }
-      var out = new Array(values.length);
       for (var i = 0; i < values.length; i++) {
-        var alpha = values[i] > bFilter[i] ? 0.5 : 0.1;
+        var alpha = values[i] > bFilter[i] ? 0.5 : algo.presetDecay;
         alpha = 1 - Math.pow(1 - alpha, frameScale);
         bFilter[i] = alpha * values[i] + (1.0 - alpha) * bFilter[i];
-        out[i] = bFilter[i];
       }
-      return out;
-    }
-
-    // Local RGB→HSV (the effect inherently creates colors from 3 independent
-    // channels, so we convert the conceptual RGB to HSV for output).
-    function toHsv(r, g, b) {
-        r = Math.max(0, Math.min(1, r / 255));
-        g = Math.max(0, Math.min(1, g / 255));
-        b = Math.max(0, Math.min(1, b / 255));
-        var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
-        var d = mx - mn;
-        var h = 0, s = (mx === 0) ? 0 : d / mx, v = mx;
-        if (d > 0) {
-            if (mx === r) h = ((g - b) / d) % 6;
-            else if (mx === g) h = (b - r) / d + 2;
-            else h = (r - g) / d + 4;
-            h /= 6;
-            if (h < 0) h += 1;
-        }
-        return {h: h, s: s, v: v};
+      return bFilter;
     }
 
     algo.rgbMapStepCount = function(width, height) { return 1; };
@@ -233,28 +172,25 @@ var testAlgo;
       var bank = audio.banks && audio.banks.full;
       var y = HSVUtil.interpolate(bank && bank.count ? bank.processed :
           [audio.low, audio.mid, audio.high], pixelCount);
-      var filtered = bank && bank.count ? HSVUtil.interpolate(bank.novelty, pixelCount) : y.slice();
+      var filtered = bank && bank.count ? HSVUtil.interpolate(bank.novelty, pixelCount) : y;
       var frameScale = audio.timing ? audio.timing.deltaSeconds * 60 : 1;
+      var frames = HSVUtil.elapsedFrames(audio);
       var filt = updateFilter(y, frameScale);
       var mix = rgbMixes[algo.presetRgbMix];
-      var nextPrev = y.slice();
 
       for (var i = 0; i < pixelCount; i++) {
         var channels = [0, 0, 0];
-        channels[mix[0]] = filtered[i] * 255.0;
-        channels[mix[1]] = Math.abs(y[i] - prevY[i]) * 255.0;
-        channels[mix[2]] = filt[i] * 255.0;
+        channels[mix[0]] = filtered[i];
+        channels[mix[1]] = Math.min(1, Math.abs(y[i] - prevY[i]) / (frames > 0 ? frames : 1));
+        channels[mix[2]] = filt[i];
 
-        var hsv = toHsv(channels[0], channels[1], channels[2]);
-        var px = i % width;
-        var row = Math.floor(i / width);
-        var i3 = (row * width + px) * 3;
-        map[i3] = hsv.h;
-        map[i3 + 1] = hsv.s;
-        map[i3 + 2] = hsv.v;
+        var hsv = HSVUtil.rgbToHsv(channels[0], channels[1], channels[2]);
+        map[i * 3] = hsv.h;
+        map[i * 3 + 1] = hsv.s;
+        map[i * 3 + 2] = hsv.v;
       }
 
-      prevY = nextPrev;
+      prevY = y;
       return map;
     };
 

@@ -27,28 +27,28 @@ var testAlgo;
     algo.properties.push(
       "name:presetGravity|type:range|display:Gravity (units/s^2)|" +
       "values:50,800|write:setGravity|read:getGravity");
-    algo.setGravity = function(v) { algo.presetGravity = parseFloat(v); };
+    algo.setGravity = function(v) { algo.presetGravity = HSVUtil.parseNumber(v, algo.presetGravity, 50, 800); };
     algo.getGravity = function() { return algo.presetGravity; };
 
     algo.presetPeakDecay = 50;
     algo.properties.push(
       "name:presetPeakDecay|type:range|display:Peak Decay (units/s)|" +
       "values:5,300|write:setPeakDecay|read:getPeakDecay");
-    algo.setPeakDecay = function(v) { algo.presetPeakDecay = parseFloat(v); };
+    algo.setPeakDecay = function(v) { algo.presetPeakDecay = HSVUtil.parseNumber(v, algo.presetPeakDecay, 5, 300); };
     algo.getPeakDecay = function() { return algo.presetPeakDecay; };
 
     algo.presetPeakHoldMs = 800;
     algo.properties.push(
       "name:presetPeakHoldMs|type:range|display:Peak Hold (ms)|" +
       "values:100,3000|write:setPeakHoldMs|read:getPeakHoldMs");
-    algo.setPeakHoldMs = function(v) { algo.presetPeakHoldMs = parseFloat(v); };
+    algo.setPeakHoldMs = function(v) { algo.presetPeakHoldMs = HSVUtil.parseNumber(v, algo.presetPeakHoldMs, 100, 3000); };
     algo.getPeakHoldMs = function() { return algo.presetPeakHoldMs; };
 
     algo.presetPeakFlashMs = 150;
     algo.properties.push(
       "name:presetPeakFlashMs|type:range|display:Peak Flash Decay (ms)|" +
       "values:30,1000|write:setPeakFlashMs|read:getPeakFlashMs");
-    algo.setPeakFlashMs = function(v) { algo.presetPeakFlashMs = parseFloat(v); };
+    algo.setPeakFlashMs = function(v) { algo.presetPeakFlashMs = HSVUtil.parseNumber(v, algo.presetPeakFlashMs, 30, 1000); };
     algo.getPeakFlashMs = function() { return algo.presetPeakFlashMs; };
 
     algo.presetBands = "3";
@@ -71,20 +71,11 @@ var testAlgo;
     algo.peakAge    = [0, 0, 0];
     algo.peakFlash  = [0, 0, 0];
 
-    // 0xFF4000=orange-red, 0x00FF64=green, 0x4080FF=blue
-    var DEFAULT_BANDS = [
-        {h: 0.042, s: 1.0,   v: 1.0},
-        {h: 0.399, s: 1.0,   v: 1.0},
-        {h: 0.611, s: 0.749, v: 1.0}
-    ];
-    var BAND_NAMES = ["low", "mid", "high"];
+    var REFERENCE_FRAME_SECONDS = 0.02;
 
     algo.rgbMapStepCount = function(_w, _h) { return 1; };
     algo.rgbMapSetColors = function(_raw) { };
-    algo.rgbMapGetColors = function() {
-        return (algo.colors && algo.colors.length >= 3)
-            ? algo.colors.slice() : DEFAULT_BANDS.slice();
-    };
+    algo.rgbMapGetColors = function() { return []; };
 
     algo.blendToWhite = function(c, t) {
         if (t <= 0) return c;
@@ -94,7 +85,7 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, rgb, step, audio) {
         var map = HSVUtil.createMap(width, height);
-        var dt = audio.dt * 60.0 / audio.bpm;
+        var dt = HSVUtil.audioSeconds(audio);
         var nBands = (algo.presetBands === "1") ? 1 : 3;
         var gravity   = algo.presetGravity / 100.0;
         var peakDecay = algo.presetPeakDecay / 100.0;
@@ -102,45 +93,44 @@ var testAlgo;
         var flashTau   = algo.presetPeakFlashMs / 1000.0;
 
         var bandPowers = [audio.low, audio.mid, audio.high];
+        var dominant = HSVUtil.dominantBand(audio);
 
         for (var i = 0; i < nBands; i++) {
-            var srcVal = (nBands === 1) ? audio.low : bandPowers[i];
+            var srcVal = bandPowers[i];
 
             if (srcVal > algo.heights[i]) {
                 algo.heights[i] = srcVal;
                 algo.velocities[i] = 0;
             } else {
+                // Exact fall under constant gravity, plus the half 20 ms step the per-render update added.
+                var nh = algo.heights[i] - (algo.velocities[i] + gravity * (dt + REFERENCE_FRAME_SECONDS) / 2) * dt;
                 algo.velocities[i] += gravity * dt;
-                var nh = algo.heights[i] - algo.velocities[i] * dt;
                 algo.heights[i] = nh < 0 ? 0 : nh;
             }
 
-            if (algo.heights[i] > algo.peaks[i]) {
+            // The hold starts once the bar falls away from its peak.
+            if (algo.heights[i] >= algo.peaks[i]) {
                 algo.peaks[i] = algo.heights[i];
                 algo.peakAge[i] = 0;
             } else {
-                algo.peakAge[i] += (audio.dt * 60000 / audio.bpm);
+                algo.peakAge[i] += dt * 1000;
                 if (algo.peakAge[i] > peakHoldMs) {
                     var np = algo.peaks[i] - peakDecay * dt;
                     algo.peaks[i] = np < 0 ? 0 : np;
                 }
             }
 
-            var fireKick = audio.beatFired &&
-                (i === 0 || (function(){var b=[audio.low,audio.mid,audio.high];return ["low","mid","high"][b.indexOf(Math.max.apply(null,b))]})() === BAND_NAMES[i]);
-            if (fireKick) algo.peakFlash[i] = 1.0;
+            if (audio.beatFired && (i === 0 || dominant === i)) algo.peakFlash[i] = 1.0;
             algo.peakFlash[i] *= Math.exp(-dt / flashTau);
         }
 
-        var bandColors = (algo.colors && algo.colors.length >= 3)
-            ? algo.colors : DEFAULT_BANDS;
         var horizontal = (algo.presetAxis === "Horizontal");
 
         var totalLong  = horizontal ? width  : height;
         var totalCross = horizontal ? height : width;
 
         for (var b = 0; b < nBands; b++) {
-            var barColor = bandColors[b];
+            var barColor = algo.colors[b];
             var c0 = Math.floor(b * totalCross / nBands);
             var c1 = (b === nBands - 1) ? totalCross - 1 : Math.floor((b + 1) * totalCross / nBands) - 1;
             if (c1 < c0) c1 = c0;
@@ -156,22 +146,14 @@ var testAlgo;
             for (var c = c0; c <= c1; c++) {
                 if (horizontal) {
                     // bars extend from left
-                    for (var x = 0; x < barLen; x++) {
-                        if (c >= 0 && c < height && x >= 0 && x < width)
-                            HSVUtil.setPixel(map, width, x, c, barColor.h, barColor.s, barColor.v);
-                    }
-                    if (peakIdx >= 0 && peakIdx < width && c >= 0 && c < height)
-                        HSVUtil.setPixel(map, width, peakIdx, c, flashColor.h, flashColor.s, flashColor.v);
+                    for (var x = 0; x < barLen; x++)
+                        HSVUtil.setPixel(map, width, x, c, barColor.h, barColor.s, barColor.v);
+                    HSVUtil.setPixel(map, width, peakIdx, c, flashColor.h, flashColor.s, flashColor.v);
                 } else {
                     // bars rise from bottom
-                    for (var y = 0; y < barLen; y++) {
-                        var rowY = height - 1 - y;
-                        if (rowY >= 0 && rowY < height && c >= 0 && c < width)
-                            HSVUtil.setPixel(map, width, c, rowY, barColor.h, barColor.s, barColor.v);
-                    }
-                    var prow = height - 1 - peakIdx;
-                    if (prow >= 0 && prow < height && c >= 0 && c < width)
-                        HSVUtil.setPixel(map, width, c, prow, flashColor.h, flashColor.s, flashColor.v);
+                    for (var y = 0; y < barLen; y++)
+                        HSVUtil.setPixel(map, width, c, height - 1 - y, barColor.h, barColor.s, barColor.v);
+                    HSVUtil.setPixel(map, width, c, height - 1 - peakIdx, flashColor.h, flashColor.s, flashColor.v);
                 }
             }
         }

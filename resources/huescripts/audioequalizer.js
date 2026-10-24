@@ -57,17 +57,19 @@ var testAlgo;
       "name:presetPeakDecay|type:float|display:Peak Decay|" +
       "write:setPeakDecay|read:getPeakDecay");
 
-    algo.setDecay = function(_v) { algo.presetDecay = parseFloat(_v); };
+    algo.setDecay = function(_v) { algo.presetDecay = HSVUtil.parseNumber(_v, algo.presetDecay, 1, 10); };
     algo.getDecay = function() { return algo.presetDecay; };
     algo.setPeaks = function(_v) { algo.presetPeaks = (_v === "On") ? 1 : 0; };
     algo.getPeaks = function() { return algo.presetPeaks ? "On" : "Off"; };
     algo.setCenter = function(_v) { algo.presetCenter = (_v === "On") ? 1 : 0; };
     algo.getCenter = function() { return algo.presetCenter ? "On" : "Off"; };
-    algo.setDownbeatDrop = function(_v) { algo.presetDownbeatDrop = parseFloat(_v); };
+    algo.setDownbeatDrop = function(_v) {
+        algo.presetDownbeatDrop = HSVUtil.parseNumber(_v, algo.presetDownbeatDrop, 0, 1);
+    };
     algo.getDownbeatDrop = function() { return algo.presetDownbeatDrop; };
     algo.setPeakHold = function(_v) { algo.presetPeakHold = parseInt(_v); };
     algo.getPeakHold = function() { return algo.presetPeakHold; };
-    algo.setPeakDecay = function(_v) { algo.presetPeakDecay = parseFloat(_v); };
+    algo.setPeakDecay = function(_v) { algo.presetPeakDecay = HSVUtil.parseNumber(_v, algo.presetPeakDecay, 0, 1); };
     algo.getPeakDecay = function() { return algo.presetPeakDecay; };
 
     algo.presetSegmentCount = 5;
@@ -103,32 +105,23 @@ var testAlgo;
     });
 
     var BAND_COUNT = 5;
-    var DEFAULT_COLORS = [
-        {h: 0.0,   s: 1.0, v: 1.0},  // red (beat)
-        {h: 0.083, s: 1.0, v: 1.0},  // orange (bass)
-        {h: 0.167, s: 1.0, v: 1.0},  // yellow (low)
-        {h: 0.398, s: 1.0, v: 1.0},  // green (mid)
-        {h: 0.611, s: 0.75, v: 1.0}  // blue (high)
-    ];
 
     var smoothed = [0, 0, 0, 0, 0];
     var peakValues = [0, 0, 0, 0, 0];
     var peakHolds = [0, 0, 0, 0, 0];
 
     function splitSizes(total, count) {
-        var active = Math.max(1, Math.min(count, Math.max(1, total)));
-        var base = Math.floor(total / active);
-        var extra = total - base * active;
-        var sizes = new Array(active);
-        for (var i = 0; i < active; i++)
+        var base = Math.floor(total / count);
+        var extra = total - base * count;
+        var sizes = new Array(count);
+        for (var i = 0; i < count; i++)
             sizes[i] = base + (i < extra ? 1 : 0);
         return sizes;
     }
 
     function paintAlignedMask(mask, start, size, volume, align) {
-        if (size <= 0 || volume <= 0) return;
-        var lit = Math.max(0, Math.min(size, volume));
-        if (lit <= 0) return;
+        if (volume <= 0) return;
+        var lit = Math.min(size, volume);
         if (align === "Right") {
             for (var i = size - lit; i < size; i++)
                 mask[start + i] = 1;
@@ -158,10 +151,9 @@ var testAlgo;
             var pixelCount = width * height;
             if (pixelCount <= 0) return map;
             var count = Math.max(1, Math.min(16, algo.presetSegmentCount | 0, pixelCount));
-            var bank = audio && audio.banks && audio.banks.full;
+            var bank = audio.banks && audio.banks.full;
             var novelty = bank && bank.count ? bank.novelty : [];
             var bins = HSVUtil.interpolate(novelty || [], pixelCount);
-            var stopsSeg = (algo.colors && algo.colors.length > 0) ? algo.colors : DEFAULT_COLORS;
             var clipped = new Array(pixelCount);
             for (var i = 0; i < pixelCount; i++)
                 clipped[i] = HSVUtil.clamp01(isFinite(bins[i]) ? bins[i] : 0);
@@ -181,7 +173,7 @@ var testAlgo;
             for (var p = 0; p < pixelCount; p++) {
                 if (mask[p]) {
                     var tSeg = pixelCount <= 1 ? 0 : p / (pixelCount - 1);
-                    var hsvSeg = HSVUtil.gradientLedfxAt(stopsSeg, tSeg);
+                    var hsvSeg = HSVUtil.gradientLedfxAt(algo.colors, tSeg);
                     var oSeg = p * 3;
                     map[oSeg] = hsvSeg.h;
                     map[oSeg + 1] = hsvSeg.s;
@@ -192,10 +184,10 @@ var testAlgo;
         }
 
         var rawBands = [audio.beat, audio.bass, audio.low, audio.mid, audio.high];
-        var stops = (algo.colors && algo.colors.length >= 5) ? algo.colors : DEFAULT_COLORS;
 
-        // EMA smoothing
-        var decayAlpha = algo.presetDecay / 20.0;
+        // EMA smoothing; Decay, Peak Hold and Peak Decay count 20 ms frames
+        var frames = HSVUtil.elapsedFrames(audio);
+        var decayAlpha = 1 - Math.pow(1 - algo.presetDecay / 20.0, frames);
         for (var b = 0; b < BAND_COUNT; b++) {
             var raw = Math.max(0, rawBands[b]);
             if (raw >= smoothed[b])
@@ -213,7 +205,7 @@ var testAlgo;
             var bandWidth = colsPerBand + (band < remainder ? 1 : 0);
             var magnitude = smoothed[band];
             var barHeight = Math.round(magnitude * height);
-            var c = stops[band];
+            var c = algo.colors[band];
 
             // Peak markers
             if (algo.presetPeaks) {
@@ -223,9 +215,9 @@ var testAlgo;
                     peakValues[band] = magnitude;
                     peakHolds[band] = algo.presetPeakHold;
                 } else if (peakHolds[band] > 0) {
-                    peakHolds[band]--;
+                    peakHolds[band] -= frames;
                 } else {
-                    peakValues[band] *= algo.presetPeakDecay;
+                    peakValues[band] *= Math.pow(algo.presetPeakDecay, frames);
                 }
             }
 
