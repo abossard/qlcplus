@@ -705,6 +705,23 @@ void VCEditor_Test::keysIgnoredWhileTyping()
     QCOMPARE(vc()->widget(ids.loose)->logicalGeometry(), before);
 }
 
+void VCEditor_Test::pasteRendersIntoFrame()
+{
+    const ConsoleIds ids = buildConsole();
+    auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.empty));
+    QTRY_VERIFY(frame->renderItem());
+    vc()->setSelectedWidgetIDs({ids.loose});
+    vc()->copyToClipboard();
+    vc()->setSelectedWidgetIDs({ids.empty});
+
+    vc()->pasteFromClipboard();
+    QCOMPARE(frame->children(false).size(), 1);
+    VCWidget *copy = frame->children(false).first();
+    QTRY_VERIFY(copy->renderItem());
+    // only the drop area keeps the copy above the frame chrome, so it can be clicked
+    QCOMPARE(copy->renderItem()->parentItem()->objectName(), QString("frameDropArea%1").arg(ids.empty));
+}
+
 void VCEditor_Test::nudgeStep_data()
 {
     QTest::addColumn<bool>("snapping");

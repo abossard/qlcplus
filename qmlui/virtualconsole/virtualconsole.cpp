@@ -2735,7 +2735,6 @@ void VirtualConsole::cutToClipboard()
 void VirtualConsole::pasteFromClipboard()
 {
     VCFrame *frame = nullptr;
-    QQuickItem *renderParent = nullptr;
 
     QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
     while (it.hasNext())
@@ -2747,7 +2746,6 @@ void VirtualConsole::pasteFromClipboard()
             widget->type() == VCWidget::SoloFrameWidget)
         {
             frame = qobject_cast<VCFrame*>(widget);
-            renderParent = it.value();
             break;
         }
     }
@@ -2758,8 +2756,11 @@ void VirtualConsole::pasteFromClipboard()
         frame = qobject_cast<VCFrame*>(page(selectedPage()));
         if (frame == nullptr)
             return;
-        renderParent = currentPageItem();
     }
+
+    // like created widgets, copies go into the drop area above the frame chrome
+    QQuickItem *renderParent = frame->renderItem() ?
+        frame->renderItem()->findChild<QQuickItem *>(QString("frameDropArea%1").arg(frame->id())) : nullptr;
 
     reportEdit(pasteWidgets(m_clipboardIDList, frame->id(), frame->contentRect().topLeft(), renderParent));
 }
