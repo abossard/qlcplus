@@ -102,6 +102,8 @@ signals:
 private slots:
     void onDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value);
     void onGlobalTrigger(const QString &trigger, const QVariant &value);
+    /** One VDJ write is in: the decks commit it, the adopted Show takes the position */
+    void onTickEnded();
     void onTelemetryClientDisconnected();
     void onAdoptedShowStopped(quint32 showId);
     void onAdoptedShowFinished(quint32 showId);

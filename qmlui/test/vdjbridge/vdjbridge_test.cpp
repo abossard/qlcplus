@@ -107,21 +107,34 @@ struct PerformRig
         return show;
     }
 
-    void deck(int index0, const char *trigger, const QVariant &value)
+    /** One trigger of a VDJ write under way */
+    void send(int index0, const char *trigger, const QVariant &value)
     {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, index0),
                                   Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value));
     }
 
+    /** The write ends: the decks commit, the adopted Show takes the position */
+    void tickEnd() { QMetaObject::invokeMethod(&bridge, "onTickEnded"); }
+
+    /** One trigger as a write of its own */
+    void deck(int index0, const char *trigger, const QVariant &value)
+    {
+        send(index0, trigger, value);
+        tickEnd();
+    }
+
     /** VirtualDJ's per-deck master flag, as the telemetry streams it */
     void master(int index0) { deck(index0, "masterdeck", QVariant("on")); }
 
+    /** An Automix load: one write */
     void load(int index0, const QString &filepath)
     {
-        deck(index0, "get_filepath", filepath);
-        deck(index0, "get_title", QStringLiteral("Title %1").arg(index0));
-        deck(index0, "get_artist", QStringLiteral("Artist"));
-        deck(index0, "get_bpm", 128.0);
+        send(index0, "get_filepath", filepath);
+        send(index0, "get_title", QStringLiteral("Title %1").arg(index0));
+        send(index0, "get_artist", QStringLiteral("Artist"));
+        send(index0, "get_bpm", 128.0);
+        tickEnd();
     }
 
     void play(int index0, bool on) { deck(index0, "play", QVariant(on ? "on" : "off")); }
@@ -625,8 +638,9 @@ void VdjBridge_Test::trackChangeTickSwitchesOnce()
 
     QSignalSpy states(rig.bridge.performFsm(), &PerformFsm::stateChanged);
     QSignalSpy selected(&rig.bridge, &VdjBridge::performShowSelected);
-    rig.deck(0, "get_filepath", QVariant("/music/b.mp3"));
-    rig.elapsed(0, 15298);
+    rig.send(0, "get_filepath", QVariant("/music/b.mp3"));
+    rig.send(0, "get_time elapsed absolute", 15298.0);
+    rig.tickEnd();
     QCOMPARE(rig.bridge.performFsm()->activeShowId(), b->id());
     QCOMPARE(states.count(), 1);
     QCOMPARE(selected.count(), 1);
@@ -635,6 +649,54 @@ void VdjBridge_Test::trackChangeTickSwitchesOnce()
     QVERIFY(b->isRunning());
     QVERIFY(!a->isRunning());
     QCOMPARE(clipARan.count(), 1);
+}
+
+void VdjBridge_Test::trackChangeBeforeTheFirstSampleStartsB_data()
+{
+    QTest::addColumn<bool>("sampleFirst");
+    QTest::newRow("finished delivered before the first sample") << false;
+    QTest::newRow("first sample delivered before finished") << true;
+}
+
+void VdjBridge_Test::trackChangeBeforeTheFirstSampleStartsB()
+{
+    QFETCH(bool, sampleFirst);
+
+    // B once ended and still holds a clock past its content; a timer tick lands
+    // between its filepath and its first position sample
+    PerformRig rig;
+    Show *a = rig.addShow("A", "/music/a.mp3");
+    Show *b = rig.addShow("B", "/music/b.mp3", 5000);
+    b->setExternalElapsedTime(200000);
+    QSignalSpy finished(b, &Show::showFinished);
+    rig.load(0, "/music/a.mp3");
+    rig.master(0);
+    rig.play(0, true);
+    rig.elapsed(0, 1000);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QVERIFY(a->isRunning());
+
+    rig.deck(0, "get_filepath", QVariant("/music/b.mp3"));
+    QCOMPARE(rig.state(), State::Live);
+    QVERIFY(rig.doc.masterTimer()->isStartQueued(b));
+    if (sampleFirst)
+    {
+        rig.doc.masterTimer()->timerTick();
+        rig.elapsed(0, 1500);
+        QCoreApplication::processEvents();
+    }
+    else
+    {
+        rig.tick();
+        rig.elapsed(0, 1500);
+    }
+    rig.elapsed(0, 2500);
+    rig.tick(2);
+    QCOMPARE(finished.count(), 0);
+    QCOMPARE(rig.state(), State::Live);
+    QVERIFY(b->isRunning() && !b->isPaused());
+    QCOMPARE(b->externalElapsedTime(), 2500u);
 }
 
 void VdjBridge_Test::nestedDisableDuringAHandoverLeavesBUntouched()
@@ -684,6 +746,7 @@ void VdjBridge_Test::ejectKeepsTheTempo()
     bridge.setDoc(&doc);
     auto deckTrigger = [&](const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("masterdeck", QVariant("on"));
     deckTrigger("get_filepath", QVariant("/m/a.mp3"));
@@ -746,10 +809,11 @@ void VdjBridge_Test::capture_ejectReleasesPerform()
     QCOMPARE(rig.bridge.djFsm()->deckAt(1).state, DjFsm::DeckState::Empty);
     QVERIFY(b->stopped());
     QCOMPARE(b->syncSource(), int(ShowRunner::Autonomous));
-    // this capture's snapshot sent the position before the song (the old
-    // subscription order): B waits for the song's first sample, so neither a
-    // stale position nor the eject's 0 reaches it
-    QVERIFY(positions.isEmpty());
+    // the snapshot write carries the song and its position together: B takes
+    // it, and the eject's 0 never reaches it
+    QVERIFY(b->externalElapsedTime() > 0);
+    for (const QList<QVariant> &args : positions)
+        QVERIFY(args[0].toUInt() > 0);
     QCOMPARE(resolved.count(), 2);
     QCOMPARE(resolved[0][0].toUInt(), b->id());
     QCOMPARE(resolved[1][0].toUInt(), PerformFsm::InvalidShowId);
@@ -852,6 +916,7 @@ void VdjBridge_Test::performAdoptsAndReleasesSyncSource()
     auto deckTrigger = [&bridge](const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
             Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("get_filepath", QVariant("/music/adopt.mp3"));
     deckTrigger("masterdeck", QVariant("on"));
@@ -891,6 +956,7 @@ void VdjBridge_Test::performAdoptionSuppressesAudioForAlreadyRunningShow()
     auto deckTrigger = [&bridge](int idx, const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
             Q_ARG(int, idx), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger(0, "get_filepath", QVariant("/music/adopt-running.mp3"));
     deckTrigger(0, "play", QVariant("on"));
@@ -952,6 +1018,7 @@ void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression()
     auto deckTrigger = [&bridge](int idx, const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
             Q_ARG(int, idx), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger(0, "get_filepath", QVariant("/music/perform-a.mp3"));
     deckTrigger(1, "get_filepath", QVariant("/music/perform-b.mp3"));
@@ -1093,6 +1160,7 @@ void VdjBridge_Test::engineBpmFollowsVdjAndIgnoresJitter()
     auto deckTrigger = [&](const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
             Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("masterdeck", QVariant("on"));
 
@@ -1111,8 +1179,9 @@ void VdjBridge_Test::engineBpmFollowsVdjAndIgnoresJitter()
         Q_ARG(QString, QStringLiteral("beat")));
     QCOMPARE(doc.inputOutputMap()->bpmNumber(), 128);
 
-    // A genuinely new steady BPM is followed.
+    // A genuinely new steady BPM is followed, at the deck's next write.
     deckTrigger("get_bpm", QVariant(124.0));
+    deckTrigger("get_time elapsed absolute", QVariant(1000.0));
     QCOMPARE(doc.inputOutputMap()->bpmNumber(), 124);
 }
 
@@ -1127,6 +1196,7 @@ void VdjBridge_Test::engineBpmOnlyForThePluginBeatGenerator()
     auto deckTrigger = [&](const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
             Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("masterdeck", QVariant("on"));
     deckTrigger("get_filepath", QVariant("/m/a.mp3"));
@@ -1150,6 +1220,7 @@ void VdjBridge_Test::engineBpmDropsLowWhenPaused()
     auto deckTrigger = [&](const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
             Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("masterdeck", QVariant("on"));
 
@@ -1191,6 +1262,7 @@ void VdjBridge_Test::engineBpmLockReleasedOnDisconnect()
     auto deckTrigger = [&](const QString &t, const QVariant &v) {
         QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
             Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("masterdeck", QVariant("on"));
     deckTrigger("get_filepath", QVariant("/m/a.mp3"));

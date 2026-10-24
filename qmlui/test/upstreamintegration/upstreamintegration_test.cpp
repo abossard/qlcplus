@@ -6419,10 +6419,11 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
     manager->setCurrentTime(7000);
 
     const auto deckTrigger = [bridge](const QString &trigger, const QVariant &value) {
-        return QMetaObject::invokeMethod(bridge, "onDeckTrigger",
-                                         Q_ARG(int, 0),
-                                         Q_ARG(QString, trigger),
-                                         Q_ARG(QVariant, value));
+        const bool sent = QMetaObject::invokeMethod(bridge, "onDeckTrigger",
+                                                    Q_ARG(int, 0),
+                                                    Q_ARG(QString, trigger),
+                                                    Q_ARG(QVariant, value));
+        return sent && QMetaObject::invokeMethod(bridge, "onTickEnded");
     };
 
     bridge->showFactory()->registerMapping(filepath, show->id());

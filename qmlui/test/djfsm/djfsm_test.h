@@ -29,8 +29,9 @@ private slots:
     void emptyDeckIsNeverPlaying();
     void setDeckCountResetsDroppedDecks();
     void metadataFirstOrderAnnouncesCorrectSong();
-    void filepathFirstAfterPreviousSongIsNotStale();
-    void announcedSongTakesLaterFieldsAsUpdates();
+    void loadWrites_data();
+    void loadWrites();
+    void twoDecksLoadInInterleavedWrites();
     void onChangeSemantics_data();
     void onChangeSemantics();
     void volumeIsTracked();

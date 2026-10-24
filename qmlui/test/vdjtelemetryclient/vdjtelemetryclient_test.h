@@ -39,6 +39,8 @@ private slots:
     void bridgeClientDisconnectResetsDeckState_data();
     void bridgeClientDisconnectResetsDeckState();
     void stopDropsTheClient();
+    void framing_data();
+    void framing();
 };
 
 #endif

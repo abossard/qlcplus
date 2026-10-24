@@ -5236,6 +5236,7 @@ void ShowCommandRecorder_Test::vdjAdoption_firstFreshSampleBeginsTheTraversal()
     const auto deck = [&](const char *trigger, const QVariant &value) {
         QVERIFY(QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, 0),
                                           Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+        QVERIFY(QMetaObject::invokeMethod(&bridge, "onTickEnded"));
     };
     const auto performOff = qScopeGuard([&]() {
         bridge.setPerformMode(false);
@@ -35312,6 +35313,7 @@ void ShowCommandRecorder_Test::recordingsPerform_editsWhileVdjDrives()
     const auto deck = [&](const char *trigger, const QVariant &value) {
         QVERIFY(QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, 0),
                                           Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
     };
     const auto performOff = qScopeGuard([&]() {
         bridge->setPerformMode(false);

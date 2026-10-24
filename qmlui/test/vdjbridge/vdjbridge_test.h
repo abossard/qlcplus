@@ -32,6 +32,8 @@ private slots:
     void pauseBeforeTheFirstTickCancelsTheStart();
     void handoverDuringTheStartDrainStopsTheShow();
     void trackChangeTickSwitchesOnce();
+    void trackChangeBeforeTheFirstSampleStartsB_data();
+    void trackChangeBeforeTheFirstSampleStartsB();
     void nestedDisableDuringAHandoverLeavesBUntouched();
     void ejectKeepsTheTempo_data();
     void ejectKeepsTheTempo();

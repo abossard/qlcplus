@@ -72,8 +72,12 @@ public:
     /** Parse a single NDJSON line. Exposed for testing. */
     void parseLine(const QByteArray &line);
 
-    /** One chunk as the socket delivers it: concatenated objects, possibly
-     *  cut inside one. Exposed so tests replay captures without a socket. */
+    /** One chunk as the socket delivers it. VDJ makes one write per tick: its
+     *  changed triggers joined by newlines; writes sit adjacent ("}{"); a chunk
+     *  may hold several writes and may end inside an object. Objects are cut
+     *  by brace depth, so a "}{" inside a title is text. tickEnded() follows
+     *  the objects of each write (an adjacent "{", or the data's end after a
+     *  complete object). Exposed so tests replay captures without a socket. */
     void feed(const QByteArray &chunk);
 
 signals:
@@ -92,6 +96,9 @@ signals:
     void clientConnected();
     void clientDisconnected();
 
+    /** The objects of one VDJ write (one tick) have all been dispatched */
+    void tickEnded();
+
 private slots:
     void onNewConnection();
     void onReadyRead();
@@ -101,9 +108,12 @@ private:
     void setStatus(Status s);
     void closeClient();
 
+    /** Index past the object starting at from, -1 while it is incomplete */
+    static int objectEnd(const QByteArray &data, int from);
+
     QTcpServer m_server;
     QTcpSocket *m_client = nullptr;
-    QByteArray m_lineBuffer;
+    QByteArray m_buffer;
     Status m_status = Idle;
 };
 

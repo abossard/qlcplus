@@ -349,9 +349,10 @@ void VdjTelemetryClient_Test::bridgeDeckTriggerRouting()
     QTRY_VERIFY_WITH_TIMEOUT(fakeClient.bytesAvailable() > 0, 2000);
     fakeClient.readAll();
 
-    // Send deck 1 title
+    // one VDJ write: a load
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_filepath","value":"/music/bridge.mp3"})" "\n");
     fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"Bridge Test"})" "\n");
-    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_bpm","value":130.0})" "\n");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_bpm","value":130.0})");
     fakeClient.flush();
 
     // The DjFsm is the single source of truth for deck state.
@@ -424,7 +425,8 @@ void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState()
     fakeClient.readAll();
 
     // Set some deck data
-    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"Test"})" "\n");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_filepath","value":"/music/t.mp3"})" "\n");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"Test"})");
     fakeClient.flush();
 
     DjFsm *fsm = bridge.djFsm();
@@ -438,6 +440,48 @@ void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState()
     QTRY_COMPARE_WITH_TIMEOUT(fsm->deckAt(0).song.title, QString(), 2000);
 
     plugin.closeInput(0, 0);
+}
+
+void VdjTelemetryClient_Test::framing_data()
+{
+    QTest::addColumn<QStringList>("chunks");
+    QTest::addColumn<QStringList>("objects");  // "deck:trigger" per deck object, in order
+    QTest::addColumn<int>("ticks");
+
+    const QString a = R"({"evt":"subscribed","trigger":"deck 1 play","value":"off"})";
+    const QString b = R"({"evt":"subscribed","trigger":"deck 2 masterdeck","value":"on"})";
+    const QString beat = R"({"evt":"beat","pos":1,"bpm":120,"strength":1,"change":false})";
+    QTest::newRow("one write, newline-joined, no trailing newline") << QStringList{ a + "\n" + b }
+                                                                      << QStringList({ "1:play", "2:masterdeck" }) << 1;
+    QTest::newRow("a beat write adjacent to a tick write") << QStringList{ beat + a + "\n" + b }
+                                                              << QStringList({ "1:play", "2:masterdeck" }) << 2;
+    QTest::newRow("an object cut across chunks") << QStringList({ a.left(20), a.mid(20) + "\n" + b })
+                                                   << QStringList({ "1:play", "2:masterdeck" }) << 1;
+    QTest::newRow("a title with braces and an escaped quote")
+        << QStringList{ R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"a\"b}{c\\d"})" }
+        << QStringList{ "1:get_title" } << 1;
+    QTest::newRow("two writes in one chunk") << QStringList{ a + b } << QStringList({ "1:play", "2:masterdeck" }) << 2;
+}
+
+void VdjTelemetryClient_Test::framing()
+{
+    QFETCH(QStringList, chunks);
+    QFETCH(QStringList, objects);
+    QFETCH(int, ticks);
+
+    VdjTelemetryClient client;
+    QSignalSpy deckSpy(&client, &VdjTelemetryClient::deckTriggerReceived);
+    QSignalSpy tickSpy(&client, &VdjTelemetryClient::tickEnded);
+    for (const QString &chunk : chunks)
+        client.feed(chunk.toUtf8());
+
+    QStringList seen;
+    for (const QList<QVariant> &args : deckSpy)
+        seen << QStringLiteral("%1:%2").arg(args[0].toInt() + 1).arg(args[1].toString());
+    QCOMPARE(seen, objects);
+    QCOMPARE(tickSpy.count(), ticks);
+    if (objects.first() == QLatin1String("1:get_title"))
+        QCOMPARE(deckSpy[0][2].toString(), QStringLiteral("a\"b}{c\\d"));
 }
 
 void VdjTelemetryClient_Test::stopDropsTheClient()

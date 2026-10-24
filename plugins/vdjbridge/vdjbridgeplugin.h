@@ -84,6 +84,9 @@ signals:
     // (position, BPM, strength, deck-change flag).
     void telemetryBeatReceived(int pos, qreal bpm, qreal strength, bool change);
 
+    // The triggers of one VDJ write (one tick) have all been emitted
+    void tickEnded();
+
     // Custom signals consumed by the qmlui VdjBridge facade through
     // string-based connect() — the facade only knows the plugin as
     // QLCIOPlugin*.

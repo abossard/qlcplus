@@ -126,6 +126,9 @@ void VdjBridge::attachVdjPlugin(QLCIOPlugin *plugin)
             SIGNAL(globalTriggerReceived(QString,QVariant)),
             this, SLOT(onGlobalTrigger(QString,QVariant)));
     connect(m_vdjPlugin.data(),
+            SIGNAL(tickEnded()),
+            this, SLOT(onTickEnded()));
+    connect(m_vdjPlugin.data(),
             SIGNAL(clientDisconnected()),
             this, SLOT(onTelemetryClientDisconnected()));
 
@@ -160,13 +163,15 @@ bool VdjBridge::telemetryConnected() const
 
 void VdjBridge::onDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value)
 {
-    if (deckIndex < 0 || deckIndex >= DjFsm::MaxDecks)
-        return;
-    m_fsm->onDeckTrigger(deckIndex + 1, trigger, value);
+    if (deckIndex >= 0 && deckIndex < DjFsm::MaxDecks)
+        m_fsm->onDeckTrigger(deckIndex + 1, trigger, value);
+}
 
-    if (trigger != QLatin1String("get_time elapsed absolute") || deckIndex + 1 != m_fsm->activeDeck())
-        return;
-    // data plane: the adopted Show follows the deck's clock
+void VdjBridge::onTickEnded()
+{
+    m_fsm->onTickEnded();
+    // data plane: the adopted Show follows the active deck's clock, one
+    // sample per write, after the write's song change
     if (Show *show = lookupShow(m_performFsm->activeShowId()))
         pushPosition(show);
     refreshPerformInputs();
@@ -196,6 +201,7 @@ void VdjBridge::onTelemetryClientDisconnected()
             iom->setExternalBpm(m_lastSongBpm);
         iom->clearExternalBpm();
     }
+    m_lastSongBpm = 0;
     m_fsm->onDisconnected();
 }
 
@@ -209,9 +215,11 @@ void VdjBridge::onAdoptedShowFinished(quint32 showId)
 {
     // the runner is the one owner of "the Show ended": from here the deck
     // position decides, a move below it plays the Show again
-    if (showId != m_appliedShowId)
+    // a finish before the song's first sample is the stale clock's: the queued
+    // stop re-plans Live and the start waits for the sample
+    if (showId != m_appliedShowId || !deckPosition())
         return;
-    m_endedAt = deckPosition().value_or(0);
+    m_endedAt = *deckPosition();
     refreshPerformInputs();
 }
 

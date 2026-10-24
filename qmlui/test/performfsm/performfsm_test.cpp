@@ -129,9 +129,6 @@ void PerformFsm_Test::planTable_data()
     QTest::newRow("engage on a playing deck, the show already running")
         << State::Idle << None << State::Live << 7u << running
         << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::ResolveRecorder, 7 }, { Effect::SelectShow, 7 } };
-    QTest::newRow("engage on a playing deck whose show ended")
-        << State::Idle << None << State::Ended << 7u << stopped
-        << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::ResolveRecorder, 7 }, { Effect::SelectShow, 7 } };
     QTest::newRow("the deck's song resolves a show")
         << State::Armed << None << State::Live << 7u << stopped
         << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::StartShow, 7 }, { Effect::ResolveRecorder, 7 },

@@ -72,6 +72,8 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
             this, &VdjBridgePlugin::deckTriggerReceived);
     connect(m_telemetry, &VdjTelemetryClient::globalTriggerReceived,
             this, &VdjBridgePlugin::globalTriggerReceived);
+    connect(m_telemetry, &VdjTelemetryClient::tickEnded,
+            this, &VdjBridgePlugin::tickEnded);
     connect(m_telemetry, &VdjTelemetryClient::beatReceived,
             this, [this](int pos, qreal bpm, qreal strength, bool change) {
         // Mirror OS2L's pattern: emit valueChanged on a fixed beat

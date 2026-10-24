@@ -121,7 +121,7 @@ void VdjTelemetryClient::closeClient()
         m_client->abort();
         m_client->deleteLater();
         m_client = nullptr;
-        m_lineBuffer.clear();
+        m_buffer.clear();
     }
 }
 
@@ -164,27 +164,68 @@ void VdjTelemetryClient::onReadyRead()
         feed(m_client->readAll());
 }
 
+int VdjTelemetryClient::objectEnd(const QByteArray &data, int from)
+{
+    int depth = 0;
+    bool inString = false;
+    for (int i = from; i < data.size(); i++)
+    {
+        const char c = data.at(i);
+        if (inString)
+        {
+            if (c == '\\')
+                i++;
+            else if (c == '"')
+                inString = false;
+        }
+        else if (c == '"')
+            inString = true;
+        else if (c == '{')
+            depth++;
+        else if (c == '}' && --depth == 0)
+            return i + 1;
+    }
+    return -1;
+}
+
 void VdjTelemetryClient::feed(const QByteArray &chunk)
 {
-    m_lineBuffer.append(chunk);
-
-    // VDJ sends JSON objects concatenated without separators: {...}{...}{...}
-    // Also sometimes newline-delimited. Split on both patterns.
-    // Strategy: replace }{ with }\n{ then split on \n.
-    m_lineBuffer.replace("}{", "}\n{");
-
-    int newlinePos;
-    while ((newlinePos = m_lineBuffer.indexOf('\n')) >= 0)
+    m_buffer.append(chunk);
+    int pos = 0;
+    bool writeOpen = false; // objects dispatched since the last boundary
+    while (pos < m_buffer.size())
     {
-        QByteArray line = m_lineBuffer.left(newlinePos).trimmed();
-        m_lineBuffer.remove(0, newlinePos + 1);
-
-        if (!line.isEmpty())
-            parseLine(line);
+        const char c = m_buffer.at(pos);
+        if (c == '\n' || c == '\r' || c == ' ' || c == '\t')
+        {
+            pos++;
+            continue;
+        }
+        if (c != '{')
+        {
+            // not JSON: drop up to the next object
+            const int next = m_buffer.indexOf('{', pos);
+            qWarning() << kLogTag << "Discarding non-JSON bytes:" << m_buffer.mid(pos, next < 0 ? -1 : next - pos).left(120);
+            pos = next < 0 ? m_buffer.size() : next;
+            continue;
+        }
+        const int end = objectEnd(m_buffer, pos);
+        if (end < 0)
+            break; // the object goes on in the next chunk
+        parseLine(m_buffer.mid(pos, end - pos));
+        pos = end;
+        writeOpen = true;
+        // a write ends where the next one starts, adjacent
+        if (pos < m_buffer.size() && m_buffer.at(pos) == '{')
+        {
+            writeOpen = false;
+            emit tickEnded();
+        }
     }
-
-    // Whatever remains in the buffer is a partial JSON object — keep it
-    // for the next readyRead call.
+    m_buffer.remove(0, pos);
+    // or where the data ends after its last complete object
+    if (writeOpen && m_buffer.isEmpty())
+        emit tickEnded();
 }
 
 void VdjTelemetryClient::onClientDisconnected()
