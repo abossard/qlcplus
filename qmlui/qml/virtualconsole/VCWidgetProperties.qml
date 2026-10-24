@@ -32,6 +32,26 @@ Rectangle
     color: "transparent"
 
     property VCWidget wObj: virtualConsole.selectedWidget
+
+    /* one side of the widget geometry, in unzoomed pixels */
+    component GeometrySpin: CustomSpinBox
+    {
+        property string side
+        Layout.fillWidth: true
+        from: 0
+        to: 100000
+        value: wObj ? Math.round(wObj.logicalGeometry[side]) : 0
+
+        onValueModified:
+        {
+            var rect = wObj.logicalGeometry
+            var edited = Qt.rect(rect.x, rect.y, rect.width, rect.height)
+            edited[side] = value
+            virtualConsole.editGeometry(wObj.id, edited, false)
+            // a refused edit leaves the widget as it was: show that again
+            value = Qt.binding(function() { return wObj ? Math.round(wObj.logicalGeometry[side]) : 0 })
+        }
+    }
     property int selectedWidgetsCount: virtualConsole.selectedWidgetsCount
     property bool presetsTabVisible: wObj && selectedWidgetsCount < 2 && wObj.supportsPresets
     property int tabsCount: presetsTabVisible ? 3 : 2
@@ -435,6 +455,36 @@ Rectangle
                             visible: selectedWidgetsCount < 2
 
                             onValueChanged: if (wObj) wObj.zIndex = value
+                        }
+
+                        RobotoText
+                        {
+                            height: UISettings.listItemHeight
+                            label: qsTr("Position")
+                            visible: selectedWidgetsCount === 1
+                        }
+
+                        RowLayout
+                        {
+                            Layout.fillWidth: true
+                            visible: selectedWidgetsCount === 1
+                            GeometrySpin { objectName: "geometryXSpin"; side: "x" }
+                            GeometrySpin { objectName: "geometryYSpin"; side: "y" }
+                        }
+
+                        RobotoText
+                        {
+                            height: UISettings.listItemHeight
+                            label: qsTr("Size")
+                            visible: selectedWidgetsCount === 1
+                        }
+
+                        RowLayout
+                        {
+                            Layout.fillWidth: true
+                            visible: selectedWidgetsCount === 1
+                            GeometrySpin { objectName: "geometryWidthSpin"; side: "width" }
+                            GeometrySpin { objectName: "geometryHeightSpin"; side: "height" }
                         }
 
                         // row 7

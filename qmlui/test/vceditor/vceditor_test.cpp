@@ -821,6 +821,63 @@ void VCEditor_Test::multiSelectionPanel()
     checkScreenshot("panel");
 }
 
+void VCEditor_Test::pageResize_data()
+{
+    QTest::addColumn<QRectF>("request");
+    QTest::addColumn<QRectF>("expected");
+    QTest::newRow("grow") << QRectF(0, 0, 2400, 1200) << QRectF(0, 0, 2400, 1200);
+    QTest::newRow("clip-children") << QRectF(0, 0, 400, 300) << QRectF(0, 0, 1920, 1080);
+    QTest::newRow("stays-at-origin") << QRectF(50, 50, 1920, 1000) << QRectF(0, 0, 1920, 1000);
+}
+
+void VCEditor_Test::pageResize()
+{
+    QFETCH(QRectF, request);
+    QFETCH(QRectF, expected);
+    buildConsole();
+
+    vc()->editGeometry(vc()->page(0)->id(), request, false);
+    QCOMPARE(vc()->page(0)->logicalGeometry(), expected);
+}
+
+void VCEditor_Test::geometryFields_data()
+{
+    QTest::addColumn<QString>("field");
+    QTest::addColumn<bool>("page");
+    QTest::addColumn<QRectF>("expected");
+    QTest::newRow("x") << "geometryXSpin" << false << QRectF(601, 20, 100, 80);
+    QTest::newRow("y") << "geometryYSpin" << false << QRectF(600, 21, 100, 80);
+    QTest::newRow("width") << "geometryWidthSpin" << false << QRectF(600, 20, 101, 80);
+    QTest::newRow("height") << "geometryHeightSpin" << false << QRectF(600, 20, 100, 81);
+    QTest::newRow("page-width") << "pageWidthSpin" << true << QRectF(0, 0, 1921, 1080);
+}
+
+void VCEditor_Test::geometryFields()
+{
+    QFETCH(QString, field);
+    QFETCH(bool, page);
+    QFETCH(QRectF, expected);
+    const ConsoleIds ids = buildConsole();
+    // fields show unzoomed sizes, whatever the page zoom
+    vc()->page(0)->setPageScale(0.5);
+    VCWidget *target = page ? static_cast<VCWidget *>(vc()->page(0)) : vc()->widget(ids.loose);
+    vc()->setSelectedWidgetIDs(page ? QVariantList() : QVariantList{ids.loose});
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QObject *spin = nullptr;
+    QTRY_VERIFY((spin = console->findChild<QObject *>(field)) && spin->property("visible").toBool());
+    const QRectF before = target->logicalGeometry();
+    const QMap<QString, qreal> shown {{"geometryXSpin", before.x()}, {"geometryYSpin", before.y()},
+                                      {"geometryWidthSpin", before.width()}, {"geometryHeightSpin", before.height()},
+                                      {"pageWidthSpin", before.width()}};
+    QTRY_COMPARE(spin->property("value").toInt(), qRound(shown.value(field)));
+
+    // what a click on the up arrow does
+    QVERIFY(QMetaObject::invokeMethod(spin, "increase"));
+    QVERIFY(QMetaObject::invokeMethod(spin, "valueModified"));
+    QCOMPARE(target->logicalGeometry(), expected);
+    checkScreenshot("panel");
+}
+
 void VCEditor_Test::frameCheckboxes_data()
 {
     QTest::addColumn<QString>("property");

@@ -1213,6 +1213,10 @@ QVariantMap VirtualConsole::previewGeometry(quint32 id, QRectF logicalRect, bool
 
 QVariantMap VirtualConsole::editGeometry(quint32 id, QRectF logicalRect, bool snap)
 {
+    /* a page has no frame to fit in, only its children limit its size */
+    if (qobject_cast<VCPage *>(widget(id)))
+        return applyGeometryPlan({{id, QRectF(QPointF(0, 0), logicalRect.size())}});
+
     QVariantMap preview = previewGeometry(id, logicalRect, snap);
     if (!preview.value("accepted").toBool())
         return preview;

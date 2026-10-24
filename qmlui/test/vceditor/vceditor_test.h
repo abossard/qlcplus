@@ -60,6 +60,10 @@ private slots:
     void randomEditSequence_data();
     void randomEditSequence();
     void multiSelectionPanel();
+    void pageResize_data();
+    void pageResize();
+    void geometryFields_data();
+    void geometryFields();
     void frameCheckboxes_data();
     void frameCheckboxes();
 

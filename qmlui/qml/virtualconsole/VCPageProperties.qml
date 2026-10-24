@@ -32,13 +32,21 @@ Rectangle
     property VCFrame widgetRef: null
     property int gridItemsHeight: UISettings.listItemHeight
 
-    onWidgetRefChanged:
-    {
-        if (widgetRef === null)
-            return
+    onWidgetRefChanged: if (widgetRef) showPageSize()
 
-        widthSpin.value = widgetRef.geometry.width
-        heightSpin.value = widgetRef.geometry.height
+    // bound once the page is known, the spin boxes clamp an earlier value to their range
+    function showPageSize()
+    {
+        widthSpin.value = Qt.binding(function() { return widgetRef ? Math.round(widgetRef.logicalGeometry.width) : 1 })
+        heightSpin.value = Qt.binding(function() { return widgetRef ? Math.round(widgetRef.logicalGeometry.height) : 1 })
+    }
+
+    /* page sizes are unzoomed and checked like any other geometry edit */
+    function resizePage(width, height)
+    {
+        virtualConsole.editGeometry(widgetRef.id, Qt.rect(0, 0, width, height), false)
+        // a refused edit leaves the page as it was: show that again
+        showPageSize()
     }
 
     GridLayout
@@ -58,15 +66,12 @@ Rectangle
         CustomSpinBox
         {
             id: widthSpin
+            objectName: "pageWidthSpin"
             Layout.fillWidth: true
             suffix: "px"
             from: 1
             to: 100000
-            onValueChanged:
-            {
-                if (widgetRef)
-                    widgetRef.geometry = Qt.rect(0, 0, value, widgetRef.geometry.height)
-            }
+            onValueModified: if (widgetRef) resizePage(value, widgetRef.logicalGeometry.height)
         }
 
         // row 2
@@ -78,15 +83,12 @@ Rectangle
         CustomSpinBox
         {
             id: heightSpin
+            objectName: "pageHeightSpin"
             Layout.fillWidth: true
             suffix: "px"
             from: 1
             to: 100000
-            onValueChanged:
-            {
-                if (widgetRef)
-                    widgetRef.geometry = Qt.rect(0, 0, widgetRef.geometry.width, value)
-            }
+            onValueModified: if (widgetRef) resizePage(widgetRef.logicalGeometry.width, value)
         }
 
         // row 3
