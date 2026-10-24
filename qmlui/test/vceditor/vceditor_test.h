@@ -81,6 +81,8 @@ private slots:
     void widgetMenu();
     void editKeys_data();
     void editKeys();
+    void detachedConsoleKeys_data();
+    void detachedConsoleKeys();
     void frameCheckboxes_data();
     void frameCheckboxes();
 

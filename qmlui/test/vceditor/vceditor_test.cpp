@@ -1070,6 +1070,53 @@ void VCEditor_Test::editKeys()
     contexts->setLastClickedType(App::NoDragItem);
 }
 
+void VCEditor_Test::detachedConsoleKeys_data()
+{
+    QTest::addColumn<int>("key");
+    QTest::addColumn<int>("modifiers");
+    QTest::newRow("nudge") << int(Qt::Key_Right) << int(Qt::NoModifier);
+    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier);
+    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier);
+}
+
+void VCEditor_Test::detachedConsoleKeys()
+{
+    QFETCH(int, key);
+    QFETCH(int, modifiers);
+    const ConsoleIds ids = buildConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    contexts->detachContext("VC");
+    const auto reattach = qScopeGuard([&]() {
+        contexts->reattachContext("VC");
+        // the main window loads the console again to render its widgets there
+        contexts->switchToContext("FIXANDFUNC");
+        contexts->switchToContext("VC");
+        m_app->requestActivate();
+    });
+    QQuickView *window = vc()->view();
+    QVERIFY(window != m_app.get());
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+    QQuickItem *console = nullptr;
+    QTRY_VERIFY((console = window->rootObject()->findChild<QQuickItem *>("virtualConsole")));
+    console->forceActiveFocus();
+    QVERIFY2(console->hasActiveFocus(), qPrintable(QDebug::toString(window->activeFocusItem())));
+    // the detached window opens out of edit mode
+    vc()->setEditMode(true);
+    vc()->setSelectedWidgetIDs({ids.loose});
+    const QRectF before = vc()->widget(ids.loose)->logicalGeometry();
+    const int widgets = vc()->page(0)->children(false).size();
+
+    QTest::keyClick(window, Qt::Key(key), Qt::KeyboardModifiers(modifiers));
+    if (key == Qt::Key_Right)
+        QVERIFY(vc()->widget(ids.loose)->logicalGeometry().left() > before.left());
+    else if (key == Qt::Key_C)
+        QCOMPARE(vc()->clipboardItemsList(), QVariantList{ids.loose});
+    else
+        QCOMPARE(vc()->page(0)->children(false).size(), widgets + 1);
+}
+
 void VCEditor_Test::frameCheckboxes_data()
 {
     QTest::addColumn<QString>("property");
