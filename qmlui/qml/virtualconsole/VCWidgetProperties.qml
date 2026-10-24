@@ -444,7 +444,7 @@ Rectangle
                             label: qsTr("Alignment")
                         }
 
-                        Row
+                        Flow
                         {
                             Layout.fillWidth: true
                             visible: selectedWidgetsCount > 1 ? true: false
@@ -489,9 +489,68 @@ Rectangle
                                 tooltip: qsTr("Align the selected widgets to the bottom")
                                 onClicked: virtualConsole.setWidgetsAlignment(wObj, Qt.AlignBottom)
                             }
+                            IconButton
+                            {
+                                width: UISettings.iconSizeDefault
+                                height: width
+                                bgColor: UISettings.bgLighter
+                                imgSource: "qrc:/layout-xcenter.svg"
+                                tooltip: qsTr("Center the selected widgets horizontally")
+                                onClicked: virtualConsole.setWidgetsAlignment(wObj, Qt.AlignHCenter)
+                            }
+                            IconButton
+                            {
+                                width: UISettings.iconSizeDefault
+                                height: width
+                                bgColor: UISettings.bgLighter
+                                imgSource: "qrc:/layout-ycenter.svg"
+                                tooltip: qsTr("Center the selected widgets vertically")
+                                onClicked: virtualConsole.setWidgetsAlignment(wObj, Qt.AlignVCenter)
+                            }
                         }
 
                         // row 8
+                        RobotoText
+                        {
+                            visible: selectedWidgetsCount > 1 ? true : false
+                            label: qsTr("Same size")
+                        }
+
+                        Flow
+                        {
+                            Layout.fillWidth: true
+                            visible: selectedWidgetsCount > 1 ? true : false
+
+                            Repeater
+                            {
+                                model: [
+                                    { label: qsTr("W"), orientations: Qt.Horizontal,
+                                      tip: qsTr("Give the selected widgets the width of the last selected one") },
+                                    { label: qsTr("H"), orientations: Qt.Vertical,
+                                      tip: qsTr("Give the selected widgets the height of the last selected one") },
+                                    { label: qsTr("W+H"), orientations: Qt.Horizontal | Qt.Vertical,
+                                      tip: qsTr("Give the selected widgets the size of the last selected one") }
+                                ]
+
+                                IconButton
+                                {
+                                    width: UISettings.iconSizeDefault
+                                    height: width
+                                    bgColor: UISettings.bgLighter
+                                    tooltip: modelData.tip
+                                    onClicked: virtualConsole.setWidgetsSize(wObj, modelData.orientations)
+
+                                    RobotoText
+                                    {
+                                        anchors.centerIn: parent
+                                        label: modelData.label
+                                        fontSize: UISettings.textSizeDefault * 0.8
+                                    }
+                                }
+                            }
+                        }
+
+                        // row 9
                         RobotoText
                         {
                             visible: selectedWidgetsCount > 2 ? true : false

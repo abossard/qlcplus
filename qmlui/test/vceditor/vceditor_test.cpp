@@ -27,6 +27,7 @@
 #include <QQmlExpression>
 #include <QQuickItem>
 #include <QRandomGenerator>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QXmlStreamWriter>
 #include <functional>
@@ -79,7 +80,8 @@ static void saveArtifact(const QString &name, const QByteArray &data)
         return;
     QDir dir(QDir(root).filePath(QString::fromLatin1(QTest::currentTestFunction())));
     dir.mkpath(".");
-    QFile file(dir.filePath(QString("%1-%2").arg(QString::fromLatin1(QTest::currentDataTag()), name)));
+    const QString tag = QTest::currentDataTag() ? QString::fromLatin1(QTest::currentDataTag()) : QString("default");
+    QFile file(dir.filePath(QString("%1-%2").arg(tag, name)));
     if (file.open(QIODevice::WriteOnly))
         file.write(data);
 }
@@ -803,6 +805,22 @@ void VCEditor_Test::framePageVisibility()
  * Property panels
  *********************************************************************/
 
+void VCEditor_Test::multiSelectionPanel()
+{
+    QTest::failOnWarning(QRegularExpression("VCWidgetProperties"));
+    const ConsoleIds ids = buildConsole();
+    auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
+    QVERIFY(console);
+    QQmlExpression panel(qmlContext(console), console, "rightSidePanel");
+    QObject *rightPanel = panel.evaluate().value<QObject *>();
+    QVERIFY2(rightPanel, qPrintable(panel.error().toString()));
+    QTRY_COMPARE(rightPanel->property("loaderSource").toString(), QString("qrc:/VCWidgetProperties.qml"));
+
+    vc()->setSelectedWidgetIDs({ids.loose, ids.empty, ids.frame});
+    QTest::qWait(100);
+    checkScreenshot("panel");
+}
+
 void VCEditor_Test::frameCheckboxes_data()
 {
     QTest::addColumn<QString>("property");
@@ -837,6 +855,50 @@ void VCEditor_Test::frameCheckboxes()
 /*********************************************************************
  * Selection and keyboard editing
  *********************************************************************/
+
+void VCEditor_Test::alignCenters_data()
+{
+    QTest::addColumn<int>("alignment");
+    QTest::addColumn<QRectF>("expected");
+    // the loose button follows the center of the empty frame (750,200 300x250)
+    QTest::newRow("horizontal") << int(Qt::AlignHCenter) << QRectF(850, 20, 100, 80);
+    QTest::newRow("vertical") << int(Qt::AlignVCenter) << QRectF(600, 285, 100, 80);
+}
+
+void VCEditor_Test::alignCenters()
+{
+    QFETCH(int, alignment);
+    QFETCH(QRectF, expected);
+    const ConsoleIds ids = buildConsole();
+    vc()->setWidgetSelection(ids.loose, nullptr, true, true);
+    vc()->setWidgetSelection(ids.empty, nullptr, true, true);
+
+    vc()->setWidgetsAlignment(vc()->selectedWidget(), alignment);
+    QCOMPARE(vc()->widget(ids.loose)->logicalGeometry(), expected);
+}
+
+void VCEditor_Test::matchSize_data()
+{
+    QTest::addColumn<int>("orientations");
+    QTest::addColumn<QRectF>("expected");
+    // the empty frame (750,200 300x250) takes the size of the loose button (100x80)
+    QTest::newRow("width") << int(Qt::Horizontal) << QRectF(750, 200, 100, 250);
+    QTest::newRow("height") << int(Qt::Vertical) << QRectF(750, 200, 300, 80);
+    QTest::newRow("both") << int(Qt::Horizontal | Qt::Vertical) << QRectF(750, 200, 100, 80);
+}
+
+void VCEditor_Test::matchSize()
+{
+    QFETCH(int, orientations);
+    QFETCH(QRectF, expected);
+    const ConsoleIds ids = buildConsole();
+    vc()->setWidgetSelection(ids.empty, nullptr, true, true);
+    vc()->setWidgetSelection(ids.loose, nullptr, true, true);
+
+    vc()->setWidgetsSize(vc()->selectedWidget(), orientations);
+    QCOMPARE(vc()->widget(ids.empty)->logicalGeometry(), expected);
+    QCOMPARE(vc()->widget(ids.loose)->logicalGeometry(), QRectF(600, 20, 100, 80));
+}
 
 void VCEditor_Test::pageSwitchPrunesSelection_data()
 {

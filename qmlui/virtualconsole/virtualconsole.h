@@ -260,6 +260,9 @@ public:
     /** Helper methods to handle alignment, label, background/foreground colors,
      *  background image and font when multiple widgets are selected */
     Q_INVOKABLE void setWidgetsAlignment(VCWidget *refWidget, int alignment);
+    /** Give the selected widgets the width and/or height of $refWidget,
+     *  as Qt::Horizontal and Qt::Vertical in $orientations ask */
+    Q_INVOKABLE void setWidgetsSize(VCWidget *refWidget, int orientations);
     Q_INVOKABLE void setWidgetsDistribution(int direction);
     Q_INVOKABLE void setWidgetsCaption(QString caption);
     Q_INVOKABLE void setWidgetsForegroundColor(QColor color);

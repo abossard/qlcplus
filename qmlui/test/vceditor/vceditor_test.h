@@ -59,6 +59,7 @@ private slots:
     void framePageVisibility();
     void randomEditSequence_data();
     void randomEditSequence();
+    void multiSelectionPanel();
     void frameCheckboxes_data();
     void frameCheckboxes();
 
@@ -77,6 +78,10 @@ private slots:
     void newWorkspaceShowsFirstPage();
     void nudgeStep_data();
     void nudgeStep();
+    void alignCenters_data();
+    void alignCenters();
+    void matchSize_data();
+    void matchSize();
     void alignToLastSelected_data();
     void alignToLastSelected();
 

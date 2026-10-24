@@ -2244,8 +2244,40 @@ void VirtualConsole::setWidgetsAlignment(VCWidget *refWidget, int alignment)
                 wGeom.moveTop(bottom - wGeom.height());
             }
             break;
+            case Qt::AlignHCenter:
+                wGeom.moveLeft(refGeom.center().x() - wGeom.width() / 2);
+            break;
+            case Qt::AlignVCenter:
+                wGeom.moveTop(refGeom.center().y() - wGeom.height() / 2);
+            break;
         }
         rectangles.insert(widget->id(), wGeom);
+    }
+    reportEdit(applyGeometryPlan(rectangles));
+}
+
+void VirtualConsole::setWidgetsSize(VCWidget *refWidget, int orientations)
+{
+    if (refWidget == nullptr)
+        return;
+
+    const QSizeF size = refWidget->logicalGeometry().size();
+    QMap<quint32, QRectF> rectangles;
+    for (quint32 id : m_itemsMap.keys())
+    {
+        VCWidget *widget = m_widgetsMap.value(id);
+        const QString error = nativeAuthoringError(widget);
+        if (!error.isEmpty())
+        {
+            reportEdit(editResult(false, false, error));
+            return;
+        }
+        QRectF rect = widget->logicalGeometry();
+        if (orientations & Qt::Horizontal)
+            rect.setWidth(size.width());
+        if (orientations & Qt::Vertical)
+            rect.setHeight(size.height());
+        rectangles.insert(id, rect);
     }
     reportEdit(applyGeometryPlan(rectangles));
 }
