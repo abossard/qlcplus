@@ -38,6 +38,7 @@
 #undef private
 #include "contextmanager.h"
 #include "doc.h"
+#include "functionmanager.h"
 #include "mastertimer.h"
 #include "monitorproperties.h"
 #include "scene.h"
@@ -1003,12 +1004,14 @@ void VCEditor_Test::editKeys_data()
     QTest::addColumn<int>("key");
     QTest::addColumn<int>("modifiers");
     QTest::addColumn<int>("lastClicked"); // what was clicked last in another view
-    QTest::newRow("cut") << int(Qt::Key_X) << int(Qt::ControlModifier) << int(App::NoDragItem);
-    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier) << int(App::NoDragItem);
-    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier) << int(App::NoDragItem);
-    QTest::newRow("delete") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem);
-    QTest::newRow("delete-after-function") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::FunctionDragItem);
-    QTest::newRow("backspace") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem);
+    QTest::addColumn<bool>("editor");     // a Function editor is open in the side panel
+    QTest::newRow("cut") << int(Qt::Key_X) << int(Qt::ControlModifier) << int(App::NoDragItem) << false;
+    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier) << int(App::NoDragItem) << false;
+    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier) << int(App::NoDragItem) << false;
+    QTest::newRow("delete") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << false;
+    QTest::newRow("delete-after-function") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::FunctionDragItem) << false;
+    QTest::newRow("backspace") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem) << false;
+    QTest::newRow("delete-in-function-editor") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << true;
 }
 
 void VCEditor_Test::editKeys()
@@ -1016,10 +1019,32 @@ void VCEditor_Test::editKeys()
     QFETCH(int, key);
     QFETCH(int, modifiers);
     QFETCH(int, lastClicked);
+    QFETCH(bool, editor);
     const ConsoleIds ids = buildConsole();
     auto *contexts = qobject_cast<ContextManager *>(
         m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
     contexts->setLastClickedType(lastClicked);
+    auto *functions = qobject_cast<FunctionManager *>(
+        m_app->rootContext()->contextProperty("functionManager").value<QObject *>());
+    std::unique_ptr<QObject> editorItem;
+    if (editor)
+    {
+        auto *scene = new Scene(m_app->doc());
+        QVERIFY(m_app->doc()->addFunction(scene));
+        functions->setEditorFunction(scene->id(), false, false);
+        // stands in for the Scene editor QML, which the side panel would load
+        QQmlComponent component(m_app->engine());
+        component.setData("import QtQuick\nItem { objectName: \"sceneEditorRoot\"; property int deletions: 0;"
+                          " function deleteSelectedItems() { deletions++ } }", QUrl());
+        editorItem.reset(component.create());
+        QVERIFY2(editorItem, qPrintable(component.errorString()));
+        editorItem->setParent(m_app->rootObject());
+    }
+    const auto closeEditor = qScopeGuard([&]() {
+        editorItem.reset();
+        if (editor)
+            functions->setEditorFunction(Function::invalidId(), false, false);
+    });
     m_app->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(m_app.get()));
     QTRY_VERIFY(vc()->widget(ids.loose)->renderItem());
@@ -1028,7 +1053,13 @@ void VCEditor_Test::editKeys()
     const int widgets = vc()->page(0)->children(false).size();
 
     QTest::keyClick(m_app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
-    if (key == Qt::Key_X || key == Qt::Key_C)
+    if (editor)
+    {
+        // the open editor deletes its own selection, the console keeps its widgets
+        QCOMPARE(editorItem->property("deletions").toInt(), 1);
+        QVERIFY(vc()->widget(ids.loose) != nullptr);
+    }
+    else if (key == Qt::Key_X || key == Qt::Key_C)
         QCOMPARE(vc()->clipboardItemsList(), QVariantList{ids.loose});
     else if (key == Qt::Key_D)
         QCOMPARE(vc()->page(0)->children(false).size(), widgets + 1);

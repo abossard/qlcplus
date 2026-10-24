@@ -577,9 +577,18 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
         }
     }
 
-    // 'Delete' key has its own handling. The Virtual Console deletes its own
-    // selection, never what was last clicked in another view
-    if (e->key() == Qt::Key_Delete && currentContext() != "VC")
+    // The Virtual Console deletes its own selection, never what was last
+    // clicked in another view. A Function editor open in its side panel
+    // deletes what is selected there, and the console then leaves the key alone
+    if (e->key() == Qt::Key_Delete && currentContext() == "VC")
+    {
+        if (m_editingEnabled && m_functionManager->deleteCurrentEditorItems())
+            e->accept();
+        return;
+    }
+
+    // 'Delete' key has its own handling
+    if (e->key() == Qt::Key_Delete)
     {
         // When a Function editor is open, the selection belongs to the editor
         // (e.g. the Scene Editor fixture list or the EFX Editor head list), so
