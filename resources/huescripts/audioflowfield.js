@@ -27,70 +27,70 @@ var testAlgo;
     algo.properties.push(
       "name:presetParticleCount|type:range|display:Particle Count|" +
       "values:5,400|write:setParticleCount|read:getParticleCount");
-    algo.setParticleCount = function(_v) { algo.presetParticleCount = parseInt(_v); };
+    algo.setParticleCount = function(_v) { algo.presetParticleCount = Math.round(HSVUtil.parseNumber(_v, algo.presetParticleCount, 5, 400)); };
     algo.getParticleCount = function() { return algo.presetParticleCount; };
 
     algo.presetMaxParticles = 200;
     algo.properties.push(
       "name:presetMaxParticles|type:range|display:Max Particles|" +
       "values:20,400|write:setMaxParticles|read:getMaxParticles");
-    algo.setMaxParticles = function(_v) { algo.presetMaxParticles = parseInt(_v); };
+    algo.setMaxParticles = function(_v) { algo.presetMaxParticles = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxParticles, 20, 400)); };
     algo.getMaxParticles = function() { return algo.presetMaxParticles; };
 
     algo.presetTrailMs = 300;
     algo.properties.push(
       "name:presetTrailMs|type:range|display:Trail Half-life (ms)|" +
       "values:50,2000|write:setTrailMs|read:getTrailMs");
-    algo.setTrailMs = function(_v) { algo.presetTrailMs = parseFloat(_v); };
+    algo.setTrailMs = function(_v) { algo.presetTrailMs = HSVUtil.parseNumber(_v, algo.presetTrailMs, 50, 2000); };
     algo.getTrailMs = function() { return algo.presetTrailMs; };
 
     algo.presetBaseSpeed = 30;
     algo.properties.push(
       "name:presetBaseSpeed|type:range|display:Base Speed|" +
       "values:0,200|write:setBaseSpeed|read:getBaseSpeed");
-    algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = parseFloat(_v); };
+    algo.setBaseSpeed = function(_v) { algo.presetBaseSpeed = HSVUtil.parseNumber(_v, algo.presetBaseSpeed, 0, 200); };
     algo.getBaseSpeed = function() { return algo.presetBaseSpeed; };
 
     algo.presetHighSpeed = 70;
     algo.properties.push(
       "name:presetHighSpeed|type:range|display:High-Power Boost|" +
       "values:0,300|write:setHighSpeed|read:getHighSpeed");
-    algo.setHighSpeed = function(_v) { algo.presetHighSpeed = parseFloat(_v); };
+    algo.setHighSpeed = function(_v) { algo.presetHighSpeed = HSVUtil.parseNumber(_v, algo.presetHighSpeed, 0, 300); };
     algo.getHighSpeed = function() { return algo.presetHighSpeed; };
 
     algo.presetFieldSpeed = 50;
     algo.properties.push(
       "name:presetFieldSpeed|type:range|display:Field Animation Speed|" +
       "values:0,200|write:setFieldSpeed|read:getFieldSpeed");
-    algo.setFieldSpeed = function(_v) { algo.presetFieldSpeed = parseFloat(_v); };
+    algo.setFieldSpeed = function(_v) { algo.presetFieldSpeed = HSVUtil.parseNumber(_v, algo.presetFieldSpeed, 0, 200); };
     algo.getFieldSpeed = function() { return algo.presetFieldSpeed; };
 
     algo.presetMorphSpeed = 30;
     algo.properties.push(
       "name:presetMorphSpeed|type:range|display:Field Morph Speed|" +
       "values:0,200|write:setMorphSpeed|read:getMorphSpeed");
-    algo.setMorphSpeed = function(_v) { algo.presetMorphSpeed = parseFloat(_v); };
+    algo.setMorphSpeed = function(_v) { algo.presetMorphSpeed = HSVUtil.parseNumber(_v, algo.presetMorphSpeed, 0, 200); };
     algo.getMorphSpeed = function() { return algo.presetMorphSpeed; };
 
     algo.presetTurbulence = 100;
     algo.properties.push(
       "name:presetTurbulence|type:range|display:Max Turbulence|" +
       "values:0,300|write:setTurbulence|read:getTurbulence");
-    algo.setTurbulence = function(_v) { algo.presetTurbulence = parseFloat(_v); };
+    algo.setTurbulence = function(_v) { algo.presetTurbulence = HSVUtil.parseNumber(_v, algo.presetTurbulence, 0, 300); };
     algo.getTurbulence = function() { return algo.presetTurbulence; };
 
     algo.presetSpawnBurst = 10;
     algo.properties.push(
       "name:presetSpawnBurst|type:range|display:Beat Spawn Burst|" +
       "values:0,50|write:setSpawnBurst|read:getSpawnBurst");
-    algo.setSpawnBurst = function(_v) { algo.presetSpawnBurst = parseInt(_v); };
+    algo.setSpawnBurst = function(_v) { algo.presetSpawnBurst = Math.round(HSVUtil.parseNumber(_v, algo.presetSpawnBurst, 0, 50)); };
     algo.getSpawnBurst = function() { return algo.presetSpawnBurst; };
 
     algo.presetLifeMs = 4000;
     algo.properties.push(
       "name:presetLifeMs|type:range|display:Particle Lifetime (ms)|" +
       "values:200,15000|write:setLifeMs|read:getLifeMs");
-    algo.setLifeMs = function(_v) { algo.presetLifeMs = parseFloat(_v); };
+    algo.setLifeMs = function(_v) { algo.presetLifeMs = HSVUtil.parseNumber(_v, algo.presetLifeMs, 200, 15000); };
     algo.getLifeMs = function() { return algo.presetLifeMs; };
 
     algo.presetWrap = "Wrap";
@@ -104,7 +104,7 @@ var testAlgo;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothLow = 0;
@@ -136,7 +136,7 @@ var testAlgo;
     }
 
     function stampLine(width, height, x0, y0, x1, y1, color) {
-      HSVUtil.walkLine(Math.round(x0), Math.round(y0), Math.round(x1), Math.round(y1), function(x, y) {
+      HSVUtil.walkLine(Math.floor(x0), Math.floor(y0), Math.floor(x1), Math.floor(y1), function(x, y) {
         HSVUtil.addPixel(algo.fb, width, height, x, y, color.h, color.s, color.v);
       });
     }
@@ -147,18 +147,19 @@ var testAlgo;
 
     algo.rgbMap = function(width, height, _rgb, _step, audio) {
       var dt = HSVUtil.audioSeconds(audio);
+      var frames = HSVUtil.elapsedFrames(audio);
       ensureFb(width, height);
 
       var fieldSpeed01 = algo.presetFieldSpeed / 100.0;
       var morphSpeed01 = algo.presetMorphSpeed / 100.0;
-      smoothLow = HSVUtil.smoothFollow(smoothLow, audio.low, algo.presetSmoothing);
-      smoothHigh = HSVUtil.smoothFollow(smoothHigh, audio.high, algo.presetSmoothing);
+      smoothLow = HSVUtil.smoothFollow(smoothLow, audio.low, algo.presetSmoothing, frames);
+      smoothHigh = HSVUtil.smoothFollow(smoothHigh, audio.high, algo.presetSmoothing, frames);
       var fieldScale = fieldSpeed01 * (0.5 + 2.0 * smoothLow);
       algo.fieldRot += dt * audio.mid * fieldSpeed01;
       algo.noiseT += dt * morphSpeed01;
 
       // Decay framebuffer: only decay value, preserve hue/saturation
-      var fade = Math.exp(-dt / (algo.presetTrailMs / 1000.0));
+      var fade = Math.pow(0.5, dt / (algo.presetTrailMs / 1000.0));
       var pixelCount = width * height;
       for (var di = 0; di < pixelCount; di++) {
         algo.fb[di * 3 + 2] *= fade;
@@ -222,7 +223,7 @@ var testAlgo;
 
         if (wrapped) {
           // Don't draw a line crossing the matrix; just stamp the new point.
-          HSVUtil.addPixel(algo.fb, width, height, Math.round(part.x), Math.round(part.y),
+          HSVUtil.addPixel(algo.fb, width, height, Math.floor(part.x), Math.floor(part.y),
             part.color.h, part.color.s, part.color.v);
         } else {
           stampLine(width, height, prevX, prevY, part.x, part.y, part.color);

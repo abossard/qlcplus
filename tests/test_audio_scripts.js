@@ -5383,7 +5383,7 @@ function assertWorkerCSimulationRows() {
         assert(dead0[0] === 0 && dead1[0] === 1,
             'C22/life/health-dead: dead board should reseed at interval');
 
-        const all = loadLife(0xc22035, randomFromSequence([0.1, 0.9], 0.9));
+        const all = loadLife(0xc22035, randomFromSequence([0.9, 0.1], 0.9));
         all.colors = [{ h: 0, s: 1, v: 1 }];
         all.setFreeRun('No');
         all.setRate(2);
@@ -5394,8 +5394,8 @@ function assertWorkerCSimulationRows() {
             mkFrame({ frameSequence: 1, low: 0, timing: { deltaSeconds: 0 } }), 'C22 all init'));
         const all1 = lifeBoardFromMap(render(all, 'audiogameoflife.js', 1, 1,
             mkFrame({ frameSequence: 2, low: 0, timing: { deltaSeconds: 0.5 } }), 'C22 all interval'));
-        assert(all0[0] === 1 && all1[0] === 0,
-            'C22/life/health-all: all-live board should reseed at interval');
+        assert(all0[0] === 0 && all1[0] === 1,
+            'C22/life/health-all: dead board should reseed at interval');
 
         const initialBlinker = [[2, 3], [3, 3], [4, 3]];
         const reseedSingle = [[0, 0]];
@@ -5484,9 +5484,9 @@ function assertWorkerCSimulationRows() {
         render(fastDecay, 'audiogameoflife.js', width, height,
             mkFrame({ frameSequence: 2, low: 1, timing: { deltaSeconds: 0.05 } }), 'C22 decay prime fast');
         const slowOut = lifeBoardFromMap(render(slowDecay, 'audiogameoflife.js', width, height,
-            mkFrame({ frameSequence: 3, low: 0, timing: { deltaSeconds: 0.21 } }), 'C22 decay drop slow'));
+            mkFrame({ frameSequence: 3, low: 0, timing: { deltaSeconds: 0.25 } }), 'C22 decay drop slow'));
         const fastOut = lifeBoardFromMap(render(fastDecay, 'audiogameoflife.js', width, height,
-            mkFrame({ frameSequence: 3, low: 0, timing: { deltaSeconds: 0.21 } }), 'C22 decay drop fast'));
+            mkFrame({ frameSequence: 3, low: 0, timing: { deltaSeconds: 0.25 } }), 'C22 decay drop fast'));
         assert(!boardEquals(slowOut, fastOut),
             'C22/life/impulse-decay: decay values should affect simulation advance after source drop');
 

@@ -51,9 +51,9 @@ var testAlgo;
     algo.rgbMapSetColors = function(rawColors) { };
     algo.rgbMapGetColors = function() { return []; };
 
-    algo.setMaxParticles = function(_v) { algo.presetMaxParticles = parseInt(_v); };
+    algo.setMaxParticles = function(_v) { algo.presetMaxParticles = Math.round(HSVUtil.parseNumber(_v, algo.presetMaxParticles, 50, 500)); };
     algo.getMaxParticles = function() { return algo.presetMaxParticles; };
-    algo.setGravity = function(_v) { algo.presetGravity = parseFloat(_v); };
+    algo.setGravity = function(_v) { algo.presetGravity = HSVUtil.parseNumber(_v, algo.presetGravity, 0, 10); };
     algo.getGravity = function() { return algo.presetGravity; };
     algo.setOrigin = function(_v) {
         if (_v === "Bottom" || parseInt(_v) === 1) algo.presetOrigin = 1;
@@ -61,7 +61,7 @@ var testAlgo;
         else algo.presetOrigin = 0;
     };
     algo.getOrigin = function() { return ["Center", "Bottom", "Random"][algo.presetOrigin]; };
-    algo.setParticleSize = function(_v) { algo.presetParticleSize = parseInt(_v); };
+    algo.setParticleSize = function(_v) { algo.presetParticleSize = Math.round(HSVUtil.parseNumber(_v, algo.presetParticleSize, 1, 3)); };
     algo.getParticleSize = function() { return algo.presetParticleSize; };
     algo.setTriggerMode = function(_v) {
         if (_v === "Onset") algo.presetTriggerMode = 1;
@@ -80,9 +80,9 @@ var testAlgo;
       "name:presetAmbientMin|type:range|display:Ambient Min|" +
       "values:1,30|write:setAmbientMin|read:getAmbientMin");
 
-    algo.setKickThreshold = function(_v) { algo.presetKickThreshold = parseFloat(_v); };
+    algo.setKickThreshold = function(_v) { algo.presetKickThreshold = HSVUtil.parseNumber(_v, algo.presetKickThreshold, 1, 10); };
     algo.getKickThreshold = function() { return algo.presetKickThreshold; };
-    algo.setAmbientMin = function(_v) { algo.presetAmbientMin = parseFloat(_v); };
+    algo.setAmbientMin = function(_v) { algo.presetAmbientMin = HSVUtil.parseNumber(_v, algo.presetAmbientMin, 1, 30); };
     algo.getAmbientMin = function() { return algo.presetAmbientMin; };
 
     function randomWeightedBand(powers, start, end) {

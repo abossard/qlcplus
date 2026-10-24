@@ -48,21 +48,22 @@ var testAlgo;
     var WAVE_BRI_AMP = 0.2;
 
     var currentHue = 0;
+    var wavePhase = 0;
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 1); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setWaveScale = function(_v) { algo.presetWaveScale = parseFloat(_v); };
+    algo.setWaveScale = function(_v) { algo.presetWaveScale = HSVUtil.parseNumber(_v, algo.presetWaveScale, 0, 1); };
     algo.getWaveScale = function() { return algo.presetWaveScale; };
-    algo.setSaturation = function(_v) { algo.presetSaturation = parseFloat(_v); };
+    algo.setSaturation = function(_v) { algo.presetSaturation = HSVUtil.parseNumber(_v, algo.presetSaturation, 0, 1); };
     algo.getSaturation = function() { return algo.presetSaturation; };
-    algo.setMinBrightness = function(_v) { algo.presetMinBrightness = parseFloat(_v); };
+    algo.setMinBrightness = function(_v) { algo.presetMinBrightness = HSVUtil.parseNumber(_v, algo.presetMinBrightness, 0, 1); };
     algo.getMinBrightness = function() { return algo.presetMinBrightness; };
 
     algo.presetSmoothing = 5;
     algo.properties.push(
       "name:presetSmoothing|type:range|display:Smoothing|" +
       "values:1,10|write:setSmoothing|read:getSmoothing");
-    algo.setSmoothing = function(_v) { algo.presetSmoothing = parseInt(_v); };
+    algo.setSmoothing = function(_v) { algo.presetSmoothing = Math.round(HSVUtil.parseNumber(_v, algo.presetSmoothing, 1, 10)); };
     algo.getSmoothing = function() { return algo.presetSmoothing; };
 
     var smoothVolume = 0;
@@ -82,6 +83,7 @@ var testAlgo;
     {
         var map = HSVUtil.createMap(width, height);
         if (!audio) return map;
+        var frames = HSVUtil.elapsedFrames(audio);
         var bass = audio.low;
         var mids = audio.mid;
         var highs = audio.high;
@@ -92,20 +94,21 @@ var testAlgo;
         // High-frequency content shifts hue further
         var highRatio = highs / totalPower;
         targetHue = HSVUtil.mod1(targetHue + highRatio * 0.33);
-        currentHue = lerpHue(currentHue, targetHue, algo.presetSpeed);
+        currentHue = lerpHue(currentHue, targetHue, 1 - Math.pow(1 - algo.presetSpeed, frames));
 
         var minBrightness = algo.presetMinBrightness;
         var rawVolume = (bass + mids + highs) / 3.0;
-        smoothVolume = HSVUtil.smoothFollow(smoothVolume, rawVolume, algo.presetSmoothing);
+        smoothVolume = HSVUtil.smoothFollow(smoothVolume, rawVolume, algo.presetSmoothing, frames);
         // Steady brightness with subtle audio + beat pulse modulation
         var beatMod = audio.cosPulse * BEAT_MOD;
         var brightness = Math.max(minBrightness, Math.min(1.0, minBrightness + smoothVolume * VOL_BRI_SCALE + beatMod));
         var waveScale = algo.presetWaveScale;
         var saturation = algo.presetSaturation;
+        wavePhase = (wavePhase + frames * WAVE_TIME_FREQ) % (2 * Math.PI);
 
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                var wave = Math.sin(x * WAVE_FREQ_X + y * WAVE_FREQ_Y + step * WAVE_TIME_FREQ) * waveScale;
+                var wave = Math.sin(x * WAVE_FREQ_X + y * WAVE_FREQ_Y + wavePhase) * waveScale;
                 var pixelHue = HSVUtil.mod1(currentHue + wave);
                 var pixelBri = Math.max(minBrightness, Math.min(1.0, brightness + wave * WAVE_BRI_AMP));
                 HSVUtil.setPixel(map, width, x, y, pixelHue, saturation, pixelBri);

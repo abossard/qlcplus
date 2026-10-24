@@ -40,11 +40,11 @@ var testAlgo;
       "name:presetSaturation|type:float|display:Saturation|" +
       "write:setSaturation|read:getSaturation");
 
-    algo.setSpeed = function(_v) { algo.presetSpeed = parseFloat(_v); };
+    algo.setSpeed = function(_v) { algo.presetSpeed = HSVUtil.parseNumber(_v, algo.presetSpeed, 0, 10); };
     algo.getSpeed = function() { return algo.presetSpeed; };
-    algo.setReactivity = function(_v) { algo.presetReactivity = parseFloat(_v); };
+    algo.setReactivity = function(_v) { algo.presetReactivity = HSVUtil.parseNumber(_v, algo.presetReactivity, 0, 1); };
     algo.getReactivity = function() { return algo.presetReactivity; };
-    algo.setSaturation = function(_v) { algo.presetSaturation = parseFloat(_v); };
+    algo.setSaturation = function(_v) { algo.presetSaturation = HSVUtil.parseNumber(_v, algo.presetSaturation, 0, 1); };
     algo.getSaturation = function() { return algo.presetSaturation; };
 
     // Per-track ratios relative to presetSpeed (preserve the original PHASE_MULT_T*
@@ -76,8 +76,9 @@ var testAlgo;
         var satThreshold = algo.presetSaturation;
         var lowPower = audio.low;
 
-        // Audio-reactive time boost (extra beats per frame)
-        var boostBeats = (lowPower * reactivity01) / Math.max(0.001, speed) * 1000 * audio.bpm / 60000;
+        // Audio-reactive time boost (extra beats per reference frame)
+        var boostBeats = (lowPower * reactivity01) / Math.max(0.001, speed) * 1000 * audio.bpm / 60000 *
+            HSVUtil.elapsedFrames(audio);
         var effectiveDt = audio.dt + boostBeats;
 
         stT1.phase = (stT1.phase + effectiveDt * speed * T1_RATIO) % 1.0;

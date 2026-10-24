@@ -51,7 +51,7 @@ var testAlgo;
     algo.setColorHigh = function(v) { algo.presetColorHigh = /^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : "#ffffff"; };
     algo.getColorHigh = function() { return algo.presetColorHigh; };
 
-    var state = { audioKey: "", geometryKey: "", particles: [], spawnCarry: 0, topCarry: 0 };
+    var state = { audioKey: "", geometryKey: "", particles: [], spawnCarry: 0, birthCarry: [0, 0, 0], topCarry: 0 };
 
     function hexEnabled(hex) {
         return /^#[0-9a-f]{6}$/i.test(hex) && hex.toLowerCase() !== "#000000";
@@ -59,7 +59,11 @@ var testAlgo;
 
     function spawnPopulation(width, pop, amount) {
         if (amount <= 0 || width <= 0) return;
-        var births = Math.min(128, Math.floor(amount));
+        // Fractional births carry over, so a quiet flame still spawns now and then.
+        state.birthCarry[pop] += amount;
+        var whole = Math.floor(state.birthCarry[pop]);
+        state.birthCarry[pop] -= whole;
+        var births = Math.min(128, whole);
         for (var i = 0; i < births; i++) {
             if (state.particles.length >= 1024) break;
             state.particles.push({
@@ -74,28 +78,33 @@ var testAlgo;
         }
     }
 
+    // 3x3 box blur mixed in RGB, so hues stay on the flame and black adds no hue.
     function blurMap(map, width, height, amount) {
         if (amount <= 0) return map;
         var out = map.slice();
         var alpha = HSVUtil.clamp01(amount);
+        var rgb = new Array(width * height);
+        for (var p = 0; p < rgb.length; p++)
+            rgb[p] = HSVUtil.hsvToRgb(map[p * 3], map[p * 3 + 1], map[p * 3 + 2]);
         for (var y = 0; y < height; y++) {
             for (var x = 0; x < width; x++) {
-                var base = (y * width + x) * 3;
                 var sum = [0, 0, 0], c = 0;
                 for (var dy = -1; dy <= 1; dy++) {
                     for (var dx = -1; dx <= 1; dx++) {
                         var xx = x + dx, yy = y + dy;
                         if (xx < 0 || yy < 0 || xx >= width || yy >= height) continue;
-                        var o = (yy * width + xx) * 3;
-                        sum[0] += map[o];
-                        sum[1] += map[o + 1];
-                        sum[2] += map[o + 2];
+                        var o = rgb[yy * width + xx];
+                        sum[0] += o[0];
+                        sum[1] += o[1];
+                        sum[2] += o[2];
                         c++;
                     }
                 }
-                out[base] = map[base] * (1 - alpha) + (sum[0] / c) * alpha;
-                out[base + 1] = map[base + 1] * (1 - alpha) + (sum[1] / c) * alpha;
-                out[base + 2] = map[base + 2] * (1 - alpha) + (sum[2] / c) * alpha;
+                var own = rgb[y * width + x];
+                var hsv = HSVUtil.rgbToHsv(own[0] * (1 - alpha) + (sum[0] / c) * alpha,
+                    own[1] * (1 - alpha) + (sum[1] / c) * alpha,
+                    own[2] * (1 - alpha) + (sum[2] / c) * alpha);
+                HSVUtil.setPixel(out, width, x, y, hsv.h, hsv.s, hsv.v);
             }
         }
         return out;
@@ -110,6 +119,7 @@ var testAlgo;
         if (HSVUtil.audioStateChanged(state, audio, width, height)) {
             state.particles = [];
             state.spawnCarry = 0;
+            state.birthCarry = [0, 0, 0];
             state.topCarry = 0;
         }
         var dt = HSVUtil.audioSeconds(audio);
@@ -146,7 +156,7 @@ var testAlgo;
             var hsv = HSVUtil.rgbToHsv(baseRgb[0] * v, baseRgb[1] * v, baseRgb[2] * v);
             var hueDrift = (1 - life) * (part.pop === 0 ? 0.09 : (part.pop === 1 ? 0.05 : 0.02));
             hsv.h = HSVUtil.mod1(hsv.h + hueDrift);
-            hsv.s = sat;
+            hsv.s *= sat;
             var x = Math.max(0, Math.min(width - 1, Math.round(part.x)));
             var y = Math.max(0, Math.min(height - 1, Math.round(part.y * (height - 1))));
             var o = (y * width + x) * 3;
@@ -162,10 +172,7 @@ var testAlgo;
         if (state.topCarry >= 1) {
             state.topCarry = state.topCarry % 1;
             for (var x2 = 0; x2 < width; x2++) {
-                var top = x2 * 3;
-                map[top] *= 0.4;
-                map[top + 1] *= 0.4;
-                map[top + 2] *= 0.4;
+                map[x2 * 3 + 2] *= 0.4;
             }
         }
 
