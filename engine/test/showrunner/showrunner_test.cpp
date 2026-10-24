@@ -667,6 +667,81 @@ void ShowRunner_Test::trackIntensityAppliesOnNextTick()
     timer->timerTick();
 }
 
+void ShowRunner_Test::trackIntensityCopyFollowsTheAttributes_data()
+{
+    QTest::addColumn<bool>("trackRemoved");
+
+    // a VC button played the Show at 50 %, the stop reset that, the Show Manager plays it again
+    QTest::newRow("replayed standalone after a 50 % override and a stop") << false;
+    // the first track goes while the copy holds a value for it: the second keeps its own
+    QTest::newRow("track removed while the copy holds values") << true;
+}
+
+void ShowRunner_Test::trackIntensityCopyFollowsTheAttributes()
+{
+    QFETCH(bool, trackRemoved);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(2);
+    QVERIFY(doc.addFixture(fixture));
+    QVector<Track *> tracks;
+    QVector<Scene *> scenes;
+    for (int i = 0; i < (trackRemoved ? 2 : 1); i++)
+    {
+        Scene *scene = new Scene(&doc);
+        scene->setValue(fixture->id(), i, 200);
+        QVERIFY(doc.addFunction(scene));
+        Track *track = new Track(scene->id());
+        ShowFunction *clip = new ShowFunction(show->getLatestShowFunctionId());
+        clip->setFunctionID(scene->id());
+        clip->setStartTime(0);
+        clip->setDuration(60000);
+        track->addShowFunction(clip);
+        QVERIFY(show->addTrack(track));
+        tracks.append(track);
+        scenes.append(scene);
+    }
+    const auto playFor = [&](int ticks) {
+        show->start(timer, FunctionParent::master());
+        for (int i = 0; i < ticks; i++)
+            timer->timerTick();
+    };
+    const auto stop = [&]() {
+        show->stop(FunctionParent::master());
+        timer->timerTick();
+        timer->timerTick();
+    };
+
+    if (trackRemoved)
+    {
+        QVERIFY(show->adjustAttribute(0.5, 0) == 0);
+        QVERIFY(show->adjustAttribute(0.8, 1) == 1);
+        QVERIFY(show->removeTrack(tracks.first()->id()));
+        QCOMPARE(show->getAttributeValue(0), 0.8);
+        playFor(2);
+        QCOMPARE(show->m_runner->m_intensityMap.value(tracks.last()->id()), 0.8);
+        QCOMPARE(scenes.last()->getAttributeValue(Function::Intensity), 0.8);
+        stop();
+        return;
+    }
+
+    // the override a VC button requests, as VCWidget::adjustFunctionIntensity does
+    QVERIFY(show->requestAttributeOverride(Function::Intensity, 0.5) >= 0);
+    playFor(2);
+    QCOMPARE(show->m_runner->m_intensityMap.value(tracks.first()->id()), 0.5);
+    stop();
+    QCOMPARE(show->getAttributeValue(0), 1.0);
+    // played again on its own: full intensity
+    playFor(2);
+    QCOMPARE(show->m_runner->m_intensityMap.value(tracks.first()->id()), 1.0);
+    QCOMPARE(scenes.first()->getAttributeValue(Function::Intensity), 1.0);
+    stop();
+}
+
 void ShowRunner_Test::internalBeatClockUsesSongBpm()
 {
     // With NO global beat source (MasterTimer defaults to None), a beat-based Show

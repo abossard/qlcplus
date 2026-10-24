@@ -472,7 +472,18 @@ bool Show::removeTrack(quint32 id)
         Track* track = m_tracks.take(id);
         Q_ASSERT(track != NULL);
 
-        unregisterAttribute(QString("%1-%2").arg(track->name()).arg(track->id()));
+        const QString name = QString("%1-%2").arg(track->name()).arg(track->id());
+        int index = -1;
+        for (int i = 0; i < attributes().count(); i++)
+            if (attributes().at(i).m_name == name)
+                index = i;
+        unregisterAttribute(name);
+        // the attributes behind it moved down: so does the copy the runner takes
+        {
+            QMutexLocker locker(&m_commandTrackMutex);
+            if (index >= 0 && index < m_trackIntensities.count())
+                m_trackIntensities.removeAt(index);
+        }
 
         //emit trackRemoved(id);
         delete track;
@@ -981,13 +992,14 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
         commands = m_commandTrackSaveProjectionArmed ? m_commandTrackSaveProjection : m_commandTrack;
         m_commandTrackSaveProjectionArmed = false;
     }
-    if ((commands.isEmpty() == false || commands.extent() > 0) && commands.saveXML(doc) == false)
-        return false;
+    bool saved = true;
+    if (commands.isEmpty() == false || commands.extent() > 0)
+        saved = commands.saveXML(doc);
 
     /* End the <Function> tag */
     doc->writeEndElement();
 
-    return true;
+    return saved;
 }
 
 bool Show::loadXML(QXmlStreamReader &root)
@@ -1223,6 +1235,11 @@ void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
         m_runner = NULL;
     }
     Function::postRun(timer, universes);
+
+    // the stop reset the attributes: the copy the next run takes follows
+    QMutexLocker locker(&m_commandTrackMutex);
+    for (int i = 0; i < m_trackIntensities.count(); i++)
+        m_trackIntensities[i] = getAttributeValue(i);
 }
 
 void Show::slotChildStopped(quint32 fid)

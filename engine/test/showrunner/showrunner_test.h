@@ -55,6 +55,8 @@ private slots:
     void syncSourceChangeAppliesOnNextTick();
     void trackIntensityAppliesOnNextTick_data();
     void trackIntensityAppliesOnNextTick();
+    void trackIntensityCopyFollowsTheAttributes_data();
+    void trackIntensityCopyFollowsTheAttributes();
 
     // Beat-clock fallback tests (no global beat source -> run at song BPM)
     void internalBeatClockUsesSongBpm();
