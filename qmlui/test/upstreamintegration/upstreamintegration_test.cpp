@@ -6424,11 +6424,6 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
                                          Q_ARG(QString, trigger),
                                          Q_ARG(QVariant, value));
     };
-    const auto globalTrigger = [bridge](const QString &trigger, const QVariant &value) {
-        return QMetaObject::invokeMethod(bridge, "onGlobalTrigger",
-                                         Q_ARG(QString, trigger),
-                                         Q_ARG(QVariant, value));
-    };
 
     bridge->showFactory()->registerMapping(filepath, show->id());
     QVERIFY(deckTrigger("get_filepath", filepath));
@@ -6436,7 +6431,7 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
     QVERIFY(deckTrigger("get_artist", "QLC+"));
     QVERIFY(deckTrigger("get_bpm", 120.0));
     djManager->assignShow(filepath, int(show->id()));
-    QVERIFY(globalTrigger("masterdeck", 1));
+    QVERIFY(deckTrigger("masterdeck", "on"));
     QVERIFY(deckTrigger("get_time elapsed absolute", double(pausedPosition)));
     QVERIFY(deckTrigger("play", "off"));
 

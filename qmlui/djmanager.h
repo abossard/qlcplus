@@ -287,13 +287,6 @@ public:
     /** List of existing Shows as [{ id, name }] for the assign picker. */
     Q_INVOKABLE QVariantList availableShows() const;
 
-public slots:
-    /** Perform mode: keep the Show Manager on the active deck's show, so the
-     *  playing show (and its VDJ-driven playhead) is always the one shown.
-     *  Called on perform-enable, active-song changes and deferred show
-     *  creation; a no-op when Perform is off or no show exists yet. */
-    void syncPerformShowToManager();
-
 signals:
     void sortModeChanged();
     void sortAscendingChanged();

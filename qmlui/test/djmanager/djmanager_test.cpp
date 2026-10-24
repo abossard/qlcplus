@@ -474,8 +474,8 @@ void DjManager_Test::performModeGatesAutoPlay()
     deckTrigger("get_bpm", QVariant(120.0));
 
     // Master deck = 1 (drives both FSM active deck and VdjBridge auto-play).
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant(1)));
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
 
     doc->masterTimer()->start();
 
@@ -495,7 +495,7 @@ void DjManager_Test::performModeGatesAutoPlay()
     delete doc;
 }
 
-void DjManager_Test::performOffPausesRunningShow()
+void DjManager_Test::performOffStopsRunningShow()
 {
     Doc *doc = createDoc();
     QQuickView view;
@@ -524,8 +524,8 @@ void DjManager_Test::performOffPausesRunningShow()
             Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
     };
     deckTrigger("get_filepath", QVariant("/m/po.mp3"));
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant(1)));
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
 
     doc->masterTimer()->start();
     mgr.setPerformMode(true);
@@ -534,10 +534,9 @@ void DjManager_Test::performOffPausesRunningShow()
     QVERIFY(show->isRunning());
     QVERIFY(!show->isPaused());
 
-    // Turning Perform OFF pauses the running External-sync show.
+    // Turning Perform OFF stops the running External-sync show.
     mgr.setPerformMode(false);
-    QTest::qWait(20);
-    QVERIFY(show->isPaused());
+    QTRY_VERIFY(!show->isRunning());
 
     doc->masterTimer()->stop();
     delete doc;
@@ -580,19 +579,19 @@ void DjManager_Test::performLoadsAndSwitchesActiveShow()
 
     // Active deck 1 + Perform ON → show A loads/runs; show B is not the active
     // show so it is not actively running.
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
     mgr.setPerformMode(true);
     QTest::qWait(60);
     QVERIFY(showA->isRunning() && !showA->isPaused());
     QVERIFY(!(showB->isRunning() && !showB->isPaused()));
 
-    // Active deck changes to deck 2 → show B is loaded immediately, show A paused.
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("off")));
+    // Active deck changes to deck 2 → show B is loaded immediately, show A stopped.
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 1), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
     QTest::qWait(60);
     QVERIFY(showB->isRunning() && !showB->isPaused());
-    QVERIFY(!(showA->isRunning() && !showA->isPaused())); // A paused (or stopped)
+    QVERIFY(!showA->isRunning());
 
     doc->masterTimer()->stop();
     delete doc;
@@ -630,8 +629,8 @@ void DjManager_Test::externalPositionSyncDrivesShowWhenPerforming()
             Q_ARG(int, 0), Q_ARG(QString, t), Q_ARG(QVariant, v));
     };
     deckTrigger("get_filepath", QVariant("/m/sync.mp3"));
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant(1)));
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
 
     doc->masterTimer()->start();
     mgr.setPerformMode(true);
@@ -685,11 +684,11 @@ void DjManager_Test::performShowsActiveShowInShowManager()
     mgr.assignShow("/m/two.mp3", static_cast<int>(show2->id()));
 
     auto setMasterDeck = [&bridge](int deck) {
-        QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-            Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant(deck)));
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+            Q_ARG(int, deck - 1), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
     };
 
-    QSignalSpy spy(&mgr, &DjManager::showLoadRequested);
+    QSignalSpy spy(&bridge, &VdjBridge::performShowSelected);
 
     // Perform OFF: active deck changes must not touch the Show Manager
     setMasterDeck(1);
@@ -749,12 +748,12 @@ void DjManager_Test::performResolvesShowAfterWorkspaceReload()
     // VDJ loads the song: the existing show is reused, no duplicate created
     const int showsBefore = doc->functionsByType(Function::ShowType).count();
     feedSong(bridge.djFsm(), 1, "/m/reload.mp3", "Reloaded", "DJ", 120.0);
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant(1)));
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
 
     // Enabling Perform resolves the reloaded show immediately and the Show
     // Manager follow fires — the previously distrusted case.
-    QSignalSpy loadSpy(&mgr, &DjManager::showLoadRequested);
+    QSignalSpy loadSpy(&bridge, &VdjBridge::performShowSelected);
     mgr.setPerformMode(true);
     QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Suspended);
     QCOMPARE(bridge.performFsm()->activeShowId(), show->id());
@@ -810,8 +809,8 @@ void DjManager_Test::deckTablePositionReflectsActiveDeck()
     feedSong(fsm, 1, "/m/a.mp3", "Song A", "Artist A", 120.0);
 
     // Make deck 1 the active deck so the active-position properties track it.
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
     QCOMPARE(mgr.activeDeck(), 1);
 
     QAbstractItemModel *deckModel = mgr.deckModel();
@@ -910,7 +909,7 @@ void DjManager_Test::getDecksDrivesDeckCount()
 }
 
 
-void DjManager_Test::masterDeckOnOffMapsToActiveDeck()
+void DjManager_Test::perDeckMasterdeckSetsActiveDeck()
 {
     Doc *doc = createDoc();
     QQuickView view;
@@ -924,14 +923,14 @@ void DjManager_Test::masterDeckOnOffMapsToActiveDeck()
     feedSong(fsm, 1, "/m/d1.mp3", "One", "A1", 120.0);
     feedSong(fsm, 2, "/m/d2.mp3", "Two", "A2", 124.0);
 
-    // masterdeck "on" => deck 1 active; "off" => deck 2 active.
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    // the per-deck masterdeck flag names the active deck
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
     QCOMPARE(mgr.activeDeck(), 1);
     QCOMPARE(mgr.activeTitle(), QString("One"));
 
-    QMetaObject::invokeMethod(&bridge, "onGlobalTrigger",
-        Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("off")));
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+        Q_ARG(int, 1), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
     QCOMPARE(mgr.activeDeck(), 2);
     QCOMPARE(mgr.activeTitle(), QString("Two"));
 

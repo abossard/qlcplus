@@ -603,13 +603,6 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
     {
         connect(m_bridge, &VdjBridge::performModeChanged,
                 this, &DjManager::performModeChanged);
-
-        // Perform FSM drives the Show Manager follow: whenever the state or
-        // the resolved show changes, the currently-performed show is loaded.
-        connect(m_bridge->performFsm(), &PerformFsm::stateChanged,
-                this, &DjManager::syncPerformShowToManager);
-        connect(m_bridge->performFsm(), &PerformFsm::activeShowChanged,
-                this, &DjManager::syncPerformShowToManager);
     }
 
     if (m_doc)
@@ -887,22 +880,6 @@ void DjManager::onActiveSongChanged()
     QString fp = m_fsm ? m_fsm->activeSong().filepath : QString();
     m_model->setActiveFilepath(fp);
     emit activeChanged();
-}
-
-void DjManager::syncPerformShowToManager()
-{
-    // Read-only consumer of the Perform FSM: whenever Perform has a resolved
-    // show (Live or Suspended), the Show Manager displays it.
-    if (!m_bridge)
-        return;
-
-    PerformFsm *fsm = m_bridge->performFsm();
-    if (fsm->state() == PerformFsm::PerformState::Idle)
-        return;
-    if (fsm->activeShowId() == PerformFsm::InvalidShowId)
-        return;
-
-    emit showLoadRequested(static_cast<int>(fsm->activeShowId()));
 }
 
 void DjManager::onDeckCountChanged()

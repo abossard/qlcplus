@@ -32,65 +32,114 @@ QString PerformFsm::stateToString(PerformState state)
         case PerformState::Armed: return QStringLiteral("Armed");
         case PerformState::Live: return QStringLiteral("Live");
         case PerformState::Suspended: return QStringLiteral("Suspended");
+        case PerformState::Ended: return QStringLiteral("Ended");
     }
     return QStringLiteral("Unknown");
+}
+
+quint32 PerformFsm::activeShowId() const
+{
+    if (m_state == PerformState::Idle || m_state == PerformState::Armed)
+        return InvalidShowId;
+    return m_inputs.showId;
+}
+
+QList<PerformFsm::Step> PerformFsm::plan(PerformState prevState, quint32 prevShow,
+                                         PerformState state, quint32 show, const ShowFacts &facts)
+{
+    using S = PerformState;
+    using E = Effect;
+    QList<Step> steps;
+    const bool wasEngaged = prevState != S::Idle;
+    const bool engaged = state != S::Idle;
+    const bool showChanged = prevShow != show;
+
+    // the previous Show goes first, while it is still on the external clock:
+    // the recorder checkpoints its take there, then the lights go dark
+    if (wasEngaged && prevShow != InvalidShowId && (!engaged || showChanged))
+    {
+        steps << Step{ engaged ? E::ResolveRecorder : E::ReleaseRecorder }
+              << Step{ E::StopShow, prevShow } << Step{ E::ReleaseShow, prevShow };
+    }
+    else if (wasEngaged && !engaged)
+    {
+        steps << Step{ E::ReleaseRecorder };
+    }
+    if (!engaged)
+        return steps;
+
+    const bool adopting = show != InvalidShowId && (!wasEngaged || showChanged);
+    if (adopting)
+        steps << Step{ E::AdoptShow, show };
+    if (show != InvalidShowId)
+    {
+        switch (state)
+        {
+            case S::Live:
+                if (facts.running && facts.paused)
+                    steps << Step{ E::ResumeShow, show };
+                else if (!facts.running && !facts.startQueued)
+                    steps << Step{ E::StartShow, show };
+            break;
+            case S::Suspended:
+                if (facts.running && !facts.paused)
+                    steps << Step{ E::PauseShow, show };
+                else if (!facts.running && facts.startQueued)
+                    steps << Step{ E::StopShow, show };
+            break;
+            case S::Ended:
+                if (facts.running || facts.startQueued)
+                    steps << Step{ E::StopShow, show };
+            break;
+            default:
+            break;
+        }
+    }
+    if (!wasEngaged || (showChanged && show != InvalidShowId))
+        steps << Step{ E::ResolveRecorder, show };
+    // the Show Manager re-reads the Show's transport on every transition
+    if (show != InvalidShowId && (adopting || prevState != state))
+        steps << Step{ E::SelectShow, show };
+    return steps;
 }
 
 void PerformFsm::setPerformEnabled(bool on)
 {
     if (m_enabled == on)
         return;
+    const PerformState prevState = m_state;
+    const quint32 prevShow = activeShowId();
     m_enabled = on;
-    recomputeState();
+    recomputeState(prevState, prevShow);
 }
 
-void PerformFsm::setActiveShow(quint32 showId)
+void PerformFsm::setInputs(const Inputs &inputs)
 {
-    if (m_activeShowId == showId)
+    if (m_inputs == inputs)
         return;
-    m_activeShowId = showId;
-    // state first, so activeShowChanged consumers see a consistent state
-    recomputeState();
-    emit activeShowChanged(m_activeShowId);
+    const PerformState prevState = m_state;
+    const quint32 prevShow = activeShowId();
+    m_inputs = inputs;
+    recomputeState(prevState, prevShow);
 }
 
-void PerformFsm::setDeckPlaying(bool playing)
+void PerformFsm::recomputeState(PerformState prevState, quint32 prevShow)
 {
-    if (m_deckPlaying == playing)
-        return;
-    m_deckPlaying = playing;
-    recomputeState();
-}
-
-void PerformFsm::reset()
-{
-    // VDJ went away: the show and transport are gone, the user's Perform
-    // toggle stays as-is (re-connect re-arms automatically)
-    const quint32 oldShow = m_activeShowId;
-    m_deckPlaying = false;
-    m_activeShowId = InvalidShowId;
-    recomputeState();
-    if (oldShow != InvalidShowId)
-        emit activeShowChanged(m_activeShowId);
-}
-
-void PerformFsm::recomputeState()
-{
-    PerformState next;
     if (m_enabled == false)
-        next = PerformState::Idle;
-    else if (m_activeShowId == InvalidShowId)
-        next = PerformState::Armed;
-    else if (m_deckPlaying)
-        next = PerformState::Live;
+        m_state = PerformState::Idle;
+    else if (m_inputs.showId == InvalidShowId)
+        m_state = PerformState::Armed;
+    else if (m_inputs.playing == false)
+        m_state = PerformState::Suspended;
+    else if (m_inputs.pastEnd)
+        m_state = PerformState::Ended;
     else
-        next = PerformState::Suspended;
+        m_state = PerformState::Live;
 
-    if (next == m_state)
+    if (m_state == prevState && activeShowId() == prevShow)
         return;
 
-    qDebug() << "[PerformFsm]" << stateToString(m_state) << "->" << stateToString(next)
-             << "(show" << m_activeShowId << ")";
-    m_state = next;
-    emit stateChanged(m_state);
+    qDebug() << "[PerformFsm]" << stateToString(prevState) << prevShow << "->"
+             << stateToString(m_state) << activeShowId();
+    emit stateChanged();
 }

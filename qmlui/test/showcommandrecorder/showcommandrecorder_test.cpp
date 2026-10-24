@@ -5245,8 +5245,7 @@ void ShowCommandRecorder_Test::vdjAdoption_firstFreshSampleBeginsTheTraversal()
     });
     bridge.showFactory()->registerMapping(QStringLiteral("/music/adopted.mp3"), show->id());
     deck("get_filepath", QStringLiteral("/music/adopted.mp3"));
-    QVERIFY(QMetaObject::invokeMethod(&bridge, "onGlobalTrigger", Q_ARG(QString, QStringLiteral("masterdeck")),
-                                      Q_ARG(QVariant, QVariant(QStringLiteral("on")))));
+    deck("masterdeck", QStringLiteral("on"));
     deck("get_time elapsed absolute", double(elapsedAtPlay));
     bridge.setPerformMode(true);
     // Live: the bridge adopts the Show and starts it at the deck's position
@@ -16211,57 +16210,6 @@ void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
     QVERIFY(!restored->commandRecording());
 }
 
-void ShowCommandRecorder_Test::performFollow_handsOverOnlyWhileEngaged_data()
-{
-    QTest::addColumn<bool>("enabledFirst");
-
-    QTest::newRow("deck change while engaged") << true;
-    // the deck resolved B while Perform was off; enabling it changes only its state
-    QTest::newRow("enabled with the deck already on B") << false;
-}
-
-void ShowCommandRecorder_Test::performFollow_handsOverOnlyWhileEngaged()
-{
-    QFETCH(bool, enabledFirst);
-
-    RequestRig r;
-    Show *b = new Show(&r.doc);
-    QVERIFY(r.doc.addFunction(b));
-    ShowManager manager(r.ui.view(), &r.doc);
-    manager.m_detached = true;
-    // the application's wiring, in its order
-    QObject::connect(&manager, &ShowManager::currentShowIDChanged, &r.recorder,
-                     [&r](int showID) { r.recorder.setResolvedShow(quint32(showID)); });
-    VdjBridge bridge;
-    bridge.setDoc(&r.doc);
-    r.recorder.followPerform(bridge.performFsm());
-    DjManager dj(r.ui.view(), &r.doc, &bridge, bridge.showFactory());
-    QObject::connect(&dj, &DjManager::showLoadRequested, &manager, &ShowManager::setCurrentShowID);
-    manager.setCurrentShowID(int(r.show->id()));
-    QVERIFY(r.recorder.setRecording(true));
-    QCOMPARE(r.recorder.boundShowId(), r.show->id());
-    PerformFsm *fsm = bridge.performFsm();
-
-    if (enabledFirst)
-    {
-        fsm->setPerformEnabled(true);
-        fsm->setActiveShow(b->id());
-    }
-    else
-    {
-        // Perform off is not an automatic source: the take stays where it is
-        fsm->setActiveShow(b->id());
-        QCOMPARE(r.recorder.boundShowId(), r.show->id());
-        QCOMPARE(manager.currentShowID(), int(r.show->id()));
-        fsm->setPerformEnabled(true);
-    }
-
-    QVERIFY(r.recorder.isAuthoring());
-    QCOMPARE(r.recorder.boundShowId(), b->id());
-    QCOMPARE(manager.currentShowID(), int(b->id()));
-    fsm->setPerformEnabled(false);
-}
-
 void ShowCommandRecorder_Test::appPerform_handsRecordingOver_data()
 {
     QTest::addColumn<QString>("change");
@@ -16363,28 +16311,28 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
 
     if (change == QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setActiveShow(b->id());
+        fsm->setInputs({ b->id() });
         QCOMPARE(recorder->boundShowId(), a->id());
         QCOMPARE(manager->currentShowID(), int(a->id()));
     }
     else
     {
-        fsm->setActiveShow(a->id());
+        fsm->setInputs({ a->id() });
     }
     QSignalSpy reported(recorder, &ShowCommandRecorder::lastErrorChanged);
     fsm->setPerformEnabled(true);
     QCOMPARE(recorder->boundShowId(), change == QLatin1String("engaged on an unchanged deck") ? b->id() : a->id());
     if (change == QLatin1String("through a gap"))
     {
-        fsm->setActiveShow(PerformFsm::InvalidShowId);
+        fsm->setInputs({});
         QCOMPARE(recorder->phaseValue(), int(ShowRecordPhase::Armed));
         QVERIFY(recorder->isRecording());
         QVERIFY(!a->commandRecording());
-        fsm->setActiveShow(c->id());
+        fsm->setInputs({ c->id() });
     }
     else if (change != QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setActiveShow(b->id());
+        fsm->setInputs({ b->id() });
     }
     Show *next = change == QLatin1String("through a gap") ? c : b;
 
@@ -17277,13 +17225,13 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
 
     rig.manager->setCurrentShowID(int(a->id()));
     QVERIFY(rig.recorder->setRecording(rec));
-    fsm->setActiveShow(a->id());
+    fsm->setInputs({ a->id() });
     fsm->setPerformEnabled(true);
     QCOMPARE(rig.recorder->boundShowId(), rec ? a->id() : quint32(Function::invalidId()));
     if (gap)
     {
         // the take on A closes, REC waits for Perform's next Show
-        fsm->setActiveShow(PerformFsm::InvalidShowId);
+        fsm->setInputs({});
         QCOMPARE(rig.recorder->phaseValue(), int(rec ? ShowRecordPhase::Armed : ShowRecordPhase::Off));
         QCOMPARE(rig.recorder->editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
     }
@@ -32898,7 +32846,7 @@ void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal()
     QVERIFY(bridge);
     PerformFsm *fsm = bridge->performFsm();
     const auto performOff = qScopeGuard([&]() {
-        fsm->setDeckPlaying(false);
+        fsm->setInputs({});
         fsm->setPerformEnabled(false);
         // the manually ticked timer retires what Live started before the rig goes
         if (ed.show->isRunning())
@@ -32912,9 +32860,7 @@ void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal()
     QVERIFY(navEnabled(ed, false));
     fsm->setPerformEnabled(true);
     if (perform != QLatin1String("armed"))
-        fsm->setActiveShow(ed.show->id());
-    if (perform == QLatin1String("live"))
-        fsm->setDeckPlaying(true);
+        fsm->setInputs({ ed.show->id(), perform == QLatin1String("live") });
     if (perform == QLatin1String("off-again"))
         fsm->setPerformEnabled(false);
     QCoreApplication::processEvents();
@@ -33020,7 +32966,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary()
         auto *bridge = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"));
         PerformFsm *fsm = bridge->performFsm();
         const auto performOff = qScopeGuard([&]() {
-            fsm->setDeckPlaying(false);
+            fsm->setInputs({});
             fsm->setPerformEnabled(false);
             // the manually ticked timer retires what Live started before the rig goes
             if (ed.show->isRunning())
@@ -33028,8 +32974,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary()
             tickAndDeliver(ed.rig.doc, 4);
         });
         fsm->setPerformEnabled(true);
-        fsm->setActiveShow(ed.show->id());
-        fsm->setDeckPlaying(true);
+        fsm->setInputs({ ed.show->id(), true });
         QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
         fsm->setPerformEnabled(false);
         QCoreApplication::processEvents();
@@ -33087,7 +33032,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationKeyboard()
         {
             auto *fsm = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"))->performFsm();
             fsm->setPerformEnabled(true);
-            fsm->setActiveShow(ed.show->id());
+            fsm->setInputs({ ed.show->id() });
             QCoreApplication::processEvents();
             selectRecorded(ed, {6});
         }
@@ -34986,8 +34931,7 @@ void ShowCommandRecorder_Test::recordingsPerform_editsWhileVdjDrives()
     });
     bridge->showFactory()->registerMapping(QStringLiteral("/music/live-edit.mp3"), showId);
     deck("get_filepath", QStringLiteral("/music/live-edit.mp3"));
-    QVERIFY(QMetaObject::invokeMethod(bridge, "onGlobalTrigger", Q_ARG(QString, QStringLiteral("masterdeck")),
-                                      Q_ARG(QVariant, QVariant(QStringLiteral("on")))));
+    deck("masterdeck", QStringLiteral("on"));
     bridge->setPerformMode(true);
     deck("play", QStringLiteral("on"));
     tickAndDeliver(ed.rig.doc, 2);

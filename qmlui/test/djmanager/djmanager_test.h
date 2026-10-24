@@ -42,7 +42,7 @@ private slots:
     // Perform mode
     void performModeDelegatesToBridge();
     void performModeGatesAutoPlay();
-    void performOffPausesRunningShow();
+    void performOffStopsRunningShow();
     void performLoadsAndSwitchesActiveShow();
     void externalPositionSyncDrivesShowWhenPerforming();
     void performShowsActiveShowInShowManager();
@@ -53,7 +53,7 @@ private slots:
     void deckTablePositionReflectsActiveDeck();
     void getDecksDrivesDeckCount();
     void deckCountSettingLimitsTable();
-    void masterDeckOnOffMapsToActiveDeck();
+    void perDeckMasterdeckSetsActiveDeck();
 
 private:
     Doc *m_doc = nullptr;

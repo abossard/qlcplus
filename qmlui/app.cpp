@@ -310,20 +310,16 @@ void App::startup()
             if (autoOpenVdjInput && telemetryPort > 0)
                 vdj->openInput(0, 0);
         }
-
-        QLCIOPlugin *os2l = m_doc->ioPluginCache()->plugin("OS2L");
-        if (os2l != nullptr)
-            m_vdjBridge->attachOS2LPlugin(os2l);
     }
 
-    // Perform resolves a Show for the playing deck without the Show Manager
-    // being open, so Record follows the same target. Connected before the DJ
-    // Manager below, on purpose: engaging Perform on a resolved deck is one
-    // stateChanged, and the recorder must see Perform engaged before the DJ
-    // Manager's follower asks the Show Manager to select the deck's Show,
-    // or a take bound to another Show refuses that selection.
-    if (m_showCommandRecorder != nullptr)
-        m_showCommandRecorder->followPerform(m_vdjBridge->performFsm());
+    // Perform's executor orders these itself: the recorder leaves a Show
+    // before it stops and binds the next one before the Show Manager shows it
+    connect(m_vdjBridge, &VdjBridge::performShowResolved, m_showCommandRecorder,
+            [this](quint32 showId) { m_showCommandRecorder->setResolvedShow(showId, ShowRecordSource::Perform); });
+    connect(m_vdjBridge, &VdjBridge::performReleased,
+            m_showCommandRecorder, &ShowCommandRecorder::releasePerform);
+    connect(m_vdjBridge, &VdjBridge::performShowSelected,
+            m_showManager, &ShowManager::setCurrentShowID);
 
     // DJ Manager — standalone view for VDJ status + auto-created Shows.
     m_djManager = new DjManager(this, m_doc, m_vdjBridge,

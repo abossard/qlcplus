@@ -440,8 +440,6 @@ private slots:
     void manualShowSelection_lockedWhileArmed();
     void boundShowDeletion_armsAndUndoRebinds_data();
     void boundShowDeletion_armsAndUndoRebinds();
-    void performFollow_handsOverOnlyWhileEngaged_data();
-    void performFollow_handsOverOnlyWhileEngaged();
     void appPerform_handsRecordingOver_data();
     void appPerform_handsRecordingOver();
     void appSave_checkpointsRecording_data();

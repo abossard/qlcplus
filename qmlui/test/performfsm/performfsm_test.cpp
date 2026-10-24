@@ -11,168 +11,189 @@
 #include <QSignalSpy>
 
 using State = PerformFsm::PerformState;
+using Effect = PerformFsm::Effect;
+using Inputs = PerformFsm::Inputs;
+using Facts = PerformFsm::ShowFacts;
+using Step = PerformFsm::Step;
+
+static const quint32 None = PerformFsm::InvalidShowId;
+
+Q_DECLARE_METATYPE(QList<PerformFsm::Step>)
 
 void PerformFsm_Test::initialStateIsIdle()
 {
     PerformFsm fsm;
     QCOMPARE(fsm.state(), State::Idle);
     QCOMPARE(fsm.enabled(), false);
-    QCOMPARE(fsm.activeShowId(), PerformFsm::InvalidShowId);
+    QCOMPARE(fsm.activeShowId(), None);
     QCOMPARE(fsm.readOnly(), false);
 }
 
-void PerformFsm_Test::enableWithoutShowArms()
+void PerformFsm_Test::stateTable_data()
 {
-    PerformFsm fsm;
-    QSignalSpy stateSpy(&fsm, &PerformFsm::stateChanged);
+    QTest::addColumn<bool>("enabled");
+    QTest::addColumn<Inputs>("inputs");
+    QTest::addColumn<State>("state");
+    QTest::addColumn<quint32>("activeShow");
 
-    fsm.setPerformEnabled(true);
-    QCOMPARE(fsm.state(), State::Armed);
-    QCOMPARE(stateSpy.count(), 1);
-    QCOMPARE(stateSpy[0][0].value<State>(), State::Armed);
-
-    // idempotent
-    fsm.setPerformEnabled(true);
-    QCOMPARE(stateSpy.count(), 1);
+    QTest::newRow("off, deck playing a resolved song") << false << Inputs{ 42, true, false } << State::Idle << None;
+    QTest::newRow("on, no show") << true << Inputs{ None, true, false } << State::Armed << None;
+    QTest::newRow("on, show, deck paused") << true << Inputs{ 42, false, false } << State::Suspended << 42u;
+    QTest::newRow("on, show, deck paused past the end") << true << Inputs{ 42, false, true } << State::Suspended << 42u;
+    QTest::newRow("on, show, deck playing") << true << Inputs{ 42, true, false } << State::Live << 42u;
+    QTest::newRow("on, show, deck playing past the end") << true << Inputs{ 42, true, true } << State::Ended << 42u;
 }
 
-void PerformFsm_Test::showResolutionMovesArmedToSuspendedOrLive()
+void PerformFsm_Test::stateTable()
 {
+    QFETCH(bool, enabled);
+    QFETCH(Inputs, inputs);
+    QFETCH(State, state);
+    QFETCH(quint32, activeShow);
+
     PerformFsm fsm;
-    fsm.setPerformEnabled(true);
-    QCOMPARE(fsm.state(), State::Armed);
+    fsm.setInputs(inputs);
+    fsm.setPerformEnabled(enabled);
+    QCOMPARE(fsm.state(), state);
+    QCOMPARE(fsm.activeShowId(), activeShow);
+    QCOMPARE(fsm.readOnly(), state != State::Idle);
 
-    QSignalSpy showSpy(&fsm, &PerformFsm::activeShowChanged);
-
-    // deck not playing: resolving a show yields Suspended
-    fsm.setActiveShow(42);
-    QCOMPARE(fsm.state(), State::Suspended);
-    QCOMPARE(fsm.activeShowId(), 42u);
-    QCOMPARE(showSpy.count(), 1);
-    QCOMPARE(showSpy[0][0].toUInt(), 42u);
-
-    // deck playing while Armed: resolving goes straight to Live
-    PerformFsm fsm2;
-    fsm2.setPerformEnabled(true);
-    fsm2.setDeckPlaying(true);
-    QCOMPARE(fsm2.state(), State::Armed); // playing alone is not enough
-    fsm2.setActiveShow(7);
-    QCOMPARE(fsm2.state(), State::Live);
+    // the same inputs again change nothing
+    QSignalSpy spy(&fsm, &PerformFsm::stateChanged);
+    fsm.setInputs(inputs);
+    fsm.setPerformEnabled(enabled);
+    QCOMPARE(spy.count(), 0);
 }
 
-void PerformFsm_Test::playPauseTogglesLiveSuspended()
+void PerformFsm_Test::inputChangeEmitsOnce_data()
 {
-    PerformFsm fsm;
-    fsm.setPerformEnabled(true);
-    fsm.setActiveShow(42);
-    QCOMPARE(fsm.state(), State::Suspended);
+    QTest::addColumn<Inputs>("from");
+    QTest::addColumn<Inputs>("to");
+    QTest::addColumn<int>("emissions");
 
-    QSignalSpy stateSpy(&fsm, &PerformFsm::stateChanged);
-
-    fsm.setDeckPlaying(true);
-    QCOMPARE(fsm.state(), State::Live);
-    fsm.setDeckPlaying(false); // "VDJ stops -> the progression stops"
-    QCOMPARE(fsm.state(), State::Suspended);
-    fsm.setDeckPlaying(true);
-    QCOMPARE(fsm.state(), State::Live);
-
-    QCOMPARE(stateSpy.count(), 3);
+    // deck handover: a paused deck 1 with A hands over to a playing deck 2 with B
+    QTest::newRow("handover, show and transport at once") << Inputs{ 1, false, false } << Inputs{ 2, true, false } << 1;
+    QTest::newRow("handover keeping Live") << Inputs{ 1, true, false } << Inputs{ 2, true, false } << 1;
+    QTest::newRow("eject: show and transport gone at once") << Inputs{ 1, true, false } << Inputs{ None, false, false } << 1;
+    QTest::newRow("play") << Inputs{ 1, false, false } << Inputs{ 1, true, false } << 1;
+    QTest::newRow("past the end while paused") << Inputs{ 1, false, false } << Inputs{ 1, false, true } << 0;
+    QTest::newRow("backward jump into the content") << Inputs{ 1, true, true } << Inputs{ 1, true, false } << 1;
 }
 
-void PerformFsm_Test::deckSwitchEmitsActiveShowChangedKeepingState()
+void PerformFsm_Test::inputChangeEmitsOnce()
 {
+    QFETCH(Inputs, from);
+    QFETCH(Inputs, to);
+    QFETCH(int, emissions);
+
     PerformFsm fsm;
     fsm.setPerformEnabled(true);
-    fsm.setDeckPlaying(true);
-    fsm.setActiveShow(1);
-    QCOMPARE(fsm.state(), State::Live);
+    fsm.setInputs(from);
+    QSignalSpy spy(&fsm, &PerformFsm::stateChanged);
+    fsm.setInputs(to);
+    QCOMPARE(spy.count(), emissions);
 
-    QSignalSpy stateSpy(&fsm, &PerformFsm::stateChanged);
-    QSignalSpy showSpy(&fsm, &PerformFsm::activeShowChanged);
-
-    // handover: Live -> Live, but consumers must hear about the new show
-    fsm.setActiveShow(2);
-    QCOMPARE(fsm.state(), State::Live);
-    QCOMPARE(stateSpy.count(), 0);
-    QCOMPARE(showSpy.count(), 1);
-    QCOMPARE(showSpy[0][0].toUInt(), 2u);
-
-    // losing the show (deck without one) falls back to Armed
-    fsm.setActiveShow(PerformFsm::InvalidShowId);
-    QCOMPARE(fsm.state(), State::Armed);
-    QCOMPARE(showSpy.count(), 2);
-}
-
-void PerformFsm_Test::disableReturnsToIdleFromAnyState()
-{
-    PerformFsm fsm;
-    fsm.setPerformEnabled(true);
-    fsm.setActiveShow(42);
-    fsm.setDeckPlaying(true);
-    QCOMPARE(fsm.state(), State::Live);
-
+    // the toggle is one more change each way
     fsm.setPerformEnabled(false);
     QCOMPARE(fsm.state(), State::Idle);
-    QCOMPARE(fsm.readOnly(), false);
-    // inputs are retained; re-enable restores Live
+    QCOMPARE(spy.count(), emissions + 1);
     fsm.setPerformEnabled(true);
-    QCOMPARE(fsm.state(), State::Live);
+    QCOMPARE(spy.count(), emissions + 2);
 }
 
-void PerformFsm_Test::resetKeepsToggleAndReArms()
+void PerformFsm_Test::planTable_data()
 {
-    PerformFsm fsm;
-    fsm.setPerformEnabled(true);
-    fsm.setActiveShow(42);
-    fsm.setDeckPlaying(true);
-    QCOMPARE(fsm.state(), State::Live);
+    QTest::addColumn<State>("prevState");
+    QTest::addColumn<quint32>("prevShow");
+    QTest::addColumn<State>("state");
+    QTest::addColumn<quint32>("show");
+    QTest::addColumn<Facts>("facts");
+    QTest::addColumn<QList<Step>>("steps");
 
-    QSignalSpy showSpy(&fsm, &PerformFsm::activeShowChanged);
+    const Facts stopped{ false, false, false };
+    const Facts queued{ false, false, true };
+    const Facts running{ true, false, false };
+    const Facts paused{ true, true, false };
 
-    fsm.reset(); // VDJ disconnect
-    QCOMPARE(fsm.state(), State::Armed);      // toggle survives, show is gone
-    QCOMPARE(fsm.enabled(), true);
-    QCOMPARE(fsm.activeShowId(), PerformFsm::InvalidShowId);
-    QCOMPARE(showSpy.count(), 1);
-    QCOMPARE(showSpy[0][0].toUInt(), PerformFsm::InvalidShowId);
-
-    // reset while Idle stays Idle and does not re-emit
-    PerformFsm idle;
-    QSignalSpy idleShowSpy(&idle, &PerformFsm::activeShowChanged);
-    idle.reset();
-    QCOMPARE(idle.state(), State::Idle);
-    QCOMPARE(idleShowSpy.count(), 0);
+    QTest::newRow("nothing to nothing") << State::Idle << None << State::Idle << None << stopped << QList<Step>{};
+    QTest::newRow("engage without a show")
+        << State::Idle << None << State::Armed << None << stopped
+        << QList<Step>{ { Effect::ResolveRecorder, None } };
+    QTest::newRow("engage on a paused deck")
+        << State::Idle << None << State::Suspended << 7u << stopped
+        << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::ResolveRecorder, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("engage on a playing deck")
+        << State::Idle << None << State::Live << 7u << stopped
+        << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::StartShow, 7 }, { Effect::ResolveRecorder, 7 },
+                        { Effect::SelectShow, 7 } };
+    QTest::newRow("engage on a playing deck past the content")
+        << State::Idle << None << State::Ended << 7u << stopped
+        << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::ResolveRecorder, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("the deck's song resolves a show")
+        << State::Armed << None << State::Live << 7u << stopped
+        << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::StartShow, 7 }, { Effect::ResolveRecorder, 7 },
+                        { Effect::SelectShow, 7 } };
+    QTest::newRow("play") << State::Suspended << 7u << State::Live << 7u << stopped
+                          << QList<Step>{ { Effect::StartShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("resume") << State::Suspended << 7u << State::Live << 7u << paused
+                            << QList<Step>{ { Effect::ResumeShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("pause") << State::Live << 7u << State::Suspended << 7u << running
+                           << QList<Step>{ { Effect::PauseShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("pause before the first tick cancels the start")
+        << State::Live << 7u << State::Suspended << 7u << queued
+        << QList<Step>{ { Effect::StopShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("pause a show that never started") << State::Live << 7u << State::Suspended << 7u << stopped
+                                                     << QList<Step>{ { Effect::SelectShow, 7 } };
+    QTest::newRow("stopped from outside while live: started again")
+        << State::Live << 7u << State::Live << 7u << stopped << QList<Step>{ { Effect::StartShow, 7 } };
+    QTest::newRow("live, start still queued") << State::Live << 7u << State::Live << 7u << queued << QList<Step>{};
+    QTest::newRow("the deck plays past the content") << State::Live << 7u << State::Ended << 7u << running
+                                                     << QList<Step>{ { Effect::StopShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("ended, the runner stopped it") << State::Live << 7u << State::Ended << 7u << stopped
+                                                  << QList<Step>{ { Effect::SelectShow, 7 } };
+    QTest::newRow("ended: a paused deck plays on past the content")
+        << State::Suspended << 7u << State::Ended << 7u << paused
+        << QList<Step>{ { Effect::StopShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("backward jump into the content") << State::Ended << 7u << State::Live << 7u << stopped
+                                                    << QList<Step>{ { Effect::StartShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("handover, both decks playing")
+        << State::Live << 7u << State::Live << 8u << stopped
+        << QList<Step>{ { Effect::ResolveRecorder, None }, { Effect::StopShow, 7 }, { Effect::ReleaseShow, 7 },
+                        { Effect::AdoptShow, 8 }, { Effect::StartShow, 8 }, { Effect::ResolveRecorder, 8 },
+                        { Effect::SelectShow, 8 } };
+    QTest::newRow("handover to a paused deck")
+        << State::Live << 7u << State::Suspended << 8u << stopped
+        << QList<Step>{ { Effect::ResolveRecorder, None }, { Effect::StopShow, 7 }, { Effect::ReleaseShow, 7 },
+                        { Effect::AdoptShow, 8 }, { Effect::ResolveRecorder, 8 }, { Effect::SelectShow, 8 } };
+    QTest::newRow("eject or disconnect: the deck is empty")
+        << State::Live << 7u << State::Armed << None << stopped
+        << QList<Step>{ { Effect::ResolveRecorder, None }, { Effect::StopShow, 7 }, { Effect::ReleaseShow, 7 } };
+    QTest::newRow("disengage while live")
+        << State::Live << 7u << State::Idle << None << running
+        << QList<Step>{ { Effect::ReleaseRecorder, None }, { Effect::StopShow, 7 }, { Effect::ReleaseShow, 7 } };
+    QTest::newRow("disengage while suspended")
+        << State::Suspended << 7u << State::Idle << None << paused
+        << QList<Step>{ { Effect::ReleaseRecorder, None }, { Effect::StopShow, 7 }, { Effect::ReleaseShow, 7 } };
+    QTest::newRow("disengage while armed") << State::Armed << None << State::Idle << None << stopped
+                                           << QList<Step>{ { Effect::ReleaseRecorder, None } };
 }
 
-void PerformFsm_Test::readOnlyDerivation()
+void PerformFsm_Test::planTable()
 {
-    PerformFsm fsm;
-    QCOMPARE(fsm.readOnly(), false);
-    fsm.setPerformEnabled(true);
-    QCOMPARE(fsm.readOnly(), true);   // Armed is engaged: read-only
-    fsm.setActiveShow(42);
-    QCOMPARE(fsm.readOnly(), true);   // Suspended
-    fsm.setDeckPlaying(true);
-    QCOMPARE(fsm.readOnly(), true);   // Live
-    fsm.setPerformEnabled(false);
-    QCOMPARE(fsm.readOnly(), false);  // Idle
-}
+    QFETCH(State, prevState);
+    QFETCH(quint32, prevShow);
+    QFETCH(State, state);
+    QFETCH(quint32, show);
+    QFETCH(Facts, facts);
+    QFETCH(QList<Step>, steps);
 
-void PerformFsm_Test::inputsWhileDisabledDoNotChangeState()
-{
-    PerformFsm fsm;
-    QSignalSpy stateSpy(&fsm, &PerformFsm::stateChanged);
-    QSignalSpy showSpy(&fsm, &PerformFsm::activeShowChanged);
-
-    // inputs are tracked but the state stays Idle until enabled
-    fsm.setActiveShow(42);
-    fsm.setDeckPlaying(true);
-    QCOMPARE(fsm.state(), State::Idle);
-    QCOMPARE(stateSpy.count(), 0);
-    QCOMPARE(showSpy.count(), 1); // show tracking is still announced
-
-    fsm.setPerformEnabled(true);
-    QCOMPARE(fsm.state(), State::Live); // pre-set inputs take effect at once
+    const auto names = [](const QList<Step> &list) {
+        QStringList out;
+        for (const Step &step : list)
+            out << QStringLiteral("%1(%2)").arg(QMetaEnum::fromType<Effect>().valueToKey(int(step.effect))).arg(step.showId);
+        return out;
+    };
+    QCOMPARE(names(PerformFsm::plan(prevState, prevShow, state, show, facts)), names(steps));
 }
 
 void PerformFsm_Test::stateToStringCoversAll()
@@ -181,6 +202,7 @@ void PerformFsm_Test::stateToStringCoversAll()
     QCOMPARE(PerformFsm::stateToString(State::Armed), QString("Armed"));
     QCOMPARE(PerformFsm::stateToString(State::Live), QString("Live"));
     QCOMPARE(PerformFsm::stateToString(State::Suspended), QString("Suspended"));
+    QCOMPARE(PerformFsm::stateToString(State::Ended), QString("Ended"));
 }
 
 QTEST_GUILESS_MAIN(PerformFsm_Test)

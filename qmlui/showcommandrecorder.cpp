@@ -31,7 +31,6 @@
 #include <limits>
 
 #include "doc.h"
-#include "performfsm.h"
 #include "show.h"
 #include "showrunner.h"
 #include "tardis.h"
@@ -335,21 +334,6 @@ bool ShowCommandRecorder::dispatch(const ShowRecordEvent &event)
         emit stateChanged();
     }
     return saved && refused == false;
-}
-
-void ShowCommandRecorder::followPerform(PerformFsm *fsm)
-{
-    // the same follow as the Show Manager's, on both signals: engaging Perform
-    // on an unchanged deck changes only the state
-    const auto follow = [this, fsm]()
-    {
-        if (fsm->state() == PerformFsm::PerformState::Idle)
-            releasePerform();
-        else
-            setResolvedShow(fsm->activeShowId(), ShowRecordSource::Perform);
-    };
-    connect(fsm, &PerformFsm::stateChanged, this, follow);
-    connect(fsm, &PerformFsm::activeShowChanged, this, follow);
 }
 
 bool ShowCommandRecorder::isAuthoring() const

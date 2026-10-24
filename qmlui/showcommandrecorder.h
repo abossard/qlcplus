@@ -37,7 +37,6 @@
 #include "show.h"
 
 class Doc;
-class PerformFsm;
 class VCButton;
 class VCSlider;
 class VCWidget;
@@ -226,9 +225,6 @@ public:
 
     /** Whether the Show Manager may select showId now */
     bool selectionAllowed(quint32 showId) const;
-
-    /** Follow an engaged Perform's Show, the automatic source of handovers */
-    void followPerform(PerformFsm *fsm);
 
     /** True while accepted user input is authored: recording and bound */
     bool isAuthoring() const;
