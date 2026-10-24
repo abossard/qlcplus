@@ -23,7 +23,7 @@ private slots:
 
     // DjSongModel
     void modelUpsertAddsAndDedupsByFilepath();
-    void modelSetAndClearShow();
+    void modelReadsTheShowFromTheIndex();
     void modelActiveAndPlayingFlags();
 
     // DjManager orchestration
@@ -54,6 +54,11 @@ private slots:
     void getDecksDrivesDeckCount();
     void deckCountSettingLimitsTable();
     void perDeckMasterdeckSetsActiveDeck();
+
+    // Show creation and the index
+    void deferredShowCreationRevalidates_data();
+    void deferredShowCreationRevalidates();
+    void playingASongModifiesTheWorkspace();
 
 private:
     Doc *m_doc = nullptr;

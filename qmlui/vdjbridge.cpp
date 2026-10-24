@@ -62,7 +62,6 @@ void VdjBridge::setDoc(Doc *doc)
         // any mapping change can resolve the Perform show
         connect(m_showFactory, &ShowFactory::showCreatedForSong, this, &VdjBridge::refreshPerformInputs);
         connect(m_showFactory, &ShowFactory::mappingChanged, this, &VdjBridge::refreshPerformInputs);
-        connect(m_doc, &Doc::functionRemoved, this, &VdjBridge::refreshPerformInputs);
     }
 
     if (m_doc && m_fsm)

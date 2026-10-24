@@ -25,70 +25,89 @@
 #include "show.h"
 #include "track.h"
 #include "audiobpmtag.h"
-
-#include <QTimer>
 #include "showfunction.h"
 
 #include <QDebug>
+#include <QDir>
 #include <QFileInfo>
 
 ShowFactory::ShowFactory(Doc *doc, QObject *parent)
     : QObject(parent)
     , m_doc(doc)
 {
-}
-
-void ShowFactory::createShowForSong(const DjFsm::DeckSong &info)
-{
     if (!m_doc)
         return;
-
-    const QString &filepath = info.filepath;
-    if (filepath.isEmpty())
-        return;
-
-    // Session-level dedup
-    if (m_createdShows.contains(filepath))
-        return;
-    m_createdShows.insert(filepath);
-
-    // Defer show creation to let the telemetry burst and QML initialization
-    // complete fully. Creating Audio+Show triggers Doc::functionAdded which
-    // updates QML models — doing this too early crashes the QML engine.
-    DjFsm::DeckSong copy = info;
-    QTimer::singleShot(3000, this, [this, copy]() { createShowDeferred(copy); });
+    connect(m_doc, &Doc::cleared, this, [this]() {
+        m_overrides.clear();
+        docChanged();
+    });
+    connect(m_doc, &Doc::functionAdded, this, [this](quint32 id) {
+        const Function *function = m_doc->function(id);
+        if (function && (function->type() == Function::ShowType || function->type() == Function::AudioType))
+            docChanged();
+    });
+    connect(m_doc, &Doc::functionRemoved, this, &ShowFactory::docChanged);
+    // a clip attached to a track announces nothing but the Doc's modification
+    connect(m_doc, &Doc::modified, this, [this]() { m_docIndexDirty = true; });
 }
 
-void ShowFactory::createShowDeferred(const DjFsm::DeckSong &info)
+void ShowFactory::docChanged()
 {
-    if (!m_doc)
-        return;
+    m_docIndexDirty = true;
+    emit mappingChanged(QString(), Function::invalidId());
+}
 
-    const QString &filepath = info.filepath;
-    const QString showName = showNameForSong(info);
+QString ShowFactory::normalizePath(const QString &filepath)
+{
+    return QDir::fromNativeSeparators(filepath);
+}
 
-    // Check if a Show with this name already exists in Doc
-    const auto shows = m_doc->functionsByType(Function::ShowType);
-    for (Function *f : shows)
+Audio *ShowFactory::songAudio(const Doc *doc, const Show *show)
+{
+    if (!doc || !show)
+        return nullptr;
+    for (Track *track : show->tracks())
     {
-        if (f->name() == showName)
+        for (ShowFunction *sf : track->showFunctions())
         {
-            m_createdShows.insert(filepath);
-            m_filepathToShowId.insert(filepath, f->id());
-            qDebug() << "[ShowFactory] Show already exists:" << showName;
-            emit showCreatedForSong(filepath, f->id());
-            return;
+            if (Audio *audio = qobject_cast<Audio *>(doc->function(sf->functionID())))
+                return audio;
         }
     }
+    return nullptr;
+}
 
-    quint32 showId = buildShowFunctions(info, showName);
-    if (showId == Function::invalidId())
-        return;
+QString ShowFactory::songFilepath(const Doc *doc, const Show *show)
+{
+    Audio *audio = songAudio(doc, show);
+    return audio ? normalizePath(audio->getSourceFileName()) : QString();
+}
 
-    qDebug() << "[ShowFactory] Auto-created Show:" << showName
-             << "show ID:" << showId;
+const QHash<QString, quint32> &ShowFactory::docIndex() const
+{
+    if (m_docIndexDirty)
+    {
+        m_docIndex.clear();
+        for (Function *f : m_doc->functionsByType(Function::ShowType))
+        {
+            const QString filepath = songFilepath(m_doc, qobject_cast<Show *>(f));
+            if (!filepath.isEmpty() && !m_docIndex.contains(filepath))
+                m_docIndex.insert(filepath, f->id());
+        }
+        m_docIndexDirty = false;
+    }
+    return m_docIndex;
+}
 
-    emit showCreatedForSong(filepath, showId);
+quint32 ShowFactory::showIdForFilepath(const QString &filepath) const
+{
+    const QString key = normalizePath(filepath);
+    if (key.isEmpty() || !m_doc)
+        return Function::invalidId();
+    const auto override = m_overrides.constFind(key);
+    if (override != m_overrides.constEnd())
+        return override.value();
+    return docIndex().value(key, Function::invalidId());
 }
 
 QString ShowFactory::showNameForSong(const DjFsm::DeckSong &info)
@@ -100,12 +119,13 @@ QString ShowFactory::showNameForSong(const DjFsm::DeckSong &info)
     return QFileInfo(info.filepath).completeBaseName();
 }
 
-quint32 ShowFactory::buildShowFunctions(const DjFsm::DeckSong &info, const QString &showName)
+quint32 ShowFactory::buildShow(const DjFsm::DeckSong &info)
 {
-    if (!m_doc)
+    if (!m_doc || info.filepath.isEmpty())
         return Function::invalidId();
 
     const QString &filepath = info.filepath;
+    const QString showName = showNameForSong(info);
 
     // Create Audio function
     Audio *audio = new Audio(m_doc);
@@ -150,65 +170,18 @@ quint32 ShowFactory::buildShowFunctions(const DjFsm::DeckSong &info, const QStri
     sf->setDuration(audio->totalDuration());
     sf->setColor(ShowFunction::defaultColor(Function::AudioType));
 
-    if (!filepath.isEmpty())
-    {
-        m_createdShows.insert(filepath);
-        m_filepathToShowId.insert(filepath, show->id());
-    }
-
+    qDebug() << "[ShowFactory] Built Show:" << showName << "show ID:" << show->id();
+    // the clip went in after the Show was added: the index reads it now
+    docChanged();
+    emit showCreatedForSong(filepath, show->id());
     return show->id();
-}
-
-quint32 ShowFactory::buildShow(const DjFsm::DeckSong &info)
-{
-    if (!m_doc || info.filepath.isEmpty())
-        return Function::invalidId();
-
-    const QString showName = showNameForSong(info);
-    quint32 showId = buildShowFunctions(info, showName);
-    if (showId == Function::invalidId())
-        return Function::invalidId();
-
-    qDebug() << "[ShowFactory] Built Show on request:" << showName
-             << "show ID:" << showId;
-    emit showCreatedForSong(info.filepath, showId);
-    return showId;
 }
 
 void ShowFactory::registerMapping(const QString &filepath, quint32 showId)
 {
-    if (filepath.isEmpty())
+    const QString key = normalizePath(filepath);
+    if (key.isEmpty())
         return;
-    if (showId == Function::invalidId())
-    {
-        m_filepathToShowId.remove(filepath);
-        emit mappingChanged(filepath, showId);
-        return;
-    }
-    m_createdShows.insert(filepath);
-    m_filepathToShowId.insert(filepath, showId);
+    m_overrides.insert(key, showId);
     emit mappingChanged(filepath, showId);
 }
-
-void ShowFactory::registerMappings(const QList<QPair<QString, quint32>> &mappings)
-{
-    if (mappings.isEmpty())
-        return;
-
-    for (const auto &mapping : mappings)
-    {
-        if (mapping.first.isEmpty() || mapping.second == Function::invalidId())
-            continue;
-        m_createdShows.insert(mapping.first);
-        m_filepathToShowId.insert(mapping.first, mapping.second);
-    }
-
-    // one bulk notification instead of O(mappings) emissions
-    emit mappingChanged(QString(), Function::invalidId());
-}
-
-quint32 ShowFactory::showIdForFilepath(const QString &filepath) const
-{
-    return m_filepathToShowId.value(filepath, Function::invalidId());
-}
-

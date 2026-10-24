@@ -59,7 +59,8 @@ void DjManager_Test::cleanupTestCase()
 
 void DjManager_Test::modelUpsertAddsAndDedupsByFilepath()
 {
-    DjSongModel model(m_doc);
+    ShowFactory index(m_doc);
+    DjSongModel model(m_doc, &index);
     QCOMPARE(model.rowCount(), 0);
 
     DjFsm::DeckSong a;
@@ -80,26 +81,27 @@ void DjManager_Test::modelUpsertAddsAndDedupsByFilepath()
     QCOMPARE(model.rowCount(), 2);
 }
 
-void DjManager_Test::modelSetAndClearShow()
+void DjManager_Test::modelReadsTheShowFromTheIndex()
 {
-    DjSongModel model(m_doc);
+    ShowFactory index(m_doc);
+    DjSongModel model(m_doc, &index);
     DjFsm::DeckSong a;
-    a.filepath = "/m/a.mp3"; a.title = "A"; a.artist = "X"; a.bpm = 120.0;
+    a.filepath = "/m/a.mp3"; a.title = "A";
     model.upsertSong(a);
-
     QCOMPARE(model.data(model.index(0), DjSongModel::HasShowRole).toBool(), false);
 
-    model.setShow("/m/a.mp3", 42);
+    // the row has no Show of its own: the index answers
+    index.registerMapping("/m/a.mp3", 42);
     QCOMPARE(model.data(model.index(0), DjSongModel::ShowIdRole).toUInt(), 42u);
     QCOMPARE(model.data(model.index(0), DjSongModel::HasShowRole).toBool(), true);
-
-    model.setShow("/m/a.mp3", Function::invalidId());
+    index.registerMapping("/m/a.mp3", Function::invalidId());
     QCOMPARE(model.data(model.index(0), DjSongModel::HasShowRole).toBool(), false);
 }
 
 void DjManager_Test::modelActiveAndPlayingFlags()
 {
-    DjSongModel model(m_doc);
+    ShowFactory index(m_doc);
+    DjSongModel model(m_doc, &index);
     DjFsm::DeckSong a; a.filepath = "/m/a.mp3"; a.title = "A"; a.artist = "X"; a.bpm = 1.0;
     DjFsm::DeckSong b; b.filepath = "/m/b.mp3"; b.title = "B"; b.artist = "Y"; b.bpm = 1.0;
     model.upsertSong(a);
@@ -736,12 +738,9 @@ void DjManager_Test::performResolvesShowAfterWorkspaceReload()
     sf->setStartTime(0);
     sf->setDuration(300000);
 
-    QCOMPARE(bridge.showFactory()->showIdForFilepath("/m/reload.mp3"),
-             Function::invalidId());
+    // the index reads the Doc: the Show is the song's before any manager exists
+    QCOMPARE(bridge.showFactory()->showIdForFilepath("/m/reload.mp3"), show->id());
 
-    // DjManager construction rebuilds the model from the Doc and must
-    // restore the factory mapping (previously it stayed empty until a
-    // 3s deferred name-match, which also duplicated renamed shows).
     DjManager mgr(&view, doc, &bridge, bridge.showFactory());
     QCOMPARE(bridge.showFactory()->showIdForFilepath("/m/reload.mp3"), show->id());
 
@@ -932,6 +931,96 @@ void DjManager_Test::perDeckMasterdeckSetsActiveDeck()
         Q_ARG(int, 1), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
     QCOMPARE(mgr.activeDeck(), 2);
     QCOMPARE(mgr.activeTitle(), QString("Two"));
+
+    delete doc;
+}
+
+void DjManager_Test::deferredShowCreationRevalidates_data()
+{
+    QTest::addColumn<QString>("meanwhile");
+    QTest::addColumn<bool>("created");
+    QTest::addColumn<QString>("showName");
+
+    QTest::newRow("nothing: built from the completed burst") << "" << true << "DJ - Late";
+    QTest::newRow("assigned by the user") << "assign" << false << "Chosen";
+    QTest::newRow("a Show of that name exists") << "named" << false << "DJ - Late";
+    QTest::newRow("the workspace was replaced") << "clear" << false << "";
+}
+
+void DjManager_Test::deferredShowCreationRevalidates()
+{
+    QFETCH(QString, meanwhile);
+    QFETCH(bool, created);
+    QFETCH(QString, showName);
+
+    Doc *doc = createDoc();
+    QQuickView view;
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+    ShowFactory *factory = bridge.showFactory();
+    DjFsm *fsm = bridge.djFsm();
+    DjManager mgr(&view, doc, &bridge, factory);
+    QSignalSpy createSpy(factory, &ShowFactory::showCreatedForSong);
+
+    // filepath-first load: the artist arrives after the song is announced
+    fsm->onDeckTrigger(1, "get_filepath", "/m/late.mp3");
+    fsm->onDeckTrigger(1, "get_title", "Late");
+    fsm->onDeckTrigger(1, "get_artist", "DJ");
+    fsm->onDeckTrigger(1, "get_bpm", 120.0);
+    QCOMPARE(mgr.songListModel()->rowCount(QModelIndex()), 1);
+
+    if (meanwhile == QLatin1String("assign") || meanwhile == QLatin1String("named"))
+    {
+        Show *show = new Show(doc);
+        show->setName(meanwhile == QLatin1String("assign") ? "Chosen" : "DJ - Late");
+        doc->addFunction(show);
+        if (meanwhile == QLatin1String("assign"))
+            mgr.assignShow("/m/late.mp3", int(show->id()));
+    }
+    else if (meanwhile == QLatin1String("clear"))
+    {
+        doc->clearContents();
+    }
+
+    QTest::qWait(3500);
+    QCOMPARE(createSpy.count(), created ? 1 : 0);
+    if (meanwhile == QLatin1String("clear"))
+    {
+        QCOMPARE(mgr.songListModel()->rowCount(QModelIndex()), 0);
+        QCOMPARE(doc->functionsByType(Function::ShowType).count(), 0);
+    }
+    else
+    {
+        const quint32 showId = mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
+                                                         DjSongModel::ShowIdRole).toUInt();
+        QVERIFY(showId != Function::invalidId());
+        QCOMPARE(doc->function(showId)->name(), showName);
+        QCOMPARE(doc->functionsByType(Function::ShowType).count(), 1);
+    }
+
+    delete doc;
+}
+
+void DjManager_Test::playingASongModifiesTheWorkspace()
+{
+    Doc *doc = createDoc();
+    QQuickView view;
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+    ShowFactory *factory = bridge.showFactory();
+    DjFsm *fsm = bridge.djFsm();
+    DjManager mgr(&view, doc, &bridge, factory);
+
+    DjFsm::DeckSong seed; seed.filepath = "/m/played.mp3"; seed.title = "Played"; seed.artist = "DJ"; seed.bpm = 120.0;
+    const quint32 showId = factory->buildShow(seed);
+    feedSong(fsm, 1, "/m/played.mp3", "Played", "DJ", 120.0);
+    doc->resetModified();
+    QVERIFY(!doc->function(showId)->lastPlayed().isValid());
+
+    // lastPlayed is saved with the workspace: playing dirties it
+    fsm->onDeckTrigger(1, "play", "on");
+    QVERIFY(doc->function(showId)->lastPlayed().isValid());
+    QVERIFY(doc->isModified());
 
     delete doc;
 }
