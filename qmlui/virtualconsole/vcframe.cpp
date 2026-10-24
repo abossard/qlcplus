@@ -1021,6 +1021,7 @@ void VCFrame::setMultiPageMode(bool multiPageMode)
     if (m_multiPageMode == multiPageMode)
         return;
 
+    enqueueTardisAction(Tardis::VCFrameMultiPage, QVariant(m_multiPageMode), QVariant(multiPageMode));
     m_multiPageMode = multiPageMode;
 
     // when enabling, make sure the label and shortcut control for the
@@ -1048,6 +1049,8 @@ void VCFrame::setTotalPagesNumber(int num)
 {
     if (m_totalPagesNumber == num)
         return;
+
+    enqueueTardisAction(Tardis::VCFramePagesNumber, QVariant(m_totalPagesNumber), QVariant(num));
 
     // pages rely on the first page (index 0) being registered
     ensureFirstPage();
@@ -1122,6 +1125,7 @@ void VCFrame::setPagesLoop(bool pagesLoop)
     if (m_pagesLoop == pagesLoop)
         return;
 
+    enqueueTardisAction(Tardis::VCFramePagesLoop, QVariant(m_pagesLoop), QVariant(pagesLoop));
     m_pagesLoop = pagesLoop;
     setDocModified();
     emit pagesLoopChanged(pagesLoop);

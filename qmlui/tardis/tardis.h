@@ -234,6 +234,9 @@ public:
         VCFrameCollapsed,
         VCFrameShowHeader,
         VCFrameShowEnable,
+        VCFrameMultiPage,
+        VCFramePagesNumber,
+        VCFramePagesLoop,
 
         /* Live actions */
         FixtureSetDumpValue = LIVE_ACTIONS_START_CODE,

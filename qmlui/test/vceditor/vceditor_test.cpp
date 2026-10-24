@@ -196,6 +196,12 @@ static QMap<QString, ConsoleEdit> consoleEdits()
             frame->setTotalPagesNumber(3);
             return QVariantMap();
         }},
+        {"pagesLoop", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
+            frame->setMultiPageMode(true);
+            frame->setPagesLoop(true);
+            return QVariantMap();
+        }},
         {"cloneFirstPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
             frame->setMultiPageMode(true);
@@ -361,7 +367,6 @@ void VCEditor_Test::editUndoRedoRoundTrip()
     settleHistory();
     QByteArray actual = consoleXML();
     saveArtifact("undone.xml", actual);
-    QEXPECT_FAIL("multiPage", "Not recorded", Abort);
     QEXPECT_FAIL("cloneFirstPage", "Not recorded", Abort);
     QEXPECT_FAIL("addPage", "Not recorded", Abort);
     QEXPECT_FAIL("deletePage", "Not recorded", Abort);
