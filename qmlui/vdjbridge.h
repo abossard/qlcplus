@@ -104,6 +104,7 @@ private slots:
     void onGlobalTrigger(const QString &trigger, const QVariant &value);
     void onTelemetryClientDisconnected();
     void onAdoptedShowStopped(quint32 showId);
+    void onAdoptedShowFinished(quint32 showId);
 
 private:
     void pushActiveBpm();
@@ -127,6 +128,14 @@ private:
     /** What the executor last applied: the planner's previous state */
     PerformFsm::PerformState m_appliedState = PerformFsm::PerformState::Idle;
     quint32 m_appliedShowId = PerformFsm::InvalidShowId;
+    /** A step that plans again waits for the plan under way */
+    bool m_planning = false;
+    bool m_replanPending = false;
+    /** The deck position at which the adopted Show's runner ended; a move
+     *  below it plays the Show again */
+    std::optional<quint32> m_endedAt;
+    /** The last tempo VirtualDJ gave the active deck's song */
+    int m_lastSongBpm = 0;
 
     QPointer<QLCIOPlugin> m_vdjPlugin;
 };

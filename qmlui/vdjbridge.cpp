@@ -31,6 +31,7 @@
 #include "inputoutputmap.h"
 
 #include <QDebug>
+#include <QScopedValueRollback>
 
 /** Engine tempo while the active deck is paused: a visible crawl */
 static const int kPausedBpm = 1;
@@ -91,6 +92,11 @@ void VdjBridge::pushActiveBpm()
         return;
 
     const DjFsm::Deck &deck = m_fsm->deckAt(active - 1);
+    // an emptied deck keeps the engine where it was
+    if (!deck.song.isValid())
+        return;
+    if (deck.song.bpm > 0)
+        m_lastSongBpm = qRound(deck.song.bpm);
     const int bpm = deck.playing ? qRound(deck.song.bpm) : kPausedBpm;
     if (bpm > 0)
         iom->setExternalBpm(bpm);
@@ -185,10 +191,9 @@ void VdjBridge::onTelemetryClientDisconnected()
     InputOutputMap *iom = m_doc ? m_doc->inputOutputMap() : nullptr;
     if (iom && iom->beatGeneratorType() == InputOutputMap::Plugin)
     {
-        // the song's tempo outlives the lock, the paused crawl does not
-        const int bpm = qRound(m_fsm->activeSong().bpm);
-        if (bpm > 0)
-            iom->setExternalBpm(bpm);
+        // the last song tempo outlives the lock, the paused crawl does not
+        if (m_lastSongBpm > 0)
+            iom->setExternalBpm(m_lastSongBpm);
         iom->clearExternalBpm();
     }
     m_fsm->onDisconnected();
@@ -198,6 +203,16 @@ void VdjBridge::onAdoptedShowStopped(quint32 showId)
 {
     if (showId == m_appliedShowId)
         applyPerformPlan();
+}
+
+void VdjBridge::onAdoptedShowFinished(quint32 showId)
+{
+    // the runner is the one owner of "the Show ended": from here the deck
+    // position decides, a move below it plays the Show again
+    if (showId != m_appliedShowId)
+        return;
+    m_endedAt = deckPosition().value_or(0);
+    refreshPerformInputs();
 }
 
 // ---------- Perform ----------
@@ -221,6 +236,8 @@ QString VdjBridge::performShowName() const
 
 void VdjBridge::refreshPerformInputs()
 {
+    if (m_endedAt && deckPosition().value_or(0) < *m_endedAt)
+        m_endedAt.reset();
     m_performFsm->setInputs(performInputs());
 }
 
@@ -239,9 +256,7 @@ PerformFsm::Inputs VdjBridge::performInputs() const
 
     inputs.showId = show->id();
     inputs.playing = deck.playing;
-    // the runner's own end: its clips and its authored commands
-    const quint32 extent = qMax(show->totalDuration(), show->commandTrack().extent());
-    inputs.pastEnd = quint32(qMax(0, deck.elapsedMs)) >= extent;
+    inputs.ended = m_endedAt.has_value();
     return inputs;
 }
 
@@ -263,7 +278,8 @@ std::optional<quint32> VdjBridge::deckPosition() const
     if (active < 1)
         return std::nullopt;
     const DjFsm::Deck &deck = m_fsm->deckAt(active - 1);
-    if (!deck.song.isValid())
+    // a new song's first sample is still ahead: the runner waits for it
+    if (!deck.song.isValid() || deck.positionStale)
         return std::nullopt;
     return quint32(qMax(0, deck.elapsedMs));
 }
@@ -283,15 +299,26 @@ Show *VdjBridge::lookupShow(quint32 showId) const
 
 void VdjBridge::applyPerformPlan()
 {
-    const PerformFsm::PerformState state = m_performFsm->state();
-    const quint32 showId = m_performFsm->activeShowId();
-    const QList<PerformFsm::Step> steps =
-        PerformFsm::plan(m_appliedState, m_appliedShowId, state, showId, showFacts(showId));
-    // applied before the steps run: a step that re-enters plans from here
-    m_appliedState = state;
-    m_appliedShowId = showId;
-    for (const PerformFsm::Step &step : steps)
-        perform(step);
+    // a step that re-enters (a listener toggling Perform) plans after this
+    // plan completed, against the state it reached
+    if (m_planning)
+    {
+        m_replanPending = true;
+        return;
+    }
+    QScopedValueRollback<bool> planning(m_planning, true);
+    do
+    {
+        m_replanPending = false;
+        const PerformFsm::PerformState state = m_performFsm->state();
+        const quint32 showId = m_performFsm->activeShowId();
+        const QList<PerformFsm::Step> steps =
+            PerformFsm::plan(m_appliedState, m_appliedShowId, state, showId, showFacts(showId));
+        m_appliedState = state;
+        m_appliedShowId = showId;
+        for (const PerformFsm::Step &step : steps)
+            perform(step);
+    } while (m_replanPending);
 }
 
 void VdjBridge::perform(const PerformFsm::Step &step)
@@ -310,17 +337,19 @@ void VdjBridge::perform(const PerformFsm::Step &step)
             emit performShowSelected(int(step.showId));
         break;
         case Effect::StopShow:
-            if (show && (show->isRunning() || m_doc->masterTimer()->isStartQueued(show)))
+            // idempotent, and the only way to reach a start the timer is taking off its queue
+            if (show)
                 show->stop(FunctionParent::master());
         break;
         case Effect::ReleaseShow:
             if (show)
             {
-                disconnect(show, QOverload<quint32>::of(&Function::stopped), this, &VdjBridge::onAdoptedShowStopped);
+                disconnect(show, nullptr, this, nullptr);
                 show->setPerformAudioSuppressed(false);
                 show->setSyncSource(ShowRunner::Autonomous);
                 qDebug() << "[VdjBridge] Perform: released show" << show->name();
             }
+            m_endedAt.reset();
         break;
         case Effect::AdoptShow:
             if (show)
@@ -330,8 +359,12 @@ void VdjBridge::perform(const PerformFsm::Step &step)
                 pushPosition(show);
                 connect(show, QOverload<quint32>::of(&Function::stopped), this, &VdjBridge::onAdoptedShowStopped,
                         Qt::QueuedConnection);
+                const quint32 id = show->id();
+                connect(show, &Show::showFinished, this, [this, id]() { onAdoptedShowFinished(id); },
+                        Qt::QueuedConnection);
                 qDebug() << "[VdjBridge] Perform: adopted show" << show->name();
             }
+            m_endedAt.reset();
         break;
         case Effect::StartShow:
             if (show && m_doc)

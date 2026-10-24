@@ -25,8 +25,8 @@
  * Finite state machine for VDJ Perform mode (control plane).
  *
  * Two inputs: the user's Perform toggle and the active deck, taken as one
- * fact (its Show, its transport, whether its position is past that Show's
- * content). Every input change recomputes once and emits stateChanged()
+ * fact (its Show, its transport, whether that Show's runner ended where the
+ * deck still is). Every input change recomputes once and emits stateChanged()
  * at most once, so consumers never see a half-applied deck.
  *
  * plan() is the pure planner: the effects that take the engine, the
@@ -48,9 +48,9 @@ public:
     {
         Idle,      //!< Perform off: the Show Manager is editable
         Armed,     //!< Perform on, no Show resolved for the active deck
-        Live,      //!< Show resolved, the deck plays inside its content
+        Live,      //!< Show resolved, the deck plays
         Suspended, //!< Show resolved, the deck is paused: playhead frozen
-        Ended,     //!< Show resolved, the deck plays past its content: dark
+        Ended,     //!< Show resolved, the deck plays on past where its runner ended: dark
     };
     Q_ENUM(PerformState)
 
@@ -62,11 +62,11 @@ public:
     {
         quint32 showId = InvalidShowId; //!< the Show resolved for the deck's song
         bool playing = false;
-        bool pastEnd = false;           //!< deck position at or past the Show's content
+        bool ended = false;             //!< the Show's runner ended and the deck has not moved back since
 
         bool operator==(const Inputs &o) const
         {
-            return showId == o.showId && playing == o.playing && pastEnd == o.pastEnd;
+            return showId == o.showId && playing == o.playing && ended == o.ended;
         }
     };
 

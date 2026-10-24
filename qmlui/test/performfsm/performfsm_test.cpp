@@ -39,9 +39,9 @@ void PerformFsm_Test::stateTable_data()
     QTest::newRow("off, deck playing a resolved song") << false << Inputs{ 42, true, false } << State::Idle << None;
     QTest::newRow("on, no show") << true << Inputs{ None, true, false } << State::Armed << None;
     QTest::newRow("on, show, deck paused") << true << Inputs{ 42, false, false } << State::Suspended << 42u;
-    QTest::newRow("on, show, deck paused past the end") << true << Inputs{ 42, false, true } << State::Suspended << 42u;
+    QTest::newRow("on, show ended, deck paused") << true << Inputs{ 42, false, true } << State::Suspended << 42u;
     QTest::newRow("on, show, deck playing") << true << Inputs{ 42, true, false } << State::Live << 42u;
-    QTest::newRow("on, show, deck playing past the end") << true << Inputs{ 42, true, true } << State::Ended << 42u;
+    QTest::newRow("on, show ended, deck playing on") << true << Inputs{ 42, true, true } << State::Ended << 42u;
 }
 
 void PerformFsm_Test::stateTable()
@@ -76,8 +76,8 @@ void PerformFsm_Test::inputChangeEmitsOnce_data()
     QTest::newRow("handover keeping Live") << Inputs{ 1, true, false } << Inputs{ 2, true, false } << 1;
     QTest::newRow("eject: show and transport gone at once") << Inputs{ 1, true, false } << Inputs{ None, false, false } << 1;
     QTest::newRow("play") << Inputs{ 1, false, false } << Inputs{ 1, true, false } << 1;
-    QTest::newRow("past the end while paused") << Inputs{ 1, false, false } << Inputs{ 1, false, true } << 0;
-    QTest::newRow("backward jump into the content") << Inputs{ 1, true, true } << Inputs{ 1, true, false } << 1;
+    QTest::newRow("the runner ended while paused") << Inputs{ 1, false, false } << Inputs{ 1, false, true } << 0;
+    QTest::newRow("backward jump below where it ended") << Inputs{ 1, true, true } << Inputs{ 1, true, false } << 1;
 }
 
 void PerformFsm_Test::inputChangeEmitsOnce()
@@ -126,7 +126,10 @@ void PerformFsm_Test::planTable_data()
         << State::Idle << None << State::Live << 7u << stopped
         << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::StartShow, 7 }, { Effect::ResolveRecorder, 7 },
                         { Effect::SelectShow, 7 } };
-    QTest::newRow("engage on a playing deck past the content")
+    QTest::newRow("engage on a playing deck, the show already running")
+        << State::Idle << None << State::Live << 7u << running
+        << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::ResolveRecorder, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("engage on a playing deck whose show ended")
         << State::Idle << None << State::Ended << 7u << stopped
         << QList<Step>{ { Effect::AdoptShow, 7 }, { Effect::ResolveRecorder, 7 }, { Effect::SelectShow, 7 } };
     QTest::newRow("the deck's song resolves a show")
@@ -147,15 +150,21 @@ void PerformFsm_Test::planTable_data()
     QTest::newRow("stopped from outside while live: started again")
         << State::Live << 7u << State::Live << 7u << stopped << QList<Step>{ { Effect::StartShow, 7 } };
     QTest::newRow("live, start still queued") << State::Live << 7u << State::Live << 7u << queued << QList<Step>{};
-    QTest::newRow("the deck plays past the content") << State::Live << 7u << State::Ended << 7u << running
-                                                     << QList<Step>{ { Effect::StopShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("the runner ended, the show still winding down")
+        << State::Live << 7u << State::Ended << 7u << running
+        << QList<Step>{ { Effect::StopShow, 7 }, { Effect::SelectShow, 7 } };
     QTest::newRow("ended, the runner stopped it") << State::Live << 7u << State::Ended << 7u << stopped
                                                   << QList<Step>{ { Effect::SelectShow, 7 } };
-    QTest::newRow("ended: a paused deck plays on past the content")
+    QTest::newRow("ended: a paused deck plays on")
         << State::Suspended << 7u << State::Ended << 7u << paused
         << QList<Step>{ { Effect::StopShow, 7 }, { Effect::SelectShow, 7 } };
-    QTest::newRow("backward jump into the content") << State::Ended << 7u << State::Live << 7u << stopped
-                                                    << QList<Step>{ { Effect::StartShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("ended: a paused deck plays on with a start still queued")
+        << State::Suspended << 7u << State::Ended << 7u << queued
+        << QList<Step>{ { Effect::StopShow, 7 }, { Effect::SelectShow, 7 } };
+    QTest::newRow("ended, then the deck pauses") << State::Ended << 7u << State::Suspended << 7u << stopped
+                                                 << QList<Step>{ { Effect::SelectShow, 7 } };
+    QTest::newRow("backward jump below where it ended") << State::Ended << 7u << State::Live << 7u << stopped
+                                                        << QList<Step>{ { Effect::StartShow, 7 }, { Effect::SelectShow, 7 } };
     QTest::newRow("handover, both decks playing")
         << State::Live << 7u << State::Live << 8u << stopped
         << QList<Step>{ { Effect::ResolveRecorder, None }, { Effect::StopShow, 7 }, { Effect::ReleaseShow, 7 },

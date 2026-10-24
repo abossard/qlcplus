@@ -131,7 +131,7 @@ void PerformFsm::recomputeState(PerformState prevState, quint32 prevShow)
         m_state = PerformState::Armed;
     else if (m_inputs.playing == false)
         m_state = PerformState::Suspended;
-    else if (m_inputs.pastEnd)
+    else if (m_inputs.ended)
         m_state = PerformState::Ended;
     else
         m_state = PerformState::Live;
