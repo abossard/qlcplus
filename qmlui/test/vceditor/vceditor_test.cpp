@@ -1289,6 +1289,9 @@ void VCEditor_Test::arrangedStructure_data()
         << QList<QRectF>();
     QTest::newRow("duplicate-full") << "duplicate" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b1", "b2", "b3"}
         << QList<QRectF>();
+    // a cut child leaves the full row as its copy joins it, at the end
+    QTest::newRow("cut-paste-full") << "cut" << int(GridLayout::ArrangeMode::Row) << QStringList{"b1", "b2", "b3", "new"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50), QRectF(220, 10, 60, 50)};
 }
 
 void VCEditor_Test::arrangedStructure()
@@ -1313,13 +1316,20 @@ void VCEditor_Test::arrangedStructure()
         result = vc()->editDrop(named["b0"], ids.page, 0, QRectF(1200, 300, 60, 50));
     else if (edit == "create")
         result = vc()->createWidget(ids.empty, "Button", QPointF(5, 200), 0);
-    else if (edit == "paste" || edit == "duplicate")
+    else if (edit == "paste" || edit == "duplicate" || edit == "cut")
     {
         QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
         if (edit == "paste")
         {
             vc()->setSelectedWidgetIDs({ids.loose});
             vc()->copyToClipboard();
+            vc()->setSelectedWidgetIDs({ids.empty});
+            vc()->pasteFromClipboard();
+        }
+        else if (edit == "cut")
+        {
+            vc()->setSelectedWidgetIDs({named["b0"]});
+            vc()->cutToClipboard();
             vc()->setSelectedWidgetIDs({ids.empty});
             vc()->pasteFromClipboard();
         }

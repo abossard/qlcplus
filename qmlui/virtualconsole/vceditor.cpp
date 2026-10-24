@@ -580,13 +580,15 @@ bool VCEditor::isArranged(const VCFrame *frame) const
 }
 
 QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QList<QSizeF> &sizes,
-                              const QList<QSizeF> &minimums) const
+                              const QList<QSizeF> &minimums, const QList<quint32> &leaving) const
 {
     if (!isArranged(frame))
         return QString();
     QList<QSizeF> allSizes, allMinimums;
     for (const QVariant &id : frame->orderedChildIDs(subpage))
     {
+        if (leaving.contains(id.toUInt()))
+            continue;
         VCWidget *child = m_vc->widget(id.toUInt());
         allSizes.append(child->logicalGeometry().size());
         allMinimums.append(child->minimumSize());
@@ -598,7 +600,7 @@ QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QList<QSizeF> &
     return arranged.error.isEmpty() ? QString() : tr("Frame %1: %2").arg(frame->caption(), arranged.error);
 }
 
-QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining) const
+QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining, bool cut) const
 {
     QList<QSizeF> sizes, minimums;
     for (auto it = joining.constBegin(); it != joining.constEnd(); ++it)
@@ -606,7 +608,7 @@ QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, Q
         sizes.append(it.value().size());
         minimums.append(m_vc->widget(it.key())->minimumSize());
     }
-    return arrangedFit(frame, subpage, sizes, minimums);
+    return arrangedFit(frame, subpage, sizes, minimums, cut ? joining.keys() : QList<quint32>());
 }
 
 void VCEditor::arrangeJoined(VCFrame *frame)

@@ -2840,7 +2840,7 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
         }
     }
     const bool arranged = m_editor->isArranged(target);
-    error = arranged ? m_editor->arrangedFit(target, subpage, rectangles)
+    error = arranged ? m_editor->arrangedFit(target, subpage, rectangles, m_clipboardIsCut)
                      : geometryError(rectangles, target, subpage, true);
     // a free spot does not help an arranged frame that has no room left
     if (!error.isEmpty() && nearPosition && !arranged && m_editor->placeNear(rectangles, target, subpage, step))

@@ -155,12 +155,13 @@ public:
 
     bool isArranged(const VCFrame *frame) const;
 
-    /** Why widgets of $sizes cannot join the end of the arranged $frame, empty when
-     *  they fit or $frame is not arranged */
+    /** Why widgets of $sizes cannot join the end of the arranged $frame once its children
+     *  $leaving are gone, empty when they fit or $frame is not arranged */
     QString arrangedFit(VCFrame *frame, int subpage, const QList<QSizeF> &sizes,
-                        const QList<QSizeF> &minimums) const;
-    /** The same for copies of the widgets keyed in $joining, at their sizes there */
-    QString arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining) const;
+                        const QList<QSizeF> &minimums, const QList<quint32> &leaving = {}) const;
+    /** The same for copies of the widgets keyed in $joining, at their sizes there,
+     *  which leave their place when they were $cut */
+    QString arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining, bool cut = false) const;
 
     /** Arrange $frame again inside a running edit, whose undo step takes the moves */
     void arrangeJoined(VCFrame *frame);
