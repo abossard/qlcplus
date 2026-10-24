@@ -575,9 +575,8 @@ bool ShowCommandRecorder::authorAt(const ShowCommandInput &input, quint32 positi
     ShowCommandState at;
     at.position = positionMs;
     const ShowCommandTransition transition = ShowCommandFsm::userInput(withUnpublished(show), at, input);
-    if (transition.error.isEmpty())
-        setError(transition.error);
-    else
+    // a successful input leaves the last reason alone: it may be a failed handover's
+    if (transition.error.isEmpty() == false)
         reportFailure(transition.error);
     if (transition.authored.isEmpty())
     {

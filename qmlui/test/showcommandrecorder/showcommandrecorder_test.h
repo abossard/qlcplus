@@ -435,6 +435,7 @@ private slots:
     void takeBoundary_marksPersistedChangeModified();
     void automaticShowChange_handsRecordingOver_data();
     void automaticShowChange_handsRecordingOver();
+    void failedHandover_reasonOutlivesLaterInput();
     void manualShowSelection_lockedWhileArmed_data();
     void manualShowSelection_lockedWhileArmed();
     void boundShowDeletion_armsAndUndoRebinds_data();

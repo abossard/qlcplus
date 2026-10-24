@@ -16048,6 +16048,43 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
     tickAndDeliver(&r.doc, 3);
 }
 
+void ShowCommandRecorder_Test::failedHandover_reasonOutlivesLaterInput()
+{
+    RequestRig r;
+    Show *a = r.show;
+    a->setName(QStringLiteral("Take A"));
+    a->setSyncSource(ShowRunner::External);
+    a->setExternalElapsedTime(4000);
+    Show *b = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(b));
+    b->setSyncSource(ShowRunner::External);
+    b->setExternalElapsedTime(900);
+    QVERIFY(r.recorder.setRecording(true));
+    // a command for a target that is gone keeps A from closing
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    QVERIFY(r.doc.deleteFunction(goneId));
+    ShowCommandInput start;
+    start.origin = ShowCommandOrigin::Pointer;
+    start.action = ShowCommandAction::Start;
+    start.functionId = goneId;
+    QVERIFY(!r.recorder.submitUserInput(start));
+    QVERIFY(!r.recorder.setResolvedShow(b->id(), ShowRecordSource::Perform));
+    const QString reason = r.recorder.lastError();
+    QVERIFY2(reason.contains(QStringLiteral("Take A")), qPrintable(reason));
+
+    // armed again on B, recording works and the reason stays until another replaces it
+    QVERIFY(r.recorder.setRecording(true));
+    r.slider->requestUserValue(153);
+    QCOMPARE(b->commandTrack().count(), 1);
+    QCOMPARE(r.recorder.lastError(), reason);
+    // A's input is saved once its target is back
+    Scene *back = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(back, goneId));
+    QVERIFY2(r.recorder.setRecording(false), qPrintable(r.recorder.lastError()));
+}
+
 void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed_data()
 {
     QTest::addColumn<QString>("state");
