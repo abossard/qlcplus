@@ -687,6 +687,7 @@ HSVUtil.blendPixel = function(map, i, h, s, v) {
  * Endpoints must be integers.
  */
 HSVUtil.walkLine = function(x0, y0, x1, y1, visit) {
+    if (!isFinite(x0 + y0 + x1 + y1)) return;
     var dx = Math.abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
     var dy = -Math.abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
     var err = dx + dy;

@@ -2099,6 +2099,17 @@ function assertSharedHelperBugs() {
         const m = helpers.mod1(c.x);
         assert(m >= 0 && m < 1, `mod1(${c.x}) = ${m}`);
     });
+    runCases('H3 HSVUtil.walkLine stops on a non-finite endpoint', [
+        { label: 'NaN end', args: '0, 0, NaN, 3' },
+        { label: 'Infinity end', args: '0, 0, Infinity, 0' },
+        { label: 'NaN start', args: 'NaN, 0, 4, 4' }
+    ], c => {
+        const context = vm.createContext({ Float32Array });
+        vm.runInContext(HSV_UTIL, context);
+        const visits = vm.runInContext(`var n = 0; HSVUtil.walkLine(${c.args}, function() { n++; }); n`,
+            context, { timeout: 1000 });
+        assert(visits <= 1, `${visits} visits`);
+    });
     runCases('H2 HSVUtil.gradientAt tolerates a non-finite position', [
         { label: 'NaN', t: NaN }, { label: 'Infinity', t: Infinity }, { label: '-Infinity', t: -Infinity }
     ], c => {

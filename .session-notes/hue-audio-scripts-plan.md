@@ -106,7 +106,7 @@ group tests: X5 power/flame/strobe, X6 reactor Nx1 (D4), splittower narrow (F3, 
   Red: blurz, scan, power, flame, tunnel, vortex, strobe tint.
 - [~] X6 Degenerate geometry under loud input (1xN, Nx1, narrow): lit and not uniform where the effect has a spatial axis.
 
-- [x] H1 `mod1(-1e-20)` returns 1; H2 `gradientAt(NaN)` throws (`assertSharedHelperBugs`, red, 69c85d855).
+- [x] H1 `mod1(-1e-20)` returns 1; H2 `gradientAt(NaN)` throws; H3 `walkLine` loops forever on a NaN/Infinity endpoint (found by G-C) (`assertSharedHelperBugs`, red, 69c85d855).
 
 Per group (agents): one parametrized test per bug in the group sections below, inside `assertGroupABugs`..
 `assertGroupFBugs` (stubs committed in 9531f83b5 so parallel agents never touch the same lines).
@@ -123,9 +123,11 @@ Per group (agents): one parametrized test per bug in the group sections below, i
 
 ## Open, not confirmed
 
-- [ ] O1 `HUEScript::rgbMapSetColors` queues a lambda holding raw `this` (huescript.cpp:268); `~RGBMatrix`
+- [-] O1 `HUEScript::rgbMapSetColors` queues a lambda holding raw `this` (huescript.cpp:268); `~RGBMatrix`
   deletes the algorithm inline (rgbmatrix.cpp:107) and huematrix.cpp:1171 claims it is deferred.
-  A test harness segfaulted at teardown after 64 create/destroy cycles. Reproduce with ASan before fixing.
+  A test harness segfaulted at teardown after 64 create/destroy cycles. Not reproduced under AddressSanitizer
+  (Doc-owned and stack-owned matrices, scripts at 90447f48c and df4f8e221, 200 previews per pattern): not fixed.
+  The huematrix.cpp comment claiming ~RGBMatrix uses deferDeleteAlgorithm is still wrong.
 
 ## Group bug lists (phase 3 test, then phase 4 fix)
 
@@ -297,3 +299,21 @@ Group F
   blendPixel, walkLine, rangeSlice, bandPeaks, attackRelease(frames?), ledFxColor, writeRgbPixels,
   noiseFieldRenderer for noise+smoke). Equivalence 63/63, red set unchanged.
 - 2026-10-24 Phase 4 central fixes: H1, H2, E14 and D9 noise green; X3 274 -> 304 of 393.
+- 2026-10-24 G-B fixed (68de1102b): B2, B5, B8, B9, B10, B11, B12, X1-X4 for its scripts. No harness assertion
+  changed. Also clamped chaser first-dot v (could reach 1.04). Visible changes: Buildup cycles drop 2 beats +
+  cooldown 2 beats; Chaser Bass/Volume drivers; Energy Artistic rests at 80% and peaks on the beat; Energy 2
+  Artistic speed is cycles per beat with tempo (2x faster at 120 BPM); DJ Light blobs stay on the strip;
+  setter input clamped (crawler to LedFx maxima).
+- 2026-10-24 G-D fixed (a6e678425): D3-D12, X1-X6 for its scripts. Harness change: marching row31 tolerance
+  1e-3 -> 2e-3. Visible changes: Power Artistic applies Flip/Mirror/Background/Brightness/Frequency Range,
+  sparks use Spark Color (default white), >=1 spark under 20 px, RGB blur; Reactor build-up drains ~1 bar
+  after the last downbeat, resets on source/resize, Pitch Hue follows the note, Nx1 shows the low scene;
+  Puddles Rain Pulse rate-independent, resize clears ripples; Reaction catches up at most 0.25 s; integer
+  setters round instead of truncating.
+- 2026-10-24 G-C fixed (e3ae11546): C2-C18, X1/X3/X4/X6 for its scripts (LedFx parity for C2, C3, C4, C16).
+  Harness changes: C22/life/health-all now seeds a dead board; C22/life/impulse-decay drop render 0.21 -> 0.25 s.
+  Visible: eq2d two center peak lines, peaks never sink into the bar, ring with 1-2 bands; flame lights at low
+  power, white stays white, blur/trip keep hue; flowfield true half-life (trails last longer), even edges;
+  gameoflife "All" restarts dead/frozen boards; LedFx Glitch colors match LedFx; hierarchy one switch time;
+  hueshift wave moves; gravimeter holds the peak; fire no fast-forward after a pause.
+- 2026-10-24 H3 walkLine guard: red test, then `isFinite` check (central).
