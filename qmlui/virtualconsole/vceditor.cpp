@@ -29,6 +29,8 @@
 #include "vceditor.h"
 #include "virtualconsole.h"
 #include "contextmanager.h"
+#include "functionmanager.h"
+#include "functioneditor.h"
 #include "qlcfile.h"
 #include "tardis.h"
 #include "vcframe.h"
@@ -203,6 +205,15 @@ void VCEditor::resetContents()
 {
     for (VCPage *page : m_vc->m_pages)
         delete VCArrangement::of(page, false);
+}
+
+bool VCEditor::showsFunctionEditor(QQuickView *view, FunctionManager *functions)
+{
+    QObject *panel = view->rootObject()->findChild<QObject *>("vcFunctionsPane");
+    FunctionEditor *editor = functions->currentEditor();
+    return editor && panel && panel->property("isOpen").toBool() &&
+           panel->property("itemID").toUInt() == editor->functionID() &&
+           panel->property("loaderSource").toString() == functions->getEditorResource(editor->functionID());
 }
 
 bool VCEditor::restorePage(int index, const QByteArray &xml)

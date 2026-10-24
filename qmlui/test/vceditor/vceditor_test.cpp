@@ -1015,6 +1015,8 @@ void VCEditor_Test::editKeys_data()
     QTest::newRow("delete-editor-shown") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "shown";
     QTest::newRow("backspace-editor-shown") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem) << "shown";
     QTest::newRow("delete-editor-hidden") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "hidden";
+    // the panel still shows a Scene editor, but another Scene is now edited elsewhere
+    QTest::newRow("delete-editor-stale") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "stale";
 }
 
 void VCEditor_Test::editKeys()
@@ -1036,7 +1038,7 @@ void VCEditor_Test::editKeys()
         auto *scene = new Scene(m_app->doc());
         QVERIFY(m_app->doc()->addFunction(scene));
         functions->setEditorFunction(scene->id(), false, false);
-        if (editor == "shown")
+        if (editor == "shown" || editor == "stale")
         {
             // as the side panel opens the editor of a Function from its list
             panel->setProperty("itemID", int(scene->id()));
@@ -1044,7 +1046,13 @@ void VCEditor_Test::editKeys()
             QVERIFY(QMetaObject::invokeMethod(panel, "animatePanel", Q_ARG(QVariant, true)));
             QTRY_VERIFY(panel->property("isOpen").toBool());
         }
-        else
+        if (editor == "stale")
+        {
+            auto *other = new Scene(m_app->doc());
+            QVERIFY(m_app->doc()->addFunction(other));
+            functions->setEditorFunction(other->id(), false, false);
+        }
+        if (editor == "hidden")
         {
             // like a Scene editor left open in Fixtures & Functions, out of sight
             QQmlComponent component(m_app->engine());

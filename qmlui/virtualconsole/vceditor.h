@@ -30,7 +30,9 @@
 
 class QXmlStreamReader;
 class QXmlStreamWriter;
+class FunctionManager;
 class VirtualConsole;
+class QQuickView;
 class VCWidget;
 class VCFrame;
 
@@ -97,6 +99,10 @@ public:
 
     /** Forget what the pages, which outlive a workspace, carried of it */
     void resetContents();
+
+    /** Whether the console side panel in $view shows the editor of the current
+     *  Function of $functions, which then owns the Delete key */
+    static bool showsFunctionEditor(QQuickView *view, FunctionManager *functions);
 
     /*********************************************************************
      * Selection
