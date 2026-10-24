@@ -130,6 +130,26 @@ public:
     QString arrangePlan(QMap<quint32, QRectF> &rectangles,
                         const QHash<quint32, GridLayout::ArrangeSpec> &specs = {}) const;
 
+    /** Where a widget dropped at $rect goes in the child order of the arranged
+     *  $target: before the first child whose center lies right of or below its
+     *  top left corner. -1 when $target is not arranged */
+    int dropIndex(VCFrame *target, int subpage, const QRectF &rect) const;
+
+    /** For a structure edit into the arranged $target, place the children of
+     *  $order: $candidates get the places of the moved roots, $siblings the
+     *  places of the others. An error when they do not fit */
+    QString arrangeStructure(VCFrame *target, int subpage, const QList<VCWidget *> &order,
+                             QMap<quint32, QRectF> &candidates, QMap<quint32, QRectF> &siblings) const;
+
+    /** The structure edit of the console, followed in the same undo step by the
+     *  $siblings moves and by the arranged frames the roots leave closing up */
+    QVariantMap commitStructure(const QList<VCWidget *> &roots, VCFrame *target, int subpage,
+                                const QList<VCWidget *> &order, const QMap<quint32, QRectF> &candidates,
+                                const QMap<quint32, QRectF> &siblings);
+
+    /** Delete the widgets $ids, the arranged frames they leave close up in the same undo step */
+    void deleteWidgets(const QVariantList &ids);
+
 signals:
     /** Emitted from a widget item: show the properties of the selection */
     void widgetPropertiesRequested();
@@ -138,6 +158,8 @@ signals:
 
 private:
     bool restorePage(int index, const QByteArray &xml);
+    /** Arrange $frames again, after children left or joined them */
+    void rearrange(const QList<VCFrame *> &frames);
 
     VirtualConsole *m_vc;
 };

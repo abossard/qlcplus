@@ -462,3 +462,99 @@ QVariantMap VCEditor::arrangeFrame(quint32 frameID, QVariantMap settings)
     Tardis::instance()->endBatch();
     return result;
 }
+
+int VCEditor::dropIndex(VCFrame *target, int subpage, const QRectF &rect) const
+{
+    if (VCArrangement::specOf(target).mode == GridLayout::ArrangeMode::None)
+        return -1;
+    int index = 0;
+    for (const QVariant &id : target->orderedChildIDs(subpage))
+    {
+        // the widget itself counts too: structure edits index the order before the move
+        const QRectF sibling = m_vc->widget(id.toUInt())->logicalGeometry();
+        const bool rowAbove = sibling.center().y() < rect.top() - sibling.height() / 2;
+        const bool sameRow = qAbs(sibling.center().y() - rect.top()) <= sibling.height() / 2;
+        if (!rowAbove && !(sameRow && sibling.center().x() < rect.left()))
+            break;
+        index++;
+    }
+    return index;
+}
+
+QString VCEditor::arrangeStructure(VCFrame *target, int subpage, const QList<VCWidget *> &order,
+                                   QMap<quint32, QRectF> &candidates, QMap<quint32, QRectF> &siblings) const
+{
+    const GridLayout::ArrangeSpec spec = VCArrangement::specOf(target);
+    if (spec.mode == GridLayout::ArrangeMode::None)
+        return QString();
+    QList<QSizeF> sizes, minimums;
+    for (VCWidget *child : order)
+    {
+        sizes.append(candidates.value(child->id(), child->logicalGeometry()).size());
+        minimums.append(child->minimumSize());
+    }
+    const GridLayout::ArrangeResult arranged = GridLayout::arrange(spec, target->contentRect(), sizes, minimums);
+    if (!arranged.error.isEmpty())
+        return tr("Frame %1: %2").arg(target->caption(), arranged.error);
+    for (int i = 0; i < order.size(); i++)
+    {
+        if (candidates.contains(order.at(i)->id()))
+            candidates.insert(order.at(i)->id(), arranged.rects.at(i));
+        else if (arranged.rects.at(i) != order.at(i)->logicalGeometry())
+            siblings.insert(order.at(i)->id(), arranged.rects.at(i));
+    }
+    Q_UNUSED(subpage)
+    return QString();
+}
+
+QVariantMap VCEditor::commitStructure(const QList<VCWidget *> &roots, VCFrame *target, int subpage,
+                                      const QList<VCWidget *> &order, const QMap<quint32, QRectF> &candidates,
+                                      const QMap<quint32, QRectF> &siblings)
+{
+    QList<VCFrame *> sources;
+    for (VCWidget *root : roots)
+        if (VCFrame *source = qobject_cast<VCFrame *>(root->parent()); source != target && !sources.contains(source))
+            sources.append(source);
+    Tardis::instance()->beginBatch("arrangedStructureEdit");
+    const QVariantMap result = m_vc->commitStructure(roots, target, subpage, order, candidates);
+    if (result.value("accepted").toBool())
+    {
+        if (!siblings.isEmpty())
+            m_vc->commitGeometry(siblings);
+        rearrange(sources);
+    }
+    Tardis::instance()->endBatch();
+    return result;
+}
+
+void VCEditor::deleteWidgets(const QVariantList &ids)
+{
+    QList<VCFrame *> parents;
+    for (const QVariant &id : ids)
+        if (VCWidget *widget = m_vc->widget(id.toUInt()))
+            if (VCFrame *parent = qobject_cast<VCFrame *>(widget->parent()); !parents.contains(parent))
+                parents.append(parent);
+    if (Tardis::instance())
+        Tardis::instance()->beginBatch("deleteWidgets");
+    m_vc->commitWidgetDeletion(ids);
+    // parents deleted along with their frames are gone by now
+    parents.removeIf([this](VCFrame *frame) { return !m_vc->m_widgetsMap.values().contains(frame); });
+    rearrange(parents);
+    if (Tardis::instance())
+        Tardis::instance()->endBatch();
+}
+
+void VCEditor::rearrange(const QList<VCFrame *> &frames)
+{
+    QMap<quint32, QRectF> rectangles;
+    for (VCFrame *frame : frames)
+        if (frame && VCArrangement::specOf(frame).mode != GridLayout::ArrangeMode::None)
+            rectangles.insert(frame->id(), frame->logicalGeometry());
+    if (rectangles.isEmpty() || !arrangePlan(rectangles).isEmpty())
+        return;
+    for (VCFrame *frame : frames)
+        if (frame)
+            rectangles.remove(frame->id());
+    if (!rectangles.isEmpty())
+        m_vc->commitGeometry(rectangles);
+}

@@ -1249,6 +1249,8 @@ QVariantMap VirtualConsole::previewDrop(quint32 id, quint32 targetFrameID, int t
     QRectF rect = admittedRectangle(entry, target, logicalRect, true, &error);
     if (!error.isEmpty())
         return editResult(false, false, error);
+    if (insertionIndex < 0)
+        insertionIndex = m_editor->dropIndex(target, targetSubpage, rect);
     if (entry->parent() == target && entry->page() == targetSubpage && insertionIndex < 0)
     {
         error = geometryError({{id, rect}});
@@ -1260,6 +1262,8 @@ QVariantMap VirtualConsole::previewDrop(quint32 id, quint32 targetFrameID, int t
 QVariantMap VirtualConsole::editDrop(quint32 id, quint32 targetFrameID, int targetSubpage,
                                      QRectF logicalRect, int insertionIndex)
 {
+    if (insertionIndex < 0 && targetFrame(targetFrameID))
+        insertionIndex = m_editor->dropIndex(targetFrame(targetFrameID), targetSubpage, logicalRect);
     const QVariantMap preview = previewDrop(id, targetFrameID, targetSubpage, logicalRect, insertionIndex);
     if (!preview.value("accepted").toBool())
         return preview;
@@ -1343,7 +1347,12 @@ QVariantMap VirtualConsole::structureEdit(const QVariantList &ids, quint32 targe
         order.removeAll(root);
     for (int i = 0; i < roots.size(); ++i)
         order.insert(adjustedIndex + i, roots[i]);
-    error = geometryError(candidates, target, subpage);
+    QMap<quint32, QRectF> siblings;
+    error = m_editor->arrangeStructure(target, subpage, order, candidates, siblings);
+    QMap<quint32, QRectF> checked = candidates;
+    checked.insert(siblings);
+    if (error.isEmpty())
+        error = geometryError(checked, target, subpage);
     if (!error.isEmpty())
         return editResult(false, false, error);
     if (preview)
@@ -1358,7 +1367,7 @@ QVariantMap VirtualConsole::structureEdit(const QVariantList &ids, quint32 targe
                   root->logicalGeometry() != candidates.value(root->id());
     if (!changed)
         return editResult(true, false, {}, candidates, target, subpage);
-    return commitStructure(roots, target, subpage, order, candidates);
+    return m_editor->commitStructure(roots, target, subpage, order, candidates, siblings);
 }
 
 QVariantMap VirtualConsole::commitStructure(const QList<VCWidget *> &roots, VCFrame *target, int subpage,
@@ -2377,7 +2386,7 @@ void VirtualConsole::deleteVCWidgets(QVariantList IDList)
         qWarning() << Q_FUNC_INFO << "Deletion refused during another console commit";
         return;
     }
-    commitWidgetDeletion(IDList);
+    m_editor->deleteWidgets(IDList);
 }
 
 void VirtualConsole::commitWidgetDeletion(const QVariantList &IDList)

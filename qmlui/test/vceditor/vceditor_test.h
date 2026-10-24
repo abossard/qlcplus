@@ -58,6 +58,8 @@ private slots:
     void arrangeFrame_data();
     void arrangeFrame();
     void arrangeNested();
+    void arrangedStructure_data();
+    void arrangedStructure();
     void arrangePanel();
     void arrangeSettingsPersist();
     void framePageVisibility_data();

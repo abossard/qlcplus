@@ -264,6 +264,14 @@ static QMap<QString, ConsoleEdit> consoleEdits()
             Tardis::instance()->endBatch();
             return result;
         }},
+        {"arrangedMoveOut", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
+            Tardis::instance()->beginBatch();
+            QVariantMap result = vc->editor()->arrangeFrame(ids.frame, {{"mode", int(GridLayout::ArrangeMode::Flow)}});
+            if (result.value("accepted").toBool())
+                result = vc->editDrop(ids.a, ids.page, 0, QRectF(1200, 300, 100, 80));
+            Tardis::instance()->endBatch();
+            return result;
+        }},
         {"cloneFirstPage", [](VirtualConsole *vc, Doc *, const ConsoleIds &ids) {
             auto *frame = qobject_cast<VCFrame *>(vc->widget(ids.frame));
             frame->setMultiPageMode(true);
@@ -1128,6 +1136,58 @@ void VCEditor_Test::arrangeNested()
     QVERIFY(vc()->editGeometry(ids.frame, vc()->widget(ids.frame)->logicalGeometry().adjusted(0, 0, 0, 100), false)
                 .value("accepted").toBool());
     QCOMPARE(vc()->widget(ids.inner)->logicalGeometry().size(), innerBefore + QSizeF(0, 100));
+}
+
+void VCEditor_Test::arrangedStructure_data()
+{
+    QTest::addColumn<QString>("edit");
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<QStringList>("order");          // the frame children afterwards
+    QTest::addColumn<QList<QRectF>>("expected");      // their geometry, in that order
+    QTest::newRow("reorder") << "reorder" << int(GridLayout::ArrangeMode::Row) << QStringList{"b1", "b2", "b0", "b3"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50), QRectF(220, 10, 60, 50)};
+    QTest::newRow("move-in") << "move-in" << int(GridLayout::ArrangeMode::Flow) << QStringList{"loose", "b0", "b1", "b2", "b3"}
+        << QList<QRectF>{QRectF(10, 10, 100, 80), QRectF(120, 10, 60, 50), QRectF(190, 10, 60, 50),
+                         QRectF(10, 100, 60, 50), QRectF(80, 100, 60, 50)};
+    QTest::newRow("move-out") << "move-out" << int(GridLayout::ArrangeMode::Row) << QStringList{"b1", "b2", "b3"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50)};
+    QTest::newRow("delete") << "delete" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b2", "b3"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50)};
+}
+
+void VCEditor_Test::arrangedStructure()
+{
+    QFETCH(QString, edit);
+    QFETCH(int, mode);
+    QFETCH(QStringList, order);
+    QFETCH(QList<QRectF>, expected);
+    const ConsoleIds ids = buildConsole();
+    const QList<quint32> buttons = fillEmptyFrame(vc(), ids);
+    QMap<QString, quint32> named {{"loose", ids.loose}};
+    for (int i = 0; i < buttons.size(); i++)
+        named.insert(QString("b%1").arg(i), buttons.at(i));
+    QVERIFY(vc()->editor()->arrangeFrame(ids.empty, {{"mode", mode}}).value("accepted").toBool());
+
+    QVariantMap result;
+    if (edit == "reorder")
+        result = vc()->editDrop(named["b0"], ids.empty, 0, QRectF(190, 10, 60, 50));
+    else if (edit == "move-in")
+        result = vc()->editDrop(ids.loose, ids.empty, 0, QRectF(5, 10, 100, 80));
+    else if (edit == "move-out")
+        result = vc()->editDrop(named["b0"], ids.page, 0, QRectF(1200, 300, 60, 50));
+    else
+        result = vc()->deleteAuthoringWidgets({named["b1"]});
+    QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
+
+    QVariantList wanted;
+    QList<QRectF> actual;
+    for (const QString &name : order)
+    {
+        wanted.append(named.value(name));
+        actual.append(vc()->widget(named.value(name))->logicalGeometry());
+    }
+    QCOMPARE(qobject_cast<VCFrame *>(vc()->widget(ids.empty))->orderedChildIDs(0), wanted);
+    QCOMPARE(actual, expected);
 }
 
 void VCEditor_Test::arrangePanel()
