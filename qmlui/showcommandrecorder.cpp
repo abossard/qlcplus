@@ -1911,7 +1911,12 @@ void ShowCommandRecorder::slotShowClock()
     if (show == nullptr || sender() != show)
         return;
 
+    // the clock moved: it is the position again, not a cursor set before
     m_hostCursorShowId = ShowCommand::InvalidId;
+    const quint32 now = show->commandPosition();
+    if (now < m_lastClock && ShowEventLog::generation() != 0)
+        traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3));
+    m_lastClock = now;
 }
 
 void ShowCommandRecorder::slotCommandTrackChanged()
@@ -1965,6 +1970,7 @@ void ShowCommandRecorder::reloadTrack()
         endEditSession(tr("The Show of this edit is no longer shown"));
 
     m_track = show != nullptr ? show->commandTrack() : ShowCommandTrack();
+    m_lastClock = show != nullptr ? show->commandPosition() : 0;
     if (show != nullptr)
     {
         connect(show, &Show::commandTrackChanged,
@@ -2517,8 +2523,12 @@ void ShowCommandRecorder::slotTimelineReset()
 
 void ShowCommandRecorder::slotShowPlayback()
 {
-    if (auto *show = qobject_cast<Show *>(sender()); show != nullptr && show->isRunning())
-        forgetTimeline(show->id());
+    auto *show = qobject_cast<Show *>(sender());
+    if (show == nullptr || show->isRunning() == false)
+        return;
+    forgetTimeline(show->id());
+    if (show == m_trackedShow && ShowEventLog::generation() != 0)
+        traceTransport(Outcome::Applied, tr("Playing"), targetName());
 }
 
 void ShowCommandRecorder::forgetTimeline(quint32 showId)
@@ -2535,6 +2545,8 @@ void ShowCommandRecorder::slotShowStopped(quint32)
         return;
     drainUserRequests();
     releaseReplayOwned(show->id());
+    if (show == m_trackedShow && ShowEventLog::generation() != 0)
+        traceTransport(Outcome::Applied, tr("Stopped"), targetName());
 }
 
 void ShowCommandRecorder::releaseReplayOwned(quint32 showId)

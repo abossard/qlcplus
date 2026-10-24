@@ -406,7 +406,7 @@ private slots:
     /** A Show stopped or changed its time source: its timeline facts end */
     void slotTimelineReset();
     void slotFunctionAdded(quint32 id);
-    /** A Show began playing: its timeline facts start over */
+    /** A Show began playing: its timeline facts start over, traced for the tracked one */
     void slotShowPlayback();
     /** A Show stopped: release replay-owned holds before timeline facts reset */
     void slotShowStopped(quint32 sourceId);
@@ -621,6 +621,8 @@ private:
     quint64 m_takeId = 0;
     quint32 m_hostCursorShowId = ShowCommand::InvalidId;
     quint32 m_hostCursor = 0;
+    /** The tracked Show's clock as last seen: a smaller one is a rewind, traced */
+    quint32 m_lastClock = 0;
     /** Accepted input a Show rejected, kept for the next publication */
     struct Unpublished
     {

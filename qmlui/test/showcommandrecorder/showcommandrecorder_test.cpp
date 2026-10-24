@@ -21582,6 +21582,14 @@ void ShowCommandRecorder_Test::debugPanel_transportUsesTheAcceptanceClock()
              qint64(route == QLatin1String("paused seek") ? 0u : expected));
     if (route != QLatin1String("external"))
         QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Cursor moved")), qint64(expected));
+    if (route == QLatin1String("rewound"))
+    {
+        // the first write: the Show runs, and its own clock moves back to the cursor
+        tickAndDeliver(&r.doc, 1);
+        QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Playing")), qint64(expected));
+        QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Show clock moved back")),
+                 qint64(expected));
+    }
     QVERIFY(r.recorder.setRecording(false));
     model.setOpen(false);
 }
