@@ -2831,6 +2831,49 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
     QVERIFY(loaded.malformedHoldPairs().isEmpty());
 }
 
+void ShowCommandTrack_Test::saveEndsHoldInProgress_data()
+{
+    QTest::addColumn<QString>("edges");
+    QTest::addColumn<bool>("idsLeft");
+    QTest::addColumn<QString>("saved"); // empty: the save is refused
+
+    QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << true << QStringLiteral("1000-2000");
+    // a hold left in progress ends at the extent in the file, and before a later pair
+    QTest::newRow("hold in progress") << QStringLiteral("1:on@1000") << true << QStringLiteral("1000-6000");
+    QTest::newRow("hold in progress before a later pair")
+        << QStringLiteral("1:on@1000 2:on@4000 2:off@5000") << true << QStringLiteral("1000-3999 4000-5000");
+    // the release that ends it needs an event id
+    QTest::newRow("hold in progress, no event id left") << QStringLiteral("1:on@1000") << false << QString();
+}
+
+void ShowCommandTrack_Test::saveEndsHoldInProgress()
+{
+    QFETCH(QString, edges);
+    QFETCH(bool, idsLeft);
+    QFETCH(QString, saved);
+
+    ShowCommandTrack track;
+    quint32 id = 0;
+    for (const QString &edge : edges.split(QLatin1Char(' ')))
+        QVERIFY(track.insert(holdEdge(id++, edge)));
+    if (!idsLeft)
+        QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 500, 12)));
+    QVERIFY(track.setExtent(6000));
+    const QString live = holdSpans(track);
+
+    const QString xml = toXml(track);
+    QCOMPARE(xml.isEmpty(), saved.isEmpty());
+    // the live track keeps its hold in progress
+    QCOMPARE(holdSpans(track), live);
+    if (saved.isEmpty())
+        return;
+    ShowCommandTrack loaded;
+    QVERIFY(fromXml(xml, &loaded));
+    QCOMPARE(holdSpans(loaded), saved);
+    QVERIFY(loaded.malformedHoldPairs().isEmpty());
+    QCOMPARE(loaded.extent(), 6000u);
+}
+
 void ShowCommandTrack_Test::malformedHoldPairs_data()
 {
     QTest::addColumn<QString>("edges");

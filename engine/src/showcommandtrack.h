@@ -439,6 +439,9 @@ public:
      *  hold pair that breaks the invariant, or is still open, is dropped
      *  with a warning instead: the rest of the track stays usable. */
     bool loadXML(QXmlStreamReader &root, QString *error = nullptr);
+    /** Writes the track as a file holds it: a hold still in progress ends at
+     *  the extent. False, writing nothing, when no event id is left for that
+     *  release. */
     bool saveXML(QXmlStreamWriter *doc) const;
 
 private:

@@ -1676,7 +1676,7 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     doc.writeEndElement();
 
     /* Write engine components to the XML document */
-    m_doc->saveXML(&doc);
+    const bool engineSaved = m_doc->saveXML(&doc);
 
     /* Write virtual console to the XML document */
     m_virtualConsole->saveXML(&doc);
@@ -1692,7 +1692,7 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     /* End the document and close all the open elements */
     doc.writeEndDocument();
 
-    if (doc.hasError())
+    if (doc.hasError() || engineSaved == false)
     {
         qWarning() << Q_FUNC_INFO << "Error writing XML to" << fileName;
 #if defined(Q_OS_ANDROID)

@@ -981,10 +981,8 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
         commands = m_commandTrackSaveProjectionArmed ? m_commandTrackSaveProjection : m_commandTrack;
         m_commandTrackSaveProjectionArmed = false;
     }
-    // a file holds no hold in progress: one left open ends at the authored extent
-    commands.closeOpenHolds(commands.extent());
-    if (commands.isEmpty() == false || commands.extent() > 0)
-        commands.saveXML(doc);
+    if ((commands.isEmpty() == false || commands.extent() > 0) && commands.saveXML(doc) == false)
+        return false;
 
     /* End the <Function> tag */
     doc->writeEndElement();

@@ -1697,8 +1697,8 @@ bool Doc::saveXML(QXmlStreamWriter *doc) const
     while (funcit.hasNext() == true)
     {
         Function *func(funcit.next());
-        if (func != NULL)
-            func->saveXML(doc);
+        if (func != NULL && func->saveXML(doc) == false)
+            return false;
     }
 
     if (m_monitorProps != NULL)
