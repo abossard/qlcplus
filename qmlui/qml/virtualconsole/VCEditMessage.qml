@@ -65,6 +65,16 @@ Rectangle
         text: messageBar.message
     }
 
+    Connections
+    {
+        target: vcEditor
+        function onMessageRequested(text)
+        {
+            messageBar.message = text
+            messageBar.open()
+        }
+    }
+
     Timer
     {
         id: hideTimer

@@ -176,6 +176,8 @@ signals:
     void widgetPropertiesRequested();
     /** Emitted from a widget item: show the widget menu at $scenePos */
     void widgetMenuRequested(QPointF scenePos);
+    /** Show $message in the console, like the reason of a refused edit */
+    void messageRequested(QString message);
 
 private:
     bool restorePage(int index, const QByteArray &xml);

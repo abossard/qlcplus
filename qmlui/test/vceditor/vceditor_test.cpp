@@ -1650,20 +1650,24 @@ void VCEditor_Test::destroyedDialogReleasesKeys()
 
 void VCEditor_Test::editErrorsDoNotBlock_data()
 {
-    QTest::addColumn<bool>("fromWidget");
-    QTest::newRow("console") << false;
-    QTest::newRow("widget") << true;
+    QTest::addColumn<QString>("source");
+    QTest::newRow("console") << "console";
+    QTest::newRow("widget") << "widget";
+    QTest::newRow("warning") << "warning";
 }
 
 void VCEditor_Test::editErrorsDoNotBlock()
 {
-    QFETCH(bool, fromWidget);
+    QFETCH(QString, source);
     const ConsoleIds ids = buildConsole();
     auto *console = m_app->rootObject()->findChild<QQuickItem *>("virtualConsole");
     QObject *message = console->findChild<QObject *>("vcLayoutError");
     QVERIFY(message);
+    QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
 
-    if (fromWidget)
+    if (source == "warning")
+        emit vc()->editor()->messageRequested("No room here");
+    else if (source == "widget")
     {
         QTRY_VERIFY(vc()->widget(ids.loose)->renderItem());
         const QVariant refused = QVariantMap{{"accepted", false}, {"error", "No room here"}};
@@ -1674,6 +1678,8 @@ void VCEditor_Test::editErrorsDoNotBlock()
         emit vc()->editRejected("No room here");
     // the reason shows without a dialog, so shortcuts keep working
     QTRY_VERIFY(message->property("visible").toBool());
+    // a warning about the selection is no refused edit
+    QCOMPARE(rejected.isEmpty(), source == "warning");
     QCOMPARE(message->property("message").toString(), QString("No room here"));
     QCOMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
     checkScreenshot("message");

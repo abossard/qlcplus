@@ -634,8 +634,9 @@ Rectangle
                     if (!cornerReady || !wRoot.isSelected || !frameChrome.visible)
                         return
                     var error = placement ? placement.error : ""
+                    // a warning about the selection, not a refused edit
                     if (error && error !== lastClearanceError)
-                        wRoot.showEditResult({ accepted: false, error: error })
+                        vcEditor.messageRequested(error)
                     lastClearanceError = error
                 }
 
