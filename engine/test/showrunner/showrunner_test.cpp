@@ -555,14 +555,26 @@ void ShowRunner_Test::localSeekDoesNotOverrideExternalControl()
     QCOMPARE(output, uchar(51));
 }
 
+/** Runner log lines of a sync source change, while a test counts them */
+static int s_syncSourceLogs = 0;
+static QtMessageHandler s_previousHandler = nullptr;
+static void countSyncSourceLogs(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+    if (message.contains(QLatin1String("Sync source set")))
+        s_syncSourceLogs++;
+    s_previousHandler(type, context, message);
+}
+
 void ShowRunner_Test::syncSourceChangeAppliesOnNextTick_data()
 {
     QTest::addColumn<bool>("toExternal");
     QTest::addColumn<quint32>("firstTick");
     QTest::addColumn<quint32>("secondTick");
+    QTest::addColumn<int>("changes");
 
-    QTest::newRow("to external") << true << quint32(MasterTimer::tick()) << quint32(5000);
-    QTest::newRow("to autonomous") << false << quint32(1000) << quint32(1000 + MasterTimer::tick());
+    // a fresh runner starts Autonomous: an External Show hands it a change at once
+    QTest::newRow("to external") << true << quint32(MasterTimer::tick()) << quint32(5000) << 1;
+    QTest::newRow("to autonomous") << false << quint32(1000) << quint32(1000 + MasterTimer::tick()) << 2;
 }
 
 void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
@@ -570,7 +582,11 @@ void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
     QFETCH(bool, toExternal);
     QFETCH(quint32, firstTick);
     QFETCH(quint32, secondTick);
+    QFETCH(int, changes);
 
+    s_syncSourceLogs = 0;
+    s_previousHandler = qInstallMessageHandler(countSyncSourceLogs);
+    const auto restore = qScopeGuard([]() { qInstallMessageHandler(s_previousHandler); });
     Doc doc(nullptr);
     MasterTimer *timer = doc.masterTimer();
     Show *show = new Show(&doc);
@@ -601,6 +617,9 @@ void ShowRunner_Test::syncSourceChangeAppliesOnNextTick()
     QCOMPARE(position.last().first().toUInt(), firstTick);
     timer->timerTick();
     QCOMPARE(position.last().first().toUInt(), secondTick);
+    // the runner hears of a source only when it changes, not on every tick
+    timer->timerTick();
+    QCOMPARE(s_syncSourceLogs, changes);
 
     show->stop(FunctionParent::master());
     timer->timerTick();

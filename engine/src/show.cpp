@@ -1215,7 +1215,8 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
             forwardTime <= m_commandPosition.load(std::memory_order_relaxed))
             forwardTime = NoSeekRequested;
     }
-    m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
+    if (m_runner->syncSource() != source)
+        m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
     if (seekTime != NoSeekRequested)
         m_runner->requestSeek(quint32(seekTime));
     else if (forwardTime != NoSeekRequested)
