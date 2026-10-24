@@ -232,11 +232,15 @@ bool VCEditor::restorePage(int index, const QByteArray &xml)
     page->buildKeySequenceMap();
     m_vc->updatePageInputs();
 
-    /* the shown page keeps its place, then undo shows the page it brings back,
-       unless that asks for a PIN first */
+    /* keep the shown page selected, before the page tabs rebuild and check
+       the tab at the old index, which could ask for the PIN of the new page */
     if (index <= m_vc->m_selectedPage && m_vc->m_pages.count() > 1)
+    {
         m_vc->m_selectedPage++;
+        emit m_vc->selectedPageChanged(m_vc->m_selectedPage);
+    }
     emit m_vc->pagesCountChanged();
+    /* then show the page undo brings back, unless that asks for a PIN first */
     if (!page->requirePIN())
         m_vc->setSelectedPage(index);
     return true;

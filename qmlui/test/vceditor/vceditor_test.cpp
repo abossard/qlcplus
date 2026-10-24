@@ -1808,6 +1808,7 @@ void VCEditor_Test::pageDeleteUndo_data()
     QTest::newRow("other") << 0 << 2 << 0 << false << 2;
     // a page behind a PIN only shows once the PIN is given
     QTest::newRow("pin") << 0 << 2 << 0 << true << 0;
+    QTest::newRow("pin-selected") << 1 << 1 << 1 << true << 2;
 }
 
 void VCEditor_Test::pageDeleteUndo()
@@ -1857,8 +1858,10 @@ void VCEditor_Test::pageDeleteUndo()
     QCOMPARE(vc()->page(deleted)->id(), deletedPage);
     // undo shows the page it brings back, which takes its input again
     QCOMPARE(vc()->selectedPage(), shownAfterUndo);
-    if (shownAfterUndo == deleted)
-        QTRY_VERIFY(vc()->widget(sliderID)->renderItem() && vc()->widget(sliderID)->renderItem()->isVisible());
+    // and the canvas follows the console, without asking for a PIN on the way
+    const quint32 shownAfter = buttons.value(vc()->page(shownAfterUndo)->id());
+    QTRY_VERIFY(vc()->widget(shownAfter)->renderItem() && vc()->widget(shownAfter)->renderItem()->isVisible());
+    QCOMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
     QVERIFY(takesInput(128));
 }
 
