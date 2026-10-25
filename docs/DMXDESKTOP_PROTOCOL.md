@@ -40,7 +40,10 @@ break at every `}{` boundary and parse each object. QLC+ does exactly this:
    **3560 bytes**, ~112 triggers).
 4. **Client → server**: VDJ streams `subscribed` value-updates and `beat` events
    (`…57522 → …8050`).
-5. On disconnect the server resets deck state and keeps listening; VDJ reconnects.
+5. On disconnect the server resets deck state, keeps listening and registers its
+   Bonjour service again, whichever side closed. Measured: after a server-side
+   close VDJ did not reconnect for 212 s, and reconnected ~0.3 s after the
+   service was registered again.
 
 Before the `subscribe` only beats arrive. A reconnecting VDJ first drains every
 beat it queued while disconnected (measured: 22,946 beats after 3 h, 11 minutes

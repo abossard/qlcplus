@@ -91,6 +91,10 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
     });
     connect(m_telemetry, &VdjTelemetryClient::clientDisconnected,
             this, [this, input, universe]() {
+        // VDJ reconnects only to a service registered again (measured); a
+        // listening server means the input is open and no client took over
+        if (m_telemetry->status() == VdjTelemetryClient::Listening)
+            registerBonjourAgain();
         emit clientDisconnected();
         emit connectionStatusChanged(universe, input);
     });
@@ -203,11 +207,7 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
         {
             m_telemetry->stop();
             m_telemetry->start(m_hostPort);
-            if (m_bonjour)
-            {
-                m_bonjour->unregisterService();
-                m_bonjour->registerService(m_serviceName, m_hostPort);
-            }
+            registerBonjourAgain();
         }
     }
     else if (name == QLatin1String(VDJ_BONJOUR_ENABLED))
@@ -231,14 +231,18 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
     else if (name == QLatin1String(VDJ_SERVICE_NAME))
     {
         m_serviceName = value.toString();
-        if (m_open && m_bonjour)
-        {
-            m_bonjour->unregisterService();
-            m_bonjour->registerService(m_serviceName, m_hostPort);
-        }
+        registerBonjourAgain();
     }
     else
     {
         QLCIOPlugin::setParameter(universe, line, type, name, value);
     }
+}
+
+void VdjBridgePlugin::registerBonjourAgain()
+{
+    if (!m_bonjour)
+        return;
+    m_bonjour->unregisterService();
+    m_bonjour->registerService(m_serviceName, m_hostPort);
 }

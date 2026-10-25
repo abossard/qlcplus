@@ -13,6 +13,8 @@
 #include "vdjbridge.h"
 #include "vdjbridgeplugin.h"
 
+extern int vdjBonjourRegistrations; // vdjbonjour_stub.cpp
+
 // ========================================================================
 // NDJSON parser tests
 // ========================================================================
@@ -635,6 +637,44 @@ void VdjTelemetryClient_Test::anObjectOpenPastTheCapDropsTheClient()
         QCOMPARE(server.status(), VdjTelemetryClient::ClientConnected);
     }
     server.stop();
+}
+
+void VdjTelemetryClient_Test::aConnectionThatEndsAdvertisesAgain_data()
+{
+    QTest::addColumn<bool>("vdjCloses");
+    QTest::newRow("VDJ closes the connection") << true;
+    QTest::newRow("QLC+ drops the connection") << false;
+}
+
+void VdjTelemetryClient_Test::aConnectionThatEndsAdvertisesAgain()
+{
+    QFETCH(bool, vdjCloses);
+
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18061);
+    const int before = vdjBonjourRegistrations;
+    QVERIFY(plugin.openInput(0, 0));
+    QCOMPARE(vdjBonjourRegistrations, before + 1);
+    QSignalSpy discSpy(&plugin, &VdjBridgePlugin::clientDisconnected);
+
+    QTcpSocket vdj;
+    vdj.connectToHost("127.0.0.1", 18061);
+    QVERIFY(vdj.waitForConnected(2000));
+    QTRY_VERIFY_WITH_TIMEOUT(vdj.bytesAvailable() > 0, 2000);
+    vdj.readAll();
+    if (vdjCloses)
+        vdj.disconnectFromHost();
+    else
+    {
+        vdj.write("{\"value\":\"" + QByteArray(1024 * 1024, 'x'));
+        vdj.flush();
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(discSpy.count(), 1, 5000);
+
+    // measured: VDJ reconnects only to a service registered again
+    QCOMPARE(vdjBonjourRegistrations, before + 2);
+    plugin.closeInput(0, 0);
+    QCOMPARE(vdjBonjourRegistrations, before + 2);
 }
 
 QTEST_MAIN(VdjTelemetryClient_Test)

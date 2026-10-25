@@ -96,6 +96,8 @@ signals:
     void clientDisconnected();
 
 private:
+    void registerBonjourAgain();
+
     quint16  m_hostPort       = VDJ_DEFAULT_PORT;
     bool     m_bonjourEnabled = true;
     QString  m_serviceName    = QStringLiteral("QLC+ VDJ");

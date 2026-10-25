@@ -46,6 +46,8 @@ private slots:
     void beatsOfAConnectionStartAtItsSnapshot();
     void anObjectOpenPastTheCapDropsTheClient_data();
     void anObjectOpenPastTheCapDropsTheClient();
+    void aConnectionThatEndsAdvertisesAgain_data();
+    void aConnectionThatEndsAdvertisesAgain();
 };
 
 #endif
