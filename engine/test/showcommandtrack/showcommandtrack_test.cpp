@@ -2739,16 +2739,25 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
     QTest::newRow("record pair") << QStringLiteral("press 1000, release 2000") << QStringLiteral("1000-2000");
     QTest::newRow("seek back, earlier pair") << take + QStringLiteral("press 6000, release 7000")
                                              << QStringLiteral("6000-7000 10000-12000");
-    // a hold replaces the recorded holds of its control it spans
+    // a hold replaces what was recorded inside it; a recorded hold still on at the release resumes there
     QTest::newRow("seek back, held into a later pair") << take + QStringLiteral("press 6000, release 11000")
-                                                       << QStringLiteral("6000-11000");
+                                                       << QStringLiteral("6000-11000 11000-12000");
+    QTest::newRow("seek back, held over a later pair") << take + QStringLiteral("press 6000, release 13000")
+                                                       << QStringLiteral("6000-13000");
     // a press cuts the recorded hold it lands in, its release first at that time
     QTest::newRow("seek back, press inside a recorded hold") << take + QStringLiteral("press 11000, release 13000")
                                                              << QStringLiteral("10000-11000 11000-13000");
     QTest::newRow("seek back, press at a recorded release") << take + QStringLiteral("press 12000, release 13000")
                                                             << QStringLiteral("10000-12000 12000-13000");
+    // a press on a control already held live starts nothing
     QTest::newRow("second press while held") << QStringLiteral("press 1000, press 1500, release 2000")
-                                             << QStringLiteral("1000-1500 1500-2000");
+                                             << QStringLiteral("1000-2000");
+    QTest::newRow("second press while held inside a recorded hold")
+        << take + QStringLiteral("press 11000, press 11500, release 13000") << QStringLiteral("10000-11000 11000-13000");
+    // a recorded hold beginning at the press goes whole, no hold of no time is
+    // left; the recorder resumes its rest at the release
+    QTest::newRow("seek back, press at a recorded press") << take + QStringLiteral("press 10000, release 11000")
+                                                          << QStringLiteral("10000-11000");
     QTest::newRow("release with nothing held") << QStringLiteral("release 1000, press 2000, release 3000")
                                                << QStringLiteral("2000-3000");
     QTest::newRow("hold at a frozen position") << QStringLiteral("press 4000, release 4000")
@@ -2763,8 +2772,9 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
                                                    << QStringLiteral("10000-10000");
     QTest::newRow("REC off before a later pair") << take + QStringLiteral("press 6000, close 8000")
                                                  << QStringLiteral("6000-8000 10000-12000");
-    QTest::newRow("REC off held into a later pair") << take + QStringLiteral("press 6000, close 11000")
-                                                    << QStringLiteral("6000-11000");
+    // closed for a file, a hold ends before the next recorded hold of its control and removes nothing
+    QTest::newRow("closed held into a later pair") << take + QStringLiteral("press 6000, close 11000")
+                                                   << QStringLiteral("6000-10000 10000-12000");
 }
 
 void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
@@ -2822,10 +2832,10 @@ void ShowCommandTrack_Test::saveEndsHoldInProgress_data()
     QTest::addColumn<QString>("saved"); // empty: the save is refused
 
     QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << true << QStringLiteral("1000-2000");
-    // a hold left in progress ends at the extent in the file, replacing the holds it spans
+    // a hold left in progress ends at the extent in the file, or before the next hold of its control
     QTest::newRow("hold in progress") << QStringLiteral("1:on@1000") << true << QStringLiteral("1000-6000");
     QTest::newRow("hold in progress before a later pair")
-        << QStringLiteral("1:on@1000 2:on@4000 2:off@5000") << true << QStringLiteral("1000-6000");
+        << QStringLiteral("1:on@1000 2:on@4000 2:off@5000") << true << QStringLiteral("1000-4000 4000-5000");
     // the release that ends it needs an event id
     QTest::newRow("hold in progress, no event id left") << QStringLiteral("1:on@1000") << false << QString();
 }

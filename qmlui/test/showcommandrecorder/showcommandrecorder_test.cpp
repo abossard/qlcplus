@@ -14983,10 +14983,18 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
                                  << QStringLiteral("1000-2000") << QStringLiteral("1000-2000") << true;
     QTest::newRow("seek back, earlier pair") << take + QStringLiteral("at 6000, press, at 7000, release, rec off")
                                              << both << both << true;
-    // a hold replaces the recorded holds of its control it spans
+    // a hold replaces what was recorded inside it; a recorded hold still on at its release resumes there
     QTest::newRow("seek back, held into a later pair")
         << take + QStringLiteral("at 6000, press, at 11000, release, rec off")
-        << QStringLiteral("6000-11000") << QStringLiteral("6000-11000") << true;
+        << QStringLiteral("6000-11000 11000-12000") << QStringLiteral("6000-11000 11000-12000") << true;
+    QTest::newRow("seek back, a tap inside a recorded hold")
+        << take + QStringLiteral("at 10500, press, at 11000, release, rec off")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000") << true;
+    QTest::newRow("seek back, REC off inside a recorded hold")
+        << take + QStringLiteral("at 10500, press, at 11000, rec off")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000") << true;
     // a press cuts the recorded hold it lands in and starts its own
     QTest::newRow("seek back, press inside a recorded hold")
         << take + QStringLiteral("at 11000, press, at 13000, release, rec off")
@@ -15150,6 +15158,18 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
                                QStringLiteral("F:2000-4000 T:1500=1,4500=0"),
                                QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
                                QStringLiteral("F:1000-5000 T:1500=1,4500=0") };
+    // outside the live hold the recording stays: cut at the press, resumed at the release
+    QTest::newRow("a tap inside a recorded hold keeps the rest of it")
+        << holdTake + QStringLiteral("to:2500;press:F;to:3000;release:F;to:6000;log;wrap;to:6000;log;track")
+        << take + QStringList{ QStringLiteral("F:2000=200,3000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:2000=200,4000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:2000-2500,2500-3000,3000-4000 T:1500=1,4500=0") };
+    QTest::newRow("a hold across the wrap onto a recorded hold keeps its rest")
+        << QStringLiteral("rec;playext;press:F;to:1000;release:F;to:6000;log;wrap;to:5500;press:F;to:6000;wrap;"
+                          "to:500;release:F;to:6000;log;track")
+        << QStringList{ QStringLiteral("F:0=200,1000=0"),
+                        QStringLiteral("F:0=200,1000=0,5500=200,500=0,5500=200,6000=0"),
+                        QStringLiteral("F:0-500,500-1000,5500-6000") };
     // the hold goes on through the wrap: two pairs, the native hold untouched
     QTest::newRow("a flash held across the wrap stays on through it")
         << QStringLiteral("rec;playext;to:5000;press:F;to:6000;log;wrap;to:1000;release:F;log;track;"

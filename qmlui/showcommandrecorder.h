@@ -431,7 +431,18 @@ private:
 
     /** Commit an accepted transition: keep the authored commands and publish
      *  them with the traversal metadata that keeps live input from echoing back */
-    bool commit(const ShowCommandTransition &transition, Show *show);
+    bool commit(const ShowCommandTransition &transition, Show *show, bool live = true);
+    /** Keep a transition as input the Show has not taken yet; live input is
+     *  not played again in this pass */
+    void accept(const ShowCommandTransition &transition, Show *show, bool live);
+    /** The open holds of track ended at time as their releases end them,
+     *  each recorded hold a press cut resumed there when still on */
+    ShowCommandTransition holdsEnded(ShowCommandTrack track, quint32 time) const;
+    /** The recorded hold the press of hold's control cut, from time to where
+     *  it ended, when that is later: nothing otherwise */
+    ShowCommandTransition resumed(const ShowCommandTrack &track, const ShowCommand &hold, quint32 time) const;
+    /** Per control, where the recorded hold its live press cut ended */
+    QHash<QUuid, quint32> m_holdResume;
 
     /** The single place that hands a candidate track to the Show, with the
      *  ids executed live in appliedTraversal. Fills error when it rejects it;
@@ -468,7 +479,7 @@ private:
 
     /** Hand a Show the accepted input it has not taken yet, if any, ending at
      *  its last command. A change it publishes is unsaved work. The Show keeps running while recording, never a saved tail. */
-    bool publishUnpublished(Show *show, bool disarming, QString *error);
+    bool publishUnpublished(Show *show, QString *error);
     /** Save-only projection: checkpoint while REC stays on closes open holds
      *  in the saved snapshot without mutating the live track. */
     ShowCommandTrack projectedCheckpointTrack(Show *show, bool *projected) const;
@@ -654,6 +665,7 @@ private:
         quint64 traversal; //!< the traversal it ran live in
         ShowTraceCause cause; //!< diagnostics of the input it came from
         bool removal = false; //!< the input replaced command: it goes
+        bool live = true; //!< executed live: not played again in this pass
     };
     QVector<Unpublished> m_unpublished;
     /** The Show's track with the accepted input it has not taken yet */

@@ -402,9 +402,10 @@ public:
     /** The presses of the holds still open, in track order */
     QVector<ShowCommand> openHolds() const;
 
-    /** Release every open hold at time, never before its press. The holds
-     *  of its control pressed after it until then go: the hold replaced
-     *  them. Fails, unchanged, when no event id is left. */
+    /** Release every open hold at time, never before its press, or at the
+     *  next press of its control when that comes first, that press then
+     *  placed after the release. Nothing else changes. Fails, unchanged,
+     *  when no event id is left. */
     bool closeOpenHolds(quint32 time, QString *error = nullptr);
 
     /** A new command, after every command sharing its time. cmd.order is
@@ -652,12 +653,14 @@ namespace ShowCommandFsm
      *  consumed, so the freshly authored command cannot echo back through
      *  advance() during this traversal while every other due command still
      *  executes. The host has already executed the input live, so this returns
-     *  no effects. A hold press ends the hold of its control in effect at the
-     *  position, a recorded one or one still open, with a release there that
-     *  comes before the new press. A hold release closes that control's open
-     *  pair at the position and removes the holds of that control pressed
-     *  after its press, which it replaced; it authors nothing while the open
-     *  press is still ahead of the position. */
+     *  no effects. A hold press authors nothing while the control's hold is
+     *  still open; otherwise it ends the recorded hold of that control in
+     *  effect at the position with a release there, before the new press, and
+     *  removes one that begins there whole. A hold release closes that
+     *  control's open pair at the position: the holds of that control pressed
+     *  after its press and ended by then go, and one still on at the release
+     *  starts again there, after it. It authors nothing while the open press
+     *  is still ahead of the position. */
     ShowCommandTransition userInput(const ShowCommandTrack &track,
                                     const ShowCommandState &state, const ShowCommandInput &input);
 

@@ -409,7 +409,13 @@ bool ShowCommandRecorder::publishAccepted(bool disarming, QString *error)
     {
         // a deleted Show took its accepted input with it, and is never bound
         Show *show = qobject_cast<Show *>(m_doc->function(showId));
-        if (show != nullptr && publishUnpublished(show, disarming, error) == false)
+        // REC off ends the performer's holds where it is
+        if (show != nullptr && disarming && showId == m_rec.boundShowId())
+        {
+            accept(holdsEnded(withUnpublished(show), qMin(acceptancePosition(show), ShowCommand::MaxTime)), show, false);
+            m_holdResume.clear();
+        }
+        if (show != nullptr && publishUnpublished(show, error) == false)
             published = false;
     }
     if (operation.generation == 0 || operation.generation != ShowEventLog::generation())
@@ -430,7 +436,7 @@ void ShowCommandRecorder::discardUnpublished()
     m_unpublished.clear();
 }
 
-bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString *error)
+bool ShowCommandRecorder::publishUnpublished(Show *show, QString *error)
 {
     // traversals only grow, so only the latest accepted one can still be
     // current; the Show decides that as it publishes: live ids must not echo,
@@ -455,12 +461,9 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString
         }
         if (candidate.insert(accepted.command, error) == false)
             return false;
-        if (accepted.traversal == latest)
+        if (accepted.live && accepted.traversal == latest)
             executed.insert(accepted.command.id);
     }
-    if (disarming && show->id() == m_rec.boundShowId() &&
-        candidate.closeOpenHolds(qMin(acceptancePosition(show), ShowCommand::MaxTime), error) == false)
-        return false;
     // nothing new and already ending at its content: nothing to publish
     if (candidate.commands() == show->commandTrack().commands() && candidate.extent() == candidate.lastCommandTime())
         return true;
@@ -507,9 +510,13 @@ ShowCommandTrack ShowCommandRecorder::projectedCheckpointTrack(Show *show, bool 
     bool hasProjection = false;
     if (show->id() == m_rec.boundShowId())
     {
-        const int before = candidate.count();
-        hasProjection = candidate.closeOpenHolds(qMin(acceptancePosition(show), ShowCommand::MaxTime)) &&
-                        candidate.count() != before;
+        const ShowCommandTransition ended = holdsEnded(candidate, qMin(acceptancePosition(show), ShowCommand::MaxTime));
+        for (quint32 id : ended.removed)
+            candidate.remove(id);
+        for (const ShowCommand &cmd : ended.authored)
+            candidate.insert(cmd);
+        // a removal can keep the count: the commands tell
+        hasProjection = candidate.commands() != show->commandTrack().commands();
         if (hasProjection)
             candidate.setExtent(candidate.lastCommandTime());
     }
@@ -595,7 +602,15 @@ bool ShowCommandRecorder::authorAt(const ShowCommandInput &input, quint32 positi
     // ids stay unique across input the Show has not taken yet
     ShowCommandState at;
     at.position = positionMs;
-    const ShowCommandTransition transition = ShowCommandFsm::userInput(withUnpublished(show), at, input);
+    const ShowCommandTrack accepted = withUnpublished(show);
+    const ShowCommandTransition transition = ShowCommandFsm::userInput(accepted, at, input);
+    // a press that cut a recorded hold keeps where that ended, for its release to resume
+    for (quint32 id : transition.removed)
+    {
+        const int index = accepted.indexOfId(id);
+        if (input.on && index >= 0 && accepted.commands().at(index).on == false)
+            m_holdResume.insert(input.controlId, accepted.commands().at(index).time);
+    }
     // a successful input leaves the last reason alone: it may be a failed handover's
     if (transition.error.isEmpty() == false)
         reportFailure(transition.error);
@@ -733,9 +748,25 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
     // the identity this capture issues is the one its entries name
     if (request.cause.generation != 0)
         request.cause.controlId = input.controlId;
+    // a release resumes the recorded hold its press cut, still on there
+    const bool release = input.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(input.role) &&
+                         input.on == false;
+    ShowCommand press;
+    for (const ShowCommand &open : withUnpublished(trackedShow()).openHolds())
+    {
+        if (open.controlId == input.controlId && open.role == input.role)
+            press = open;
+    }
     if (authorAt(input, request.acceptedTimeMs) == false)
         return;
     request.authoredShowId = trackedShowId();
+    if (release && press.controlId == input.controlId)
+    {
+        const ShowCommandTransition again = resumed(withUnpublished(trackedShow()), press, request.acceptedTimeMs);
+        m_holdResume.remove(input.controlId);
+        if (again.authored.isEmpty() == false)
+            commit(again, trackedShow());
+    }
     if (input.action != ShowCommandAction::SetButtonState || ShowCommand::isHoldRole(input.role) == false)
         m_movedLive.insert(qMakePair(input.controlId, int(input.action)));
 }
@@ -1968,19 +1999,18 @@ void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint
             held.insert(it.key(), qMakePair(arrival, ShowCommand::MaxTime));
     }
     m_liveHolds = held;
-    const QVector<ShowCommand> open = show->commandTrack().openHolds();
+    const ShowCommandTrack track = withUnpublished(show);
+    const QVector<ShowCommand> open = track.openHolds();
     if (show->id() != m_rec.boundShowId() || open.isEmpty())
         return;
 
-    ShowCommandTrack closed = show->commandTrack();
+    // the departure belongs to the pass that ended: not live in the next one
+    accept(holdsEnded(track, departure), show, false);
+    for (const ShowCommand &press : open)
+        m_holdResume.remove(press.controlId);
     QString error;
-    if (closed.closeOpenHolds(departure, &error) == false ||
-        publishTrack(closed, QSet<quint32>(), show->commandTraversal(), show, &error) == false)
-    {
+    if (publishUnpublished(show, &error) == false)
         reportFailure(error);
-        return;
-    }
-    m_doc->setModified();
     for (const ShowCommand &press : open)
     {
         if (held.contains(qMakePair(press.controlId, int(press.role))) == false)
@@ -2062,22 +2092,80 @@ void ShowCommandRecorder::reloadTrack()
     emit editGateChanged();
 }
 
-bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *show)
+void ShowCommandRecorder::accept(const ShowCommandTransition &transition, Show *show, bool live)
 {
-    // accepted input is kept whether or not the Show takes it now
     const ShowTraceCause cause = ShowEventLog::generation() != 0 ? currentCause() : ShowTraceCause();
     const ShowCommandTrack accepted = withUnpublished(show);
     for (quint32 id : transition.removed)
     {
         if (const int index = accepted.indexOfId(id); index >= 0)
-            m_unpublished.append({ show->id(), accepted.commands().at(index), show->commandTraversal(), cause, true });
+            m_unpublished.append({ show->id(), accepted.commands().at(index), show->commandTraversal(), cause, true, live });
     }
     for (const ShowCommand &cmd : transition.authored)
-        m_unpublished.append({ show->id(), cmd, show->commandTraversal(), cause });
+        m_unpublished.append({ show->id(), cmd, show->commandTraversal(), cause, false, live });
+}
+
+ShowCommandTransition ShowCommandRecorder::resumed(const ShowCommandTrack &track, const ShowCommand &hold,
+                                                    quint32 time) const
+{
+    ShowCommandTransition again;
+    const auto until = m_holdResume.constFind(hold.controlId);
+    if (until == m_holdResume.cend() || *until <= time)
+        return again;
+    ShowCommandTrack resumedTrack = track;
+    ShowCommand on = hold;
+    on.id = resumedTrack.nextEventId();
+    on.time = time;
+    on.on = true;
+    on.pairId = resumedTrack.nextPairId();
+    if (resumedTrack.insert(on) == false)
+        return again;
+    ShowCommand off = on;
+    off.id = resumedTrack.nextEventId();
+    off.time = *until;
+    off.on = false;
+    if (resumedTrack.insert(off))
+        again.authored = { on, off };
+    return again;
+}
+
+ShowCommandTransition ShowCommandRecorder::holdsEnded(ShowCommandTrack track, quint32 time) const
+{
+    ShowCommandTransition ended;
+    const auto apply = [&](const ShowCommandTransition &step)
+    {
+        for (quint32 id : step.removed)
+            track.remove(id);
+        for (const ShowCommand &cmd : step.authored)
+            track.insert(cmd);
+        ended.removed += step.removed;
+        ended.authored += step.authored;
+    };
+    for (const ShowCommand &press : track.openHolds())
+    {
+        ShowCommandState at;
+        at.position = qMax(time, press.time);
+        ShowCommandInput release;
+        release.origin = ShowCommandOrigin::Pointer;
+        release.action = ShowCommandAction::SetButtonState;
+        release.controlId = press.controlId;
+        release.role = press.role;
+        release.attribute = press.attribute;
+        apply(ShowCommandFsm::userInput(track, at, release));
+        apply(resumed(track, press, at.position));
+    }
+    return ended;
+}
+
+bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *show, bool live)
+{
+    // accepted input is kept whether or not the Show takes it now
+    const ShowTraceCause cause = ShowEventLog::generation() != 0 ? currentCause() : ShowTraceCause();
+    accept(transition, show, live);
 
     // published, it is unsaved Show content; kept, it is unsaved input
     QString error;
-    if (publishUnpublished(show, false, &error))
+    if (publishUnpublished(show, &error))
         return true;
 
     if (ShowEventLog::generation() != 0)

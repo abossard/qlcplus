@@ -544,25 +544,17 @@ namespace
         return off;
     }
 
-    /** The edges of the pairs of the control and role pressed at index press
-     *  that begin after its press, until time: the hold replaces them */
-    QVector<quint32> spannedHolds(const QVector<ShowCommand> &commands, const QVector<HoldPair> &pairs,
-                                  int press, quint32 time)
+    /** The first press of the control and role pressed at index press after it, nullptr when none */
+    const ShowCommand *nextPress(const QVector<ShowCommand> &commands, const QVector<HoldPair> &pairs, int press)
     {
         const ShowCommand &on = commands.at(press);
-        QVector<quint32> ids;
         for (const HoldPair &pair : pairs)
         {
-            if (pair.press <= press)
-                continue;
-            const ShowCommand &other = commands.at(pair.press);
-            if (other.controlId != on.controlId || other.role != on.role || other.time > time)
-                continue;
-            ids.append(other.id);
-            if (pair.release >= 0)
-                ids.append(commands.at(pair.release).id);
+            if (pair.press > press && commands.at(pair.press).controlId == on.controlId &&
+                commands.at(pair.press).role == on.role)
+                return &commands.at(pair.press);
         }
-        return ids;
+        return nullptr;
     }
 }
 
@@ -1436,9 +1428,13 @@ bool ShowCommandTrack::closeOpenHolds(quint32 time, QString *error)
     {
         if (pair.broken || pair.release >= 0)
             continue;
-        for (quint32 id : spannedHolds(m_commands, pairs, pair.press, time))
-            closed.remove(id);
-        if (!closed.insert(holdRelease(m_commands, pair.press, time, closed.nextEventId()), error))
+        const ShowCommand *next = nextPress(m_commands, pairs, pair.press);
+        const ShowCommand off = holdRelease(m_commands, pair.press, next != nullptr ? qMin(time, next->time) : time,
+                                            closed.nextEventId());
+        if (!closed.insert(off, error))
+            return false;
+        // at the next press's time the release comes first: that press goes after it
+        if (next != nullptr && next->time == off.time && (!closed.remove(next->id) || !closed.insert(*next, error)))
             return false;
     }
     *this = closed;
@@ -2075,7 +2071,7 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     cmd.on = input.on;
     cmd.position = input.position;
 
-    QVector<ShowCommand> authored;
+    QVector<ShowCommand> authored, trailing;
     QVector<quint32> removed;
     if (cmd.id != ShowCommand::InvalidId && cmd.action == ShowCommandAction::SetButtonState &&
         ShowCommand::isHoldRole(cmd.role))
@@ -2084,19 +2080,28 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
         const QVector<HoldPair> pairs = holdPairs(commands);
         if (cmd.on)
         {
-            // a press ends the hold of its control in effect at its time there,
-            // recorded or still open, then starts its own: that release comes first
+            // a press ends the recorded hold of its control in effect at its time
+            // there, before itself; one that begins there goes whole
             ShowCommandTrack cut = track;
             for (const HoldPair &pair : pairs)
             {
                 if (pair.broken || commands.at(pair.press).controlId != cmd.controlId ||
-                    commands.at(pair.press).role != cmd.role || commands.at(pair.press).time > cmd.time ||
-                    (pair.release >= 0 && commands.at(pair.release).time <= cmd.time))
+                    commands.at(pair.press).role != cmd.role)
                     continue;
-                if (pair.release >= 0)
+                // a press on a control the performer holds already starts nothing
+                if (pair.release < 0)
+                    return result;
+                const ShowCommand &on = commands.at(pair.press);
+                const ShowCommand &off = commands.at(pair.release);
+                if (on.time > cmd.time || off.time <= cmd.time)
+                    continue;
+                removed.append(off.id);
+                cut.remove(off.id);
+                if (on.time == cmd.time)
                 {
-                    removed.append(commands.at(pair.release).id);
-                    cut.remove(removed.last());
+                    removed.append(on.id);
+                    cut.remove(on.id);
+                    continue;
                 }
                 authored.append(holdRelease(commands, pair.press, cmd.time, cut.nextEventId()));
                 cut.insert(authored.last());
@@ -2122,8 +2127,30 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
             }
             if (open < 0 || commands.at(open).time > cmd.time)
                 return result;
-            removed = spannedHolds(commands, pairs, open, cmd.time);
             cmd = holdRelease(commands, open, cmd.time, cmd.id);
+            // what was recorded inside the hold goes; a recorded hold still on
+            // at the release resumes there, after it
+            ShowCommandTrack resumed = track;
+            resumed.insert(cmd);
+            for (const HoldPair &pair : pairs)
+            {
+                if (pair.press <= open)
+                    continue;
+                const ShowCommand &on = commands.at(pair.press);
+                if (on.controlId != cmd.controlId || on.role != cmd.role || on.time > cmd.time)
+                    continue;
+                removed.append(on.id);
+                if (pair.release >= 0 && commands.at(pair.release).time <= cmd.time)
+                {
+                    removed.append(commands.at(pair.release).id);
+                    continue;
+                }
+                ShowCommand again = on;
+                again.id = resumed.nextEventId();
+                again.time = cmd.time;
+                resumed.insert(again);
+                trailing.append(again);
+            }
         }
     }
 
@@ -2139,6 +2166,7 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
         return result;
 
     authored.append(cmd);
+    authored += trailing;
     result.authored = authored;
     result.removed = removed;
     // the host already executed this input: mark those occurrences, leave the cursor alone
