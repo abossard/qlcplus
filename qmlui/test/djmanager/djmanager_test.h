@@ -36,7 +36,7 @@ private slots:
 
     // Per-song actions
     void createShowAction();
-    void assignAndClearShowAction();
+    void assignShowAction();
     void loadShowEmitsRequest();
 
     // Perform mode

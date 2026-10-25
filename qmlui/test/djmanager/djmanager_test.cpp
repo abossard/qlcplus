@@ -106,8 +106,6 @@ void DjManager_Test::modelReadsTheShowFromTheIndex()
     index.registerMapping("/m/a.mp3", 42);
     QCOMPARE(model.data(model.index(0), DjSongModel::ShowIdRole).toUInt(), 42u);
     QCOMPARE(model.data(model.index(0), DjSongModel::HasShowRole).toBool(), true);
-    index.registerMapping("/m/a.mp3", Function::invalidId());
-    QCOMPARE(model.data(model.index(0), DjSongModel::HasShowRole).toBool(), false);
 }
 
 void DjManager_Test::modelActiveAndPlayingFlags()
@@ -377,7 +375,7 @@ void DjManager_Test::newShowWinsAfterAWorkspaceLoad()
     delete doc;
 }
 
-void DjManager_Test::assignAndClearShowAction()
+void DjManager_Test::assignShowAction()
 {
     Doc *doc = createDoc();
     QQuickView view;
@@ -395,17 +393,12 @@ void DjManager_Test::assignAndClearShowAction()
     doc->addFunction(show);
 
     feedSong(fsm, 1, "/m/assign.mp3", "Assign", "DJ", 122.0);
-    const quint32 announced = mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                                        DjSongModel::ShowIdRole).toUInt();
+    QVERIFY(mgr.songListModel()->data(mgr.songListModel()->index(0, 0), DjSongModel::ShowIdRole).toUInt()
+            != show->id());
 
     mgr.assignShow("/m/assign.mp3", static_cast<int>(show->id()));
     QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
                                        DjSongModel::ShowIdRole).toUInt(), show->id());
-
-    // Clear drops the choice: the Doc's Show is the song's again
-    mgr.clearShow("/m/assign.mp3");
-    QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                       DjSongModel::ShowIdRole).toUInt(), announced);
 
     delete doc;
 }

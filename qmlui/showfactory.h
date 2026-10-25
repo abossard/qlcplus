@@ -39,10 +39,10 @@ inline const QString kSongFolderPath = QStringLiteral("Songs");
  * The song-to-Show index and the builder of song Shows.
  *
  * A song (a file path) maps to the user's choice (Assign, or the Show New
- * built; Clear removes the choice), else to the first Show in Doc order whose
- * first Audio clip plays it. The choice is saved with the workspace; a choice
- * whose Show is gone is dropped. Path separators are normalized where a key
- * enters the index, so a Windows path and its POSIX form are one song.
+ * built), else to the first Show in Doc order whose first Audio clip plays
+ * it. The choice is saved with the workspace; a choice whose Show is gone is
+ * dropped. Path separators are normalized where a key enters the index, so a
+ * Windows path and its POSIX form are one song.
  */
 class ShowFactory : public QObject
 {
@@ -70,8 +70,8 @@ public:
      */
     quint32 buildShow(const DjFsm::DeckSong &info);
 
-    /** The user's choice for a song: a Show, or Function::invalidId() to drop
-     *  the choice. Kept until the Doc is cleared, or the Show removed. */
+    /** The user's choice for a song: a Show. Kept until the Doc is cleared, or
+     *  the Show removed. */
     void registerMapping(const QString &filepath, quint32 showId);
 
     /** The choices, a fork-owned element of the workspace; paths relative to its folder like Audio sources */

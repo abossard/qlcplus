@@ -840,13 +840,18 @@ void VdjBridge_Test::deletedShowBindsAgainWhenItComesBack()
 {
     // Perform's Show is deleted and comes back (undo): the song index names it again
     PerformRig rig;
-    Show *show = rig.addShow("A", "/m/a.mp3");
     // mapped by its Audio clip, as a built Show is, not by a choice
+    Show *show = new Show(&rig.doc);
+    show->setName("A");
+    rig.doc.addFunction(show);
     Audio *audio = new Audio(&rig.doc);
     audio->setSourceFileName("/m/a.mp3");
     rig.doc.addFunction(audio);
-    show->tracks().first()->createShowFunction(audio->id());
-    rig.bridge.showFactory()->registerMapping("/m/a.mp3", Function::invalidId());
+    Track *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    ShowFunction *sf = track->createShowFunction(audio->id());
+    sf->setStartTime(0);
+    sf->setDuration(300000);
     const quint32 id = show->id();
     QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
     rig.load(0, "/m/a.mp3");

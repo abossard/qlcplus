@@ -163,13 +163,9 @@ void ShowFactory_Test::choicesWinUntilTheDocIsCleared()
     QCOMPARE(mapping[0][1].toUInt(), other->id());
     doc.addFunction(new Show(&doc));
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), other->id());
-
-    // Clear drops the choice: the Doc's Show again
-    factory.registerMapping("/music/a.mp3", Function::invalidId());
-    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    Q_UNUSED(a)
 
     // the workspace goes: so do the choices
-    factory.registerMapping("/music/a.mp3", other->id());
     doc.clearContents();
     Show *b = addSongShow(&doc, "A", "/music/a.mp3");
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), b->id());
@@ -204,7 +200,6 @@ void ShowFactory_Test::choicesSurviveSaveAndLoad_data()
 
     QTest::newRow("Assign") << "assign" << true;
     QTest::newRow("New") << "new" << true;
-    QTest::newRow("Clear") << "clear" << true;
     QTest::newRow("a choice whose Show is gone is dropped") << "assign" << false;
 }
 
@@ -227,10 +222,7 @@ void ShowFactory_Test::choicesSurviveSaveAndLoad()
         chosen = other->id();
     }
     factory.registerMapping("/music/a.mp3", chosen);
-    if (choice == QLatin1String("clear"))
-        factory.registerMapping("/music/a.mp3", Function::invalidId());
-    const quint32 before = factory.showIdForFilepath("/music/a.mp3");
-    QCOMPARE(before, choice == QLatin1String("clear") ? a->id() : chosen);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), chosen);
 
     QBuffer xml;
     xml.open(QIODevice::WriteOnly);
@@ -251,10 +243,9 @@ void ShowFactory_Test::choicesSurviveSaveAndLoad()
             factory.buildShow(song("/music/a.mp3", "A", "X"));
     }
     QXmlStreamReader reader(xml.data());
-    QVERIFY(reader.readNextStartElement() || choice == QLatin1String("clear"));
-    if (choice != QLatin1String("clear"))
-        QVERIFY(factory.loadXML(reader));
-    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), showSurvives ? before : a->id());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(factory.loadXML(reader));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), showSurvives ? chosen : a->id());
 }
 
 void ShowFactory_Test::choicesFollowTheWorkspaceFolder()

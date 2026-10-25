@@ -265,9 +265,6 @@ public:
     /** Assign an existing show to a song. */
     Q_INVOKABLE void assignShow(const QString &filepath, int showId);
 
-    /** Remove the show assignment from a song. */
-    Q_INVOKABLE void clearShow(const QString &filepath);
-
     /** Create a brand-new show for a song and assign it. */
     Q_INVOKABLE void createShow(const QString &filepath);
 

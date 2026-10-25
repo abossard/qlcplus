@@ -181,12 +181,9 @@ quint32 ShowFactory::buildShow(const DjFsm::DeckSong &info)
 void ShowFactory::registerMapping(const QString &filepath, quint32 showId)
 {
     const QString key = normalizePath(filepath);
-    if (key.isEmpty())
+    if (key.isEmpty() || showId == Function::invalidId())
         return;
-    if (showId == Function::invalidId())
-        m_choices.remove(key);
-    else
-        m_choices.insert(key, showId);
+    m_choices.insert(key, showId);
     if (m_doc)
         m_doc->setModified();
     emit mappingChanged(filepath, showId);

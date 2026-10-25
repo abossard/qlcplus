@@ -481,12 +481,6 @@ Rectangle
                         implicitHeight: 26
                         onClicked: djManager.createShow(model.filepath)
                     }
-                    Button {
-                        text: "Clear"
-                        enabled: model.hasShow
-                        implicitHeight: 26
-                        onClicked: djManager.clearShow(model.filepath)
-                    }
                 }
             }
 

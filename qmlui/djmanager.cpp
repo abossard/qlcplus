@@ -713,12 +713,6 @@ void DjManager::assignShow(const QString &filepath, int showId)
     m_factory->registerMapping(filepath, id);
 }
 
-void DjManager::clearShow(const QString &filepath)
-{
-    if (m_factory && !filepath.isEmpty())
-        m_factory->registerMapping(filepath, Function::invalidId());
-}
-
 void DjManager::createShow(const QString &filepath)
 {
     if (!m_factory || filepath.isEmpty())
