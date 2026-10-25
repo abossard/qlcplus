@@ -574,8 +574,8 @@ QVariantMap VCBridgeV5::pressWidget(int widgetID, const QString &action)
     const bool momentary = button->actionType() == VCButton::Flash
                         || button->actionType() == VCButton::FreezeHold;
     if (action != QStringLiteral("release") || momentary)
-        button->requestUserStateChange(action == QStringLiteral("toggle")
-            ? button->state() != VCButton::Active : action == QStringLiteral("press"));
+        button->requestUserStateChange(momentary && action == QStringLiteral("toggle")
+            ? button->state() != VCButton::Active : action != QStringLiteral("release"));
     return {{QStringLiteral("status"), QStringLiteral("accepted")},
             {QStringLiteral("widget"), widgetID},
             {QStringLiteral("action"), action}};

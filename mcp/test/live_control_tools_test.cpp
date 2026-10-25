@@ -589,4 +589,64 @@ void McpLiveControlTools_Test::serverSurface()
     }
 }
 
+void McpLiveControlTools_Test::latchedToggle_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::addColumn<bool>("record");
+    QTest::newRow("blackout-rec-off") << int(VCButton::Blackout) << false;
+    QTest::newRow("blackout-rec-on") << int(VCButton::Blackout) << true;
+    QTest::newRow("freeze-rec-off") << int(VCButton::Freeze) << false;
+    QTest::newRow("freeze-rec-on") << int(VCButton::Freeze) << true;
+}
+
+void McpLiveControlTools_Test::latchedToggle()
+{
+    QFETCH(int, kind);
+    QFETCH(bool, record);
+    auto *doc = m_app->doc();
+    auto *vc = m_app->virtualConsole();
+    auto *recorder = m_app->findChild<ShowCommandRecorder *>();
+    auto *show = new Show(doc);
+    QVERIFY(doc->addFunction(show));
+    QVERIFY(recorder->setResolvedShow(show->id()));
+    QVERIFY(recorder->setRecording(record));
+    vc->setEditMode(false);
+    auto *button = new VCButton(doc, vc->page(0));
+    vc->addWidgetToMap(button);
+    vc->page(0)->addWidgetToPageMap(button);
+    button->setActionType(VCButton::ButtonAction(kind));
+    const auto cleanup = qScopeGuard([&]() {
+        recorder->discardRecording();
+        doc->inputOutputMap()->setBlackout(false);
+        doc->inputOutputMap()->setFrozen(false);
+        vc->setEditMode(true);
+    });
+    const auto active = [&]() {
+        return kind == int(VCButton::Blackout) ? doc->inputOutputMap()->blackout()
+                                              : doc->inputOutputMap()->frozenLatch();
+    };
+    const auto send = [&](const char *action) {
+        return invoke(doc, m_vc.get(), m_workspace.get(), "press_vc_widget",
+                      {{"widget", button->id()}, {"action", action}});
+    };
+    const Json press = send("press");
+    QVERIFY2(!press.contains("error"), press.dump().c_str());
+    QVERIFY(active());
+    QCOMPARE(button->state(), VCButton::Active);
+    const Json release = send("release");
+    QVERIFY2(!release.contains("error"), release.dump().c_str());
+    QVERIFY(active());
+    const Json toggle = send("toggle");
+    QVERIFY2(!toggle.contains("error"), toggle.dump().c_str());
+    QVERIFY(!active());
+    QCOMPARE(button->state(), VCButton::Inactive);
+    QVERIFY(recorder->setRecording(false));
+    QCOMPARE(show->commandTrack().count(), record ? 2 : 0);
+    if (record)
+    {
+        QVERIFY(show->commandTrack().commands().at(0).on);
+        QVERIFY(!show->commandTrack().commands().at(1).on);
+    }
+}
+
 QTEST_MAIN(McpLiveControlTools_Test)

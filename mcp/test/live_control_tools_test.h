@@ -42,6 +42,8 @@ private slots:
     void freezeHoldRelease();
     void serverSurface_data();
     void serverSurface();
+    void latchedToggle_data();
+    void latchedToggle();
 
 private:
     QTemporaryDir m_settings;
