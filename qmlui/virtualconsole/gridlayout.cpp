@@ -1089,7 +1089,10 @@ ArrangeResult arrange(const ArrangeSpec &spec, const QRectF &content,
         return result;
 
     const qreal gap = spec.gap;
-    const QRectF inner = content.adjusted(gap, gap, -gap, -gap);
+    // whole pixel bounds, which the rounded edges below never leave (a header can be 26.46 px high)
+    const QRectF exact = content.adjusted(gap, gap, -gap, -gap);
+    const QRectF inner(QPointF(snapUp(exact.left(), 1), snapUp(exact.top(), 1)),
+                       QPointF(-snapUp(-exact.right(), 1), -snapUp(-exact.bottom(), 1)));
     // exact edges are rounded, so neighbours always keep the gap between them
     auto place = [](qreal left, qreal top, qreal width, qreal height) {
         const qreal x = std::round(left), y = std::round(top);

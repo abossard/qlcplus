@@ -99,7 +99,6 @@ SceneEditor::~SceneEditor()
     /** Give the external controllers back to the Virtual Console */
     setExternalControlEnabled(false);
 
-    m_view->rootContext()->setContextProperty("sceneEditor", nullptr);
     QQuickItem *bottomPanel = qobject_cast<QQuickItem*>(m_view->rootObject()->findChild<QObject *>("bottomPanelItem"));
     if (bottomPanel != nullptr)
     {
@@ -107,6 +106,9 @@ SceneEditor::~SceneEditor()
         bottomPanel->setProperty("height", bottomPanel->property("collapseHeight"));
         bottomPanel->setProperty("visible", false);
     }
+
+    // unload the delegates while this backend and their callbacks still exist
+    m_view->rootContext()->setContextProperty("sceneEditor", nullptr);
 
     delete m_source;
     delete m_highlightSource;
@@ -182,21 +184,26 @@ void SceneEditor::setPreviewEnabled(bool enable)
     emit previewEnabledChanged(enable);
 }
 
-void SceneEditor::sceneConsoleLoaded(bool status)
+void SceneEditor::sceneConsoleLoaded(bool status, QQuickItem *item)
 {
-    if (status == false)
+    if (status)
     {
-        m_sceneConsole = nullptr;
-        m_fxConsoleMap.clear();
+        m_sceneConsole = item;
     }
-    else
+    else if (m_sceneConsole == item)
     {
-        m_sceneConsole = qobject_cast<QQuickItem*>(m_view->rootObject()->findChild<QObject *>("sceneFixtureConsole"));
+        /* Delegates unregister themselves. Don't clear m_fxConsoleMap here:
+         * an old view can finish its destruction after the replacement
+         * view has already registered its own delegates */
+        m_sceneConsole = nullptr;
     }
 }
 
 void SceneEditor::registerFixtureConsole(int index, QQuickItem *item)
 {
+    if (item == nullptr)
+        return;
+
     qDebug() << "[SceneEditor] Fixture console registered at index" << index;
     m_fxConsoleMap[index] = item;
 
@@ -214,6 +221,8 @@ void SceneEditor::registerFixtureConsole(int index, QQuickItem *item)
     if (!m_channelsCache.contains(fixtureID))
     {
         Fixture *fixture = m_doc->fixture(fixtureID);
+        if (fixture == nullptr)
+            return;
         values.fill(0, fixture->channels());
         m_channelsCache[fixtureID] = values;
     }
@@ -227,10 +236,11 @@ void SceneEditor::registerFixtureConsole(int index, QQuickItem *item)
 
 }
 
-void SceneEditor::unRegisterFixtureConsole(int index)
+void SceneEditor::unRegisterFixtureConsole(int index, QQuickItem *item)
 {
-    qDebug() << "[SceneEditor] Fixture console unregistered at index" << index;
-    m_fxConsoleMap.take(index);
+    // a retired delegate may be destroyed after its replacement got registered
+    if (m_fxConsoleMap.value(index) == item)
+        m_fxConsoleMap.remove(index);
 }
 
 bool SceneEditor::hasChannel(quint32 fxID, quint32 channel) const
@@ -284,9 +294,10 @@ void SceneEditor::slotSceneValueChanged(SceneValue scv)
 
     if (m_sceneConsole)
     {
-        if (m_fxConsoleMap.contains(fxIndex))
+        QQuickItem *fxConsole = m_fxConsoleMap.value(fxIndex);
+        if (fxConsole != nullptr)
         {
-            QMetaObject::invokeMethod(m_fxConsoleMap[fxIndex], "setChannelValue",
+            QMetaObject::invokeMethod(fxConsole, "setChannelValue",
                     Q_ARG(QVariant, scv.channel),
                     Q_ARG(QVariant, scv.value));
 
@@ -306,9 +317,13 @@ void SceneEditor::slotAliasChanged()
     qDebug() << "Fixture alias changed";
 
     Fixture *fxi = qobject_cast<Fixture *>(sender());
+    if (fxi == nullptr)
+        return;
+
     int fxIndex = m_fixtureIDs.indexOf(fxi->id());
-    if (m_fxConsoleMap.contains(fxIndex))
-        QMetaObject::invokeMethod(m_fxConsoleMap[fxIndex], "updateChannels");
+    QQuickItem *fxConsole = m_fxConsoleMap.value(fxIndex);
+    if (fxConsole != nullptr)
+        QMetaObject::invokeMethod(fxConsole, "updateChannels");
 }
 
 void SceneEditor::unsetChannel(quint32 fxID, quint32 channel)
@@ -333,7 +348,7 @@ void SceneEditor::setFixtureSelection(quint32 fxID)
             return;
 
     int fxIndex = m_fixtureIDs.indexOf(fxID);
-    QMetaObject::invokeMethod(m_sceneConsole, "scrollToItem",
+    QMetaObject::invokeMethod(m_sceneConsole.data(), "scrollToItem",
                               Q_ARG(QVariant, fxIndex));
 }
 
@@ -526,6 +541,8 @@ void SceneEditor::updateLists()
         disconnect(fixture, SIGNAL(aliasChanged()), this, SLOT(slotAliasChanged()));
     }
 
+    // model rows change identity on rebuild, so no old index binding is valid
+    m_fxConsoleMap.clear();
     m_fixtureIDs.clear();
     m_fixtureList->clear();
     m_componentList->clear();

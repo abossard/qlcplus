@@ -23,6 +23,7 @@ import QtQuick.Controls
 import QtQuick.Window
 
 import org.qlcplus.classes 1.0
+import "ShortcutUtils.js" as ShortcutUtils
 import "."
 
 Rectangle
@@ -34,8 +35,11 @@ Rectangle
     Keys.enabled: virtualConsole ? virtualConsole.editMode : false
     Keys.onPressed: (event) =>
     {
-        // keys a text field leaves unhandled must not edit the selection
-        if (!virtualConsole || !virtualConsole.editMode || mainView.shortcutsBlocked())
+        // keys a text field leaves unhandled must not edit the selection;
+        // a detached console window has no MainView to ask
+        if (!virtualConsole || !virtualConsole.editMode
+            || (mainView.shortcutsBlocked ? mainView.shortcutsBlocked()
+                                          : ShortcutUtils.isTextEditing(Window.activeFocusItem)))
             return
 
         if (event.modifiers & Qt.ControlModifier)
@@ -104,6 +108,20 @@ Rectangle
                 layoutError.open()
             }
         }
+        // a page deleted or restored at the shown index keeps the index, not the page.
+        // Check once the console has also moved its selection
+        function onPagesCountChanged() { Qt.callLater(vcContainer.reloadPage) }
+    }
+
+    /** The page on the canvas, to reload only when another one takes its index */
+    property var shownPage: null
+
+    function reloadPage()
+    {
+        if (virtualConsole.page(selectedPage) === shownPage)
+            return
+        pageLoader.active = false
+        pageLoader.active = true
     }
 
     Shortcut
@@ -417,6 +435,7 @@ Rectangle
             {
                 // set the page
                 pageLoader.item.page = selectedPage
+                vcContainer.shownPage = virtualConsole.page(selectedPage)
             }
         }
     }

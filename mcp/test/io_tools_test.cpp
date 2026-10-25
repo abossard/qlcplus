@@ -410,22 +410,33 @@ void McpIoTools_Test::deleteUniverses_duplicateIds_deletedOnce()
     QCOMPARE((int)m_doc->inputOutputMap()->universesCount(), 3);
 }
 
+void McpIoTools_Test::deleteUniverses_crossUniverseFixture_rejected_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<int>("lastUniverse");
+    QTest::newRow("fill") << int(Fixture::CrossUniverseFill) << 1;
+    QTest::newRow("whole-pixel") << int(Fixture::CrossUniversePixel) << 2;
+}
+
 void McpIoTools_Test::deleteUniverses_crossUniverseFixture_rejected()
 {
+    QFETCH(int, mode);
+    QFETCH(int, lastUniverse);
     m_doc = new Doc(this, 4);
 
-    // 24 channels from universe 0 address 500 spill into universe 1, so
-    // universe 1 is occupied even though Fixture::universe() reports 0.
     Fixture *fxi = new Fixture(m_doc);
     fxi->setName("Wide");
+    QLCFixtureDef *definition = fxi->genericRGBPanelDef(172, Fixture::RGB, false);
+    QLCFixtureMode *fixtureMode = fxi->genericRGBPanelMode(definition, Fixture::RGB, false, 172, 1);
+    fxi->setFixtureDefinition(definition, fixtureMode);
     fxi->setUniverse(0);
-    fxi->setAddress(500);
-    fxi->setChannels(24);
-    fxi->setCrossUniverse(true);
-    m_doc->addFixture(fxi, Fixture::invalidId(), true);
+    fxi->setAddress(508);
+    fxi->setCrossUniverse(Fixture::CrossUniverseMode(mode));
+    QVERIFY(m_doc->addFixture(fxi));
     QVERIFY(fxi->crossUniverse());
+    QCOMPARE(int(fxi->lastUniverse()), lastUniverse);
 
-    Json result = deleteUniverses(m_doc, Json::array({1}));
+    Json result = deleteUniverses(m_doc, Json::array({lastUniverse}));
 
     const std::string error = result[0].value("error", std::string());
     QVERIFY2(error.find("patched fixtures") != std::string::npos, result[0].dump().c_str());

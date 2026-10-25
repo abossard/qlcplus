@@ -274,9 +274,7 @@ void registerIOTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     if (fxi == NULL)
                         continue;
                     const int first = (int)fxi->universe();
-                    const int last = fxi->channels() > 0
-                        ? (int)((fxi->universeAddress() + fxi->channels() - 1) >> 9)
-                        : first;
+                    const int last = (int)fxi->lastUniverse();
                     if (uid >= first && uid <= last)
                         patched.append(fxi->id());
                 }

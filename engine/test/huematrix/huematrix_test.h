@@ -32,6 +32,8 @@ private slots:
 
     /* AC1 */
     void functionType();
+    void C2_splitPixelPlan_data();
+    void C2_splitPixelPlan();
 
     /* AC5 */
     void audioScriptsAreNotOfferedToRGBMatrix();

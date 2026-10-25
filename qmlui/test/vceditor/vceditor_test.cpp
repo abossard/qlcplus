@@ -38,6 +38,7 @@
 #undef private
 #include "contextmanager.h"
 #include "doc.h"
+#include "functionmanager.h"
 #include "mastertimer.h"
 #include "monitorproperties.h"
 #include "scene.h"
@@ -45,6 +46,7 @@
 #include "vceditor.h"
 #include "vcframe.h"
 #include "vcpage.h"
+#include "vcslider.h"
 #include "virtualconsole.h"
 
 /* Tardis merges actions closer than this into one undo step */
@@ -1003,12 +1005,18 @@ void VCEditor_Test::editKeys_data()
     QTest::addColumn<int>("key");
     QTest::addColumn<int>("modifiers");
     QTest::addColumn<int>("lastClicked"); // what was clicked last in another view
-    QTest::newRow("cut") << int(Qt::Key_X) << int(Qt::ControlModifier) << int(App::NoDragItem);
-    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier) << int(App::NoDragItem);
-    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier) << int(App::NoDragItem);
-    QTest::newRow("delete") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem);
-    QTest::newRow("delete-after-function") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::FunctionDragItem);
-    QTest::newRow("backspace") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem);
+    QTest::addColumn<QString>("editor");  // a Scene editor "shown" in the side panel, or "hidden" elsewhere
+    QTest::newRow("cut") << int(Qt::Key_X) << int(Qt::ControlModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("delete") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("delete-after-function") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::FunctionDragItem) << QString();
+    QTest::newRow("backspace") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem) << QString();
+    QTest::newRow("delete-editor-shown") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "shown";
+    QTest::newRow("backspace-editor-shown") << int(Qt::Key_Backspace) << int(Qt::NoModifier) << int(App::NoDragItem) << "shown";
+    QTest::newRow("delete-editor-hidden") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "hidden";
+    // the panel still shows a Scene editor, but another Scene is now edited elsewhere
+    QTest::newRow("delete-editor-stale") << int(Qt::Key_Delete) << int(Qt::NoModifier) << int(App::NoDragItem) << "stale";
 }
 
 void VCEditor_Test::editKeys()
@@ -1016,10 +1024,53 @@ void VCEditor_Test::editKeys()
     QFETCH(int, key);
     QFETCH(int, modifiers);
     QFETCH(int, lastClicked);
+    QFETCH(QString, editor);
     const ConsoleIds ids = buildConsole();
     auto *contexts = qobject_cast<ContextManager *>(
         m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
     contexts->setLastClickedType(lastClicked);
+    auto *functions = qobject_cast<FunctionManager *>(
+        m_app->rootContext()->contextProperty("functionManager").value<QObject *>());
+    QObject *panel = rightPanel();
+    std::unique_ptr<QObject> hiddenEditor;
+    if (!editor.isEmpty())
+    {
+        auto *scene = new Scene(m_app->doc());
+        QVERIFY(m_app->doc()->addFunction(scene));
+        functions->setEditorFunction(scene->id(), false, false);
+        if (editor == "shown" || editor == "stale")
+        {
+            // as the side panel opens the editor of a Function from its list
+            panel->setProperty("itemID", int(scene->id()));
+            panel->setProperty("loaderSource", functions->getEditorResource(scene->id()));
+            QVERIFY(QMetaObject::invokeMethod(panel, "animatePanel", Q_ARG(QVariant, true)));
+            QTRY_VERIFY(panel->property("isOpen").toBool());
+        }
+        if (editor == "stale")
+        {
+            auto *other = new Scene(m_app->doc());
+            QVERIFY(m_app->doc()->addFunction(other));
+            functions->setEditorFunction(other->id(), false, false);
+        }
+        if (editor == "hidden")
+        {
+            // like a Scene editor left open in Fixtures & Functions, out of sight
+            QQmlComponent component(m_app->engine());
+            component.setData("import QtQuick\nItem { objectName: \"sceneEditorRoot\"; property int deletions: 0;"
+                              " function deleteSelectedItems() { deletions++ } }", QUrl());
+            hiddenEditor.reset(component.create());
+            QVERIFY2(hiddenEditor, qPrintable(component.errorString()));
+            hiddenEditor->setParent(m_app->rootObject());
+        }
+    }
+    const auto closeEditor = qScopeGuard([&]() {
+        hiddenEditor.reset();
+        if (!editor.isEmpty())
+        {
+            QMetaObject::invokeMethod(panel, "animatePanel", Q_ARG(QVariant, false));
+            functions->setEditorFunction(Function::invalidId(), false, false);
+        }
+    });
     m_app->requestActivate();
     QVERIFY(QTest::qWaitForWindowActive(m_app.get()));
     QTRY_VERIFY(vc()->widget(ids.loose)->renderItem());
@@ -1028,15 +1079,74 @@ void VCEditor_Test::editKeys()
     const int widgets = vc()->page(0)->children(false).size();
 
     QTest::keyClick(m_app.get(), Qt::Key(key), Qt::KeyboardModifiers(modifiers));
-    if (key == Qt::Key_X || key == Qt::Key_C)
+    if (editor == "shown")
+    {
+        // the editor asks about its own selection, the console keeps its widgets
+        QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 1);
+        QVERIFY(vc()->widget(ids.loose) != nullptr);
+        for (QObject *object : m_app->rootObject()->findChildren<QObject *>())
+            if (object->inherits("QQuickPopup") && object->property("visible").toBool())
+                QMetaObject::invokeMethod(object, "close");
+        QTRY_COMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
+    }
+    else if (key == Qt::Key_X || key == Qt::Key_C)
         QCOMPARE(vc()->clipboardItemsList(), QVariantList{ids.loose});
     else if (key == Qt::Key_D)
         QCOMPARE(vc()->page(0)->children(false).size(), widgets + 1);
     else
         QVERIFY(vc()->widget(ids.loose) == nullptr);
+    if (hiddenEditor)
+        QCOMPARE(hiddenEditor->property("deletions").toInt(), 0);
     // no question about deleting what was selected in another view
     QCOMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
     contexts->setLastClickedType(App::NoDragItem);
+}
+
+void VCEditor_Test::detachedConsoleKeys_data()
+{
+    QTest::addColumn<int>("key");
+    QTest::addColumn<int>("modifiers");
+    QTest::newRow("nudge") << int(Qt::Key_Right) << int(Qt::NoModifier);
+    QTest::newRow("copy") << int(Qt::Key_C) << int(Qt::ControlModifier);
+    QTest::newRow("duplicate") << int(Qt::Key_D) << int(Qt::ControlModifier);
+}
+
+void VCEditor_Test::detachedConsoleKeys()
+{
+    QFETCH(int, key);
+    QFETCH(int, modifiers);
+    const ConsoleIds ids = buildConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    contexts->detachContext("VC");
+    const auto reattach = qScopeGuard([&]() {
+        contexts->reattachContext("VC");
+        // the main window loads the console again to render its widgets there
+        contexts->switchToContext("FIXANDFUNC");
+        contexts->switchToContext("VC");
+        m_app->requestActivate();
+    });
+    QQuickView *window = vc()->view();
+    QVERIFY(window != m_app.get());
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+    QQuickItem *console = nullptr;
+    QTRY_VERIFY((console = window->rootObject()->findChild<QQuickItem *>("virtualConsole")));
+    console->forceActiveFocus();
+    QVERIFY2(console->hasActiveFocus(), qPrintable(QDebug::toString(window->activeFocusItem())));
+    // the detached window opens out of edit mode
+    vc()->setEditMode(true);
+    vc()->setSelectedWidgetIDs({ids.loose});
+    const QRectF before = vc()->widget(ids.loose)->logicalGeometry();
+    const int widgets = vc()->page(0)->children(false).size();
+
+    QTest::keyClick(window, Qt::Key(key), Qt::KeyboardModifiers(modifiers));
+    if (key == Qt::Key_Right)
+        QVERIFY(vc()->widget(ids.loose)->logicalGeometry().left() > before.left());
+    else if (key == Qt::Key_C)
+        QCOMPARE(vc()->clipboardItemsList(), QVariantList{ids.loose});
+    else
+        QCOMPARE(vc()->page(0)->children(false).size(), widgets + 1);
 }
 
 void VCEditor_Test::frameCheckboxes_data()
@@ -1176,6 +1286,20 @@ void VCEditor_Test::arrangedStructure_data()
     QTest::newRow("paste") << "paste" << int(GridLayout::ArrangeMode::Flow) << QStringList{"b0", "b1", "b2", "b3", "new"}
         << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50),
                          QRectF(220, 10, 60, 50), QRectF(10, 70, 100, 80)};
+    QTest::newRow("function-drop") << "functions" << int(GridLayout::ArrangeMode::Flow) << QStringList{"b0", "b1", "b2", "b3", "new"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50),
+                         QRectF(220, 10, 60, 50), QRectF(10, 70, -1, -1)};
+    // one more Function than the row has room for: each fits alone, all together do not
+    QTest::newRow("function-drop-overflow") << "functions-overflow" << int(GridLayout::ArrangeMode::Row)
+        << QStringList{"b0"} << QList<QRectF>();
+    // a full row refuses newcomers, even with free space below it
+    QTest::newRow("paste-full") << "paste" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b1", "b2", "b3"}
+        << QList<QRectF>();
+    QTest::newRow("duplicate-full") << "duplicate" << int(GridLayout::ArrangeMode::Row) << QStringList{"b0", "b1", "b2", "b3"}
+        << QList<QRectF>();
+    // a cut child leaves the full row as its copy joins it, at the end
+    QTest::newRow("cut-paste-full") << "cut" << int(GridLayout::ArrangeMode::Row) << QStringList{"b1", "b2", "b3", "new"}
+        << QList<QRectF>{QRectF(10, 10, 60, 50), QRectF(80, 10, 60, 50), QRectF(150, 10, 60, 50), QRectF(220, 10, 60, 50)};
 }
 
 void VCEditor_Test::arrangedStructure()
@@ -1200,17 +1324,62 @@ void VCEditor_Test::arrangedStructure()
         result = vc()->editDrop(named["b0"], ids.page, 0, QRectF(1200, 300, 60, 50));
     else if (edit == "create")
         result = vc()->createWidget(ids.empty, "Button", QPointF(5, 200), 0);
-    else if (edit == "paste")
+    else if (edit == "paste" || edit == "duplicate" || edit == "cut")
     {
         QSignalSpy rejected(vc(), &VirtualConsole::editRejected);
-        vc()->setSelectedWidgetIDs({ids.loose});
-        vc()->copyToClipboard();
-        vc()->setSelectedWidgetIDs({ids.empty});
-        vc()->pasteFromClipboard();
+        if (edit == "paste")
+        {
+            vc()->setSelectedWidgetIDs({ids.loose});
+            vc()->copyToClipboard();
+            vc()->setSelectedWidgetIDs({ids.empty});
+            vc()->pasteFromClipboard();
+        }
+        else if (edit == "cut")
+        {
+            vc()->setSelectedWidgetIDs({named["b0"]});
+            vc()->cutToClipboard();
+            vc()->setSelectedWidgetIDs({ids.empty});
+            vc()->pasteFromClipboard();
+        }
+        else
+        {
+            vc()->setSelectedWidgetIDs({named["b0"]});
+            vc()->duplicateSelection();
+        }
         result = {{"accepted", rejected.isEmpty()}, {"error", rejected.value(0).value(0)}};
+    }
+    else if (edit == "functions")
+    {
+        auto *scene = new Scene(m_app->doc());
+        QVERIFY(m_app->doc()->addFunction(scene));
+        // dropped over b1, the arrangement still places it
+        result = vc()->createFunctions(ids.empty, {scene->id()}, QPointF(80, 10), Qt::NoModifier, 0);
+    }
+    else if (edit == "functions-overflow")
+    {
+        QVERIFY(vc()->deleteAuthoringWidgets({named["b1"], named["b2"], named["b3"]}).value("accepted").toBool());
+        // b0 ends at 70, the row at 290
+        const qreal width = vc()->previewCreate(ids.empty, "Button", QPointF(80, 10), 0).value("rect").toRectF().width();
+        QVariantList functions;
+        for (int i = 0; i <= int((290 - 70) / (width + 10)); i++)
+        {
+            auto *scene = new Scene(m_app->doc());
+            QVERIFY(m_app->doc()->addFunction(scene));
+            functions.append(scene->id());
+        }
+        result = vc()->createFunctions(ids.empty, functions, QPointF(80, 10), Qt::NoModifier, 0);
     }
     else
         result = vc()->deleteAuthoringWidgets({named["b1"]});
+    if (expected.isEmpty())
+    {
+        QVERIFY(!result.value("accepted").toBool());
+        QVariantList unchanged;
+        for (const QString &name : order)
+            unchanged.append(named.value(name));
+        QCOMPARE(qobject_cast<VCFrame *>(vc()->widget(ids.empty))->orderedChildIDs(0), unchanged);
+        return;
+    }
     QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
     const QVariantList children = qobject_cast<VCFrame *>(vc()->widget(ids.empty))->orderedChildIDs(0);
     named.insert("new", children.last().toUInt());
@@ -1633,6 +1802,99 @@ void VCEditor_Test::newWorkspaceShowsFirstPage()
     QVERIFY(m_app->newWorkspace());
     QCOMPARE(vc()->selectedPage(), 0);
     QTRY_VERIFY(m_app->rootObject()->findChild<QQuickItem *>("vcPage1") == nullptr);
+}
+
+void VCEditor_Test::pageDeleteUndo_data()
+{
+    QTest::addColumn<int>("selected");
+    QTest::addColumn<int>("deleted");
+    QTest::addColumn<int>("shownAfterDelete");
+    QTest::addColumn<bool>("pin");
+    QTest::addColumn<int>("shownAfterUndo");
+    QTest::newRow("selected-middle") << 1 << 1 << 1 << false << 1;
+    QTest::newRow("selected-last") << 3 << 3 << 2 << false << 3;
+    QTest::newRow("other") << 0 << 2 << 0 << false << 2;
+    // a page behind a PIN only shows once the PIN is given
+    QTest::newRow("pin") << 0 << 2 << 0 << true << 0;
+    QTest::newRow("pin-selected") << 1 << 1 << 1 << true << 2;
+}
+
+void VCEditor_Test::pageDeleteUndo()
+{
+    QFETCH(int, selected);
+    QFETCH(int, deleted);
+    QFETCH(int, shownAfterDelete);
+    QFETCH(bool, pin);
+    QFETCH(int, shownAfterUndo);
+    buildConsole();
+    if (pin)
+        vc()->page(deleted)->setPIN(1234);
+    QMap<int, quint32> buttons; // one per page, to see which page shows
+    for (int i = 0; i < vc()->pagesCount(); i++)
+        buttons.insert(vc()->page(i)->id(), vc()->createWidgetGeometry(vc()->page(i)->id(), "Button", QRectF(20, 300, 100, 80))
+                                               .value("widgetIDs").toList().value(0).toUInt());
+    const quint32 deletedPage = vc()->page(deleted)->id();
+    auto *slider = qobject_cast<VCSlider *>(vc()->widget(vc()->createWidgetGeometry(deletedPage, "Slider", QRectF(200, 300, 60, 200))
+                                                         .value("widgetIDs").toList().value(0).toUInt()));
+    QVERIFY(slider);
+    const quint32 sliderID = slider->id();
+    slider->setSliderMode(VCSlider::Level);
+    slider->setCatchValues(false);
+    vc()->createAndAddInputSource(slider, 0, 497);
+    const auto takesInput = [&](int value) {
+        auto *restored = qobject_cast<VCSlider *>(vc()->widget(sliderID));
+        vc()->setEditMode(false);
+        vc()->page(deleted)->inputValueChanged(497, uchar(value));
+        vc()->setEditMode(true);
+        return restored && restored->value() == value;
+    };
+    QVERIFY(takesInput(64));
+    vc()->setSelectedPage(selected);
+    settleHistory();
+    // the page area must never show an index that is gone
+    QTest::failOnWarning(QRegularExpression(".*VCPageArea.qml.*(TypeError|Cannot read).*"));
+
+    vc()->deletePage(deleted);
+    settleHistory();
+    QCOMPARE(vc()->selectedPage(), shownAfterDelete);
+    // the page now at the shown index is the one on the canvas
+    const quint32 shown = buttons.value(vc()->page(shownAfterDelete)->id());
+    QTRY_VERIFY(vc()->widget(shown)->renderItem() && vc()->widget(shown)->renderItem()->isVisible());
+
+    Tardis::instance()->undoAction();
+    settleHistory();
+    QCOMPARE(vc()->page(deleted)->id(), deletedPage);
+    // undo shows the page it brings back, which takes its input again
+    QCOMPARE(vc()->selectedPage(), shownAfterUndo);
+    // and the canvas follows the console, without asking for a PIN on the way
+    const quint32 shownAfter = buttons.value(vc()->page(shownAfterUndo)->id());
+    QTRY_VERIFY(vc()->widget(shownAfter)->renderItem() && vc()->widget(shownAfter)->renderItem()->isVisible());
+    QCOMPARE(m_app->rootObject()->property("popupCount").toInt(), 0);
+    QVERIFY(takesInput(128));
+}
+
+void VCEditor_Test::pageAddKeepsShownArea_data()
+{
+    QTest::addColumn<int>("selected");
+    QTest::addColumn<int>("added");
+    QTest::newRow("after-shown") << 1 << 2;
+    QTest::newRow("at-end") << 0 << 4;
+}
+
+void VCEditor_Test::pageAddKeepsShownArea()
+{
+    QFETCH(int, selected);
+    QFETCH(int, added);
+    vc()->setSelectedPage(selected);
+    QPointer<QQuickItem> area;
+    QTRY_VERIFY((area = vc()->currentPageItem()));
+    settleHistory();
+
+    vc()->addPage(added);
+    settleHistory();
+    // the shown page did not change, so it keeps its scroll and any edit in progress
+    QVERIFY(area);
+    QCOMPARE(vc()->currentPageItem(), area.data());
 }
 
 void VCEditor_Test::destroyedDialogReleasesKeys()

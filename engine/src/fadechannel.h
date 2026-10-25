@@ -107,21 +107,10 @@ public:
     quint32 primaryChannel() const;
 
     /** Get the absolute address for this channel. */
-    inline quint32 address() const
-    {
-        if (m_address == QLCChannel::invalid())
-            return m_firstChannel;
-        return (m_address + m_firstChannel);
-    }
+    quint32 address() const;
 
     /** Get the absolute address in its universe for this channel. */
-    inline quint32 addressInUniverse() const
-    {
-        const quint32 addr = address();
-        if (addr == QLCChannel::invalid())
-            return QLCChannel::invalid();
-        return addr % UNIVERSE_SIZE;
-    }
+    quint32 addressInUniverse() const;
 
 protected:
     void autoDetect(const Doc *doc);

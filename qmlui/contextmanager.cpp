@@ -28,6 +28,7 @@
 #include "genericdmxsource.h"
 #include "functionmanager.h"
 #include "fixturemanager.h"
+#include "vceditor.h"
 #include "qlcfixturemode.h"
 #include "qlccapability.h"
 #include "fixtureutils.h"
@@ -141,13 +142,31 @@ void ContextManager::unregisterContext(QString name)
 
 void ContextManager::enableContext(QString name, bool enable, QQuickItem *item)
 {
-    if (m_contextsMap.contains(name) == false)
+    PreviewContext *context = m_contextsMap.value(name, nullptr);
+    if (context == nullptr)
         return;
 
-    PreviewContext *context = m_contextsMap[name];
+    if (enable)
+    {
+        /* A new view (e.g. after detach/reattach) can complete before the
+         * old one is destroyed. Disable the context first, so it releases
+         * whatever it built on top of the old view */
+        if (context->isEnabled() && context->contextItem() != nullptr && context->contextItem() != item)
+            context->enableContext(false);
 
-    context->setContextItem(item);
-    context->enableContext(enable);
+        context->setContextItem(item);
+        context->enableContext(true);
+    }
+    else
+    {
+        /* Ignore a stale view being destroyed after its replacement
+         * has already taken over this context */
+        if (context->contextItem() != nullptr && context->contextItem() != item)
+            return;
+
+        context->enableContext(false);
+        context->setContextItem(nullptr);
+    }
 
     if (name == "DMX")
         m_DMXView->updateFixtureSelection(m_selectedFixtures);
@@ -575,6 +594,16 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
             default:
             break;
         }
+    }
+
+    // A Function editor shown in the Virtual Console side panel deletes what
+    // is selected there, and the console then leaves its own selection alone
+    if ((e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace) && currentContext() == "VC" &&
+        m_editingEnabled && VCEditor::showsFunctionEditor(m_view, m_functionManager) &&
+        m_functionManager->deleteCurrentEditorItems())
+    {
+        e->accept();
+        return;
     }
 
     // 'Delete' key has its own handling. The Virtual Console deletes its own
@@ -1822,13 +1851,14 @@ void ContextManager::slotUniverseWritten(quint32 idx, const QByteArray &ua)
 {
     for (Fixture *fixture : m_doc->fixtures())
     {
-        if (fixture->universe() != idx)
+        // a cross-universe fixture spans more universes
+        if (idx < fixture->universe() || idx > fixture->lastUniverse())
             continue;
 
         QByteArray prevValues;
         prevValues.append(fixture->channelValues());
 
-        if (fixture->setChannelValues(ua) == true)
+        if (fixture->setUniverseValues(idx, ua) == true)
         {
             if (m_DMXView->isEnabled())
                 m_DMXView->updateFixture(fixture);

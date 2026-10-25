@@ -16,6 +16,17 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
   // Skip if file doesn't exist (CI environments)
   const skip = md.length === 0;
 
+  it('recognizes the upstream 0eee616b5 integration review cases', () => {
+    const section = parseManualReview(md).sections.find(s => s.number === '42');
+    expect(section?.title).toContain('0eee616b5');
+    expect(section?.cases.map(c => c.number)).toEqual([
+      '42.1', '42.2', '42.3', '42.4', '42.5', '42.6',
+    ]);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual([2, 2, 2, 2, 2, 1]);
+    expect(section!.cases.map(c => c.tags)).toEqual([['DMX'], ['DMX'], [], [], [], []]);
+    expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
+  });
+
   it.skipIf(skip)('parses without errors', () => {
     const plan = parseManualReview(md);
     expect(plan.title).toBeTruthy();

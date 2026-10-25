@@ -29,6 +29,8 @@
 #include "vceditor.h"
 #include "virtualconsole.h"
 #include "contextmanager.h"
+#include "functionmanager.h"
+#include "functioneditor.h"
 #include "qlcfile.h"
 #include "tardis.h"
 #include "vcframe.h"
@@ -205,6 +207,15 @@ void VCEditor::resetContents()
         delete VCArrangement::of(page, false);
 }
 
+bool VCEditor::showsFunctionEditor(QQuickView *view, FunctionManager *functions)
+{
+    QObject *panel = view->rootObject()->findChild<QObject *>("vcFunctionsPane");
+    FunctionEditor *editor = functions->currentEditor();
+    return editor && panel && panel->property("isOpen").toBool() &&
+           panel->property("itemID").toUInt() == editor->functionID() &&
+           panel->property("loaderSource").toString() == functions->getEditorResource(editor->functionID());
+}
+
 bool VCEditor::restorePage(int index, const QByteArray &xml)
 {
     /* widgets read their ID only from a reader with a device */
@@ -225,16 +236,24 @@ bool VCEditor::restorePage(int index, const QByteArray &xml)
     m_vc->addWidgetToMap(page);
     m_vc->m_contextManager->registerContext(page->previewContext());
     m_vc->m_pages.insert(index, page);
+    /* like a loaded page, it and its widgets take input again */
+    for (const auto &source : page->inputSources())
+        page->mapInputSource(source, page, false);
+    page->mapChildrenInputSources();
     page->buildKeySequenceMap();
+    m_vc->updatePageInputs();
 
-    emit m_vc->pagesCountChanged();
-
-    /* keep the shown page selected */
+    /* keep the shown page selected, before the page tabs rebuild and check
+       the tab at the old index, which could ask for the PIN of the new page */
     if (index <= m_vc->m_selectedPage && m_vc->m_pages.count() > 1)
     {
         m_vc->m_selectedPage++;
         emit m_vc->selectedPageChanged(m_vc->m_selectedPage);
     }
+    emit m_vc->pagesCountChanged();
+    /* then show the page undo brings back, unless that asks for a PIN first */
+    if (!page->requirePIN())
+        m_vc->setSelectedPage(index);
     return true;
 }
 
@@ -578,13 +597,15 @@ bool VCEditor::isArranged(const VCFrame *frame) const
 }
 
 QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QList<QSizeF> &sizes,
-                              const QList<QSizeF> &minimums) const
+                              const QList<QSizeF> &minimums, const QList<quint32> &leaving) const
 {
     if (!isArranged(frame))
         return QString();
     QList<QSizeF> allSizes, allMinimums;
     for (const QVariant &id : frame->orderedChildIDs(subpage))
     {
+        if (leaving.contains(id.toUInt()))
+            continue;
         VCWidget *child = m_vc->widget(id.toUInt());
         allSizes.append(child->logicalGeometry().size());
         allMinimums.append(child->minimumSize());
@@ -596,7 +617,7 @@ QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QList<QSizeF> &
     return arranged.error.isEmpty() ? QString() : tr("Frame %1: %2").arg(frame->caption(), arranged.error);
 }
 
-QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining) const
+QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, QRectF> &joining, bool cut) const
 {
     QList<QSizeF> sizes, minimums;
     for (auto it = joining.constBegin(); it != joining.constEnd(); ++it)
@@ -604,7 +625,7 @@ QString VCEditor::arrangedFit(VCFrame *frame, int subpage, const QMap<quint32, Q
         sizes.append(it.value().size());
         minimums.append(m_vc->widget(it.key())->minimumSize());
     }
-    return arrangedFit(frame, subpage, sizes, minimums);
+    return arrangedFit(frame, subpage, sizes, minimums, cut ? joining.keys() : QList<quint32>());
 }
 
 void VCEditor::arrangeJoined(VCFrame *frame)

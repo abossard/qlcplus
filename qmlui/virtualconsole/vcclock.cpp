@@ -72,7 +72,7 @@ VCClock::~VCClock()
     }
 
     if (m_item)
-        delete m_item;
+        delete m_item.data();
 }
 
 QString VCClock::defaultCaption() const
@@ -103,6 +103,7 @@ void VCClock::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
+    delete m_item.data();
     m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create clock component" << component->errors();

@@ -129,7 +129,7 @@ VCSlider::~VCSlider()
     removeActiveFaders();
 
     if (m_item)
-        delete m_item;
+        delete m_item.data();
 }
 
 QString VCSlider::defaultCaption() const
@@ -161,6 +161,7 @@ void VCSlider::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
+    delete m_item.data();
     m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create slider component" << component->errors();
@@ -1145,9 +1146,12 @@ QString VCSlider::cngPresetResource() const
 
 void VCSlider::setClickAndGoColors(QColor rgb, QColor wauv)
 {
+    Tardis::instance()->enqueueAction(Tardis::VCSliderSetClickAndGoColors, id(),
+                                      QVariantList({ m_cngPrimaryColor, m_cngSecondaryColor }),
+                                      QVariantList({ rgb, wauv }));
+
     const auto colors = qMakePair(rgb, wauv);
     ShowCommandRecorder::traceDirectRequest(this, 128);
-    Tardis::instance()->enqueueAction(Tardis::VCSliderSetValue, id(), 0, 128);
     applyValue(128, true, true, false, &colors);
 
     emit cngPrimaryColorChanged(rgb);
@@ -1710,8 +1714,10 @@ void VCSlider::writeDMXLevel(MasterTimer* timer, QList<Universe *> universes)
                 if (qlcch == nullptr)
                     continue;
 
-                quint32 dmx_ch = fxi->address() + scv.channel;
-                int uni = fxi->universe();
+                // a cross-universe fixture channel may belong to a following universe
+                quint32 absAddress = fxi->channelAddress(scv.channel);
+                quint32 dmx_ch = absAddress & 0x01FF;
+                int uni = absAddress >> 9;
                 if (uni < universes.count())
                 {
                     uchar chValue = universes[uni]->preGMValue(dmx_ch);

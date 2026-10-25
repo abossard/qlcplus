@@ -81,6 +81,8 @@ private slots:
     void widgetMenu();
     void editKeys_data();
     void editKeys();
+    void detachedConsoleKeys_data();
+    void detachedConsoleKeys();
     void frameCheckboxes_data();
     void frameCheckboxes();
 
@@ -97,6 +99,10 @@ private slots:
     void pastePlacement();
     void duplicateKeepsClipboard();
     void newWorkspaceShowsFirstPage();
+    void pageDeleteUndo_data();
+    void pageDeleteUndo();
+    void pageAddKeepsShownArea_data();
+    void pageAddKeepsShownArea();
     void destroyedDialogReleasesKeys();
     void editErrorsDoNotBlock_data();
     void editErrorsDoNotBlock();

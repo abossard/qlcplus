@@ -813,10 +813,10 @@ QStringList VirtualConsole::selectedWidgetNames() const
     QStringList names;
 
     {
-        QMap<quint32, QQuickItem*>::const_iterator it = m_itemsMap.begin();
-        for (; it != m_itemsMap.end(); it++)
+        auto it = m_itemsMap.constBegin();
+        for (; it != m_itemsMap.constEnd(); it++)
         {
-            VCWidget *vcWidget = m_widgetsMap[it.key()];
+            VCWidget *vcWidget = m_widgetsMap.value(it.key());
             if (vcWidget != nullptr)
             {
                 if (vcWidget->caption().isEmpty())
@@ -839,8 +839,8 @@ QVariantList VirtualConsole::selectedWidgetIDs() const
 {
     QVariantList ids;
 
-    QMap<quint32, QQuickItem*>::const_iterator it = m_itemsMap.begin();
-    for (; it != m_itemsMap.end(); it++)
+    auto it = m_itemsMap.constBegin();
+    for (; it != m_itemsMap.constEnd(); it++)
     {
         ids << it.key();
     }
@@ -1917,6 +1917,7 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
     QPointF position = logicalPosition;
     qreal rowHeight = 0;
     QVector<QPair<quint32, QRectF>> creations;
+    QList<QSizeF> sizes, minimums;
     for (const QVariant &value : functionIDs)
     {
         Function *function = m_doc->function(value.toUInt());
@@ -1927,6 +1928,8 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
         if (!preview.value("accepted").toBool())
             return preview;
         QRectF rect = preview.value("rect").toRectF();
+        sizes.append(rect.size());
+        minimums.append(preview.value("minimumSize").toSizeF());
         if (!creations.isEmpty() && (rect.left() < position.x() || rect.right() > bounds.right()))
         {
             position = QPointF(qMax(bounds.left(), logicalPosition.x()), position.y() + rowHeight);
@@ -1943,6 +1946,10 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
         rowHeight = qMax(rowHeight, rect.height());
         position = QPointF(rect.right() + qMax(qreal(1), snappingSize()), rect.top());
     }
+    /* an arranged frame places the new controls itself, when all of them fit */
+    const QString arranged = m_editor->arrangedFit(target, page, sizes, minimums);
+    if (!arranged.isEmpty())
+        return editResult(false, false, arranged);
     QScopedValueRollback<bool> busy(m_authoringBusy, true);
     emit structureAboutToChange();
     QSignalBlocker blockOwner(this), blockParent(target);
@@ -1955,6 +1962,7 @@ QVariantMap VirtualConsole::createFunctions(quint32 targetID, QVariantList funct
         Q_ASSERT(created);
         rectangles.insert(created->id(), creation.second);
     }
+    m_editor->arrangeJoined(target);
     if (tardis) tardis->endBatch();
     m_doc->setModified();
     blockOwner.unblock();
@@ -2178,12 +2186,14 @@ void VirtualConsole::setWidgetsAlignment(VCWidget *refWidget, int alignment)
     QRectF refGeom = refWidget->logicalGeometry();
     QMap<quint32, QRectF> rectangles;
 
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         const QString error = nativeAuthoringError(widget);
         if (!error.isEmpty())
         {
@@ -2250,12 +2260,14 @@ void VirtualConsole::setWidgetsDistribution(int direction)
      * 2- sort the widgets from the leftmost/topmost item
      * 3- detect the minimum and maximum items position
      */
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         const QString error = nativeAuthoringError(widget);
         if (!error.isEmpty())
         {
@@ -2300,6 +2312,10 @@ void VirtualConsole::setWidgetsDistribution(int direction)
             min = pos;
     }
 
+    // stale selection entries are skipped, so check again what's left
+    if (sortedWidgets.count() < 3)
+        return;
+
     gap = ((max - min) - widgetsSize) / (sortedWidgets.count() - 1);
 
     qreal newPos = min;
@@ -2328,60 +2344,70 @@ void VirtualConsole::setWidgetsDistribution(int direction)
 
 void VirtualConsole::setWidgetsCaption(QString caption)
 {
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         widget->setCaption(caption);
     }
 }
 
 void VirtualConsole::setWidgetsForegroundColor(QColor color)
 {
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         widget->setForegroundColor(color);
     }
 }
 
 void VirtualConsole::setWidgetsBackgroundColor(QColor color)
 {
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         widget->setBackgroundColor(color);
     }
 }
 
 void VirtualConsole::setWidgetsBackgroundImage(QString path)
 {
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         widget->setBackgroundImage(path);
     }
 }
 
 void VirtualConsole::setWidgetsFont(QFont font)
 {
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         widget->setFont(font);
     }
 }
@@ -2738,12 +2764,14 @@ void VirtualConsole::pasteFromClipboard()
 {
     VCFrame *frame = nullptr;
 
-    QMapIterator<quint32, QQuickItem*> it(m_itemsMap);
+    QMapIterator<quint32, QPointer<QQuickItem>> it(m_itemsMap);
     while (it.hasNext())
     {
         it.next();
 
-        VCWidget *widget = m_widgetsMap[it.key()];
+        VCWidget *widget = m_widgetsMap.value(it.key());
+        if (widget == nullptr)
+            continue;
         if (widget->type() == VCWidget::FrameWidget ||
             widget->type() == VCWidget::SoloFrameWidget)
         {
@@ -2831,9 +2859,11 @@ QVariantMap VirtualConsole::pasteWidgets(const QVariantList &ids, quint32 target
             rowHeight = 0;
         }
     }
-    error = m_editor->isArranged(target) ? m_editor->arrangedFit(target, subpage, rectangles)
-                                         : geometryError(rectangles, target, subpage, true);
-    if (!error.isEmpty() && nearPosition && m_editor->placeNear(rectangles, target, subpage, step))
+    const bool arranged = m_editor->isArranged(target);
+    error = arranged ? m_editor->arrangedFit(target, subpage, rectangles, m_clipboardIsCut)
+                     : geometryError(rectangles, target, subpage, true);
+    // a free spot does not help an arranged frame that has no room left
+    if (!error.isEmpty() && nearPosition && !arranged && m_editor->placeNear(rectangles, target, subpage, step))
         error.clear();
     if (!error.isEmpty())
         return editResult(false, false, error);
