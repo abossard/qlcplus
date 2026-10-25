@@ -25,12 +25,11 @@ value updates at the requested frequency.
 | Discovery     | Bonjour/mDNS service `_os2l._tcp` on the same port           |
 | Encoding      | UTF-8                                                         |
 
-**Framing — how to split the stream:** VDJ does not delimit messages. Insert a
-break at every `}{` boundary and parse each object. QLC+ does exactly this:
-`m_lineBuffer.replace("}{", "}\n{")` then splits on `\n`
-(`plugins/vdjbridge/vdjtelemetryclient.cpp:163-169`).
-> Limitation: a literal `}{` inside a JSON string value (e.g. an odd track title)
-> would mis-split. A string-aware/brace-depth splitter would be more robust.
+**Framing — how to split the stream:** VDJ does not delimit messages, and a
+literal `}{` inside a string value reaches the wire (measured with a title
+`a"b}{c\d`), so splitting on `}{` text is wrong. QLC+ cuts objects by brace
+depth outside strings (`VdjTelemetryClient::feed`). An object still open after
+1 MB (a snapshot is ~7 KB) drops the connection.
 
 ## Connection lifecycle (observed frame directions & sizes)
 
