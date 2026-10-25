@@ -271,7 +271,6 @@ Show *VdjBridge::lookupShow(quint32 showId) const
 
 void VdjBridge::applyPerformPlan()
 {
-    using Effect = PerformFsm::Effect;
     // a step that re-enters (a listener toggling Perform) plans after this
     // plan completed, against the state it reached
     if (m_planning)
@@ -297,81 +296,85 @@ void VdjBridge::applyPerformPlan()
         m_appliedState = state;
         m_appliedShowId = showId;
         for (const PerformFsm::Step &step : steps)
-        {
-            Show *show = lookupShow(step.showId);
-            switch (step.effect)
-            {
-                case Effect::ResolveRecorder:
-                    emit performShowResolved(step.showId);
-                break;
-                case Effect::ReleaseRecorder:
-                    emit performReleased();
-                break;
-                case Effect::SelectShow:
-                    emit performShowSelected(int(step.showId));
-                break;
-                case Effect::StopShow:
-                    // idempotent, and the only way to reach a start the timer is taking off its queue
-                    if (show)
-                        show->stop(FunctionParent::master());
-                break;
-                case Effect::ReleaseShow:
-                    if (show)
-                    {
-                        disconnect(show, nullptr, this, nullptr);
-                        show->setPerformAudioSuppressed(false);
-                        show->setSyncSource(ShowRunner::Autonomous);
-                        qDebug() << "[VdjBridge] Perform: released show" << show->name();
-                    }
-                    m_endedAt.reset();
-                break;
-                case Effect::AdoptShow:
-                    if (show)
-                    {
-                        show->setPerformAudioSuppressed(true);
-                        show->setSyncSource(ShowRunner::External);
-                        pushPosition(show);
-                        const quint32 id = show->id();
-                        connect(show, QOverload<quint32>::of(&Function::stopped), this, [this, id]() {
-                            if (id == m_appliedShowId)
-                                applyPerformPlan();
-                        }, Qt::QueuedConnection);
-                        // the runner is the one owner of "the Show ended": from here the deck
-                        // position decides, a move below it plays the Show again; a finish
-                        // before the song's first sample is the stale clock's: the queued
-                        // stop re-plans Live and the start waits for the sample
-                        connect(show, &Show::showFinished, this, [this, id]() {
-                            if (id != m_appliedShowId || !deckPosition())
-                                return;
-                            m_endedAt = *deckPosition();
-                            refreshPerformInputs();
-                        }, Qt::QueuedConnection);
-                        qDebug() << "[VdjBridge] Perform: adopted show" << show->name();
-                    }
-                    m_endedAt.reset();
-                break;
-                case Effect::StartShow:
-                    if (show && m_doc)
-                    {
-                        // the position before the start, so its first tick runs there,
-                        // and after it, as the first sample of this Play
-                        pushPosition(show);
-                        show->start(m_doc->masterTimer(), FunctionParent::master());
-                        pushPosition(show);
-                    }
-                break;
-                case Effect::ResumeShow:
-                    if (show)
-                    {
-                        pushPosition(show);
-                        show->setPause(false);
-                    }
-                break;
-                case Effect::PauseShow:
-                    if (show)
-                        show->setPause(true);
-                break;
-            }
-        }
+            perform(step);
     } while (m_replanPending);
+}
+
+void VdjBridge::perform(const PerformFsm::Step &step)
+{
+    using Effect = PerformFsm::Effect;
+    Show *show = lookupShow(step.showId);
+    switch (step.effect)
+    {
+        case Effect::ResolveRecorder:
+            emit performShowResolved(step.showId);
+        break;
+        case Effect::ReleaseRecorder:
+            emit performReleased();
+        break;
+        case Effect::SelectShow:
+            emit performShowSelected(int(step.showId));
+        break;
+        case Effect::StopShow:
+            // idempotent, and the only way to reach a start the timer is taking off its queue
+            if (show)
+                show->stop(FunctionParent::master());
+        break;
+        case Effect::ReleaseShow:
+            if (show)
+            {
+                disconnect(show, nullptr, this, nullptr);
+                show->setPerformAudioSuppressed(false);
+                show->setSyncSource(ShowRunner::Autonomous);
+                qDebug() << "[VdjBridge] Perform: released show" << show->name();
+            }
+            m_endedAt.reset();
+        break;
+        case Effect::AdoptShow:
+            if (show)
+            {
+                show->setPerformAudioSuppressed(true);
+                show->setSyncSource(ShowRunner::External);
+                pushPosition(show);
+                const quint32 id = show->id();
+                connect(show, QOverload<quint32>::of(&Function::stopped), this, [this, id]() {
+                    if (id == m_appliedShowId)
+                        applyPerformPlan();
+                }, Qt::QueuedConnection);
+                // the runner is the one owner of "the Show ended": from here the deck
+                // position decides, a move below it plays the Show again; a finish
+                // before the song's first sample is the stale clock's: the queued
+                // stop re-plans Live and the start waits for the sample
+                connect(show, &Show::showFinished, this, [this, id]() {
+                    if (id != m_appliedShowId || !deckPosition())
+                        return;
+                    m_endedAt = *deckPosition();
+                    refreshPerformInputs();
+                }, Qt::QueuedConnection);
+                qDebug() << "[VdjBridge] Perform: adopted show" << show->name();
+            }
+            m_endedAt.reset();
+        break;
+        case Effect::StartShow:
+            if (show)
+            {
+                // the position before the start, so its first tick runs there,
+                // and after it, as the first sample of this Play
+                pushPosition(show);
+                show->start(m_doc->masterTimer(), FunctionParent::master());
+                pushPosition(show);
+            }
+        break;
+        case Effect::ResumeShow:
+            if (show)
+            {
+                pushPosition(show);
+                show->setPause(false);
+            }
+        break;
+        case Effect::PauseShow:
+            if (show)
+                show->setPause(true);
+        break;
+    }
 }

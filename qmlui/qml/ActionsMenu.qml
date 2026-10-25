@@ -350,7 +350,7 @@ Popup
     Connections
     {
         target: qlcplus
-        function onSaveErrorChanged() { if (qlcplus.saveError.length) saveErrorPopup.open() }
+        function onSaveErrorChanged() { if (qlcplus.saveError.length) saveFailed() }
     }
 
     CustomPopupDialog

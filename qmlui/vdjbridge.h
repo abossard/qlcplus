@@ -115,6 +115,7 @@ private:
     std::optional<quint32> deckPosition() const;
     void pushPosition(Show *show) const;
     void applyPerformPlan();
+    void perform(const PerformFsm::Step &step);
     Show *lookupShow(quint32 showId) const;
 
     Doc *m_doc = nullptr;

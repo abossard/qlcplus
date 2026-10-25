@@ -2098,10 +2098,7 @@ void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
     for (ShowControlRole role : {ShowControlRole::FreezeHoldButton, ShowControlRole::FlashButton,
                                  ShowControlRole::AdjustSlider})
     {
-        const QHash<quint32, QSet<QUuid>> &replayHeld = holdSet(role) == 0   ? m_replayFreezeHolds
-                                                         : holdSet(role) == 1 ? m_replayFlashButtons
-                                                                              : m_replaySliderFlashes;
-        for (const QUuid &controlId : replayHeld.value(showId))
+        for (const QUuid &controlId : replayHeld(showId, role))
         {
             if (heldAt(controlId, holdSet(role)))
                 continue;
@@ -2148,6 +2145,17 @@ QSet<QUuid> *ShowCommandRecorder::replayHolds(quint32 showId, ShowControlRole ro
         case 2: return &m_replaySliderFlashes[showId];
     }
     return nullptr;
+}
+
+QSet<QUuid> ShowCommandRecorder::replayHeld(quint32 showId, ShowControlRole role) const
+{
+    switch (holdSet(role))
+    {
+        case 0: return m_replayFreezeHolds.value(showId);
+        case 1: return m_replayFlashButtons.value(showId);
+        case 2: return m_replaySliderFlashes.value(showId);
+    }
+    return QSet<QUuid>();
 }
 
 bool ShowCommandRecorder::editFailed(const QString &error)
