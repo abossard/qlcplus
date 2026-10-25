@@ -299,16 +299,11 @@ void App::startup()
         if (vdj != nullptr)
         {
             QSettings settings;
-            quint16 telemetryPort = static_cast<quint16>(
-                settings.value("vdj/telemetryPort", 8050).toUInt());
-            bool autoOpenVdjInput = settings.value("vdj/autoOpenInput", false).toBool();
-            if (telemetryPort > 0 && telemetryPort != 8050)
-            {
+            if (settings.contains("vdj/telemetryPort"))
                 vdj->setParameter(0, 0, QLCIOPlugin::Input,
-                                  QStringLiteral("hostPort"), telemetryPort);
-            }
+                                  QStringLiteral("hostPort"), settings.value("vdj/telemetryPort"));
             m_vdjBridge->attachVdjPlugin(vdj);
-            if (autoOpenVdjInput && telemetryPort > 0)
+            if (settings.value("vdj/autoOpenInput", false).toBool())
                 vdj->openInput(0, 0);
         }
     }

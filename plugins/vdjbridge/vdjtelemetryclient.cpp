@@ -67,12 +67,12 @@ bool VdjTelemetryClient::start(quint16 port)
     {
         qWarning() << kLogTag << "Failed to bind port" << port
                     << ":" << m_server.errorString();
-        setStatus(PortInUse);
+        m_status = PortInUse;
         return false;
     }
 
     qDebug() << kLogTag << "Listening on port" << port;
-    setStatus(Listening);
+    m_status = Listening;
     return true;
 }
 
@@ -85,7 +85,7 @@ void VdjTelemetryClient::stop()
         m_server.close();
         qDebug() << kLogTag << "Server stopped";
     }
-    setStatus(Idle);
+    m_status = Idle;
     // closing the input is a disconnect to its consumers, like VDJ going away
     if (hadClient)
         emit clientDisconnected();
@@ -96,15 +96,6 @@ QString VdjTelemetryClient::clientAddress() const
     if (m_client && m_client->state() == QAbstractSocket::ConnectedState)
         return QString("%1:%2").arg(m_client->peerAddress().toString()).arg(m_client->peerPort());
     return QString();
-}
-
-void VdjTelemetryClient::setStatus(Status s)
-{
-    if (m_status != s)
-    {
-        m_status = s;
-        emit statusChanged(s);
-    }
 }
 
 void VdjTelemetryClient::closeClient()
@@ -149,7 +140,7 @@ void VdjTelemetryClient::onNewConnection()
     m_client->write(sub);
     m_client->flush();
 
-    setStatus(ClientConnected);
+    m_status = ClientConnected;
     emit clientConnected();
 }
 
@@ -232,7 +223,7 @@ void VdjTelemetryClient::onClientDisconnected()
 {
     qDebug() << kLogTag << "Client disconnected";
     closeClient();
-    setStatus(Listening);
+    m_status = Listening;
     emit clientDisconnected();
 }
 

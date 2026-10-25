@@ -28,7 +28,7 @@
 /**
  * TCP server implementing the DMXDesktop telemetry protocol for VirtualDJ.
  *
- * Listens on a configurable port (default 8050). When VDJ connects, sends
+ * Listens on a configurable port. When VDJ connects, sends
  * a subscription handshake then parses incoming NDJSON frames and dispatches
  * typed signals for deck updates, beat events, and global mixer state.
  *
@@ -48,7 +48,6 @@ public:
     };
     Q_ENUM(Status)
 
-    static const quint16 kDefaultPort = 8050;
     static const int kDefaultFrequency = 25;
     static const int kDeckCount = 4;
 
@@ -56,7 +55,7 @@ public:
     ~VdjTelemetryClient() override;
 
     /** Start listening on the given port. Returns false if port bind fails. */
-    bool start(quint16 port = kDefaultPort);
+    bool start(quint16 port);
 
     /** Stop listening; a connected client is dropped and clientDisconnected() emitted. */
     void stop();
@@ -81,8 +80,6 @@ public:
     void feed(const QByteArray &chunk);
 
 signals:
-    void statusChanged(VdjTelemetryClient::Status status);
-
     /** Per-deck trigger update. deckIndex is 0-based (0–3). */
     void deckTriggerReceived(int deckIndex, const QString &trigger, const QVariant &value);
 
@@ -105,7 +102,6 @@ private slots:
     void onClientDisconnected();
 
 private:
-    void setStatus(Status s);
     void closeClient();
 
     QTcpServer m_server;

@@ -163,8 +163,7 @@ bool VdjBridge::telemetryConnected() const
 
 void VdjBridge::onDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value)
 {
-    if (deckIndex >= 0 && deckIndex < DjFsm::MaxDecks)
-        m_fsm->onDeckTrigger(deckIndex + 1, trigger, value);
+    m_fsm->onDeckTrigger(deckIndex + 1, trigger, value);
 }
 
 void VdjBridge::onTickEnded()

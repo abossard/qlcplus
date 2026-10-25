@@ -50,10 +50,10 @@ QString VdjBridgePlugin::pluginInfo() const
     str  = QString("<HTML><HEAD><TITLE>%1</TITLE></HEAD><BODY>").arg(name());
     str += QString("<H3>%1</H3>").arg(name());
     str += tr("This plugin exposes VirtualDJ DMXDesktop telemetry "
-              "(TCP, default port 8050, Bonjour service "
+              "(TCP, default port %1, Bonjour service "
               "<tt>_os2l._tcp</tt>) as a QLC+ input. "
               "It emits beat events and per-deck metadata that the "
-              "qmlui VdjBridge facade consumes to drive the Song Manager.");
+              "qmlui VdjBridge facade consumes to drive the Song Manager.").arg(VDJ_DEFAULT_PORT);
     str += QString("</BODY></HTML>");
     return str;
 }
@@ -76,12 +76,8 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
             this, &VdjBridgePlugin::tickEnded);
     connect(m_telemetry, &VdjTelemetryClient::beatReceived,
             this, [this](int pos, qreal bpm, qreal strength, bool change) {
-        // Mirror OS2L's pattern: emit valueChanged on a fixed beat
-        // channel (8341 / 0xff) so the engine beat-source machinery
-        // picks it up, then emit both the standard zero-arg beat and
-        // the rich telemetry-payload beat.
+        // the engine's beat source takes a plugin beat on channel 8341, as OS2L sends it
         emit valueChanged(m_inputUniverse, 0, 8341, 255, QStringLiteral("beat"));
-        emit beatReceived();
         emit telemetryBeatReceived(pos, bpm, strength, change);
     });
     connect(m_telemetry, &VdjTelemetryClient::clientConnected,

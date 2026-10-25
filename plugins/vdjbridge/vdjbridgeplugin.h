@@ -33,14 +33,13 @@ class VdjBonjour;
 
 /**
  * QLC+ I/O plugin that exposes the VirtualDJ DMXDesktop telemetry
- * protocol (TCP, default port 8050, Bonjour service
+ * protocol (TCP, default port VDJ_DEFAULT_PORT, Bonjour service
  * "_os2l._tcp") as a QLC+ input.
  *
- * Emits the standard QLCIOPlugin::beatReceived() and
- * valueChanged(...) for engine beat-source integration, plus custom
- * signals carrying the rich DMXDesktop payload (per-deck triggers,
- * global mixer state, telemetry-style beats) that the qmlui VdjBridge
- * facade consumes via string-based SIGNAL/SLOT.
+ * Emits valueChanged(...) on the beat channel for the engine's beat
+ * source, plus custom signals carrying the DMXDesktop payload (per-deck
+ * and global triggers, telemetry beats) that the qmlui VdjBridge facade
+ * consumes via string-based SIGNAL/SLOT.
  */
 class VdjBridgePlugin final : public QLCIOPlugin
 {
@@ -78,12 +77,6 @@ public:
                       QString name, QVariant value) override;
 
 signals:
-    // Standard zero-arg beat signal (matches OS2L convention) — emitted
-    // alongside valueChanged(...) on every telemetry beat so the engine
-    // beat-source machinery and other listeners that only know the
-    // QLCIOPlugin interface can pick it up.
-    void beatReceived();
-
     // Rich beat signal carrying DMXDesktop telemetry payload
     // (position, BPM, strength, deck-change flag).
     void telemetryBeatReceived(int pos, qreal bpm, qreal strength, bool change);

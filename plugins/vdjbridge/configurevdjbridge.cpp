@@ -35,7 +35,7 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
     : QDialog(parent)
     , m_plugin(plugin)
 {
-    setWindowTitle(tr("VDJ Bridge Configuration"));
+    setWindowTitle(tr("%1 Configuration").arg(plugin->name()));
     setMinimumSize(480, 400);
 
     auto *mainLayout = new QVBoxLayout(this);
