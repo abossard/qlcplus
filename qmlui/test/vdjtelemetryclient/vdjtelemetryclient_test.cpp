@@ -811,11 +811,14 @@ void VdjTelemetryClient_Test::aSavedPortRestartsAnInputOpenedOnABusyPort()
     QVERIFY(other.listen(QHostAddress::Any, 18067));
     VdjBridgePlugin plugin;
     plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18067);
-    plugin.openInput(0, 3);
+    // open: InputOutputMap takes its beats, InputPatch::reconnect restores its parameters
+    QVERIFY(plugin.openInput(0, 3));
     QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Idle));
+    QCOMPARE(vdjBonjourLive(), 0);
 
     plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), QStringLiteral("18068"));
     QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Advertising));
+    QCOMPARE(vdjBonjourLive(), 1);
     QCOMPARE(plugin.getParameters(3, 0, QLCIOPlugin::Input).value("hostPort").toInt(), 18068);
     QTcpSocket vdj;
     vdj.connectToHost("127.0.0.1", 18068);
@@ -865,24 +868,30 @@ void VdjTelemetryClient_Test::aPortOutsideOneTo65535IsIgnored_data()
 {
     // from vdj/telemetryPort or a workspace file
     QTest::addColumn<QVariant>("port");
-    QTest::newRow("0: any port") << QVariant(0);
-    QTest::newRow("\"0\"") << QVariant("0");
-    QTest::newRow("past 65535") << QVariant(70000);
-    QTest::newRow("not a number") << QVariant("port");
+    QTest::addColumn<bool>("applied");
+    QTest::newRow("0: any port") << QVariant(0) << false;
+    QTest::newRow("\"0\"") << QVariant("0") << false;
+    QTest::newRow("past 65535") << QVariant(70000) << false;
+    QTest::newRow("not a number") << QVariant("port") << false;
+    QTest::newRow("1") << QVariant(1) << true;
+    QTest::newRow("65535") << QVariant(65535) << true;
 }
 
 void VdjTelemetryClient_Test::aPortOutsideOneTo65535IsIgnored()
 {
     QFETCH(QVariant, port);
+    QFETCH(bool, applied);
 
     VdjBridgePlugin plugin;
     plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18072);
     QVERIFY(plugin.openInput(0, 3));
 
     plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), port);
-    QCOMPARE(plugin.hostPort(), quint16(18072));
-    QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Advertising));
-    QVERIFY(!plugin.getParameters(3, 0, QLCIOPlugin::Input).contains("hostPort"));
+    QCOMPARE(plugin.hostPort(), quint16(applied ? port.toUInt() : 18072));
+    QCOMPARE(plugin.getParameters(3, 0, QLCIOPlugin::Input).contains("hostPort"), applied);
+    // whether port 1 or 65535 binds is the machine's business
+    if (!applied)
+        QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Advertising));
     plugin.closeInput(0, 3);
 }
 
