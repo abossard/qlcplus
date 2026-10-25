@@ -399,6 +399,9 @@ public:
      *  pair's. The ids of the pairs that break it, each once, earliest kept. */
     QVector<quint32> malformedHoldPairs() const;
 
+    /** The presses of the holds still open, in track order */
+    QVector<ShowCommand> openHolds() const;
+
     /** Release every open hold at time, never before its press. The holds
      *  of its control pressed after it until then go: the hold replaced
      *  them. Fails, unchanged, when no event id is left. */

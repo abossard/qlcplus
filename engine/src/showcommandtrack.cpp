@@ -1417,6 +1417,17 @@ QVector<quint32> ShowCommandTrack::malformedHoldPairs() const
     return malformedPairs(m_commands, holdPairs(m_commands));
 }
 
+QVector<ShowCommand> ShowCommandTrack::openHolds() const
+{
+    QVector<ShowCommand> open;
+    for (const HoldPair &pair : holdPairs(m_commands))
+    {
+        if (!pair.broken && pair.release < 0)
+            open.append(m_commands.at(pair.press));
+    }
+    return open;
+}
+
 bool ShowCommandTrack::closeOpenHolds(quint32 time, QString *error)
 {
     ShowCommandTrack closed = *this;

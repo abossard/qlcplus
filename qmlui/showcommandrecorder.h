@@ -584,6 +584,10 @@ private:
      *  reached one of its recorded events. That one is removed from the
      *  track here; a hold's release removes what it spanned. */
     bool replacedByLive(const ControlRun &run, const ShowCommand &cmd);
+    /** The position moved back from departure to arrival: a hold the bound
+     *  Show records ends at the departure, and one the performer still
+     *  holds starts again at the arrival, live, so its native hold stays */
+    void holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival);
     /** The performer's holds in this pass, recorded by REC, by (identity,
      *  role): from the press to the release, MaxTime while held */
     QHash<QPair<QUuid, int>, QPair<quint32, quint32>> m_liveHolds;

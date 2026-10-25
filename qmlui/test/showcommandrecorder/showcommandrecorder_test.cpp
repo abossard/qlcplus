@@ -14997,10 +14997,10 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::newRow("seek back, save while held") << take + QStringLiteral("at 6000, press, at 8000")
                                                 << QStringLiteral("6000- 10000-12000")
                                                 << QStringLiteral("6000-8000 10000-12000") << true;
-    // REC off never closes a hold before its own press
+    // held across a move back: it ends at the departure and starts again at the arrival
     QTest::newRow("loop back while held, REC off")
         << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
-        << QStringLiteral("10000-10000") << QStringLiteral("10000-10000") << true;
+        << QStringLiteral("5000-6000 10000-10000") << QStringLiteral("5000-6000 10000-10000") << true;
     const QString deleted = QStringLiteral("rec on, at 1000, press, at 2000, release, rec off, delete, ");
     const QString again = QStringLiteral("rec on, at 3000, press, at 4000, release, rec off, ");
     QTest::newRow("undo a deletion after a new hold") << deleted + again + QStringLiteral("undo")
@@ -15150,6 +15150,13 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
                                QStringLiteral("F:2000-4000 T:1500=1,4500=0"),
                                QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
                                QStringLiteral("F:1000-5000 T:1500=1,4500=0") };
+    // the hold goes on through the wrap: two pairs, the native hold untouched
+    QTest::newRow("a flash held across the wrap stays on through it")
+        << QStringLiteral("rec;playext;to:5000;press:F;to:6000;log;wrap;to:1000;release:F;log;track;"
+                          "to:6000;wrap;to:6000;log")
+        << QStringList{ QStringLiteral("F:5000=200"), QStringLiteral("F:1000=0"),
+                        QStringLiteral("F:0-1000,5000-6000"),
+                        QStringLiteral("F:5000=200,6000=0,0=200,1000=0,5000=200,6000=0") };
 }
 
 void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()

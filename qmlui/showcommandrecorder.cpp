@@ -1953,10 +1953,46 @@ void ShowCommandRecorder::slotShowClock()
         if (ShowEventLog::generation() != 0)
             traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3));
         // another pass: what the performer touched in the last one replays again
-        m_liveHolds.clear();
         m_movedLive.clear();
+        holdAcrossTheMove(show, m_lastClock, now);
     }
     m_lastClock = now;
+}
+
+void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival)
+{
+    QHash<QPair<QUuid, int>, QPair<quint32, quint32>> held;
+    for (auto it = m_liveHolds.cbegin(); it != m_liveHolds.cend(); ++it)
+    {
+        if (it.value().second == ShowCommand::MaxTime)
+            held.insert(it.key(), qMakePair(arrival, ShowCommand::MaxTime));
+    }
+    m_liveHolds = held;
+    const QVector<ShowCommand> open = show->commandTrack().openHolds();
+    if (show->id() != m_rec.boundShowId() || open.isEmpty())
+        return;
+
+    ShowCommandTrack closed = show->commandTrack();
+    QString error;
+    if (closed.closeOpenHolds(departure, &error) == false ||
+        publishTrack(closed, QSet<quint32>(), show->commandTraversal(), show, &error) == false)
+    {
+        reportFailure(error);
+        return;
+    }
+    m_doc->setModified();
+    for (const ShowCommand &press : open)
+    {
+        if (held.contains(qMakePair(press.controlId, int(press.role))) == false)
+            continue;
+        ShowCommandInput again;
+        again.origin = ShowCommandOrigin::Pointer;
+        again.action = ShowCommandAction::SetButtonState;
+        again.controlId = press.controlId;
+        again.role = press.role;
+        again.on = true;
+        authorAt(again, arrival);
+    }
 }
 
 void ShowCommandRecorder::slotCommandTrackChanged()
