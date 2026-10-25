@@ -154,7 +154,7 @@ private:
 
     QSet<Function *> m_seekRestartFunctions;
 
-    /** A running Scene whose clip is active at newTime keeps running; every
+    /** A Scene this Show still runs, whose clip is active at newTime, keeps running; every
      *  other clip stops and starts again there. A forward request keeps the
      *  command traversal and plays the crossed interval; otherwise the
      *  traversal restarts at newTime, unless the Show restarted it already

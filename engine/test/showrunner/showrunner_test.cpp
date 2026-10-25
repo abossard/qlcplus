@@ -1779,6 +1779,13 @@ void ShowRunner_Test::seekRestartsWhatItDoesNotKeep_data()
     // the nested Show's own clip is 0-2 s
     QTest::newRow("a nested Show starts again at the offset") << QStringLiteral("nested show")
                                                               << QStringLiteral("0 200");
+    // a queue entry is no proof the Function runs
+    QTest::newRow("a single-shot Chaser that finished starts again") << QStringLiteral("finished chaser")
+                                                                     << QStringLiteral("0 10");
+    QTest::newRow("a Scene stopped by Master starts again") << QStringLiteral("master stop")
+                                                            << QStringLiteral("0 200");
+    QTest::newRow("a Scene a VC Toggle stopped starts again") << QStringLiteral("toggle stop")
+                                                              << QStringLiteral("0 200");
     QTest::newRow("a Scene keeps running") << QStringLiteral("scene") << QStringLiteral("200 200");
 }
 
