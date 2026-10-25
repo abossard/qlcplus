@@ -105,21 +105,16 @@ private slots:
     /** One VDJ write is in: the decks commit it, the adopted Show takes the position */
     void onTickEnded();
     void onTelemetryClientDisconnected();
-    void onAdoptedShowStopped(quint32 showId);
-    void onAdoptedShowFinished(quint32 showId);
 
 private:
     void pushActiveBpm();
 
     // --- Perform: the active deck as the FSM's input, the plan as effects ---
     void refreshPerformInputs();
-    PerformFsm::Inputs performInputs() const;
-    PerformFsm::ShowFacts showFacts(quint32 showId) const;
     /** The active deck's position; none while it holds no song */
     std::optional<quint32> deckPosition() const;
     void pushPosition(Show *show) const;
     void applyPerformPlan();
-    void perform(const PerformFsm::Step &step);
     Show *lookupShow(quint32 showId) const;
 
     Doc *m_doc = nullptr;

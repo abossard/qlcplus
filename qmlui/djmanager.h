@@ -298,7 +298,6 @@ private slots:
 
 private:
     void recomputePlayingSongs();
-    void mergeShowFromDoc(quint32 showId);
 
     VdjBridge *m_bridge;
     ShowFactory *m_factory;

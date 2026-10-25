@@ -106,7 +106,6 @@ void ShowFactory_Test::buildShow()
     QVERIFY(audio != nullptr);
     QCOMPARE(audio->getSourceFileName(), filepath);
     // the new Show is the song's through its clip, nothing else remembers it
-    QCOMPARE(ShowFactory::songFilepath(&doc, show), filepath);
     QCOMPARE(factory.showIdForFilepath(filepath), showId);
 }
 

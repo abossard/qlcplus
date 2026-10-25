@@ -403,7 +403,6 @@ private slots:
     void slotCommandTraversalCancelled();
     /** A Show stopped or changed its time source: its timeline facts end */
     void slotTimelineReset();
-    void slotFunctionAdded(quint32 id);
     /** A Show began playing: its timeline facts start over, traced for the tracked one */
     void slotShowPlayback();
     /** A Show stopped: release replay-owned holds before timeline facts reset */
@@ -457,8 +456,6 @@ private:
     QSet<quint32> *userHolds(ShowControlRole role);
     /** showId's replay hold set for edges of role, nullptr for a role that holds nothing */
     QSet<QUuid> *replayHolds(quint32 showId, ShowControlRole role);
-    /** The same, to read: creates no set */
-    QSet<QUuid> replayHeld(quint32 showId, ShowControlRole role) const;
     /** Drop showId's timeline facts */
     void forgetTimeline(quint32 showId);
     /** Replace one command, for the value and state edits */

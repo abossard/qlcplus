@@ -842,30 +842,11 @@ void DjManager::onDocCleared()
 
 void DjManager::onFunctionAdded(quint32 fid)
 {
-    // Targeted merge of a single Show — never a full rebuild, so FSM-sourced
-    // song rows (which may not yet have a Doc Show) are preserved and no
-    // transient "phantom" row is created while a Show is mid-construction.
-    mergeShowFromDoc(fid);
-}
-
-void DjManager::onFunctionChanged(quint32 fid)
-{
-    m_model->markEdited(fid);
-}
-
-void DjManager::mergeShowFromDoc(quint32 showId)
-{
-    if (!m_doc)
+    // a song Show of the Doc gets a row of its own, never a full rebuild: the
+    // FSM-sourced rows stay, and a Show under construction (no clip yet) adds none
+    Function *f = m_doc ? m_doc->function(fid) : nullptr;
+    if (!f || f->type() != Function::ShowType || !f->path(true).startsWith(kSongFolderPath))
         return;
-
-    Function *f = m_doc->function(showId);
-    if (!f || f->type() != Function::ShowType)
-        return;
-    if (!f->path(true).startsWith(kSongFolderPath))
-        return;
-
-    // No audio wired yet (Show still under construction): no song row. The
-    // index maps the Show itself once its clip is in.
     Audio *audio = ShowFactory::songAudio(m_doc, static_cast<Show *>(f));
     if (!audio || m_model->hasFilepath(audio->getSourceFileName()))
         return;
@@ -875,4 +856,9 @@ void DjManager::mergeShowFromDoc(quint32 showId)
     song.title = f->name();
     song.totalMs = static_cast<int>(audio->totalDuration());
     m_model->upsertSong(song);
+}
+
+void DjManager::onFunctionChanged(quint32 fid)
+{
+    m_model->markEdited(fid);
 }

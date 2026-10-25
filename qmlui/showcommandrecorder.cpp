@@ -157,7 +157,18 @@ ShowCommandRecorder::ShowCommandRecorder(Doc *doc, QObject *parent)
 {
     s_instance = this;
 
-    connect(m_doc, &Doc::functionAdded, this, &ShowCommandRecorder::slotFunctionAdded);
+    connect(m_doc, &Doc::functionAdded, this, [this](quint32 id)
+    {
+        // a Show that comes back (undo, load) issues no event id its history has held
+        Show *show = qobject_cast<Show *>(m_doc->function(id));
+        if (show != nullptr)
+        {
+            ShowCommandTrack restored = show->commandTrack();
+            if (restored.reserve(m_eventIdFloors.value(id)))
+                show->setCommandTrack(restored);
+        }
+        attachShow(show);
+    });
     connect(m_doc, &Doc::functionRemoved, this, &ShowCommandRecorder::slotFunctionRemoved);
     connect(m_doc, &Doc::clearing, this, &ShowCommandRecorder::dropUserRequests);
     // a new workspace starts a new undo history and an empty clipboard
@@ -2087,7 +2098,10 @@ void ShowCommandRecorder::reconcileReplayOwnedHoldsAtCursor(Show *show)
     for (ShowControlRole role : {ShowControlRole::FreezeHoldButton, ShowControlRole::FlashButton,
                                  ShowControlRole::AdjustSlider})
     {
-        for (const QUuid &controlId : replayHeld(showId, role))
+        const QHash<quint32, QSet<QUuid>> &replayHeld = holdSet(role) == 0   ? m_replayFreezeHolds
+                                                         : holdSet(role) == 1 ? m_replayFlashButtons
+                                                                              : m_replaySliderFlashes;
+        for (const QUuid &controlId : replayHeld.value(showId))
         {
             if (heldAt(controlId, holdSet(role)))
                 continue;
@@ -2134,17 +2148,6 @@ QSet<QUuid> *ShowCommandRecorder::replayHolds(quint32 showId, ShowControlRole ro
         case 2: return &m_replaySliderFlashes[showId];
     }
     return nullptr;
-}
-
-QSet<QUuid> ShowCommandRecorder::replayHeld(quint32 showId, ShowControlRole role) const
-{
-    switch (holdSet(role))
-    {
-        case 0: return m_replayFreezeHolds.value(showId);
-        case 1: return m_replayFlashButtons.value(showId);
-        case 2: return m_replaySliderFlashes.value(showId);
-    }
-    return QSet<QUuid>();
 }
 
 bool ShowCommandRecorder::editFailed(const QString &error)
@@ -2499,18 +2502,6 @@ void ShowCommandRecorder::traceInput(VCWidget *control, ShowCommandOrigin origin
 /*********************************************************************
  * Replay executor
  *********************************************************************/
-
-void ShowCommandRecorder::slotFunctionAdded(quint32 id)
-{
-    Show *show = qobject_cast<Show *>(m_doc->function(id));
-    if (show != nullptr)
-    {
-        ShowCommandTrack restored = show->commandTrack();
-        if (restored.reserve(m_eventIdFloors.value(id)))
-            show->setCommandTrack(restored);
-    }
-    attachShow(show);
-}
 
 void ShowCommandRecorder::rememberEventIds(const Show *show)
 {

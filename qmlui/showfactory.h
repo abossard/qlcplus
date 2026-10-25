@@ -57,9 +57,6 @@ public:
     /** The first Audio clip of a Show, nullptr without one */
     static Audio *songAudio(const Doc *doc, const Show *show);
 
-    /** The song a Show plays: its first Audio clip's source, normalized; empty without one */
-    static QString songFilepath(const Doc *doc, const Show *show);
-
     /**
      * Derive the human-readable Show name from song metadata:
      * "Artist - Title", else "Title", else the filename stem.
@@ -94,7 +91,6 @@ signals:
 
 private:
     void docChanged();
-    const QHash<QString, quint32> &docIndex() const;
 
     Doc *m_doc;
     QHash<QString, quint32> m_choices;

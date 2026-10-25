@@ -91,35 +91,24 @@ Audio *ShowFactory::songAudio(const Doc *doc, const Show *show)
     return nullptr;
 }
 
-QString ShowFactory::songFilepath(const Doc *doc, const Show *show)
-{
-    Audio *audio = songAudio(doc, show);
-    return audio ? normalizePath(audio->getSourceFileName()) : QString();
-}
-
-const QHash<QString, quint32> &ShowFactory::docIndex() const
-{
-    if (m_docIndexDirty)
-    {
-        m_docIndex.clear();
-        // several Shows of one song: the first in Doc order
-        for (Function *f : m_doc->functionsByType(Function::ShowType))
-        {
-            const QString filepath = songFilepath(m_doc, qobject_cast<Show *>(f));
-            if (!filepath.isEmpty() && !m_docIndex.contains(filepath))
-                m_docIndex.insert(filepath, f->id());
-        }
-        m_docIndexDirty = false;
-    }
-    return m_docIndex;
-}
-
 quint32 ShowFactory::showIdForFilepath(const QString &filepath) const
 {
     const QString key = normalizePath(filepath);
     if (key.isEmpty() || !m_doc)
         return Function::invalidId();
-    return m_choices.value(key, docIndex().value(key, Function::invalidId()));
+    if (m_docIndexDirty)
+    {
+        m_docIndex.clear();
+        // a Show's song is its first Audio clip's; several Shows of one song: the first in Doc order
+        for (Function *f : m_doc->functionsByType(Function::ShowType))
+        {
+            Audio *audio = songAudio(m_doc, qobject_cast<Show *>(f));
+            if (audio && !m_docIndex.contains(normalizePath(audio->getSourceFileName())))
+                m_docIndex.insert(normalizePath(audio->getSourceFileName()), f->id());
+        }
+        m_docIndexDirty = false;
+    }
+    return m_choices.value(key, m_docIndex.value(key, Function::invalidId()));
 }
 
 QString ShowFactory::showNameForSong(const DjFsm::DeckSong &info)
