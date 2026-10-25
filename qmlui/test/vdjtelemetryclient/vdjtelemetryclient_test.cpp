@@ -551,7 +551,7 @@ void VdjTelemetryClient_Test::stopDropsTheClient()
 
 void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot_data()
 {
-    // one list of writes per connection: "beat" or "snapshot"
+    // one list of writes per connection: "beat", "snapshot" or "other" (an evt VDJ never sends)
     QTest::addColumn<QList<QStringList>>("connections");
     QTest::addColumn<int>("engineBeats");
 
@@ -561,6 +561,8 @@ void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot_data()
     QTest::newRow("no snapshot yet") << QList<QStringList>{ { "beat", "beat" } } << 0;
     QTest::newRow("a reconnect drains again")
         << QList<QStringList>{ { "snapshot", "beat" }, { "beat", "snapshot", "beat" } } << 2;
+    QTest::newRow("only the subscription answer ends the backlog")
+        << QList<QStringList>{ { "beat", "other", "beat", "snapshot", "beat" } } << 1;
 }
 
 void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot()
@@ -579,6 +581,7 @@ void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot()
     const QByteArray beat = R"({"evt":"beat","change":false,"pos":12,"bpm":126,"strength":1})";
     const QByteArray snapshot = R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"A"})";
     const QByteArray end = R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"end"})";
+    const QByteArray other = R"({"evt":"hello"})";
     for (const QStringList &writes : connections)
     {
         QTcpSocket vdj;
@@ -587,7 +590,7 @@ void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot()
         QTRY_VERIFY_WITH_TIMEOUT(vdj.bytesAvailable() > 0, 2000);
         vdj.readAll();
         for (const QString &write : writes)
-            vdj.write(write == QLatin1String("beat") ? beat : snapshot);
+            vdj.write(write == QLatin1String("beat") ? beat : write == QLatin1String("other") ? other : snapshot);
         // in order on the socket: everything before it was parsed
         const int triggers = deckSpy.count() + writes.count(QStringLiteral("snapshot")) + 1;
         vdj.write(end);

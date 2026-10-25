@@ -107,7 +107,7 @@ void VdjTelemetryClient::closeClient()
         m_client->deleteLater();
         m_client = nullptr;
         m_buffer.clear();
-        m_snapshotSeen = false;
+        m_subscriptionAnswered = false;
     }
 }
 
@@ -268,7 +268,7 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
     {
         // a reconnecting VDJ first drains every beat it queued while
         // disconnected (measured: 22,946 after 3 h), then sends the snapshot
-        if (!m_snapshotSeen)
+        if (!m_subscriptionAnswered)
             return;
         int pos = obj.value("pos").toInt();
         qreal bpm = obj.value("bpm").toDouble();
@@ -277,10 +277,9 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
         emit beatReceived(pos, bpm, strength, change);
         return;
     }
-    m_snapshotSeen = true;
-
     if (evt == "subscribed")
     {
+        m_subscriptionAnswered = true;
         QString trigger = obj.value("trigger").toString();
         // as JSON typed it: each consumer reads the trigger's own type
         const QVariant value = obj.value("value").toVariant();
