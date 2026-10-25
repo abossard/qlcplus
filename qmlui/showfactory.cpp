@@ -191,7 +191,7 @@ void ShowFactory::registerMapping(const QString &filepath, quint32 showId)
 
 void ShowFactory::saveXML(QXmlStreamWriter *doc) const
 {
-    if (m_choices.isEmpty())
+    if (m_choices.isEmpty() || !m_doc)
         return;
     doc->writeStartElement(QStringLiteral("SongShows"));
     for (auto it = m_choices.constBegin(); it != m_choices.constEnd(); ++it)
