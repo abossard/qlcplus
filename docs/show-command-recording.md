@@ -146,8 +146,8 @@ used twice, are errors; they must not load as an empty successful track.
 Both edges of a saved hold share one `Pair` identity and keep separate event
 IDs. Loading drops an orphan, mismatched, overlapping or unclosed pair with a
 warning and keeps the rest of the track; a saved Show ends a hold still in
-progress at its extent, which removes the holds of its control pressed after
-it, as a release does.
+progress at its extent, or at the next press of its control when that comes
+first, its release before that press; nothing else changes.
 
 Edit XML only while the workspace is closed or saved elsewhere. Keep the target
 function definitions in the same workspace. A function reference does not freeze
@@ -226,11 +226,12 @@ The direction of a requested seek is decided when it is requested, against the
 position the runtime last reported. External clock updates are not explicit
 VirtualDJ seek intent.
 
-A seek of either direction keeps each running Function that one of its clips
-makes active at the destination running, moved to that clip's offset, so a
-loop wrap drops no output; the other clips stop and the clips active there
-start. Audio and Video start again at the offset instead: a playing stream
-cannot move.
+A seek of either direction keeps a Scene running when one of its clips is
+active at the destination and this Show still runs it: a Scene's output does
+not read its elapsed time once its faders exist. Every other running clip
+stops and starts again at its offset, as before, since Chasers, Sequences,
+nested Shows, Collections, RGB Matrices, Scripts, EFX, Audio and Video hold
+a position of their own. Beat clips are judged on the clock that plays them.
 
 ## Recording and editing
 
@@ -537,25 +538,37 @@ discard while REC is armed, even without other unsaved changes.
 
 While REC records into the Show, live input works as it does with REC off and
 is recorded, and on a later pass it replaces what was recorded for that
-control for as long as the performer touches it. Replay of a touched control
-is skipped and its live request never waits behind that replay.
+control for the time it is touched. A touch belongs to the control, whatever
+action records it, and to the take and pass it was made in; a touch while
+the Show is stopped belongs to no pass. Replay of a touched control is
+skipped and its live request never waits behind that replay.
 
 - A Flash button, slider flash or FreezeHold is touched from its press to its
-  release. Replay of that control's edges within the hold is skipped. A press
-  ends the hold of that control in effect at its time, recorded or still open,
-  with a release there that comes before the new press. The release removes
-  the holds of that control pressed after the press.
-- Any other control (Toggle, Blackout, Freeze, sliders, the XY pad, Animation)
-  has no pressed state: a live value replaces, and removes from the track,
-  each recorded event of that control the playhead reaches after it, until it
-  reaches one with no live value of that control since the previous one,
-  which replays.
+  release; a press on a control already held live records nothing. What was
+  recorded for that control inside the hold is replaced: a recorded hold on
+  at the press ends there (one that begins there goes whole), the recorded
+  edges inside go, and a recorded hold still on at the release starts again
+  there. Nothing outside the hold is removed, and no hold of no time is left.
+- A recorded value of a control is replaced, and removed from the track,
+  when the performer moved that control, by any action, since its previous
+  recorded value in this pass.
+- REC turning on while a hold is held starts a live hold there, and REC
+  turning off ends it there: only what happens while REC records replaces
+  anything.
 - A hold still held when the position moves back ends at the departure and
   starts again at the arrival with a live press, so the file keeps its press
   before its release and the native hold is not touched.
 - On the next pass every recorded event replays, the live ones included;
-  controls nobody touched replay their recording exactly. With REC off, live
-  input holds until the next recorded change, as before.
+  controls nobody touched replay their recording exactly. In the pass a hold
+  was played live its release turns the control off; a recorded hold it
+  resumed plays from the next pass. With REC off, live input holds until the
+  next recorded change, as before.
+
+Known limits: a hold that spans a wrap replays with its release at the
+departure and its press at the arrival, so on later passes the control can
+be off for up to one clock sample at the wrap. Two clock samples in one
+engine tick, back and then forward, end a traversal that the runner then
+continues.
 
 Recording is not an undo history of raw widget changes. Programmatic changes and
 audio mappings do not create events, and a recorded Collection launch does not
