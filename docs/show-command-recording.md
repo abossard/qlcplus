@@ -550,8 +550,9 @@ skipped and its live request never waits behind that replay.
   edges inside go, and a recorded hold still on at the release starts again
   there. Nothing outside the hold is removed, and no hold of no time is left.
 - A recorded value of a control is replaced, and removed from the track,
-  when the performer moved that control, by any action, since its previous
-  recorded value in this pass.
+  when the performer moved that control since its previous recorded value in
+  this pass. A press or release of a hold is no move: a hold owns only the
+  time from its press to its release.
 - REC turning on while a hold is held starts a live hold there, and REC
   turning off ends it there: only what happens while REC records replaces
   anything.

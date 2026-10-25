@@ -767,7 +767,9 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
         if (again.authored.isEmpty() == false)
             commit(again, trackedShow());
     }
-    if (const auto stamp = touchStamp(trackedShow()))
+    // a hold owns its time from press to release only
+    const auto stamp = touchStamp(trackedShow());
+    if (stamp && (input.action != ShowCommandAction::SetButtonState || !ShowCommand::isHoldRole(input.role)))
         m_movedLive.insert(input.controlId, *stamp);
 }
 

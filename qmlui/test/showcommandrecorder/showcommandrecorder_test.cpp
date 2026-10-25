@@ -15180,6 +15180,13 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
                           "to:3500;unflash:S;to:6000;log;track")
         << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:1500=255,3500=75"),
                         QStringLiteral("F:1500-3500") };
+    // a hold's time is its press-to-release span only: the values after it replay
+    QTest::newRow("a slider's live flash leaves its later values alone")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:5000;slide:125;to:5500;slide:10;"
+                          "to:6000;log;wrap;to:1500;flash:S;to:3500;unflash:S;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:2000=25,3000=75,5000=125,5500=10"),
+                        QStringLiteral("S:1500=255,3500=10,5000=125,5500=10"),
+                        QStringLiteral("F:1500-3500 S:5000,5500") };
     // the hold goes on through the wrap: two pairs, the native hold untouched
     QTest::newRow("a flash held across the wrap stays on through it")
         << QStringLiteral("rec;playext;to:5000;press:F;to:6000;log;wrap;to:1000;release:F;log;track;"
