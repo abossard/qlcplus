@@ -2164,20 +2164,6 @@ QString recordIdText(quint32 id)
     return id == ShowCommand::InvalidId ? QStringLiteral("-") : QString::number(id);
 }
 
-/** "1", "1x" for a deleted Show 1, "-" for none */
-ShowRecordSelection recordSelection(const QString &text)
-{
-    ShowRecordSelection selection;
-    selection.removed = text.endsWith(QLatin1Char('x'));
-    selection.showId = recordId(selection.removed ? text.chopped(1) : text);
-    return selection;
-}
-
-QString recordSelectionText(const ShowRecordSelection &selection)
-{
-    return recordIdText(selection.showId) + (selection.removed ? QStringLiteral("x") : QString());
-}
-
 /** "rec m=1 p=2": REC on, the manual selection 1, Perform engaged on 2.
  *  "off" or no "rec" is REC off, no "p=" is Perform idle. */
 ShowRecordState recordState(const QString &text)
@@ -2188,9 +2174,9 @@ ShowRecordState recordState(const QString &text)
         if (token == QLatin1String("rec"))
             state.recording = true;
         else if (token.startsWith(QLatin1String("m=")))
-            state.manual = recordSelection(token.mid(2));
+            state.manual = recordId(token.mid(2));
         else if (token.startsWith(QLatin1String("p=")))
-            state.perform = recordSelection(token.mid(2));
+            state.perform = recordId(token.mid(2));
     }
     return state;
 }
@@ -2198,14 +2184,14 @@ ShowRecordState recordState(const QString &text)
 QString recordStateText(const ShowRecordState &state)
 {
     QStringList tokens{ state.recording ? QStringLiteral("rec") : QStringLiteral("off") };
-    if (!(state.manual == ShowRecordSelection()))
-        tokens << QStringLiteral("m=") + recordSelectionText(state.manual);
+    if (state.manual != ShowCommand::InvalidId)
+        tokens << QStringLiteral("m=") + recordIdText(state.manual);
     if (state.perform)
-        tokens << QStringLiteral("p=") + recordSelectionText(*state.perform);
+        tokens << QStringLiteral("p=") + recordIdText(*state.perform);
     return tokens.join(QLatin1Char(' '));
 }
 
-/** "rec on", "manual 2", "perform -", "perform ended", "removed 1", "restored 1", "discard" */
+/** "rec on", "manual 2", "perform -", "perform ended", "removed 1", "discard" */
 ShowRecordEvent recordEvent(const QString &text)
 {
     using Kind = ShowRecordEvent::Kind;
@@ -2227,8 +2213,6 @@ ShowRecordEvent recordEvent(const QString &text)
     }
     else if (words.first() == QLatin1String("removed"))
         event.kind = Kind::Removed;
-    else if (words.first() == QLatin1String("restored"))
-        event.kind = Kind::Restored;
     else
         event.kind = Kind::Discard;
     return event;
@@ -2279,7 +2263,6 @@ void ShowCommandTrack_Test::recordTransitions_data()
     row("arming without a Show waits", "off", "rec on", true, "rec", armed, false, "");
     row("arming binds the resolved Show", "off m=1", "rec on", true, "rec m=1", bound, false, "on 1");
     row("arming again changes nothing", "rec m=1", "rec on", true, "rec m=1", bound, false, "");
-    row("arming never binds a deleted Show", "off m=1x", "rec on", true, "rec m=1x", armed, false, "");
     row("disarming saves the take", "rec m=1", "rec off", true, "off m=1", off, true, "off 1");
     row("disarming a take that cannot save keeps it", "rec m=1", "rec off", false, "rec m=1", bound, true,
         "report 1");
@@ -2324,27 +2307,16 @@ void ShowCommandTrack_Test::recordTransitions_data()
     row("Perform ends while it was idle", "off m=1", "perform ended", true, "off m=1", off, false, "");
     row("Perform resolves while REC is off", "off m=1", "perform 2", true, "off m=1 p=2", off, false, "track 2");
 
-    // deletion and its undo
-    row("deleting the bound Show arms", "rec m=1", "removed 1", true, "rec m=1x", armed, false,
+    // deletion: a deleted Show is no selection; the one that comes back is
+    // resolved again by its source (the Show Manager, Perform's song index)
+    row("deleting the bound Show arms", "rec m=1", "removed 1", true, "rec", armed, false,
         "drop 1, track -, report 1");
-    // the Show Manager shows a restored Show again itself; nothing shows Perform's again
-    row("undo of that deletion alone binds nothing", "rec m=1x", "restored 1", true, "rec m=1x", armed, false, "");
-    row("the Show Manager shows the restored Show again", "rec m=1x", "manual 1", true, "rec m=1", bound, false,
-        "track 1, on 1");
-    row("undo of a deletion binds Perform's Show again", "rec m=1 p=2x", "restored 2", true, "rec m=1 p=2", bound,
-        false, "track 2, on 2");
-    row("deleting the tracked Show while off", "off m=1", "removed 1", true, "off m=1x", off, false,
+    row("deleting the tracked Show while off", "off m=1", "removed 1", true, "off", off, false,
         "drop 1, track -");
-    row("restoring the tracked Show while off", "off m=1x", "restored 1", true, "off m=1x", off, false, "");
     row("deleting another Show drops only its input", "rec m=1", "removed 2", true, "rec m=1", bound, false,
         "drop 2");
-    row("deleting the Show Perform resolved arms", "rec m=1 p=2", "removed 2", true, "rec m=1 p=2x", armed, false,
+    row("deleting the Show Perform resolved arms", "rec m=1 p=2", "removed 2", true, "rec m=1 p=-", armed, false,
         "drop 2, track -, report 2");
-    row("restoring an unnamed Show", "rec m=1", "restored 2", true, "rec m=1", bound, false, "");
-    row("armed after a deletion binds the next selection", "rec m=1x", "manual 2", true, "rec m=2", bound,
-        false, "track 2, on 2");
-    row("selecting none after a deletion", "rec m=1x", "manual -", true, "rec", armed, false, "");
-    row("selecting none after a deletion while off", "off m=1x", "manual -", true, "off", off, false, "");
 
     // workspace replacement
     row("discarding drops everything unsaved", "rec m=1 p=2", "discard", true, "off p=-", off, false,

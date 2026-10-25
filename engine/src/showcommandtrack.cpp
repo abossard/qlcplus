@@ -1878,8 +1878,7 @@ bool ShowCommandState::operator==(const ShowCommandState &other) const
 
 quint32 ShowRecordState::resolvedShowId() const
 {
-    const ShowRecordSelection &source = perform ? *perform : manual;
-    return source.removed ? ShowCommand::InvalidId : source.showId;
+    return perform ? *perform : manual;
 }
 
 ShowRecordPhase ShowRecordState::phase() const
@@ -1921,7 +1920,7 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
         case Kind::Resolved:
             if (event.source == ShowRecordSource::Perform)
             {
-                next.perform = ShowRecordSelection{ event.showId, false };
+                next.perform = event.showId;
             }
             else if (bound != ShowCommand::InvalidId && event.showId != bound)
             {
@@ -1931,32 +1930,26 @@ ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const 
             }
             else
             {
-                next.manual = { event.showId, false };
+                next.manual = event.showId;
             }
         break;
         case Kind::PerformEnded:
             next.perform.reset();
         break;
         case Kind::Removed:
-            for (ShowRecordSelection *selection : { &next.manual, next.perform ? &*next.perform : nullptr })
-            {
-                if (selection != nullptr && selection->showId == event.showId)
-                    selection->removed = true;
-            }
+            // a deleted Show is no selection: its source names one again
+            if (next.manual == event.showId)
+                next.manual = ShowCommand::InvalidId;
+            if (next.perform == event.showId)
+                next.perform = ShowCommand::InvalidId;
             result.effects.append({ Effect::DropUnpublished, event.showId });
-        break;
-        case Kind::Restored:
-            // the Show Manager selects a restored Show again itself; Perform's
-            // Show, which nothing resolves again, rebinds here
-            if (next.perform && next.perform->showId == event.showId)
-                next.perform->removed = false;
         break;
         case Kind::Discard:
             next.recording = false;
-            next.manual = ShowRecordSelection();
+            next.manual = ShowCommand::InvalidId;
             // Perform stays engaged, on nothing, until it says otherwise
             if (next.perform)
-                next.perform = ShowRecordSelection();
+                next.perform = ShowCommand::InvalidId;
             result.effects.append({ Effect::DropUnpublished });
         break;
     }

@@ -517,19 +517,6 @@ enum class ShowRecordSource : quint8
     Perform //!< the Show an engaged Perform plays
 };
 
-/** The Show one source names. A deleted Show stays named, unresolved, until
- *  the source names one again, Perform's also when it is restored. */
-struct ShowRecordSelection
-{
-    quint32 showId = ShowCommand::InvalidId;
-    bool removed = false;
-
-    bool operator==(const ShowRecordSelection &other) const
-    {
-        return showId == other.showId && removed == other.removed;
-    }
-};
-
 /**
  * REC lifecycle. While Perform is engaged only Perform resolves a Show,
  * otherwise only the manual selection. A take always records into the
@@ -539,9 +526,10 @@ struct ShowRecordSelection
 struct ShowRecordState
 {
     bool recording = false;
-    ShowRecordSelection manual;
-    /** Perform's Show while Perform is engaged */
-    std::optional<ShowRecordSelection> perform;
+    /** The Show Manager's Show, InvalidId for none; a deleted Show is none */
+    quint32 manual = ShowCommand::InvalidId;
+    /** Perform's Show while Perform is engaged, InvalidId for none */
+    std::optional<quint32> perform;
 
     /** The engaged source's Show, InvalidId when it names none or a deleted one */
     quint32 resolvedShowId() const;
@@ -561,7 +549,6 @@ struct ShowRecordEvent
         Resolved,     //!< source resolved showId, InvalidId for none
         PerformEnded, //!< Perform disengaged: the manual selection resolves again
         Removed,      //!< showId was deleted
-        Restored,     //!< a Show exists again under showId, e.g. by undo of its deletion
         Discard       //!< the workspace is replaced: nothing of it carries over
     };
     Kind kind = Kind::Rec;
