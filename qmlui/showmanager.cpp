@@ -67,20 +67,11 @@ ShowManager::ShowManager(QQuickView *view, Doc *doc, QObject *parent)
        their preview lines when the referenced Function is edited */
     connect(m_doc, SIGNAL(functionChanged(quint32)),
             this, SIGNAL(functionChanged(quint32)));
-    // the shown Show can be deleted elsewhere, e.g. in the Function Manager;
-    // native undo brings it back under its id
+    // the shown Show can be deleted elsewhere, e.g. in the Function Manager
     connect(m_doc, &Doc::functionRemoved, this, [this](quint32 id)
     {
-        if (m_currentShow == nullptr || m_currentShow->id() != id)
-            return;
-        selectShow(Function::invalidId());
-        m_removedShowId = id;
-    });
-    connect(m_doc, &Doc::functionAdded, this, [this](quint32 id)
-    {
-        // the id may be taken by another Function first: only a Show under it is shown
-        if (id == m_removedShowId && qobject_cast<Show *>(m_doc->function(id)) != nullptr)
-            setCurrentShowID(int(id));
+        if (m_currentShow != nullptr && m_currentShow->id() == id)
+            selectShow(Function::invalidId());
     });
 
     setContextResource("qrc:/ShowManager.qml");
@@ -138,7 +129,6 @@ void ShowManager::setCurrentShowID(int currentShowID)
     ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
     if (recorder != nullptr && recorder->selectionAllowed(quint32(currentShowID)) == false)
         return;
-    m_removedShowId = Function::invalidId();
     selectShow(currentShowID);
 }
 

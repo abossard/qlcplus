@@ -2510,14 +2510,6 @@ void ShowCommandRecorder::slotFunctionAdded(quint32 id)
             show->setCommandTrack(restored);
     }
     attachShow(show);
-    if (show != nullptr)
-    {
-        // native undo of a deletion: the Show comes back under its id
-        ShowRecordEvent event;
-        event.kind = ShowRecordEvent::Kind::Restored;
-        event.showId = id;
-        dispatch(event);
-    }
 }
 
 void ShowCommandRecorder::rememberEventIds(const Show *show)

@@ -462,8 +462,8 @@ private slots:
     void appPerformEnd_selectionResolvesAgain_data();
     void appPerformEnd_selectionResolvesAgain();
     void editGate_followsPerformEngagement();
-    void appShowDeletion_undoRestoresSelectionAndTake_data();
-    void appShowDeletion_undoRestoresSelectionAndTake();
+    void appShowDeletion_undoneShowBindsWhenShownAgain_data();
+    void appShowDeletion_undoneShowBindsWhenShownAgain();
     void appMcpReplacement_needsDiscardWhileRecording_data();
     void appMcpReplacement_needsDiscardWhileRecording();
     // Recordings editor in the Show editor

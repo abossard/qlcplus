@@ -17628,28 +17628,17 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
     rig.recorder->setRecording(false);
 }
 
-void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake_data()
+void ShowCommandRecorder_Test::appShowDeletion_undoneShowBindsWhenShownAgain_data()
 {
     QTest::addColumn<bool>("rec");
-    QTest::addColumn<QString>("reuse"); // what takes the deleted Show's id meanwhile
 
-    for (bool rec : {false, true})
-    {
-        const QString state = rec ? QStringLiteral("REC bound to it") : QStringLiteral("REC off");
-        QTest::newRow(qPrintable(state)) << rec << QString();
-        // a Scene under the id is not the Show, and goes before the undo
-        QTest::newRow(qPrintable(state + QStringLiteral(", a Scene takes the id first"))) << rec
-                                                                                           << QStringLiteral("scene");
-        // another Show under the id is shown, and bound, as any shown Show
-        QTest::newRow(qPrintable(state + QStringLiteral(", another Show takes the id"))) << rec
-                                                                                          << QStringLiteral("show");
-    }
+    QTest::newRow("REC off") << false;
+    QTest::newRow("REC bound to it") << true;
 }
 
-void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake()
+void ShowCommandRecorder_Test::appShowDeletion_undoneShowBindsWhenShownAgain()
 {
     QFETCH(bool, rec);
-    QFETCH(QString, reuse);
 
     AppRig rig;
     QVERIFY(rig.recorder && rig.manager);
@@ -17674,33 +17663,16 @@ void ShowCommandRecorder_Test::appShowDeletion_undoRestoresSelectionAndTake()
     if (rec)
         QVERIFY2(rig.recorder->lastError().contains(QStringLiteral("Take A")), qPrintable(rig.recorder->lastError()));
 
-    if (reuse == QLatin1String("show"))
-    {
-        Show *another = rig.addShow(0);
-        QCOMPARE(another->id(), aId);
-        QCOMPARE(rig.manager->currentShow(), another);
-        QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));
-        QCOMPARE(another->commandRecording(), rec);
-        rig.recorder->setRecording(false);
-        return;
-    }
-    if (reuse == QLatin1String("scene"))
-    {
-        Scene *scene = new Scene(rig.doc);
-        QVERIFY(rig.doc->addFunction(scene));
-        QCOMPARE(scene->id(), aId);
-        QCOMPARE(rig.manager->currentShowID(), int(Function::invalidId()));
-        QCOMPARE(rig.recorder->boundShowId(), quint32(Function::invalidId()));
-        QVERIFY(rig.doc->deleteFunction(aId));
-    }
-
-    // native undo brings it back under its id: shown again, and the take goes on in it
+    // native undo brings it back under its id: no selection by itself; shown
+    // again by the user, the take goes on in it
     QTest::qWait(200);
     tardis->undoAction();
     auto *restored = qobject_cast<Show *>(rig.doc->function(aId));
     QVERIFY(restored);
+    QCOMPARE(rig.manager->currentShowID(), int(Function::invalidId()));
+    QCOMPARE(rig.recorder->boundShowId(), quint32(Function::invalidId()));
+    rig.manager->setCurrentShowID(int(aId));
     QCOMPARE(rig.manager->currentShow(), restored);
-    QCOMPARE(rig.manager->currentShowID(), int(aId));
     QCOMPARE(rig.recorder->targetName(), QStringLiteral("Take A"));
     QCOMPARE(rig.recorder->isAuthoring(), rec);
     QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));

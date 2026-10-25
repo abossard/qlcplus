@@ -4,6 +4,7 @@
 */
 
 #include <QtTest>
+#include <QBuffer>
 #include <QSignalSpy>
 #include <QDir>
 #include <QSettings>
@@ -23,6 +24,7 @@
 #include "../../../plugins/vdjbridge/configurevdjbridge.h"
 
 #include "doc.h"
+#include "audio.h"
 #include "show.h"
 #include "showrunner.h"
 #include "scene.h"
@@ -832,6 +834,38 @@ void VdjBridge_Test::activeDeckFollowsThePerDeckMasterdeck()
     // a phantom deck beyond get_decks never becomes master
     rig.deck(2, "masterdeck", QVariant("on"));
     QCOMPARE(fsm->activeDeck(), 2);
+}
+
+void VdjBridge_Test::deletedShowBindsAgainWhenItComesBack()
+{
+    // Perform's Show is deleted and comes back (undo): the song index names it again
+    PerformRig rig;
+    Show *show = rig.addShow("A", "/m/a.mp3");
+    // mapped by its Audio clip, as a built Show is, not by a choice
+    Audio *audio = new Audio(&rig.doc);
+    audio->setSourceFileName("/m/a.mp3");
+    rig.doc.addFunction(audio);
+    show->tracks().first()->createShowFunction(audio->id());
+    rig.bridge.showFactory()->registerMapping("/m/a.mp3", Function::invalidId());
+    const quint32 id = show->id();
+    QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
+    rig.load(0, "/m/a.mp3");
+    rig.master(0);
+    rig.bridge.setPerformMode(true);
+    QCOMPARE(rig.bridge.performFsm()->activeShowId(), id);
+
+    QBuffer xml;
+    xml.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(show->saveXML(&writer));
+    QVERIFY(rig.doc.deleteFunction(id));
+    QCOMPARE(rig.bridge.performFsm()->activeShowId(), PerformFsm::InvalidShowId);
+
+    QXmlStreamReader reader(xml.data());
+    reader.readNextStartElement();
+    QVERIFY(Function::loader(reader, &rig.doc));
+    QCOMPARE(rig.bridge.performFsm()->activeShowId(), id);
+    QCOMPARE(resolved.last().at(0).toUInt(), id);
 }
 
 void VdjBridge_Test::capture_ejectReleasesPerform()
