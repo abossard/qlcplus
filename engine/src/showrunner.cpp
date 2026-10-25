@@ -367,6 +367,12 @@ void ShowRunner::write(MasterTimer *timer)
         }
         if (m_elapsedTime >= funcStartTime)
         {
+            // kept running through a seek
+            if (isFunctionScheduled(f, functionStopTime))
+            {
+                m_currentTimeFunctionIndex++;
+                continue;
+            }
             if (waitForSeekRestart(f))
             {
                 startFunctionsDone = true;
@@ -418,6 +424,11 @@ void ShowRunner::write(MasterTimer *timer)
         }
         if (m_elapsedBeats >= funcStartTime)
         {
+            if (isFunctionScheduled(f, functionStopTime))
+            {
+                m_currentBeatFunctionIndex++;
+                continue;
+            }
             if (waitForSeekRestart(f))
             {
                 startFunctionsDone = true;
@@ -553,23 +564,6 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
 {
     qDebug() << "[ShowRunner] Seeking:" << m_elapsedTime << "->" << newTime;
 
-    // Stop all currently running functions
-    m_seekRestartFunctions.clear();
-    for (int i = 0; i < m_runningQueue.count(); i++)
-    {
-        Function *f = m_runningQueue.at(i).first;
-        f->stop(functionParent());
-        if (f->isRunning() && f->stopped())
-            m_seekRestartFunctions.insert(f);
-    }
-    m_runningQueue.clear();
-    m_deferredTimeAudioFunctionIds.clear();
-    m_deferredBeatAudioFunctionIds.clear();
-
-    // Reset the scan index so functions can be re-evaluated from the new position
-    m_currentTimeFunctionIndex = 0;
-    m_currentBeatFunctionIndex = 0;
-
     m_elapsedTime = newTime;
     m_internalBeatClockMs = newTime;
     const MasterTimer *timer = m_doc->masterTimer();
@@ -578,6 +572,37 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
             : timer->bpmNumber();
     if (bpm > 0)
         m_elapsedBeats = qRound64(double(newTime) * bpm / 60.0);
+
+    // a Function one of its clips makes active at newTime keeps running there,
+    // at that clip's offset; the rest stop. A stream plays from where it was
+    // started, so Audio and Video start again instead.
+    m_seekRestartFunctions.clear();
+    for (int i = m_runningQueue.count() - 1; i >= 0; i--)
+    {
+        Function *f = m_runningQueue.at(i).first;
+        const bool time = f->tempoType() == Function::Time;
+        const quint32 at = time ? m_elapsedTime : m_elapsedBeats;
+        const ShowFunction *active = nullptr;
+        for (const ShowFunction *sf : time ? m_timeFunctions : m_beatFunctions)
+            if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->startTime() + sf->duration(m_doc))
+                active = sf;
+        if (active != nullptr && f->type() != Function::AudioType && f->type() != Function::VideoType)
+        {
+            f->seek(functionParent(), at - active->startTime());
+            m_runningQueue[i].second = active->startTime() + active->duration(m_doc);
+            continue;
+        }
+        f->stop(functionParent());
+        if (f->isRunning() && f->stopped())
+            m_seekRestartFunctions.insert(f);
+        m_runningQueue.removeAt(i);
+    }
+    m_deferredTimeAudioFunctionIds.clear();
+    m_deferredBeatAudioFunctionIds.clear();
+
+    // Reset the scan index so functions can be re-evaluated from the new position
+    m_currentTimeFunctionIndex = 0;
+    m_currentBeatFunctionIndex = 0;
     m_syncElapsedTime = newTime;
     m_syncBeatsTime = newTime;
 

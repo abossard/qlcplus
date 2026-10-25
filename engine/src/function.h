@@ -849,6 +849,11 @@ public:
                uint overrideDuration = defaultSpeed(),
                TempoType overrideTempoType = Original);
 
+    /** Move a running Function to startTime, as start() would have begun it
+     *  there, without stopping it. Only while source alone runs it: another
+     *  source keeps its time. */
+    void seek(FunctionParent source, quint32 startTime);
+
     /**
      * Pause a running Function. Subclasses should check the paused state
      * immediately in the write call and, in case, return, to avoid performing
