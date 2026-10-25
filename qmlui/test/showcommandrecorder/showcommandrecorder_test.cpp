@@ -59,6 +59,7 @@
 #undef private
 
 #include "app.h"
+#include "audio.h"
 #include "collection.h"
 #include "efx.h"
 #include "contextmanager.h"
@@ -17699,6 +17700,70 @@ void ShowCommandRecorder_Test::appSongShows_choiceSurvivesSaveAndLoad()
     QVERIFY(rig.app->loadWorkspace(path));
     QCOMPARE(rig.doc->function(chosenId)->name(), QStringLiteral("Chosen"));
     QCOMPARE(bridge->showFactory()->showIdForFilepath(QStringLiteral("/music/choice.mp3")), chosenId);
+}
+
+void ShowCommandRecorder_Test::appSongShows_loadResolvesPerformOnce_data()
+{
+    QTest::addColumn<bool>("choice");
+    QTest::addColumn<QStringList>("resolved");  // performShowResolved in order, "-" = released
+
+    QTest::newRow("a saved choice: the built Show is never driven") << true << QStringList({"-", "Chosen"});
+    QTest::newRow("no choice: the built Show, once the load ended") << false << QStringList({"-", "S1"});
+}
+
+void ShowCommandRecorder_Test::appSongShows_loadResolvesPerformOnce()
+{
+    // the playing deck's song has a built Show: a reload resolves Perform once,
+    // against the whole workspace
+    QFETCH(bool, choice);
+    QFETCH(QStringList, resolved);
+
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString path = files.filePath(QStringLiteral("perform.qxw"));
+    const QString song = QStringLiteral("/music/perform.mp3");
+    AppRig rig;
+    auto *bridge = qobject_cast<VdjBridge *>(rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    Show *built = rig.addShow(0);
+    built->setName(QStringLiteral("S1"));
+    Audio *audio = new Audio(rig.doc);
+    audio->setSourceFileName(song);
+    QVERIFY(rig.doc->addFunction(audio));
+    auto *track = new Track(Function::invalidId(), built);
+    built->addTrack(track);
+    track->createShowFunction(audio->id())->setDuration(300000);
+    Show *chosen = rig.addShow(0);
+    chosen->setName(QStringLiteral("Chosen"));
+    if (choice)
+        bridge->showFactory()->registerMapping(song, chosen->id());
+    QVERIFY(rig.app->saveWorkspace(path));
+
+    const auto deck = [&](const char *trigger, const QVariant &value) {
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, 0),
+                                          Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    };
+    const auto performOff = qScopeGuard([&]() { bridge->setPerformMode(false); });
+    deck("get_filepath", song);
+    deck("loaded", QStringLiteral("on"));
+    deck("masterdeck", QStringLiteral("on"));
+    bridge->setPerformMode(true);
+    deck("play", QStringLiteral("on"));
+    QCOMPARE(bridge->performShowName(), resolved.last());
+
+    QSignalSpy resolvedSpy(bridge, &VdjBridge::performShowResolved);
+    QVERIFY(rig.app->loadWorkspace(path));
+    // replacing the workspace restarted the application's timer
+    rig.realTimer = true;
+    QCoreApplication::processEvents();
+    QStringList sequence;
+    for (const QList<QVariant> &args : std::as_const(resolvedSpy))
+    {
+        const quint32 id = args.at(0).toUInt();
+        sequence << (id == PerformFsm::InvalidShowId ? QStringLiteral("-") : rig.doc->function(id)->name());
+    }
+    QVERIFY2(sequence == resolved, qPrintable(sequence.join(QLatin1Char(' '))));
 }
 
 void ShowCommandRecorder_Test::appMcpReplacement_needsDiscardWhileRecording_data()

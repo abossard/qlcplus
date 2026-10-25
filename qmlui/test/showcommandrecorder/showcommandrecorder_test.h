@@ -465,6 +465,8 @@ private slots:
     void appShowDeletion_undoneShowBindsWhenShownAgain_data();
     void appShowDeletion_undoneShowBindsWhenShownAgain();
     void appSongShows_choiceSurvivesSaveAndLoad();
+    void appSongShows_loadResolvesPerformOnce_data();
+    void appSongShows_loadResolvesPerformOnce();
     void appMcpReplacement_needsDiscardWhileRecording_data();
     void appMcpReplacement_needsDiscardWhileRecording();
     // Recordings editor in the Show editor

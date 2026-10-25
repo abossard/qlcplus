@@ -63,6 +63,8 @@ void VdjBridge::setDoc(Doc *doc)
         // any mapping change can resolve the Perform show
         connect(m_showFactory, &ShowFactory::showCreatedForSong, this, &VdjBridge::refreshPerformInputs);
         connect(m_showFactory, &ShowFactory::mappingChanged, this, &VdjBridge::refreshPerformInputs);
+        // queued: App reads the song choices after the Engine, before the event loop runs
+        connect(m_doc, &Doc::loaded, this, &VdjBridge::refreshPerformInputs, Qt::QueuedConnection);
     }
 
     if (m_doc && m_fsm)
@@ -226,6 +228,9 @@ QString VdjBridge::performShowName() const
 
 void VdjBridge::refreshPerformInputs()
 {
+    // a half-read workspace resolves no Show: the load's end refreshes once
+    if (m_doc && m_doc->loadStatus() == Doc::Loading)
+        return;
     if (m_endedAt && deckPosition().value_or(0) < *m_endedAt)
         m_endedAt.reset();
     // the active deck's song and its Show as the FSM's one fact
