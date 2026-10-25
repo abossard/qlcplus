@@ -14860,33 +14860,6 @@ void ShowCommandRecorder_Test::holdPairSelection_requiresWholePair()
     }
 }
 
-void ShowCommandRecorder_Test::holdPairSelection_deletesHoldInProgress()
-{
-    RequestRig r;
-    r.show->setSyncSource(ShowRunner::External);
-    const int frame = addFrame(r.bridge, 0, QRect(0, 310, 500, 200), QStringLiteral("Open hold"), false);
-    auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
-        r.bridge.addButton(frame, QRect(10, 10, 90, 48), r.a->id(), QStringLiteral("Flash"),
-                           QStringLiteral("flash"))));
-    QVERIFY(button);
-
-    ShowCommandTrack open;
-    ShowCommand on = ShowCommand::setButtonState(10, 1000, button->ensureRecordingId(), true);
-    on.role = ShowControlRole::FlashButton;
-    on.pairId = 77;
-    QVERIFY(open.insert(on));
-    QVERIFY(open.setExtent(1000));
-    QVERIFY(r.show->setCommandTrack(open));
-
-    // a copy needs the whole hold, an edit of the press alone is the whole hold
-    QVERIFY(!r.recorder.copyCommands(r.show->id(), {10u}));
-    QVERIFY(!r.recorder.lastError().isEmpty());
-    QVERIFY2(r.recorder.beginEditSession(r.show->id(), {10u}), qPrintable(r.recorder.lastError()));
-    r.recorder.cancelEditSession();
-    QVERIFY2(r.recorder.removeCommands(r.show->id(), {10u}), qPrintable(r.recorder.lastError()));
-    QVERIFY(r.show->commandTrack().isEmpty());
-}
-
 void ShowCommandRecorder_Test::holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem()
 {
     RequestRig r;
@@ -15009,6 +14982,16 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::newRow("REC off and on while held")
         << QStringLiteral("rec on, at 1000, press, at 2000, rec off, at 3000, rec on, at 4000, release, rec off")
         << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
+    // another take on the same Show goes on with the hold
+    QTest::newRow("Perform engages on the Show while held")
+        << QStringLiteral("rec on, at 1000, press, at 2000, perform, at 3000, release, rec off")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
+    QTest::newRow("Perform engages on the Show while held, then REC off")
+        << QStringLiteral("rec on, at 1000, press, at 2000, perform, at 3000, rec off, at 4000, release")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
+    QTest::newRow("Perform ends onto the Show while held")
+        << QStringLiteral("perform, rec on, at 1000, press, at 2000, perform off, at 3000, release, rec off")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
     // held across a move back: it ends at the departure and starts again at the arrival
     QTest::newRow("loop back while held, REC off")
         << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
@@ -15093,6 +15076,10 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
         else if (step == QLatin1String("undo") || step == QLatin1String("redo"))
             QVERIFY2(recorder.applyHistoryEdit(QVariant::fromValue(deletion), step == QLatin1String("undo")),
                      qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("perform"))
+            QVERIFY(recorder.setResolvedShow(showId, ShowRecordSource::Perform));
+        else if (step == QLatin1String("perform off"))
+            recorder.releasePerform();
         else
         {
             // native undo of its deletion brings the Show back from its XML
@@ -15110,7 +15097,7 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QCOMPARE(holdSpans(show->commandTrack()), live);
     QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
 
-    // the workspace save: an open hold is closed in the saved snapshot only
+    // the workspace save: a hold still held is recorded in the saved snapshot only
     if (checkpoint)
         QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
     Doc reloaded(nullptr, 1);
@@ -15184,6 +15171,18 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
                           "to:3500;unflash:S;to:6000;log;track")
         << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:1500=255,3500=75"),
                         QStringLiteral("F:1500-3500") };
+    // until the flash is recorded, what it covers only goes unplayed: a save keeps it
+    QTest::newRow("a save during a slider's live flash keeps what it covers")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;log;wrap;to:1500;flash:S;"
+                          "to:3500;save;checkpoint;unflash:S;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:2000,3000"),
+                        QStringLiteral("F:1500-3500"), QStringLiteral("S:1500=255,3500=75"),
+                        QStringLiteral("F:1500-3500") };
+    // lag: the value at the release replays after it, and goes as the flash covered it
+    QTest::newRow("a value the flash covered replayed after its release")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;wrap;to:1500;flash:S;to:2900;"
+                          "lag:3000;unflash:S;to:6000;track")
+        << QStringList{ QStringLiteral("F:1500-3000") };
     // a hold's time is its press-to-release span only: the values after it replay
     QTest::newRow("a slider's live flash leaves its later values alone")
         << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:5000;slide:125;to:5500;slide:10;"
@@ -15254,6 +15253,24 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
         show->setExternalElapsedTime(ms);
         sample();
     };
+    const auto trackLine = [&](const ShowCommandTrack &track) {
+        QStringList toggles, samples;
+        for (const ShowCommand &cmd : track.commands())
+        {
+            if (cmd.controlId == toggle->recordingId())
+                toggles.append(QStringLiteral("%1=%2").arg(cmd.time).arg(int(cmd.on)));
+            else if (cmd.controlId == slider->recordingId() && cmd.action == ShowCommandAction::SetSliderPosition)
+                samples.append(QString::number(cmd.time));
+        }
+        QStringList line;
+        if (!holdSpans(track).isEmpty())
+            line.append(QStringLiteral("F:") + holdSpans(track).replace(QLatin1Char(' '), QLatin1Char(',')));
+        if (!toggles.isEmpty())
+            line.append(QStringLiteral("T:") + toggles.join(QLatin1Char(',')));
+        if (!samples.isEmpty())
+            line.append(QStringLiteral("S:") + samples.join(QLatin1Char(',')));
+        return line.join(QLatin1Char(' '));
+    };
 
     QStringList saw;
     for (const QString &step : script.split(QLatin1Char(';')))
@@ -15278,6 +15295,13 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
         }
         else if (verb == QLatin1String("wrap"))
             at(0);
+        else if (verb == QLatin1String("lag"))
+        {
+            // the runner reached it, its replay not delivered yet
+            clock = arg.toUInt();
+            show->setExternalElapsedTime(clock);
+            doc.masterTimer()->timerTick();
+        }
         else if (verb == QLatin1String("press") || verb == QLatin1String("release"))
         {
             flash->requestUserStateChange(verb == QLatin1String("press"));
@@ -15309,24 +15333,25 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
         }
         else if (verb == QLatin1String("track"))
         {
-            const ShowCommandTrack track = show->commandTrack();
-            QVERIFY(track.malformedHoldPairs().isEmpty());
-            QStringList toggles, samples;
-            for (const ShowCommand &cmd : track.commands())
-            {
-                if (cmd.controlId == toggle->recordingId())
-                    toggles.append(QStringLiteral("%1=%2").arg(cmd.time).arg(int(cmd.on)));
-                else if (cmd.controlId == slider->recordingId() && cmd.action == ShowCommandAction::SetSliderPosition)
-                    samples.append(QString::number(cmd.time));
-            }
-            QStringList line;
-            if (!holdSpans(track).isEmpty())
-                line.append(QStringLiteral("F:") + holdSpans(track).replace(QLatin1Char(' '), QLatin1Char(',')));
-            if (!toggles.isEmpty())
-                line.append(QStringLiteral("T:") + toggles.join(QLatin1Char(',')));
-            if (!samples.isEmpty())
-                line.append(QStringLiteral("S:") + samples.join(QLatin1Char(',')));
-            saw.append(line.join(QLatin1Char(' ')));
+            QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
+            saw.append(trackLine(show->commandTrack()));
+        }
+        else if (verb == QLatin1String("save") || verb == QLatin1String("checkpoint"))
+        {
+            // an autosave writes the track as it is, a workspace save checkpoints first
+            if (verb == QLatin1String("checkpoint"))
+                QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+            QBuffer buffer;
+            buffer.open(QIODevice::WriteOnly);
+            QXmlStreamWriter writer(&buffer);
+            QVERIFY(show->saveXML(&writer));
+            Doc reloaded(nullptr, 1);
+            QXmlStreamReader reader(buffer.data());
+            reader.readNextStartElement();
+            QVERIFY(Function::loader(reader, &reloaded));
+            auto *copy = qobject_cast<Show *>(reloaded.function(show->id()));
+            QVERIFY(copy);
+            saw.append(trackLine(copy->commandTrack()));
         }
         else
             QFAIL(qPrintable(QStringLiteral("unknown step ") + step));
@@ -15335,6 +15360,182 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
     show->stop(FunctionParent::master());
     tickAndDeliver(&doc, 3);
     QCOMPARE(saw, seen);
+}
+
+void ShowCommandRecorder_Test::liveInput_releaseBeforeAMoveBackLands()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    QVERIFY(flash);
+    ShowCommandTrack track;
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master(), 6000);
+    tickAndDeliver(&doc, 3);
+
+    const quint32 press = show->commandPosition();
+    flash->requestUserStateChange(true);
+    tickAndDeliver(&doc, 10);
+    // released after the move back was asked for, before the runner took it
+    show->requestSeek(1000);
+    const quint32 departure = show->commandPosition();
+    flash->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    const QString spans = holdSpans(show->commandTrack());
+
+    QVERIFY(recorder.setRecording(false));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(spans, QStringLiteral("%1-%2").arg(press).arg(departure));
+}
+
+void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow_data()
+{
+    QTest::addColumn<QString>("steps");
+    QTest::addColumn<QString>("recorded"); // the holds of the Show bound last, as a save writes them
+
+    // a release REC does not take still ends the hold, and a hold stays with its take and Show
+    QTest::newRow("A deleted while held, then a hold in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, release, bind B, at 3000, press, at 4000, "
+                          "release, rec off")
+        << QStringLiteral("3000-4000");
+    QTest::newRow("A deleted while held, then REC off in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, release, bind B, at 5000, rec off")
+        << QString();
+    QTest::newRow("discarded while held, then a take in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, discard, release, bind B, rec on, at 5000, rec off")
+        << QString();
+    QTest::newRow("workspace replaced while held, then a take in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, clear, bind B, rec on, at 5000, rec off")
+        << QString();
+    // still held as the next take begins: recorded from then
+    QTest::newRow("A deleted while held, B bound while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, at 2000, bind B, at 5000, rec off, release")
+        << QStringLiteral("2000-5000");
+    QTest::newRow("discarded while held, REC on again while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, discard, at 2000, bind A, rec on, at 3000, release, rec off")
+        << QStringLiteral("2000-3000");
+    QTest::newRow("Perform moves REC to B while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, at 2000, perform B, at 3000, release, rec off")
+        << QStringLiteral("2000-3000");
+    QTest::newRow("released by a script")
+        << QStringLiteral("bind A, rec on, at 1000, press, at 2000, script release, at 5000, rec off")
+        << QString();
+    // a hold whose control is gone never ends: no other take or Show takes it
+    QTest::newRow("the held button removed, then REC off in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, at 5000, rec off")
+        << QString();
+    QTest::newRow("the held button removed, then another take on A")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, discard, at 2000, bind A, rec on, at 5000, rec off")
+        << QString();
+    QTest::newRow("the held button removed, then a save in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, at 5000")
+        << QString();
+}
+
+void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow()
+{
+    QFETCH(QString, steps);
+    QFETCH(QString, recorded);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    QHash<QChar, Show *> shows;
+    const auto addShow = [&](QChar name) {
+        Show *show = new Show(&doc);
+        QVERIFY(doc.addFunction(show));
+        show->setSyncSource(ShowRunner::External);
+        shows.insert(name, show);
+    };
+    addShow(QLatin1Char('A'));
+    addShow(QLatin1Char('B'));
+    Show *bound = nullptr;
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Holds"), false);
+    const int flashId =
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"));
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(flashId));
+    QVERIFY(flash);
+
+    for (const QString &step : steps.split(QStringLiteral(", ")))
+    {
+        if (step.startsWith(QLatin1String("at ")))
+        {
+            for (Show *show : std::as_const(shows))
+                show->setExternalElapsedTime(step.mid(3).toUInt());
+        }
+        else if (step.startsWith(QLatin1String("bind ")))
+        {
+            bound = shows.value(step.at(5));
+            QVERIFY(recorder.setResolvedShow(bound->id()));
+        }
+        else if (step.startsWith(QLatin1String("perform ")))
+        {
+            bound = shows.value(step.at(8));
+            QVERIFY(recorder.setResolvedShow(bound->id(), ShowRecordSource::Perform));
+        }
+        else if (step.startsWith(QLatin1String("rec ")))
+            QVERIFY2(recorder.setRecording(step == QLatin1String("rec on")), qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("press") || step == QLatin1String("release"))
+            flash->requestUserStateChange(step == QLatin1String("press"));
+        else if (step == QLatin1String("script release"))
+            flash->requestUserStateChange(false, ShowCommandOrigin::Programmatic);
+        else if (step == QLatin1String("remove F"))
+        {
+            QVERIFY(bridge.removeWidget(flashId));
+            flash = nullptr;
+        }
+        else if (step == QLatin1String("delete A"))
+            QVERIFY(doc.deleteFunction(shows.take(QLatin1Char('A'))->id()));
+        else if (step == QLatin1String("discard"))
+            recorder.discardRecording();
+        else if (step == QLatin1String("clear"))
+        {
+            // as a New or Open: the recording goes, then the console, then the rest
+            recorder.discardRecording();
+            ui.vc()->resetContents();
+            flash = nullptr;
+            // the timer lets go of the flash before its Scene is deleted
+            target->unFlash(doc.masterTimer());
+            tickAndDeliver(&doc);
+            doc.clearContents();
+            shows.clear();
+            addShow(QLatin1Char('B'));
+        }
+        else
+            QFAIL(qPrintable(QStringLiteral("unknown step ") + step));
+        tickAndDeliver(&doc);
+    }
+
+    QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+    QBuffer buffer;
+    buffer.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&buffer);
+    bound->saveXML(&writer);
+    Doc reloaded(nullptr, 1);
+    QXmlStreamReader reader(buffer.data());
+    reader.readNextStartElement();
+    QVERIFY(Function::loader(reader, &reloaded));
+    auto *copy = qobject_cast<Show *>(reloaded.function(bound->id()));
+    QVERIFY(copy);
+    QCOMPARE(holdSpans(copy->commandTrack()), recorded);
 }
 
 void ShowCommandRecorder_Test::liveInput_touchBelongsToItsPass()
@@ -17268,7 +17469,7 @@ bool clickDialogButton(QQuickView *window, QObject *dialog, int button)
 }
 } // namespace
 
-void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten_data()
+void ShowCommandRecorder_Test::appSave_unwritableFile_reportedByOrigin_data()
 {
     QTest::addColumn<QString>("origin");
     QTest::addColumn<bool>("dialog");
@@ -17279,27 +17480,33 @@ void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten_data
     QTest::newRow("copy for a network client") << QStringLiteral("client") << true;
 }
 
-void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
+void ShowCommandRecorder_Test::appSave_unwritableFile_reportedByOrigin()
 {
     QFETCH(QString, origin);
     QFETCH(bool, dialog);
 
-    AppRig rig;
-    QVERIFY(rig.recorder && rig.manager);
-    Scene *target = new Scene(rig.doc);
-    QVERIFY(rig.doc->addFunction(target));
-    Show *show = rig.addShow(0);
-    // a hold in progress whose release has no event id left: the track cannot be written
-    ShowCommand press = ShowCommand::setButtonState(1, 1000, QUuid::createUuid(), true);
-    press.role = ShowControlRole::FlashButton;
-    press.pairId = 1;
-    ShowCommandTrack track;
-    QVERIFY(track.insert(press));
-    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 500, target->id())));
-    QVERIFY(track.setExtent(6000));
-    QVERIFY(show->setCommandTrack(track));
+    // every row writes into a folder it may not write to: the workspace, its autosave, the client's temp copy
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString readOnlyDir = files.filePath(QStringLiteral("locked"));
+    const QString path = readOnlyDir + QStringLiteral("/refused.qxw");
+    QVERIFY(QDir().mkpath(readOnlyDir));
+    QVERIFY(QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+    const auto unlock = qScopeGuard([&readOnlyDir]() {
+        QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    });
+    QFile probe(path);
+    QVERIFY(!probe.open(QIODevice::WriteOnly));
+    const QByteArray tempDir = qgetenv("TMPDIR");
+    const bool hadTempDir = qEnvironmentVariableIsSet("TMPDIR");
+    const auto restoreTempDir = qScopeGuard([&tempDir, hadTempDir]() {
+        if (hadTempDir)
+            qputenv("TMPDIR", tempDir);
+        else
+            qunsetenv("TMPDIR");
+    });
 
-    // the save fails and leaves no file, instead of a file that loses the hold, and says why
+    AppRig rig;
     const QMetaObject *meta = rig.app->metaObject();
     const QMetaProperty saveError = meta->property(meta->indexOfProperty("saveError"));
     QVERIFY(saveError.isValid() && saveError.hasNotifySignal());
@@ -17310,8 +17517,6 @@ void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
     QObject *popup = rig.qml(QStringLiteral("actionsMenu"))->findChild<QObject *>(QStringLiteral("saveErrorPopup"));
     QObject *messageBar = rig.app->rootObject()->findChild<QObject *>(QStringLiteral("vcLayoutError"));
     QVERIFY(popup && messageBar);
-    QTemporaryDir dir;
-    const QString path = dir.filePath(QStringLiteral("refused.qxw"));
     if (origin == QLatin1String("save"))
         QVERIFY(!rig.app->saveWorkspace(path));
     else if (origin == QLatin1String("autosave"))
@@ -17320,16 +17525,22 @@ void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
         emit rig.doc->needAutosave();
     }
     else
+    {
+        QVERIFY(qputenv("TMPDIR", readOnlyDir.toLocal8Bit()));
         QVERIFY(QMetaObject::invokeMethod(rig.app.get(), "slotClientProjectRequest", Q_ARG(QString, QStringLiteral("client"))));
-    QCOMPARE(QDir(dir.path()).entryList(QDir::Files), QStringList());
+    }
+
+    // no file, and the reason is the file system's
+    QCOMPARE(QDir(readOnlyDir).entryList(QDir::Files), QStringList());
     QVERIFY(reported.count() >= 1);
-    QVERIFY2(saveError.read(rig.app.get()).toString().contains(QStringLiteral("event id")),
-             qPrintable(saveError.read(rig.app.get()).toString()));
+    const QString reason = saveError.read(rig.app.get()).toString();
+    QVERIFY(!reason.isEmpty());
+    QCOMPARE(reason, probe.errorString());
     QCOMPARE(popup->property("visible").toBool(), dialog);
     // the autosave says it at the bottom of the console instead
     QCOMPARE(messageBar->property("visible").toBool(), !dialog);
     if (!dialog)
-        QVERIFY(messageBar->property("message").toString().contains(QStringLiteral("event id")));
+        QVERIFY(messageBar->property("message").toString().contains(reason));
 }
 
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()

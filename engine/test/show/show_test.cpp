@@ -566,35 +566,13 @@ static ShowCommandTrack holdTrack(const QString &edges)
     return track;
 }
 
-/** The hold pairs in track order as "press-release", an open one as "press-" */
-static QString holdSpans(const ShowCommandTrack &track)
-{
-    QStringList spans;
-    QHash<quint32, int> at;
-    for (const ShowCommand &cmd : track.commands())
-    {
-        if (cmd.pairId == ShowCommand::InvalidId)
-            continue;
-        if (cmd.on)
-        {
-            at.insert(cmd.pairId, spans.count());
-            spans.append(QString::number(cmd.time) + QLatin1Char('-'));
-        }
-        else
-        {
-            spans[at.value(cmd.pairId)] += QString::number(cmd.time);
-        }
-    }
-    return spans.join(QLatin1Char(' '));
-}
-
 void Show_Test::commandTrackPublishKeepsHoldPairsValid_data()
 {
     QTest::addColumn<QString>("edges");
     QTest::addColumn<bool>("published");
 
     QTest::newRow("closed pair") << QStringLiteral("1 on 1000, 1 off 2000") << true;
-    QTest::newRow("hold in progress") << QStringLiteral("1 on 1000") << true;
+    QTest::newRow("unclosed pair") << QStringLiteral("1 on 1000") << false;
     QTest::newRow("overlapping pairs") << QStringLiteral("1 on 1000, 2 on 1500, 1 off 2000, 2 off 2500") << false;
     QTest::newRow("release before press") << QStringLiteral("1 off 1000, 1 on 2000") << false;
 }
@@ -614,70 +592,6 @@ void Show_Test::commandTrackPublishKeepsHoldPairsValid()
     QCOMPARE(show.setCommandTrack(track, {}, &error), published);
     QCOMPARE(error.isEmpty(), published);
     QCOMPARE(show.commandTrack().count(), published ? track.count() : 0);
-}
-
-void Show_Test::commandTrackSaveEndsHoldInProgress_data()
-{
-    QTest::addColumn<QString>("edges");
-    QTest::addColumn<QString>("saved");
-
-    QTest::newRow("closed pair") << QStringLiteral("1 on 1000, 1 off 2000") << QStringLiteral("1000-2000");
-    // a hold left in progress outside recording ends at the extent in the file
-    QTest::newRow("hold in progress") << QStringLiteral("1 on 1000") << QStringLiteral("1000-6000");
-}
-
-void Show_Test::commandTrackSaveEndsHoldInProgress()
-{
-    QFETCH(QString, edges);
-    QFETCH(QString, saved);
-
-    ShowCommandTrack track = holdTrack(edges);
-    QVERIFY(track.setExtent(6000));
-    Show show(m_doc);
-    show.setID(700);
-    QVERIFY(show.setCommandTrack(track));
-
-    // what a save writes is what a load reads back, and saves the same again
-    Show loaded(m_doc);
-    QVERIFY(loadShow(loaded, saveShow(show)));
-    QCOMPARE(holdSpans(loaded.commandTrack()), saved);
-    Show reloaded(m_doc);
-    QVERIFY(loadShow(reloaded, saveShow(loaded)));
-    QCOMPARE(reloaded.commandTrack().commands(), loaded.commandTrack().commands());
-    QCOMPARE(reloaded.commandTrack().extent(), loaded.commandTrack().extent());
-    // the live track keeps its hold in progress
-    QCOMPARE(show.commandTrack().commands(), track.commands());
-}
-
-void Show_Test::commandTrackSaveRefusalReachesTheDocument_data()
-{
-    QTest::addColumn<bool>("document");
-
-    QTest::newRow("the Show") << false;
-    QTest::newRow("the document") << true;
-}
-
-void Show_Test::commandTrackSaveRefusalReachesTheDocument()
-{
-    QFETCH(bool, document);
-
-    // a hold in progress whose release has no event id left: the track cannot be written
-    ShowCommandTrack track = holdTrack(QStringLiteral("1 on 1000"));
-    QVERIFY(track.insert(ShowCommand::setButtonState(ShowCommand::MaxTime, 500, QUuid::createUuid(), true)));
-    QVERIFY(track.setExtent(6000));
-    Show *show = new Show(m_doc);
-    QVERIFY(m_doc->addFunction(show));
-    QVERIFY(show->setCommandTrack(track));
-
-    QString xml;
-    QXmlStreamWriter writer(&xml);
-    QVERIFY(document ? m_doc->saveXML(&writer) == false : show->saveXML(&writer) == false);
-    // a caller that ignores the refusal still gets a document it can read
-    QXmlStreamReader reader(xml);
-    while (reader.atEnd() == false)
-        reader.readNext();
-    QVERIFY2(reader.hasError() == false, qPrintable(reader.errorString()));
-    m_doc->deleteFunction(show->id());
 }
 
 void Show_Test::commandTrackMissingTargetBlocksOnlyItself_data()

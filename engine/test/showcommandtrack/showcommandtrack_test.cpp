@@ -2835,67 +2835,28 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
     QVERIFY(loaded.malformedHoldPairs().isEmpty());
 }
 
-void ShowCommandTrack_Test::saveEndsHoldInProgress_data()
-{
-    QTest::addColumn<QString>("edges");
-    QTest::addColumn<bool>("idsLeft");
-    QTest::addColumn<QString>("saved"); // empty: the save is refused
-
-    QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << true << QStringLiteral("1000-2000");
-    // a hold left in progress ends at the extent in the file
-    QTest::newRow("hold in progress") << QStringLiteral("1:on@1000") << true << QStringLiteral("1000-6000");
-    // the release that ends it needs an event id
-    QTest::newRow("hold in progress, no event id left") << QStringLiteral("1:on@1000") << false << QString();
-}
-
-void ShowCommandTrack_Test::saveEndsHoldInProgress()
-{
-    QFETCH(QString, edges);
-    QFETCH(bool, idsLeft);
-    QFETCH(QString, saved);
-
-    ShowCommandTrack track;
-    quint32 id = 0;
-    for (const QString &edge : edges.split(QLatin1Char(' ')))
-        QVERIFY(track.insert(holdEdge(id++, edge)));
-    if (!idsLeft)
-        QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 500, 12)));
-    QVERIFY(track.setExtent(6000));
-    const QString live = holdSpans(track);
-
-    const QString xml = toXml(track);
-    QCOMPARE(xml.isEmpty(), saved.isEmpty());
-    // the live track keeps its hold in progress
-    QCOMPARE(holdSpans(track), live);
-    if (saved.isEmpty())
-        return;
-    ShowCommandTrack loaded;
-    QVERIFY(fromXml(xml, &loaded));
-    QCOMPARE(holdSpans(loaded), saved);
-    QVERIFY(loaded.malformedHoldPairs().isEmpty());
-    QCOMPARE(loaded.extent(), 6000u);
-}
-
 void ShowCommandTrack_Test::malformedHoldPairs_data()
 {
     QTest::addColumn<QString>("edges");
     QTest::addColumn<QString>("malformed");
 
     QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << QString();
-    QTest::newRow("open pair") << QStringLiteral("1:on@1000") << QString();
-    QTest::newRow("open before a later pair") << QStringLiteral("1:on@6000 2:on@10000 2:off@12000") << QString();
+    // a track holds whole holds only: one without its release is malformed
+    QTest::newRow("open pair") << QStringLiteral("1:on@1000") << QStringLiteral("1");
+    QTest::newRow("open before a later pair") << QStringLiteral("1:on@6000 2:on@10000 2:off@12000")
+                                              << QStringLiteral("1");
     QTest::newRow("touching pairs") << QStringLiteral("1:on@1000 1:off@2000 2:on@2000 2:off@3000") << QString();
     QTest::newRow("another control overlaps freely")
         << QStringLiteral("1:on@1000 1:off@3000 2:on@2000/B 2:off@4000/B") << QString();
     QTest::newRow("open at the next press time") << QStringLiteral("1:on@10000 2:on@10000 2:off@12000")
-                                                 << QStringLiteral("2");
+                                                 << QStringLiteral("1");
     QTest::newRow("overlap keeps the earlier") << QStringLiteral("1:on@1000 2:on@2000 1:off@3000 2:off@4000")
                                                << QStringLiteral("2");
     QTest::newRow("nested") << QStringLiteral("1:on@1000 2:on@2000 2:off@3000 1:off@5000") << QStringLiteral("2");
     QTest::newRow("release before press") << QStringLiteral("1:off@1000 1:on@2000") << QStringLiteral("1");
     QTest::newRow("two presses") << QStringLiteral("1:on@1000 1:on@2000") << QStringLiteral("1");
     QTest::newRow("two releases") << QStringLiteral("1:on@1000 1:off@2000 1:off@3000") << QStringLiteral("1");
-    QTest::newRow("two open pairs") << QStringLiteral("1:on@1000 2:on@2000") << QStringLiteral("2");
+    QTest::newRow("two open pairs") << QStringLiteral("1:on@1000 2:on@2000") << QStringLiteral("1,2");
     QTest::newRow("mixed controls") << QStringLiteral("1:on@1000 1:off@2000/B") << QStringLiteral("1");
     QTest::newRow("one id, two holds") << QStringLiteral("1:on@1000 1:off@2000 1:on@3000 1:off@4000")
                                        << QStringLiteral("1");

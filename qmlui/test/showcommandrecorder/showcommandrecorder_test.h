@@ -410,13 +410,15 @@ private slots:
     void editingPlayedGlobalLatchEvents_areDataOnlyUntilBoundary();
     void holdPairSelection_requiresWholePair_data();
     void holdPairSelection_requiresWholePair();
-    void holdPairSelection_deletesHoldInProgress();
     void holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem();
     void holdPairs_showSurvivesSaveAndReload_data();
     void holdPairs_showSurvivesSaveAndReload();
     void liveInput_replacesWhileTouched_data();
     void liveInput_replacesWhileTouched();
     void liveInput_touchBelongsToItsPass();
+    void liveInput_releaseBeforeAMoveBackLands();
+    void liveInput_holdBelongsToItsTakeAndShow_data();
+    void liveInput_holdBelongsToItsTakeAndShow();
     void replayedHold_survivesEditAtCursor_data();
     void replayedHold_survivesEditAtCursor();
     void replayedHold_historyEditReleasesIt_data();
@@ -452,8 +454,8 @@ private slots:
     void appPerform_handsRecordingOver();
     void appSave_checkpointsRecording_data();
     void appSave_checkpointsRecording();
-    void appSave_refusedWhenARecordingCannotBeWritten_data();
-    void appSave_refusedWhenARecordingCannotBeWritten();
+    void appSave_unwritableFile_reportedByOrigin_data();
+    void appSave_unwritableFile_reportedByOrigin();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState_data();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState();
     void appReplacement_confirmsRecording_data();

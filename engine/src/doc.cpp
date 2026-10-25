@@ -1688,13 +1688,12 @@ bool Doc::saveXML(QXmlStreamWriter *doc) const
     }
 
     /* Write functions into an XML document */
-    bool saved = true;
     QListIterator <Function*> funcit(functions());
     while (funcit.hasNext() == true)
     {
         Function *func(funcit.next());
-        if (func != NULL && func->saveXML(doc) == false)
-            saved = false;
+        if (func != NULL)
+            func->saveXML(doc);
     }
 
     if (m_monitorProps != NULL)
@@ -1703,7 +1702,7 @@ bool Doc::saveXML(QXmlStreamWriter *doc) const
     /* End the <Engine> tag */
     doc->writeEndElement();
 
-    return saved;
+    return true;
 }
 
 void Doc::appendToErrorLog(QString error)

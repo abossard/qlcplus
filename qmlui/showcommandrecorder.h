@@ -472,13 +472,13 @@ private:
     /** Hand a Show the accepted input it has not taken yet, if any, ending at
      *  its last command. A change it publishes is unsaved work. The Show keeps running while recording, never a saved tail. */
     bool publishUnpublished(Show *show, QString *error);
-    /** Save-only projection: checkpoint while REC stays on closes open holds
-     *  in the saved snapshot without mutating the live track. */
+    /** Save-only projection: checkpoint while REC stays on records the holds
+     *  still held in the saved snapshot without mutating the live track. */
     ShowCommandTrack projectedCheckpointTrack(Show *show, bool *projected) const;
     void armCheckpointSaveProjection();
 
     /** checkpoint() as one observed operation, without reporting: error
-     *  names the last rejection. Disarming closes the bound take's open holds. */
+     *  names the last rejection. Disarming ends the bound take's live holds. */
     bool publishAccepted(bool disarming, QString *error);
 
     void setError(const QString &error);
@@ -591,7 +591,8 @@ private:
      *  Show records is recorded up to the departure, and one the performer
      *  still holds goes on from the arrival */
     void holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival);
-    /** REC began recording into show: a hold the performer holds now starts there */
+    /** A take began recording into show: a hold the performer holds now starts
+     *  there, or goes on into the take when it is recorded already */
     void recordHeldHolds(Show *show);
 
     /** Whether a widget carrying controlId is in the performer's hold set for role */
@@ -604,13 +605,17 @@ private:
      *  held. It is in the track only once it ended. */
     struct LiveSpan
     {
+        quint64 take = 0;                //!< the take it was opened in, so on its Show
         std::optional<TouchStamp> stamp; //!< none while the Show is stopped
         quint32 from = 0;
         quint32 to = ShowCommand::MaxTime;
         ShowCommandInput hold;
+        QVector<quint32> skipped; //!< recorded values it went over, removed when it is recorded
     };
     /** Every hold of the current take and pass, per control */
     QHash<QUuid, QVector<LiveSpan>> m_liveHolds;
+    /** Whether span is still held in the current take */
+    bool heldInTake(const LiveSpan &span) const;
     /** The performer's hold of span recorded into show up to to, through
      *  ShowCommandFsm::liveHold(); live: not played again in this pass */
     bool recordHold(Show *show, const LiveSpan &span, quint32 to, bool live);
