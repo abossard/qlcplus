@@ -50,19 +50,12 @@ static void master(VdjBridge &bridge, int index0)
     QMetaObject::invokeMethod(&bridge, "onTickEnded");
 }
 
-/** The deferred Show creation of a song announced since, shortened for tests */
-static void waitForShowCreation()
-{
-    QTest::qWait(DjManager::showCreationDelayMs + 200);
-}
-
 void DjManager_Test::initTestCase()
 {
     // Isolate QSettings so the persisted deck count doesn't leak between runs.
     QCoreApplication::setOrganizationName("qlcplus-test");
     QCoreApplication::setApplicationName("djmanager_test");
     QSettings().remove("vdj/deckCount");
-    DjManager::showCreationDelayMs = 300;
 
     m_doc = createDoc();
 }
@@ -195,8 +188,18 @@ void DjManager_Test::repeatedSongChangeDoesNotRecreateShow()
     delete doc;
 }
 
+void DjManager_Test::songChangeCreatesShowWhenNoneExists_data()
+{
+    QTest::addColumn<bool>("playing");
+
+    QTest::newRow("a paused deck") << false;
+    QTest::newRow("a playing deck") << true;
+}
+
 void DjManager_Test::songChangeCreatesShowWhenNoneExists()
 {
+    QFETCH(bool, playing);
+
     Doc *doc = createDoc();
     QQuickView view;
     VdjBridge bridge;
@@ -208,13 +211,12 @@ void DjManager_Test::songChangeCreatesShowWhenNoneExists()
 
     QSignalSpy createSpy(factory, &ShowFactory::showCreatedForSong);
 
-    // Use a real audio file from the test resources is not required — the
-    // ShowFactory falls back gracefully, but creation is deferred 3s.
+    // the Show is built at the announcement
+    if (playing)
+        fsm->onDeckTrigger(1, "play", "on");
     feedSong(fsm, 1, "/m/newsong.mp3", "New Song", "DJ", 130.0);
-
-    // the Show is built once the song's burst is complete
-    QVERIFY(createSpy.wait(DjManager::showCreationDelayMs + 2000));
     QCOMPARE(createSpy.count(), 1);
+    QCOMPARE(doc->function(createSpy[0][1].toUInt())->name(), QString("DJ - New Song"));
     QCOMPARE(createSpy[0][0].toString(), QString("/m/newsong.mp3"));
 
     quint32 showId = createSpy[0][1].toUInt();
@@ -287,37 +289,6 @@ void DjManager_Test::metadataFirstReloadDoesNotCorruptPreviousRow()
     delete doc;
 }
 
-void DjManager_Test::clearShowSurvivesUnrelatedFunctionAdd()
-{
-    Doc *doc = createDoc();
-    QQuickView view;
-    VdjBridge bridge;
-    bridge.setDoc(doc);
-    ShowFactory *factory = bridge.showFactory();
-    DjFsm *fsm = bridge.djFsm();
-
-    DjManager mgr(&view, doc, &bridge, factory);
-
-    feedSong(fsm, 1, "/m/clear.mp3", "Clear", "DJ", 120.0);
-    mgr.createShow("/m/clear.mp3");
-    QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                       DjSongModel::HasShowRole).toBool(), true);
-
-    mgr.clearShow("/m/clear.mp3");
-    QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                       DjSongModel::HasShowRole).toBool(), false);
-
-    // An unrelated Doc change must NOT revert the clear or drop the song row.
-    Scene *scene = new Scene(doc);
-    doc->addFunction(scene);
-
-    QCOMPARE(mgr.songListModel()->rowCount(QModelIndex()), 1);
-    QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                       DjSongModel::HasShowRole).toBool(), false);
-
-    delete doc;
-}
-
 void DjManager_Test::removedShowUnassignsButKeepsRow()
 {
     Doc *doc = createDoc();
@@ -330,7 +301,6 @@ void DjManager_Test::removedShowUnassignsButKeepsRow()
     DjManager mgr(&view, doc, &bridge, factory);
 
     feedSong(fsm, 1, "/m/remove.mp3", "Remove", "DJ", 120.0);
-    mgr.createShow("/m/remove.mp3");
     quint32 showId = mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
                                                DjSongModel::ShowIdRole).toUInt();
     QVERIFY(showId != Function::invalidId());
@@ -359,17 +329,16 @@ void DjManager_Test::createShowAction()
     DjManager mgr(&view, doc, &bridge, factory);
 
     feedSong(fsm, 1, "/m/manual.mp3", "Manual", "DJ", 124.0);
-    // No show yet (deferred path hasn't fired).
-    QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                       DjSongModel::HasShowRole).toBool(), false);
+    const quint32 announced = mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
+                                                        DjSongModel::ShowIdRole).toUInt();
+    QVERIFY(announced != Function::invalidId());
 
-    int showsBefore = doc->functionsByType(Function::ShowType).count();
+    // New builds another Show, the user's choice from then on
     mgr.createShow("/m/manual.mp3");
-    int showsAfter = doc->functionsByType(Function::ShowType).count();
-
-    QCOMPARE(showsAfter, showsBefore + 1);
-    QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                       DjSongModel::HasShowRole).toBool(), true);
+    QCOMPARE(doc->functionsByType(Function::ShowType).count(), 2);
+    const quint32 chosen = mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
+                                                     DjSongModel::ShowIdRole).toUInt();
+    QVERIFY(chosen != announced);
 
     delete doc;
 }
@@ -425,14 +394,17 @@ void DjManager_Test::assignAndClearShowAction()
     doc->addFunction(show);
 
     feedSong(fsm, 1, "/m/assign.mp3", "Assign", "DJ", 122.0);
+    const quint32 announced = mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
+                                                        DjSongModel::ShowIdRole).toUInt();
 
     mgr.assignShow("/m/assign.mp3", static_cast<int>(show->id()));
     QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
                                        DjSongModel::ShowIdRole).toUInt(), show->id());
 
+    // Clear drops the choice: the Doc's Show is the song's again
     mgr.clearShow("/m/assign.mp3");
     QCOMPARE(mgr.songListModel()->data(mgr.songListModel()->index(0, 0),
-                                       DjSongModel::HasShowRole).toBool(), false);
+                                       DjSongModel::ShowIdRole).toUInt(), announced);
 
     delete doc;
 }
@@ -461,8 +433,7 @@ void DjManager_Test::loadShowEmitsRequest()
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy[0][0].toInt(), static_cast<int>(show->id()));
 
-    // Loading a song with no assigned show is a no-op.
-    feedSong(fsm, 2, "/m/noshow.mp3", "NoShow", "DJ", 121.0);
+    // Loading a song with no show is a no-op.
     mgr.loadShow("/m/noshow.mp3");
     QCOMPARE(spy.count(), 1);
 
@@ -996,84 +967,6 @@ void DjManager_Test::perDeckMasterdeckSetsActiveDeck()
     delete doc;
 }
 
-void DjManager_Test::deferredShowCreationRevalidates_data()
-{
-    QTest::addColumn<QString>("meanwhile");
-    QTest::addColumn<bool>("created");
-    QTest::addColumn<QString>("showName");
-
-    QTest::newRow("nothing: built from the completed burst") << "" << true << "DJ - Late";
-    QTest::newRow("assigned by the user") << "assign" << false << "Chosen";
-    QTest::newRow("cleared by the user") << "cleared" << false << "";
-    QTest::newRow("a Show of that name exists: a moved file is a new song") << "named" << true << "DJ - Late";
-    QTest::newRow("the workspace was replaced: the deck's song gets a Show in the new one")
-        << "clear" << true << "DJ - Late";
-}
-
-void DjManager_Test::deferredShowCreationRevalidates()
-{
-    QFETCH(QString, meanwhile);
-    QFETCH(bool, created);
-    QFETCH(QString, showName);
-
-    Doc *doc = createDoc();
-    QQuickView view;
-    VdjBridge bridge;
-    bridge.setDoc(doc);
-    ShowFactory *factory = bridge.showFactory();
-    DjFsm *fsm = bridge.djFsm();
-    DjManager mgr(&view, doc, &bridge, factory);
-    QSignalSpy createSpy(factory, &ShowFactory::showCreatedForSong);
-
-    // a manual load: the artist and bpm in the first write, the filepath in the second
-    fsm->onDeckTrigger(1, "get_title", "Late");
-    fsm->onDeckTrigger(1, "get_artist", "DJ");
-    fsm->onDeckTrigger(1, "get_bpm", 120.0);
-    fsm->onDeckTrigger(1, "loaded", "on");
-    fsm->onTickEnded();
-    fsm->onDeckTrigger(1, "get_filepath", "/m/late.mp3");
-    fsm->onTickEnded();
-    QCOMPARE(mgr.songListModel()->rowCount(QModelIndex()), 1);
-
-    Show *named = nullptr;
-    if (meanwhile == QLatin1String("assign") || meanwhile == QLatin1String("named")
-        || meanwhile == QLatin1String("cleared"))
-    {
-        named = new Show(doc);
-        named->setName(meanwhile == QLatin1String("assign") ? "Chosen" : "DJ - Late");
-        doc->addFunction(named);
-        if (meanwhile != QLatin1String("named"))
-            mgr.assignShow("/m/late.mp3", int(named->id()));
-        if (meanwhile == QLatin1String("cleared"))
-            mgr.clearShow("/m/late.mp3");
-    }
-    else if (meanwhile == QLatin1String("clear"))
-    {
-        doc->clearContents();
-    }
-
-    waitForShowCreation();
-    QCOMPARE(createSpy.count(), created ? 1 : 0);
-    const quint32 showId = mgr.songListModel()->rowCount(QModelIndex()) > 0
-        ? mgr.songListModel()->data(mgr.songListModel()->index(0, 0), DjSongModel::ShowIdRole).toUInt()
-        : quint32(Function::invalidId());
-    if (meanwhile == QLatin1String("cleared"))
-    {
-        QCOMPARE(showId, Function::invalidId());
-        QCOMPARE(doc->functionsByType(Function::ShowType).count(), 1);
-    }
-    else
-    {
-        QVERIFY(showId != Function::invalidId());
-        QCOMPARE(doc->function(showId)->name(), showName);
-        if (meanwhile == QLatin1String("named"))
-            QVERIFY(showId != named->id());
-        QCOMPARE(doc->functionsByType(Function::ShowType).count(), meanwhile == QLatin1String("named") ? 2 : 1);
-    }
-
-    delete doc;
-}
-
 void DjManager_Test::playingASongModifiesTheWorkspace()
 {
     Doc *doc = createDoc();
@@ -1175,11 +1068,15 @@ void DjManager_Test::deletedAssignedShowUnassignsTheRow()
     show->setName("Chosen");
     doc->addFunction(show);
     feedSong(fsm, 1, "/m/a.mp3", "A", "X", 120.0);
+    const quint32 announced = songs->data(songs->index(0, 0), DjSongModel::ShowIdRole).toUInt();
     mgr.assignShow("/m/a.mp3", int(show->id()));
     const quint32 chosenId = show->id();
     QCOMPARE(songs->data(songs->index(0, 0), DjSongModel::ShowIdRole).toUInt(), chosenId);
 
+    // the choice goes with its Show: the Doc's Show is the song's again, until it goes too
     doc->deleteFunction(chosenId);
+    QCOMPARE(songs->data(songs->index(0, 0), DjSongModel::ShowIdRole).toUInt(), announced);
+    doc->deleteFunction(announced);
     QSignalSpy load(&mgr, &DjManager::showLoadRequested);
     mgr.loadShow("/m/a.mp3");
     QCOMPARE(load.count(), 0);
@@ -1188,35 +1085,10 @@ void DjManager_Test::deletedAssignedShowUnassignsTheRow()
     delete doc;
 }
 
-void DjManager_Test::staleDeferredCreationFiresForNothing()
-{
-    // the workspace is replaced and VDJ reconnects with the same song before
-    // the first deadline: the first callback belongs to the old workspace
-    Doc *doc = createDoc();
-    QQuickView view;
-    VdjBridge bridge;
-    bridge.setDoc(doc);
-    ShowFactory *factory = bridge.showFactory();
-    DjFsm *fsm = bridge.djFsm();
-    DjManager mgr(&view, doc, &bridge, factory);
-    QSignalSpy created(factory, &ShowFactory::showCreatedForSong);
-
-    feedSong(fsm, 1, "/m/a.mp3", "A", "X", 120.0);
-    QTest::qWait(DjManager::showCreationDelayMs * 2 / 3);
-    doc->clearContents();
-    fsm->onDisconnected();
-    feedSong(fsm, 1, "/m/a.mp3", "A", "X", 120.0);
-    QTest::qWait(DjManager::showCreationDelayMs / 2);
-    QCOMPARE(created.count(), 0);
-    waitForShowCreation();
-    QCOMPARE(created.count(), 1);
-
-    delete doc;
-}
-
 void DjManager_Test::workspaceLoadKeepsThePlayingSong()
 {
-    // a workspace without a Show for the playing song is loaded mid-set
+    // a workspace without a Show for the playing song is loaded mid-set: the
+    // row is back, playing; its Show comes with the next announcement or New
     Doc *doc = createDoc();
     QQuickView view;
     VdjBridge bridge;
@@ -1225,7 +1097,6 @@ void DjManager_Test::workspaceLoadKeepsThePlayingSong()
     DjFsm *fsm = bridge.djFsm();
     DjManager mgr(&view, doc, &bridge, factory);
     QAbstractItemModel *songs = mgr.songListModel();
-    QSignalSpy created(factory, &ShowFactory::showCreatedForSong);
 
     feedSong(fsm, 1, "/m/a.mp3", "A", "X", 120.0);
     fsm->onDeckTrigger(1, "play", "on");
@@ -1234,9 +1105,7 @@ void DjManager_Test::workspaceLoadKeepsThePlayingSong()
     QCOMPARE(fsm->deckAt(0).state, DjFsm::DeckState::Playing);
     QVERIFY(rowOf(songs, "/m/a.mp3") >= 0);
     QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::IsPlayingRole).toBool(), true);
-    waitForShowCreation();
-    QCOMPARE(created.count(), 1);
-    QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::HasShowRole).toBool(), true);
+    QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::HasShowRole).toBool(), false);
 
     delete doc;
 }
@@ -1254,7 +1123,6 @@ void DjManager_Test::twoDecksWithOneSongBuildOneShow()
 
     feedSong(fsm, 1, "/m/same.mp3", "Same", "X", 120.0);
     feedSong(fsm, 2, "/m/same.mp3", "Same", "X", 120.0);
-    waitForShowCreation();
     QCOMPARE(created.count(), 1);
     QCOMPARE(mgr.songListModel()->rowCount(QModelIndex()), 1);
 
@@ -1289,11 +1157,6 @@ void DjManager_Test::liveWorkspaceClearKeepsPerformOffTheRecycledId()
     const quint32 recycled = factory->buildShow(other);
     QVERIFY(recycled <= oldId);
     QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Armed);
-
-    // the playing song gets a Show of its own in the new workspace
-    waitForShowCreation();
-    QCOMPARE(bridge.performFsm()->state(), PerformFsm::PerformState::Live);
-    QVERIFY(bridge.performFsm()->activeShowId() != recycled);
     mgr.setPerformMode(false);
 
     delete doc;

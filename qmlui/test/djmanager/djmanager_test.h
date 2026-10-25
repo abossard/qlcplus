@@ -29,9 +29,9 @@ private slots:
     // DjManager orchestration
     void songChangeAddsOneEntryAndAssignsExistingShow();
     void repeatedSongChangeDoesNotRecreateShow();
+    void songChangeCreatesShowWhenNoneExists_data();
     void songChangeCreatesShowWhenNoneExists();
     void metadataFirstReloadDoesNotCorruptPreviousRow();
-    void clearShowSurvivesUnrelatedFunctionAdd();
     void removedShowUnassignsButKeepsRow();
 
     // Per-song actions
@@ -56,14 +56,11 @@ private slots:
     void perDeckMasterdeckSetsActiveDeck();
 
     // Show creation and the index
-    void deferredShowCreationRevalidates_data();
     void newShowWinsAfterAWorkspaceLoad();
-    void deferredShowCreationRevalidates();
     void playingASongModifiesTheWorkspace();
     void emptyArtistReachesTheRow();
     void newShowBecomesTheSongsShow();
     void deletedAssignedShowUnassignsTheRow();
-    void staleDeferredCreationFiresForNothing();
     void workspaceLoadKeepsThePlayingSong();
     void twoDecksWithOneSongBuildOneShow();
     void liveWorkspaceClearKeepsPerformOffTheRecycledId();

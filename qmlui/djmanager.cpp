@@ -32,9 +32,7 @@
 #include <QFileInfo>
 #include <QQmlContext>
 #include <QSettings>
-#include <QTimer>
 
-int DjManager::showCreationDelayMs = 3000;
 
 // ════════════════════════════════════════════════════════════════
 //  DjSongModel
@@ -726,8 +724,7 @@ void DjManager::createShow(const QString &filepath)
     DjFsm::DeckSong song = m_model->songForFilepath(filepath);
     if (!song.isValid())
         return;
-    // a reopened workspace hands out the ids below its Shows: the index's
-    // newest-by-id would keep the old one
+    // the Show New builds is the user's choice for the song
     const quint32 id = m_factory->buildShow(song);
     if (id != Function::invalidId())
         m_factory->registerMapping(filepath, id);
@@ -754,14 +751,12 @@ void DjManager::onSongChanged(int deck, const DjFsm::DeckSong &song)
 {
     Q_UNUSED(deck)
 
-    const bool isNew = !m_model->hasFilepath(song.filepath);
     m_model->upsertSong(song);
+    // an announced song without a Show gets one now
+    if (m_factory && m_factory->showIdForFilepath(song.filepath) == Function::invalidId())
+        m_factory->buildShow(song);
 
-    // Only newly-seen songs trigger a show existence check / creation.
-    if (isNew)
-        ensureShowForSong(song.filepath);
-
-    // A song row may have just been added for a deck that is already playing —
+    // A song row may have just been added for a deck that is already playing:
     // reflect the playing state immediately.
     recomputePlayingSongs();
 }
@@ -806,30 +801,6 @@ void DjManager::onDeckCountChanged()
     emit activeChanged();
 }
 
-void DjManager::ensureShowForSong(const QString &filepath)
-{
-    if (!m_factory || m_factory->showIdForFilepath(filepath) != Function::invalidId()
-        || m_pendingShows.contains(filepath))
-        return;
-
-    // the load burst completes first (artist and bpm may follow the title),
-    // and so do the QML models the new functions touch
-    m_pendingShows.insert(filepath);
-    const int generation = m_docGeneration;
-    QTimer::singleShot(showCreationDelayMs, this, [this, filepath, generation]() {
-        if (generation != m_docGeneration)
-            return;
-        m_pendingShows.remove(filepath);
-        // re-validated: the song is still here, nothing mapped it meanwhile and
-        // the user neither assigned nor cleared it; a moved file is a new song
-        const DjFsm::DeckSong song = m_model->songForFilepath(filepath);
-        if (!song.isValid() || m_factory->hasOverride(filepath)
-            || m_factory->showIdForFilepath(filepath) != Function::invalidId())
-            return;
-        m_factory->buildShow(song);
-    });
-}
-
 void DjManager::recomputePlayingSongs()
 {
     if (!m_fsm)
@@ -858,18 +829,13 @@ void DjManager::onDocCleared()
 {
     m_model->clear();
     m_lastPlayingPaths.clear();
-    m_pendingShows.clear();
-    m_docGeneration++;
-    // the decks play on through the workspace change: their songs are back,
-    // with Shows of their own in due course
+    // the decks play on through the workspace change: their songs are back
+    // as rows; a Show comes with the next announcement or New
     for (int i = 0; m_fsm && i < m_fsm->deckCount(); ++i)
     {
         const DjFsm::DeckSong &song = m_fsm->deckAt(i).song;
         if (song.isValid() && !song.title.isEmpty())
-        {
             m_model->upsertSong(song);
-            ensureShowForSong(song.filepath);
-        }
     }
     recomputePlayingSongs();
 }

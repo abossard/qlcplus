@@ -225,10 +225,6 @@ public:
     DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
               ShowFactory *factory, QObject *parent = nullptr);
 
-    /** A song's Show is built this long after its first announcement, once
-     *  its load burst is complete; tests shorten it */
-    static int showCreationDelayMs;
-
     QAbstractItemModel *songListModel() const;
     QAbstractItemModel *deckModel() const;
 
@@ -301,7 +297,6 @@ private slots:
     void onFunctionChanged(quint32 fid);
 
 private:
-    void ensureShowForSong(const QString &filepath);
     void recomputePlayingSongs();
     void mergeShowFromDoc(quint32 showId);
 
@@ -312,10 +307,6 @@ private:
     DjSongFilterModel *m_proxy;
     DjDeckModel *m_deckModel;
     QSet<QString> m_lastPlayingPaths;
-    /** Songs whose Show creation waits for their burst to complete */
-    QSet<QString> m_pendingShows;
-    /** Counts workspaces: a deferred creation of an earlier one fires for nothing */
-    int m_docGeneration = 0;
     QString m_vdjDatabasePath;
 };
 
