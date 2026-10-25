@@ -1686,7 +1686,7 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     doc.writeEndElement();
 
     /* Write engine components to the XML document */
-    const bool engineSaved = m_doc->saveXML(&doc);
+    m_doc->saveXML(&doc);
 
     /* Write virtual console to the XML document */
     m_virtualConsole->saveXML(&doc);
@@ -1706,12 +1706,10 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     /* End the document and close all the open elements */
     doc.writeEndDocument();
 
-    if (doc.hasError() || engineSaved == false)
+    if (doc.hasError())
     {
         qWarning() << Q_FUNC_INFO << "Error writing XML to" << fileName;
-        setSaveError(engineSaved ? tr("%1 could not be written").arg(fileName)
-                                 : tr("The recording of a Show cannot be written: no event id is left to end a "
-                                      "hold in progress"));
+        setSaveError(tr("%1 could not be written").arg(fileName));
 #if defined(Q_OS_ANDROID)
         file.close();
 #else

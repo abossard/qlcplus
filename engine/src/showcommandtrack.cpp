@@ -502,46 +502,26 @@ namespace
     /** The ids of the pairs breaking the invariant, the earliest pairs kept */
     QVector<quint32> malformedPairs(const QVector<ShowCommand> &commands, const QVector<HoldPair> &pairs)
     {
-        /** The last pair kept on one control and role */
-        struct Lane
-        {
-            const HoldPair *last = nullptr;
-            bool open = false;
-        };
-        QHash<QPair<QUuid, int>, Lane> lanes;
+        // the release of the last pair kept on one control and role
+        QHash<QPair<QUuid, int>, int> lastRelease;
         QVector<quint32> malformed;
         for (const HoldPair &pair : pairs)
         {
-            if (pair.broken)
+            if (pair.broken || pair.release < 0)
             {
                 malformed.append(pair.id);
                 continue;
             }
             const ShowCommand &press = commands.at(pair.press);
-            Lane &lane = lanes[qMakePair(press.controlId, int(press.role))];
-            const HoldPair *last = lane.last;
-            const bool fits = last == nullptr ||
-                              (last->release >= 0 ? last->release < pair.press
-                                                  : commands.at(last->press).time < press.time);
-            if (!fits || (pair.release < 0 && lane.open))
+            const QPair<QUuid, int> lane = qMakePair(press.controlId, int(press.role));
+            if (lastRelease.value(lane, -1) >= pair.press)
             {
                 malformed.append(pair.id);
                 continue;
             }
-            lane.last = &pair;
-            lane.open = lane.open || pair.release < 0;
+            lastRelease.insert(lane, pair.release);
         }
         return malformed;
-    }
-
-    /** The release closing the pair pressed at index press at time, never before its press */
-    ShowCommand holdRelease(const QVector<ShowCommand> &commands, int press, quint32 time, quint32 id)
-    {
-        ShowCommand off = commands.at(press);
-        off.id = id;
-        off.on = false;
-        off.time = qMax(time, off.time);
-        return off;
     }
 
 }
@@ -1397,21 +1377,6 @@ QVector<quint32> ShowCommandTrack::malformedHoldPairs() const
     return malformedPairs(m_commands, holdPairs(m_commands));
 }
 
-bool ShowCommandTrack::closeOpenHolds(quint32 time, QString *error)
-{
-    ShowCommandTrack closed = *this;
-    const QVector<HoldPair> pairs = holdPairs(m_commands);
-    for (const HoldPair &pair : pairs)
-    {
-        if (pair.broken || pair.release >= 0)
-            continue;
-        if (!closed.insert(holdRelease(m_commands, pair.press, time, closed.nextEventId()), error))
-            return false;
-    }
-    *this = closed;
-    return succeed(error);
-}
-
 bool ShowCommandTrack::place(const ShowCommand &original, QString *error)
 {
     const ShowCommand cmd = original.canonicalized();
@@ -1708,28 +1673,17 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
     if (root.hasError())
         return fail(error, root.errorString());
 
-    // a saved track holds no hold in progress: unclosed pairs go first, so the
-    // invariant judges only the rest; a bad pair costs only its own edges
-    const auto drop = [&parsed](const QSet<quint32> &pairs, const char *why)
-    {
-        for (int i = parsed.m_commands.count() - 1; i >= 0; --i)
-        {
-            const ShowCommand &cmd = parsed.m_commands.at(i);
-            if (cmd.action != ShowCommandAction::SetButtonState || !pairs.contains(cmd.pairId))
-                continue;
-            qWarning() << "Command track: dropping event" << cmd.id << "of" << why << "hold pair" << cmd.pairId;
-            parsed.m_commands.remove(i);
-        }
-    };
-    QSet<quint32> unclosed;
-    for (const HoldPair &pair : holdPairs(parsed.m_commands))
-    {
-        if (!pair.broken && pair.release < 0)
-            unclosed.insert(pair.id);
-    }
-    drop(unclosed, "unclosed");
+    // a bad pair costs only its own edges
     const QVector<quint32> malformed = parsed.malformedHoldPairs();
-    drop(QSet<quint32>(malformed.cbegin(), malformed.cend()), "malformed");
+    const QSet<quint32> dropped(malformed.cbegin(), malformed.cend());
+    for (int i = parsed.m_commands.count() - 1; i >= 0; --i)
+    {
+        const ShowCommand &cmd = parsed.m_commands.at(i);
+        if (cmd.action != ShowCommandAction::SetButtonState || !dropped.contains(cmd.pairId))
+            continue;
+        qWarning() << "Command track: dropping event" << cmd.id << "of malformed hold pair" << cmd.pairId;
+        parsed.m_commands.remove(i);
+    }
 
     *this = parsed;
     return succeed(error);
@@ -1739,11 +1693,7 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
 {
     Q_ASSERT(doc != nullptr);
 
-    // a file holds no hold in progress: one left open ends at the extent
-    ShowCommandTrack closed = *this;
-    if (closed.closeOpenHolds(m_extent) == false)
-        return false;
-    const QVector<ShowCommand> &commands = closed.m_commands;
+    const QVector<ShowCommand> &commands = m_commands;
 
     // a track of function commands only keeps writing exactly the legacy document
     const bool controlStates = std::any_of(commands.cbegin(), commands.cend(),

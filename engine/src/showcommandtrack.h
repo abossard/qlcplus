@@ -394,14 +394,9 @@ public:
     /** The one hold pair invariant. Per control and role, the SetButtonState
      *  edges sharing a pair id are one press and at most one release after it,
      *  and pairs never overlap: a release comes before the next pair's press,
-     *  in stored order at an equal time. At most one pair is open (pressed,
-     *  not released yet), with its press at an earlier time than the next
-     *  pair's. The ids of the pairs that break it, each once, earliest kept. */
+     *  in stored order at an equal time. The ids of the pairs that break it,
+     *  each once, earliest kept. */
     QVector<quint32> malformedHoldPairs() const;
-
-    /** Release every open hold at time, never before its press. Fails,
-     *  unchanged, when no event id is left. */
-    bool closeOpenHolds(quint32 time, QString *error = nullptr);
 
     /** A new command, after every command sharing its time. cmd.order is
      *  ignored. Fails on an invalid command or a duplicate id. */
@@ -435,12 +430,9 @@ public:
     int remapFunctionId(quint32 from, quint32 to);
 
     /** Transactional: on failure the track keeps its previous contents. A
-     *  hold pair that breaks the invariant, or is still open, is dropped
-     *  with a warning instead: the rest of the track stays usable. */
+     *  hold pair that breaks the invariant is dropped with a warning
+     *  instead: the rest of the track stays usable. */
     bool loadXML(QXmlStreamReader &root, QString *error = nullptr);
-    /** Writes the track as a file holds it: a hold still in progress ends at
-     *  the extent. False, writing nothing, when no event id is left for that
-     *  release. */
     bool saveXML(QXmlStreamWriter *doc) const;
 
 private:
@@ -579,7 +571,7 @@ struct ShowRecordEffect
 struct ShowRecordTransition
 {
     ShowRecordState state;
-    /** Publish the bound take's accepted input and close its open holds
+    /** Publish the bound take's accepted input and end its live holds
      *  before the effects. The transition stands only once that is saved. */
     bool checkpoint = false;
     QVector<ShowRecordEffect> effects; //!< in order

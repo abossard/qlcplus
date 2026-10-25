@@ -1086,7 +1086,7 @@ QString validateWholeHoldSelection(const ShowCommandTrack &track, const QVector<
         if (!isPairedHoldCommand(cmd))
             continue;
 
-        // a published track keeps every pair valid, a hold in progress has one edge
+        // a published track holds whole pairs only
         for (const ShowCommand *edge : pairEdges.value(cmd.pairId))
         {
             if (!selectedIds.contains(edge->id))

@@ -472,13 +472,13 @@ private:
     /** Hand a Show the accepted input it has not taken yet, if any, ending at
      *  its last command. A change it publishes is unsaved work. The Show keeps running while recording, never a saved tail. */
     bool publishUnpublished(Show *show, QString *error);
-    /** Save-only projection: checkpoint while REC stays on closes open holds
-     *  in the saved snapshot without mutating the live track. */
+    /** Save-only projection: checkpoint while REC stays on records the holds
+     *  still held in the saved snapshot without mutating the live track. */
     ShowCommandTrack projectedCheckpointTrack(Show *show, bool *projected) const;
     void armCheckpointSaveProjection();
 
     /** checkpoint() as one observed operation, without reporting: error
-     *  names the last rejection. Disarming closes the bound take's open holds. */
+     *  names the last rejection. Disarming ends the bound take's live holds. */
     bool publishAccepted(bool disarming, QString *error);
 
     void setError(const QString &error);

@@ -14859,33 +14859,6 @@ void ShowCommandRecorder_Test::holdPairSelection_requiresWholePair()
     }
 }
 
-void ShowCommandRecorder_Test::holdPairSelection_deletesHoldInProgress()
-{
-    RequestRig r;
-    r.show->setSyncSource(ShowRunner::External);
-    const int frame = addFrame(r.bridge, 0, QRect(0, 310, 500, 200), QStringLiteral("Open hold"), false);
-    auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
-        r.bridge.addButton(frame, QRect(10, 10, 90, 48), r.a->id(), QStringLiteral("Flash"),
-                           QStringLiteral("flash"))));
-    QVERIFY(button);
-
-    ShowCommandTrack open;
-    ShowCommand on = ShowCommand::setButtonState(10, 1000, button->ensureRecordingId(), true);
-    on.role = ShowControlRole::FlashButton;
-    on.pairId = 77;
-    QVERIFY(open.insert(on));
-    QVERIFY(open.setExtent(1000));
-    QVERIFY(r.show->setCommandTrack(open));
-
-    // a copy needs the whole hold, an edit of the press alone is the whole hold
-    QVERIFY(!r.recorder.copyCommands(r.show->id(), {10u}));
-    QVERIFY(!r.recorder.lastError().isEmpty());
-    QVERIFY2(r.recorder.beginEditSession(r.show->id(), {10u}), qPrintable(r.recorder.lastError()));
-    r.recorder.cancelEditSession();
-    QVERIFY2(r.recorder.removeCommands(r.show->id(), {10u}), qPrintable(r.recorder.lastError()));
-    QVERIFY(r.show->commandTrack().isEmpty());
-}
-
 void ShowCommandRecorder_Test::holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem()
 {
     RequestRig r;
@@ -15123,7 +15096,7 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QCOMPARE(holdSpans(show->commandTrack()), live);
     QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
 
-    // the workspace save: an open hold is closed in the saved snapshot only
+    // the workspace save: a hold still held is recorded in the saved snapshot only
     if (checkpoint)
         QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
     Doc reloaded(nullptr, 1);
@@ -17454,37 +17427,6 @@ bool clickDialogButton(QQuickView *window, QObject *dialog, int button)
     return clicked.count() == 1;
 }
 } // namespace
-
-void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
-{
-    AppRig rig;
-    QVERIFY(rig.recorder && rig.manager);
-    Scene *target = new Scene(rig.doc);
-    QVERIFY(rig.doc->addFunction(target));
-    Show *show = rig.addShow(0);
-    // a hold in progress whose release has no event id left: the track cannot be written
-    ShowCommand press = ShowCommand::setButtonState(1, 1000, QUuid::createUuid(), true);
-    press.role = ShowControlRole::FlashButton;
-    press.pairId = 1;
-    ShowCommandTrack track;
-    QVERIFY(track.insert(press));
-    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 500, target->id())));
-    QVERIFY(track.setExtent(6000));
-    QVERIFY(show->setCommandTrack(track));
-
-    // the save fails and leaves no file, instead of a file that loses the hold, and says why
-    const QMetaObject *meta = rig.app->metaObject();
-    const QMetaProperty saveError = meta->property(meta->indexOfProperty("saveError"));
-    QVERIFY(saveError.isValid() && saveError.hasNotifySignal());
-    QSignalSpy reported(rig.app.get(), saveError.notifySignal());
-    QTemporaryDir dir;
-    const QString path = dir.filePath(QStringLiteral("refused.qxw"));
-    QVERIFY(!rig.app->saveWorkspace(path));
-    QVERIFY(!QFile::exists(path));
-    QVERIFY(reported.count() >= 1);
-    QVERIFY2(saveError.read(rig.app.get()).toString().contains(QStringLiteral("event id")),
-             qPrintable(saveError.read(rig.app.get()).toString()));
-}
 
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()
 {

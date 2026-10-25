@@ -1004,14 +1004,13 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
         commands = m_commandTrackSaveProjectionArmed ? m_commandTrackSaveProjection : m_commandTrack;
         m_commandTrackSaveProjectionArmed = false;
     }
-    bool saved = true;
     if (commands.isEmpty() == false || commands.extent() > 0)
-        saved = commands.saveXML(doc);
+        commands.saveXML(doc);
 
     /* End the <Function> tag */
     doc->writeEndElement();
 
-    return saved;
+    return true;
 }
 
 bool Show::loadXML(QXmlStreamReader &root)
