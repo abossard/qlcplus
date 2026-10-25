@@ -1757,7 +1757,8 @@ bool App::saveErrorAutosave() const
 
 void App::setSaveError(const QString &error, bool autosave)
 {
-    if (m_saveError == error && m_saveErrorAutosave == autosave)
+    // every failed save someone asked for says so; the autosave says the same failure once
+    if (m_saveError == error && m_saveErrorAutosave == autosave && (autosave || error.isEmpty()))
         return;
     m_saveError = error;
     m_saveErrorAutosave = autosave;

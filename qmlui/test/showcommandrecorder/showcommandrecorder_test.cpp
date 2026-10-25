@@ -17620,18 +17620,26 @@ void ShowCommandRecorder_Test::appSave_unwritableFile_reportedByOrigin()
     QObject *popup = rig.qml(QStringLiteral("actionsMenu"))->findChild<QObject *>(QStringLiteral("saveErrorPopup"));
     QObject *messageBar = rig.app->rootObject()->findChild<QObject *>(QStringLiteral("vcLayoutError"));
     QVERIFY(popup && messageBar);
-    if (origin == QLatin1String("save"))
-        QVERIFY(!rig.app->saveWorkspace(path));
-    else if (origin == QLatin1String("autosave"))
-    {
-        rig.app->setFileName(path);
-        emit rig.doc->needAutosave();
-    }
-    else
-    {
-        QVERIFY(qputenv("TMPDIR", readOnlyDir.toLocal8Bit()));
-        QVERIFY(QMetaObject::invokeMethod(rig.app.get(), "slotClientProjectRequest", Q_ARG(QString, QStringLiteral("client"))));
-    }
+    const auto save = [&]() {
+        if (origin == QLatin1String("save"))
+            QVERIFY(!rig.app->saveWorkspace(path));
+        else if (origin == QLatin1String("autosave"))
+        {
+            rig.app->setFileName(path);
+            emit rig.doc->needAutosave();
+        }
+        else
+        {
+            QVERIFY(qputenv("TMPDIR", readOnlyDir.toLocal8Bit()));
+            QVERIFY(QMetaObject::invokeMethod(rig.app.get(), "slotClientProjectRequest",
+                                              Q_ARG(QString, QStringLiteral("client"))));
+        }
+    };
+    save();
+    // the same failure again: a save someone asked for says it again, the autosave once
+    const int once = reported.count();
+    save();
+    QCOMPARE(reported.count() > once, dialog);
 
     // no file, and the reason is the file system's
     QCOMPARE(QDir(readOnlyDir).entryList(QDir::Files), QStringList());
