@@ -48,6 +48,7 @@ private slots:
     void anObjectOpenPastTheCapDropsTheClient();
     void aConnectionThatEndsAdvertisesAgain_data();
     void aConnectionThatEndsAdvertisesAgain();
+    void aBonjourFailureShowsInTheStatus();
 };
 
 #endif

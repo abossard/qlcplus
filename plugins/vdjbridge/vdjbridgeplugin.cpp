@@ -94,7 +94,7 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
         // VDJ reconnects only to a service registered again (measured); a
         // listening server means the input is open and no client took over
         if (m_telemetry->status() == VdjTelemetryClient::Listening)
-            registerBonjourAgain();
+            registerBonjour();
         emit clientDisconnected();
         emit connectionStatusChanged(universe, input);
     });
@@ -107,11 +107,7 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
         return false;
     }
 
-    if (m_bonjourEnabled)
-    {
-        m_bonjour = new VdjBonjour(this);
-        m_bonjour->registerService(m_serviceName, m_hostPort);
-    }
+    setBonjour(m_bonjourEnabled);
 
     addToMap(universe, input, Input);
 
@@ -127,12 +123,7 @@ void VdjBridgePlugin::closeInput(quint32 input, quint32 universe)
 
     removeFromMap(input, universe, Input);
 
-    if (m_bonjour)
-    {
-        m_bonjour->unregisterService();
-        m_bonjour->deleteLater();
-        m_bonjour = nullptr;
-    }
+    setBonjour(false);
 
     if (m_telemetry)
     {
@@ -160,9 +151,9 @@ QString VdjBridgePlugin::inputInfo(quint32 input)
             .arg(tr("Listen port")).arg(m_hostPort);
     str += QString("<P><B>%1:</B> %2</P>")
             .arg(tr("Bonjour service"))
-            .arg(m_bonjourEnabled
-                 ? QStringLiteral("_os2l._tcp (%1)").arg(m_serviceName)
-                 : tr("disabled"));
+            .arg(!m_bonjourEnabled ? tr("disabled")
+                 : m_bonjourError.isEmpty() ? QStringLiteral("_os2l._tcp (%1)").arg(m_serviceName)
+                 : tr("not registered: %1").arg(m_bonjourError));
     return str;
 }
 
@@ -207,31 +198,19 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
         {
             m_telemetry->stop();
             m_telemetry->start(m_hostPort);
-            registerBonjourAgain();
+            registerBonjour();
         }
     }
     else if (name == QLatin1String(VDJ_BONJOUR_ENABLED))
     {
         m_bonjourEnabled = value.toBool();
         if (m_open)
-        {
-            if (m_bonjourEnabled && !m_bonjour)
-            {
-                m_bonjour = new VdjBonjour(this);
-                m_bonjour->registerService(m_serviceName, m_hostPort);
-            }
-            else if (!m_bonjourEnabled && m_bonjour)
-            {
-                m_bonjour->unregisterService();
-                m_bonjour->deleteLater();
-                m_bonjour = nullptr;
-            }
-        }
+            setBonjour(m_bonjourEnabled);
     }
     else if (name == QLatin1String(VDJ_SERVICE_NAME))
     {
         m_serviceName = value.toString();
-        registerBonjourAgain();
+        registerBonjour();
     }
     else
     {
@@ -239,10 +218,33 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
     }
 }
 
-void VdjBridgePlugin::registerBonjourAgain()
+void VdjBridgePlugin::setBonjour(bool on)
+{
+    if (on == (m_bonjour != nullptr))
+        return;
+    if (on)
+    {
+        m_bonjour = new VdjBonjour(this);
+        connect(m_bonjour, &VdjBonjour::serviceRegistrationFailed, this, [this](const QString &error) {
+            m_bonjourError = error;
+            emit connectionStatusChanged(m_inputUniverse, 0);
+        });
+        registerBonjour();
+    }
+    else
+    {
+        m_bonjour->unregisterService();
+        m_bonjour->deleteLater();
+        m_bonjour = nullptr;
+        m_bonjourError.clear();
+    }
+}
+
+void VdjBridgePlugin::registerBonjour()
 {
     if (!m_bonjour)
         return;
+    m_bonjourError.clear();
     m_bonjour->unregisterService();
     m_bonjour->registerService(m_serviceName, m_hostPort);
 }

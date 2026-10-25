@@ -70,6 +70,8 @@ public:
     bool     bonjourEnabled() const { return m_bonjourEnabled; }
     QString  serviceName() const { return m_serviceName; }
     QString  clientAddress() const;
+    /** Why the Bonjour service is not registered, or empty */
+    QString  bonjourError() const { return m_bonjourError; }
     void setParameter(quint32 universe, quint32 line, Capability type,
                       QString name, QVariant value) override;
 
@@ -96,11 +98,13 @@ signals:
     void clientDisconnected();
 
 private:
-    void registerBonjourAgain();
+    void setBonjour(bool on);
+    void registerBonjour();
 
     quint16  m_hostPort       = VDJ_DEFAULT_PORT;
     bool     m_bonjourEnabled = true;
     QString  m_serviceName    = QStringLiteral("QLC+ VDJ");
+    QString  m_bonjourError;
     quint32  m_inputUniverse  = QLCIOPlugin::invalidLine();
     bool     m_open           = false;
 

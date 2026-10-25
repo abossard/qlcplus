@@ -47,10 +47,9 @@ public:
 
     bool registerService(const QString &serviceName, quint16 port);
     void unregisterService();
-    bool isRegistered() const { return m_registered; }
 
 signals:
-    void serviceRegistered(const QString &name, quint16 port);
+    /** The service is not registered: it failed now or mDNSResponder reported an error */
     void serviceRegistrationFailed(const QString &errorMessage);
 
 #ifdef Q_OS_MACOS
@@ -58,6 +57,8 @@ private slots:
     void bonjourSocketReadyRead();
 
 private:
+    void fail(const QString &message);
+
     static void DNSSD_API registerCallback(
         DNSServiceRef sdRef,
         DNSServiceFlags flags,
@@ -70,10 +71,6 @@ private:
     DNSServiceRef m_dnssRef;
     QSocketNotifier *m_notifier;
 #endif
-
-private:
-    bool m_registered;
-    quint16 m_port;
 };
 
 #endif // VDJBONJOUR_H

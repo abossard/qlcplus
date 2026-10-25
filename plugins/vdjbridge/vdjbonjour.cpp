@@ -34,8 +34,6 @@ VdjBonjour::VdjBonjour(QObject *parent)
     , m_dnssRef(nullptr)
     , m_notifier(nullptr)
 #endif
-    , m_registered(false)
-    , m_port(0)
 {
 }
 
@@ -48,10 +46,8 @@ VdjBonjour::~VdjBonjour()
 
 bool VdjBonjour::registerService(const QString &serviceName, quint16 port)
 {
-    if (m_registered)
+    if (m_dnssRef)
         return true;
-
-    m_port = port;
 
     DNSServiceErrorType err = DNSServiceRegister(
         &m_dnssRef,
@@ -69,9 +65,8 @@ bool VdjBonjour::registerService(const QString &serviceName, quint16 port)
 
     if (err != kDNSServiceErr_NoError)
     {
-        QString msg = QString("DNSServiceRegister failed with error %1").arg(err);
-        qWarning() << kLogTag << msg;
-        emit serviceRegistrationFailed(msg);
+        m_dnssRef = nullptr;
+        fail(QString("DNSServiceRegister failed with error %1").arg(err));
         return false;
     }
 
@@ -93,7 +88,8 @@ void VdjBonjour::unregisterService()
     if (m_notifier)
     {
         m_notifier->setEnabled(false);
-        delete m_notifier;
+        // this may run inside the notifier's own activated()
+        m_notifier->deleteLater();
         m_notifier = nullptr;
     }
 
@@ -103,8 +99,14 @@ void VdjBonjour::unregisterService()
         m_dnssRef = nullptr;
         qDebug() << kLogTag << "Service unregistered";
     }
+}
 
-    m_registered = false;
+void VdjBonjour::fail(const QString &message)
+{
+    // a ref left allocated keeps a readable fd: the notifier would fire forever
+    qWarning() << kLogTag << message;
+    unregisterService();
+    emit serviceRegistrationFailed(message);
 }
 
 void VdjBonjour::bonjourSocketReadyRead()
@@ -113,7 +115,7 @@ void VdjBonjour::bonjourSocketReadyRead()
     {
         DNSServiceErrorType err = DNSServiceProcessResult(m_dnssRef);
         if (err != kDNSServiceErr_NoError)
-            qWarning() << kLogTag << "DNSServiceProcessResult error:" << err;
+            fail(QString("DNSServiceProcessResult error %1").arg(err));
     }
 }
 
@@ -130,22 +132,9 @@ void DNSSD_API VdjBonjour::registerCallback(
     VdjBonjour *self = static_cast<VdjBonjour *>(context);
 
     if (errorCode == kDNSServiceErr_NoError)
-    {
-        self->m_registered = true;
-        QString svcName = QString::fromUtf8(name);
-        qDebug() << kLogTag << "*** Service registered ***";
-        qDebug() << kLogTag << "  Name:" << svcName;
-        qDebug() << kLogTag << "  Type:" << regtype;
-        qDebug() << kLogTag << "  Domain:" << domain;
-        qDebug() << kLogTag << "  Port:" << self->m_port;
-        emit self->serviceRegistered(svcName, self->m_port);
-    }
+        qDebug() << kLogTag << "Service registered:" << name << regtype << domain;
     else
-    {
-        QString msg = QString("Registration callback error %1").arg(errorCode);
-        qWarning() << kLogTag << msg;
-        emit self->serviceRegistrationFailed(msg);
-    }
+        self->fail(QString("Registration callback error %1").arg(errorCode)); // dns_sd allows deallocating here
 }
 
 #else // Non-macOS stub
@@ -154,14 +143,13 @@ bool VdjBonjour::registerService(const QString &serviceName, quint16 port)
 {
     Q_UNUSED(serviceName);
     Q_UNUSED(port);
-    qDebug() << kLogTag << "Bonjour registration only available on macOS.";
-    qDebug() << kLogTag << "Configure VirtualDJ to connect to this IP:port manually.";
+    emit serviceRegistrationFailed(tr("Bonjour registration is only available on macOS; "
+                                      "connect VirtualDJ to this IP:port manually"));
     return false;
 }
 
 void VdjBonjour::unregisterService()
 {
-    m_registered = false;
 }
 
 #endif // Q_OS_MACOS

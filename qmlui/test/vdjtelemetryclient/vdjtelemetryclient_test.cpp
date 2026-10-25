@@ -12,6 +12,9 @@
 #include "djfsm.h"
 #include "vdjbridge.h"
 #include "vdjbridgeplugin.h"
+#include "vdjbonjour.h"
+#include "configurevdjbridge.h"
+#include <QLabel>
 
 extern int vdjBonjourRegistrations; // vdjbonjour_stub.cpp
 
@@ -675,6 +678,31 @@ void VdjTelemetryClient_Test::aConnectionThatEndsAdvertisesAgain()
     QCOMPARE(vdjBonjourRegistrations, before + 2);
     plugin.closeInput(0, 0);
     QCOMPARE(vdjBonjourRegistrations, before + 2);
+}
+
+void VdjTelemetryClient_Test::aBonjourFailureShowsInTheStatus()
+{
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18062);
+    QVERIFY(plugin.openInput(0, 0));
+    ConfigureVdjBridge dialog(&plugin);
+    QLabel *status = dialog.findChild<QLabel *>(QStringLiteral("statusLabel"));
+    QVERIFY(status != nullptr);
+    QSignalSpy statusSpy(&plugin, &QLCIOPlugin::connectionStatusChanged);
+
+    // mDNSResponder's answer, as VdjBonjour reports it
+    VdjBonjour *bonjour = plugin.findChild<VdjBonjour *>();
+    QVERIFY(bonjour != nullptr);
+    emit bonjour->serviceRegistrationFailed(QStringLiteral("DNSServiceProcessResult error -65563"));
+
+    QCOMPARE(statusSpy.count(), 1);
+    QVERIFY2(plugin.inputInfo(0).contains("error -65563"), qPrintable(plugin.inputInfo(0)));
+    QVERIFY2(status->text().contains("error -65563"), qPrintable(status->text()));
+
+    // the next registration starts clean
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("serviceName"), QStringLiteral("Booth"));
+    QVERIFY(!plugin.inputInfo(0).contains("error -65563"));
+    plugin.closeInput(0, 0);
 }
 
 QTEST_MAIN(VdjTelemetryClient_Test)

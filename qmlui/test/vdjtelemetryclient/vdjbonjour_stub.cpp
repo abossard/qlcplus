@@ -16,8 +16,6 @@ VdjBonjour::VdjBonjour(QObject *parent)
     , m_dnssRef(nullptr)
     , m_notifier(nullptr)
 #endif
-    , m_registered(false)
-    , m_port(0)
 {
 }
 
@@ -25,9 +23,8 @@ VdjBonjour::~VdjBonjour()
 {
 }
 
-bool VdjBonjour::registerService(const QString &, quint16 port)
+bool VdjBonjour::registerService(const QString &, quint16)
 {
-    m_port = port;
     vdjBonjourRegistrations++;
     return true;
 }

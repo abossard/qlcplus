@@ -57,6 +57,7 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
     formLayout->addRow(tr("Service name:"), m_serviceNameEdit);
 
     m_statusLabel = new QLabel(this);
+    m_statusLabel->setObjectName(QStringLiteral("statusLabel"));
     formLayout->addRow(tr("Status:"), m_statusLabel);
 
     mainLayout->addLayout(formLayout);
@@ -119,6 +120,8 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
             this, &ConfigureVdjBridge::slotClientConnected);
     connect(m_plugin, &VdjBridgePlugin::clientDisconnected,
             this, &ConfigureVdjBridge::slotClientDisconnected);
+    connect(m_plugin, &QLCIOPlugin::connectionStatusChanged,
+            this, &ConfigureVdjBridge::updateStatusLabel);
 
     // Initialize status
     updateStatusLabel();
@@ -193,13 +196,11 @@ void ConfigureVdjBridge::slotClientConnected()
         upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Connected"));
     else
         upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Connected from %1").arg(addr));
-    updateStatusLabel();
 }
 
 void ConfigureVdjBridge::slotClientDisconnected()
 {
     upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Disconnected"));
-    updateStatusLabel();
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -256,6 +257,8 @@ void ConfigureVdjBridge::updateStatusLabel()
         m_statusLabel->setText(tr("Idle"));
         break;
     }
+    if (!m_plugin->bonjourError().isEmpty())
+        m_statusLabel->setText(tr("%1, Bonjour not registered: %2").arg(m_statusLabel->text(), m_plugin->bonjourError()));
 }
 
 QString ConfigureVdjBridge::normalizeText(const QString &text)
