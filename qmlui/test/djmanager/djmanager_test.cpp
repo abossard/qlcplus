@@ -20,6 +20,7 @@
 #include "function.h"
 #include "mastertimer.h"
 
+#include <QBuffer>
 #include <QQuickView>
 #include <QSettings>
 #include <QSignalSpy>
@@ -1085,10 +1086,20 @@ void DjManager_Test::deletedAssignedShowUnassignsTheRow()
     delete doc;
 }
 
+void DjManager_Test::workspaceLoadKeepsThePlayingSong_data()
+{
+    QTest::addColumn<bool>("chosen"); // the loaded workspace assigns the song to its Show
+
+    QTest::newRow("no Show for the song: built at the load") << false;
+    QTest::newRow("a choice in the workspace: no orphan Show") << true;
+}
+
 void DjManager_Test::workspaceLoadKeepsThePlayingSong()
 {
-    // a workspace without a Show for the playing song is loaded mid-set: the
-    // row is back, playing; its Show comes with the next announcement or New
+    QFETCH(bool, chosen);
+
+    // a workspace is loaded mid-set: the playing song's row is back, playing,
+    // and the song is announced again once the workspace is in
     Doc *doc = createDoc();
     QQuickView view;
     VdjBridge bridge;
@@ -1098,14 +1109,45 @@ void DjManager_Test::workspaceLoadKeepsThePlayingSong()
     DjManager mgr(&view, doc, &bridge, factory);
     QAbstractItemModel *songs = mgr.songListModel();
 
+    // the workspace to load: one Show, the song's by choice or not at all
+    Show *other = new Show(doc);
+    other->setName("Other");
+    doc->addFunction(other);
+    const quint32 otherId = other->id();
+    QBuffer engine;
+    engine.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&engine);
+    QVERIFY(doc->saveXML(&writer));
+    doc->clearContents();
+
     feedSong(fsm, 1, "/m/a.mp3", "A", "X", 120.0);
     fsm->onDeckTrigger(1, "play", "on");
     fsm->onTickEnded();
+    QSignalSpy created(factory, &ShowFactory::showCreatedForSong);
     doc->clearContents();
     QCOMPARE(fsm->deckAt(0).state, DjFsm::DeckState::Playing);
     QVERIFY(rowOf(songs, "/m/a.mp3") >= 0);
     QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::IsPlayingRole).toBool(), true);
     QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::HasShowRole).toBool(), false);
+
+    // the load as App does it: the Engine, then the choices, then the event loop
+    QXmlStreamReader reader(engine.data());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(doc->loadXML(reader));
+    if (chosen)
+    {
+        QXmlStreamReader choices(QStringLiteral("<SongShows><Song Path=\"/m/a.mp3\" Show=\"%1\"/></SongShows>")
+                                     .arg(otherId));
+        QVERIFY(choices.readNextStartElement());
+        QVERIFY(factory->loadXML(choices));
+    }
+    QCOMPARE(created.count(), 0);
+    QCoreApplication::processEvents();
+    QCOMPARE(created.count(), chosen ? 0 : 1);
+    QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::HasShowRole).toBool(), true);
+    QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::IsPlayingRole).toBool(), true);
+    if (chosen)
+        QCOMPARE(songs->data(songs->index(rowOf(songs, "/m/a.mp3"), 0), DjSongModel::ShowIdRole).toUInt(), otherId);
 
     delete doc;
 }

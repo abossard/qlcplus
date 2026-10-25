@@ -293,6 +293,7 @@ private slots:
     void onActiveSongChanged();
     void onDeckCountChanged();
     void onDocCleared();
+    void onDocLoaded();
     void onFunctionAdded(quint32 fid);
     void onFunctionChanged(quint32 fid);
 

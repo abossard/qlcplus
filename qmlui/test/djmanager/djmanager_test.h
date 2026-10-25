@@ -61,6 +61,7 @@ private slots:
     void emptyArtistReachesTheRow();
     void newShowBecomesTheSongsShow();
     void deletedAssignedShowUnassignsTheRow();
+    void workspaceLoadKeepsThePlayingSong_data();
     void workspaceLoadKeepsThePlayingSong();
     void twoDecksWithOneSongBuildOneShow();
     void liveWorkspaceClearKeepsPerformOffTheRecycledId();

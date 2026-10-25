@@ -546,6 +546,8 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
     if (m_doc)
     {
         connect(m_doc, &Doc::cleared, this, &DjManager::onDocCleared);
+        // queued: App reads the song choices after the Engine, before the event loop runs
+        connect(m_doc, &Doc::loaded, this, &DjManager::onDocLoaded, Qt::QueuedConnection);
         connect(m_doc, &Doc::functionAdded, this, &DjManager::onFunctionAdded);
         connect(m_doc, &Doc::functionChanged, this, &DjManager::onFunctionChanged);
 
@@ -829,8 +831,9 @@ void DjManager::onDocCleared()
 {
     m_model->clear();
     m_lastPlayingPaths.clear();
-    // the decks play on through the workspace change: their songs are back
-    // as rows; a Show comes with the next announcement or New
+    // the decks play on through the workspace change: their songs are back as
+    // rows now, announced again once the workspace is in (never built here: a
+    // Show built now would take an id the loading workspace assigns)
     for (int i = 0; m_fsm && i < m_fsm->deckCount(); ++i)
     {
         const DjFsm::DeckSong &song = m_fsm->deckAt(i).song;
@@ -838,6 +841,17 @@ void DjManager::onDocCleared()
             m_model->upsertSong(song);
     }
     recomputePlayingSongs();
+}
+
+void DjManager::onDocLoaded()
+{
+    // the decks play on through the workspace change: their songs are announced to it
+    for (int i = 0; m_fsm && i < m_fsm->deckCount(); ++i)
+    {
+        const DjFsm::DeckSong &song = m_fsm->deckAt(i).song;
+        if (song.isValid() && !song.title.isEmpty())
+            onSongChanged(i + 1, song);
+    }
 }
 
 void DjManager::onFunctionAdded(quint32 fid)
