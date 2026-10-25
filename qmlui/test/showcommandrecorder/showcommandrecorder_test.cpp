@@ -15521,10 +15521,26 @@ void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow_data()
     QTest::newRow("the held button removed, then another take on A")
         << QStringLiteral("bind A, rec on, at 1000, press, remove F, discard, at 2000, bind A, rec on, at 5000, rec off")
         << QString();
+    // back with its identity (undo, cut and paste): a hold of an earlier take is no hold
+    QTest::newRow("the held button removed, A deleted, back in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, readd F, at 3000, press, "
+                          "at 4000, release, rec off")
+        << QStringLiteral("3000-4000");
+    QTest::newRow("the held button removed, Perform on A, back")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, perform A, readd F, at 3000, press, "
+                          "at 4000, release, rec off")
+        << QStringLiteral("3000-4000");
+    // known limit: back in the same take, its hold goes on from the first press
+    QTest::newRow("the held button removed, back in the same take")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, readd F, at 3000, press, "
+                          "at 4000, release, rec off")
+        << QStringLiteral("1000-4000");
     QTest::newRow("the held button removed, then a save in B")
         << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, at 5000")
         << QString();
 }
+
+namespace { bool loadRecordingId(VCWidget *widget, const QUuid &id); }
 
 void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow()
 {
@@ -15553,6 +15569,7 @@ void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow()
         bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"));
     auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(flashId));
     QVERIFY(flash);
+    const QUuid recordingId = flash->ensureRecordingId();
 
     for (const QString &step : steps.split(QStringLiteral(", ")))
     {
@@ -15581,6 +15598,12 @@ void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow()
         {
             QVERIFY(bridge.removeWidget(flashId));
             flash = nullptr;
+        }
+        else if (step == QLatin1String("readd F"))
+        {
+            flash = qobject_cast<VCButton *>(ui.vc()->widget(bridge.addButton(
+                frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+            QVERIFY(flash && loadRecordingId(flash, recordingId));
         }
         else if (step == QLatin1String("delete A"))
             QVERIFY(doc.deleteFunction(shows.take(QLatin1Char('A'))->id()));

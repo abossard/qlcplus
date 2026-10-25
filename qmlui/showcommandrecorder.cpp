@@ -763,7 +763,7 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
         LiveSpan *open = nullptr;
         for (LiveSpan &span : spans)
         {
-            if (span.to == ShowCommand::MaxTime)
+            if (heldInTake(span))
                 open = &span;
         }
         if (input.on && open == nullptr)
