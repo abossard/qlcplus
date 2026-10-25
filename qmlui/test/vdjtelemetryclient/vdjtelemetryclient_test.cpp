@@ -195,19 +195,23 @@ void VdjTelemetryClient_Test::subscriptionTriggerCount_data()
     QTest::addColumn<QString>("trigger");
     QTest::addColumn<bool>("subscribed");
 
+    // the trigger names the row: a deck's masterdeck is not the bare global one
+    auto row = [](const QString &trigger, bool subscribed) {
+        QTest::newRow(qPrintable(trigger)) << trigger << subscribed;
+    };
     // what DjFsm, VdjBridge and the DJ Manager read
     for (const char *t : { "get_filepath", "loaded", "get_time", "get_time elapsed absolute", "get_beatpos",
                            "get_title", "get_artist", "get_title_artist", "get_album", "get_genre", "get_bpm",
                            "get_key", "get_firstbeat", "get_time total", "play", "volume", "masterdeck" })
-        QTest::newRow(t) << QStringLiteral("deck 4 %1").arg(QLatin1String(t)) << true;
-    QTest::newRow("get_decks") << "get_decks" << true;
+        row(QStringLiteral("deck 4 %1").arg(QLatin1String(t)), true);
+    row("get_decks", true);
     // read by nothing
     for (const char *t : { "get_position", "get_vu_meter", "level", "eq_high", "eq_med", "eq_low", "gain",
                            "loop", "get_loop" })
-        QTest::newRow(t) << QStringLiteral("deck 1 %1").arg(QLatin1String(t)) << false;
+        row(QStringLiteral("deck 1 %1").arg(QLatin1String(t)), false);
     for (const char *t : { "master_volume", "crossfader", "headphone_volume", "masterdeck",
                            "get_crossfader_result full", "mixer_order", "get_vu_meter" })
-        QTest::newRow(t) << QString::fromLatin1(t) << false;
+        row(QString::fromLatin1(t), false);
 }
 
 void VdjTelemetryClient_Test::subscriptionTriggerCount()
