@@ -221,7 +221,7 @@ void DjFsm::settle(Slot &s)
     // position sample of the loaded song; `loaded` on brings the ejected file
     // back unless the write carries a per-file field, which VDJ resends for
     // another file only; an empty deck's values are nobody's and mirror at once
-    if (p.filepath || s.positionSeen || !s.loaded
+    if (p.filepath || (s.positionSeen && loaded) || !s.loaded
         || (s.loadedOnSeen && !loaded && !s.perFileSeen))
     {
         if (p.filepath && *p.filepath != s.last.filepath)

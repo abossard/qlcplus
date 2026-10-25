@@ -698,6 +698,9 @@ void DjFsm_Test::ejectAndReload_data()
         << QStringList({ aLine, "d1 /b | B | Y | 120.000" }) << loaded;
     // VDJ resends per-file fields (artist, firstbeat, ...) only when the file changed:
     // a first write with one waits for its filepath
+    QTest::newRow("another song's first write announces nothing until its filepath")
+        << "play=off|" + eject + "|title=B;artist=Y;bpm=130;fb=1;loaded=on;elapsed=0|fp=/b|"
+        << QStringList({ aLine, "d1 /b | B | Y | 130.000" }) << loaded;
     QTest::newRow("another song of the same artist: not resent")
         << "play=off|" + eject + "|title=B;bpm=131;fb=1;loaded=on|fp=/b|" << QStringList({ aLine, "d1 /b | B | X | 131.000" }) << loaded;
     QTest::newRow("another song of the same title and artist: the remix")
