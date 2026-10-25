@@ -74,7 +74,7 @@ public:
      *  the choice. Kept until the Doc is cleared, or the Show removed. */
     void registerMapping(const QString &filepath, quint32 showId);
 
-    /** The choices, a fork-owned element of the workspace */
+    /** The choices, a fork-owned element of the workspace; paths relative to its folder like Audio sources */
     void saveXML(QXmlStreamWriter *doc) const;
     bool loadXML(QXmlStreamReader &doc);
 

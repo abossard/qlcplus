@@ -257,6 +257,58 @@ void ShowFactory_Test::choicesSurviveSaveAndLoad()
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), showSurvives ? before : a->id());
 }
 
+void ShowFactory_Test::choicesFollowTheWorkspaceFolder()
+{
+    // a workspace saved under one folder and loaded under another: its Audio
+    // sources move with it (relative paths), and so does the choice
+    Doc doc(nullptr, 4);
+    doc.setWorkspacePath("/ws/a");
+    ShowFactory factory(&doc);
+    addSongShow(&doc, "A", "/ws/a/music/a.mp3");
+    Show *chosen = new Show(&doc);
+    doc.addFunction(chosen);
+    const quint32 chosenId = chosen->id();
+    factory.registerMapping("/ws/a/music/a.mp3", chosenId);
+
+    QBuffer xml;
+    xml.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartDocument();
+    factory.saveXML(&writer);
+    writer.writeEndDocument();
+    QVERIFY(xml.data().contains("music/a.mp3"));
+    QVERIFY(!xml.data().contains("/ws/a/"));
+
+    doc.clearContents();
+    doc.setWorkspacePath("/ws/b");
+    Show *a = addSongShow(&doc, "A", "/ws/b/music/a.mp3");
+    Show *again = new Show(&doc);
+    QVERIFY(doc.addFunction(again, chosenId));
+    QXmlStreamReader reader(xml.data());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(factory.loadXML(reader));
+    QCOMPARE(factory.showIdForFilepath("/ws/b/music/a.mp3"), chosenId);
+    QCOMPARE(factory.showIdForFilepath("/ws/a/music/a.mp3"), Function::invalidId());
+    Q_UNUSED(a)
+}
+
+void ShowFactory_Test::malformedChoiceIsDropped()
+{
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    Show *other = new Show(&doc);
+    doc.addFunction(other);
+    // "junk" is no Show, whatever id 0 holds
+    QXmlStreamReader reader(QStringLiteral("<SongShows><Song Path=\"/music/a.mp3\" Show=\"%1\"/>"
+                                           "<Song Path=\"/music/a.mp3\" Show=\"junk\"/></SongShows>")
+                                .arg(other->id()));
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(factory.loadXML(reader));
+    QCOMPARE(a->id(), 0u);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), other->id());
+}
+
 void ShowFactory_Test::clipChangesReachTheIndex()
 {
     // the index reads the first Audio clip: re-sourcing that Audio moves the song

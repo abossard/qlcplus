@@ -25,6 +25,8 @@ private slots:
     void overrideGoesWithItsShow();
     void choicesSurviveSaveAndLoad_data();
     void choicesSurviveSaveAndLoad();
+    void choicesFollowTheWorkspaceFolder();
+    void malformedChoiceIsDropped();
     void clipChangesReachTheIndex();
     void normalizePath_data();
     void normalizePath();

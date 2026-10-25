@@ -200,7 +200,8 @@ void ShowFactory::saveXML(QXmlStreamWriter *doc) const
     for (auto it = m_choices.constBegin(); it != m_choices.constEnd(); ++it)
     {
         doc->writeStartElement(QStringLiteral("Song"));
-        doc->writeAttribute(QStringLiteral("Path"), it.key());
+        // relative to the workspace folder where it can be, as an Audio's source is
+        doc->writeAttribute(QStringLiteral("Path"), m_doc->normalizeComponentPath(it.key()));
         doc->writeAttribute(QStringLiteral("Show"), QString::number(it.value()));
         doc->writeEndElement();
     }
@@ -214,10 +215,14 @@ bool ShowFactory::loadXML(QXmlStreamReader &doc)
     while (doc.readNextStartElement())
     {
         const QXmlStreamAttributes attrs = doc.attributes();
-        const quint32 showId = attrs.value(QStringLiteral("Show")).toUInt();
+        bool ok = false;
+        const quint32 showId = attrs.value(QStringLiteral("Show")).toUInt(&ok);
         // the Shows were read before this element: a choice whose Show is gone is dropped
-        if (doc.name() == QLatin1String("Song") && m_doc && qobject_cast<Show *>(m_doc->function(showId)))
-            m_choices.insert(normalizePath(attrs.value(QStringLiteral("Path")).toString()), showId);
+        if (ok && doc.name() == QLatin1String("Song") && m_doc && qobject_cast<Show *>(m_doc->function(showId)))
+        {
+            const QString path = m_doc->denormalizeComponentPath(attrs.value(QStringLiteral("Path")).toString());
+            m_choices.insert(normalizePath(path), showId);
+        }
         doc.skipCurrentElement();
     }
     docChanged();
