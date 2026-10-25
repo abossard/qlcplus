@@ -43,6 +43,17 @@ class VCBridge
 public:
     virtual ~VCBridge() {}
 
+    virtual QVariantMap setPerformMode(bool)
+    { return {{QStringLiteral("error"), QStringLiteral("DJ control is unavailable")}}; }
+    virtual QVariantMap djState() const
+    { return {{QStringLiteral("error"), QStringLiteral("DJ control is unavailable")}}; }
+    virtual QVariantMap setRecording(bool)
+    { return {{QStringLiteral("error"), QStringLiteral("Recording control is unavailable")}}; }
+    virtual QVariantMap recordingState() const
+    { return {{QStringLiteral("error"), QStringLiteral("Recording control is unavailable")}}; }
+    virtual QVariantMap pressWidget(int, const QString &)
+    { return {{QStringLiteral("error"), QStringLiteral("Live VC input is unavailable")}}; }
+
     struct WidgetInfo
     {
         int id;

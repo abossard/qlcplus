@@ -43,6 +43,12 @@ public:
     VCBridgeV5(Doc *doc, VirtualConsole *vc, App *authoringApp = nullptr);
     ~VCBridgeV5() override;
 
+    QVariantMap setPerformMode(bool on) override;
+    QVariantMap djState() const override;
+    QVariantMap setRecording(bool on) override;
+    QVariantMap recordingState() const override;
+    QVariantMap pressWidget(int widgetID, const QString &action) override;
+
     int addPage(const QString &name) override;
     QList<PageInfo> pages() const override;
     int pagesCount() const override;

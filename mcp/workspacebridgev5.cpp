@@ -51,3 +51,8 @@ bool WorkspaceBridgeV5::isRecording() const
     const ShowCommandRecorder *recorder = ShowCommandRecorder::instance();
     return recorder != nullptr && recorder->isRecording();
 }
+
+bool WorkspaceBridgeV5::quitApp(bool discard)
+{
+    return QMetaObject::invokeMethod(m_app, "exit", Qt::QueuedConnection, Q_ARG(bool, discard));
+}

@@ -58,6 +58,8 @@ void registerWorkspaceTools(fastmcpp::tools::ToolManager &tm, Doc *doc, Workspac
 void registerStageTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerInputProfileTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 void registerLiveTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
+void registerLiveControlTools(fastmcpp::tools::ToolManager &tm, Doc *doc,
+                             VCBridge *vcBridge, WorkspaceBridge *wsBridge);
 void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc);
 // Pure diagnostic control (no Doc): runtime toggle/snapshot of TimingDiag.
 void registerProfilingTools(fastmcpp::tools::ToolManager &tm);

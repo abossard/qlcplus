@@ -19,6 +19,8 @@
 
 #include "vcbridgev5.h"
 #include "app.h"
+#include "djmanager.h"
+#include "vdjbridge.h"
 #include "virtualconsole.h"
 #include "vcpage.h"
 #include "vcframe.h"
@@ -475,6 +477,108 @@ bool VCBridgeV5::hasMatchingAuthoringContext() const
     if (m_authoringApp->virtualConsole() != m_vc)
         return false;
     return true;
+}
+
+QVariantMap VCBridgeV5::setPerformMode(bool on)
+{
+    if (!hasMatchingAuthoringContext())
+        return {{QStringLiteral("error"), QStringLiteral("DJ control requires the application context")}};
+    DjManager *manager = m_authoringApp->findChild<DjManager *>();
+    if (!manager)
+        return {{QStringLiteral("error"), QStringLiteral("DJ Manager is unavailable")}};
+    manager->setPerformMode(on);
+    return djState();
+}
+
+QVariantMap VCBridgeV5::djState() const
+{
+    if (!hasMatchingAuthoringContext())
+        return {{QStringLiteral("error"), QStringLiteral("DJ control requires the application context")}};
+    const VdjBridge *bridge = m_authoringApp->findChild<VdjBridge *>();
+    if (!bridge)
+        return {{QStringLiteral("error"), QStringLiteral("DJ bridge is unavailable")}};
+    const DjFsm *fsm = bridge->djFsm();
+    QVariantList decks;
+    for (int index = 0; index < fsm->deckCount(); ++index)
+    {
+        const auto &deck = fsm->deckAt(index);
+        decks.append(QVariantMap{
+            {QStringLiteral("deck"), deck.number},
+            {QStringLiteral("state"), DjFsm::stateName(deck.state)},
+            {QStringLiteral("filepath"), deck.song.filepath},
+            {QStringLiteral("title"), deck.song.title},
+            {QStringLiteral("artist"), deck.song.artist},
+            {QStringLiteral("bpm"), deck.song.bpm},
+            {QStringLiteral("elapsedMs"), deck.elapsedMs}
+        });
+    }
+    const quint32 showId = bridge->performFsm()->activeShowId();
+    return {
+        {QStringLiteral("performMode"), bridge->performMode()},
+        {QStringLiteral("performState"), PerformFsm::stateToString(bridge->performState())},
+        {QStringLiteral("activeShowId"), showId == Function::invalidId() ? QVariant() : QVariant(showId)},
+        {QStringLiteral("activeDeck"), fsm->activeDeck()},
+        {QStringLiteral("decks"), decks}
+    };
+}
+
+QVariantMap VCBridgeV5::setRecording(bool on)
+{
+    if (!hasMatchingAuthoringContext())
+        return {{QStringLiteral("error"), QStringLiteral("Recording control requires the application context")}};
+    auto *recorder = m_authoringApp->findChild<ShowCommandRecorder *>();
+    if (!recorder)
+        return {{QStringLiteral("error"), QStringLiteral("Command recorder is unavailable")}};
+    if (!recorder->setRecording(on))
+    {
+        QVariantMap result = recordingState();
+        result.insert(QStringLiteral("error"), recorder->lastError());
+        return result;
+    }
+    return recordingState();
+}
+
+QVariantMap VCBridgeV5::recordingState() const
+{
+    if (!hasMatchingAuthoringContext())
+        return {{QStringLiteral("error"), QStringLiteral("Recording control requires the application context")}};
+    const auto *recorder = m_authoringApp->findChild<ShowCommandRecorder *>();
+    if (!recorder)
+        return {{QStringLiteral("error"), QStringLiteral("Command recorder is unavailable")}};
+    const quint32 showId = recorder->boundShowId();
+    return {
+        {QStringLiteral("recording"), recorder->isRecording()},
+        {QStringLiteral("phase"), recorder->phaseName()},
+        {QStringLiteral("boundShowId"), showId == Function::invalidId() ? QVariant() : QVariant(showId)},
+        {QStringLiteral("lastError"), recorder->lastError()}
+    };
+}
+
+QVariantMap VCBridgeV5::pressWidget(int widgetID, const QString &action)
+{
+    if (!hasMatchingAuthoringContext())
+        return {{QStringLiteral("error"), QStringLiteral("Live VC input requires the application context")}};
+    auto *button = qobject_cast<VCButton *>(m_vc->widget(widgetID));
+    if (!button)
+        return {{QStringLiteral("error"), QStringLiteral("widget must identify a VC button")}};
+    const bool releasingHold = action == QStringLiteral("release")
+                           && button->actionType() == VCButton::FreezeHold;
+    if (m_vc->editMode() && !releasingHold)
+        return {{QStringLiteral("error"), QStringLiteral("Virtual Console is in edit mode")}};
+    if (button->isDisabled() || !button->isVisible())
+        return {{QStringLiteral("error"), QStringLiteral("button is disabled or hidden")}};
+    if ((button->actionType() == VCButton::Toggle || button->actionType() == VCButton::Flash)
+        && !m_doc->function(button->functionID()))
+        return {{QStringLiteral("error"), QStringLiteral("button has no bound function")}};
+
+    const bool momentary = button->actionType() == VCButton::Flash
+                        || button->actionType() == VCButton::FreezeHold;
+    if (action != QStringLiteral("release") || momentary)
+        button->requestUserStateChange(action == QStringLiteral("toggle")
+            ? button->state() != VCButton::Active : action == QStringLiteral("press"));
+    return {{QStringLiteral("status"), QStringLiteral("accepted")},
+            {QStringLiteral("widget"), widgetID},
+            {QStringLiteral("action"), action}};
 }
 
 QString VCBridgeV5::authoringBasis() const
