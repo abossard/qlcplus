@@ -54,6 +54,7 @@ private slots:
     void aPortEditRebindsWhenFinished_data();
     void aPortEditRebindsWhenFinished();
     void aSavedPortRestartsAnInputOpenedOnABusyPort();
+    void openingAnOpenInputBindsABusyPortAgain();
     void bonjourAdvertisesOnlyAListeningServer_data();
     void bonjourAdvertisesOnlyAListeningServer();
     void aPortOutsideOneTo65535IsIgnored_data();

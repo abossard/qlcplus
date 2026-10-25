@@ -827,6 +827,26 @@ void VdjTelemetryClient_Test::aSavedPortRestartsAnInputOpenedOnABusyPort()
     plugin.closeInput(0, 3);
 }
 
+void VdjTelemetryClient_Test::openingAnOpenInputBindsABusyPortAgain()
+{
+    // vdj/autoOpenInput opened the input while the port was busy; the
+    // workspace's patch opens it again once the port is free
+    QTcpServer other;
+    QVERIFY(other.listen(QHostAddress::Any, 18073));
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18073);
+    QVERIFY(plugin.openInput(0, 0));
+    QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Idle));
+    other.close();
+    QSignalSpy statusSpy(&plugin, &QLCIOPlugin::connectionStatusChanged);
+
+    QVERIFY(plugin.openInput(0, 0));
+    QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Advertising));
+    QCOMPARE(vdjBonjourLive(), 1);
+    QCOMPARE(statusSpy.count(), 1);
+    plugin.closeInput(0, 0);
+}
+
 void VdjTelemetryClient_Test::bonjourAdvertisesOnlyAListeningServer_data()
 {
     QTest::addColumn<QString>("edit");

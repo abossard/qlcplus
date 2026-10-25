@@ -63,7 +63,12 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
     Q_UNUSED(input)
 
     if (m_open)
+    {
+        // opened again (App's auto-open, then the workspace's patch): a busy port is tried again
+        if (portInUse())
+            listen();
         return true;
+    }
 
     m_inputUniverse = universe;
     m_telemetry = new VdjTelemetryClient(this);
@@ -202,11 +207,7 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
         {
             m_hostPort = quint16(port);
             if (m_open)
-            {
-                m_telemetry->start(m_hostPort);
-                registerBonjour();
-                emit connectionStatusChanged(m_inputUniverse, 0);
-            }
+                listen();
         }
     }
     else if (name == QLatin1String(VDJ_BONJOUR_ENABLED))
@@ -222,6 +223,13 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
     }
     // kept with the input's universe: the workspace saves them with its patch
     QLCIOPlugin::setParameter(universe, line, type, name, value);
+}
+
+void VdjBridgePlugin::listen()
+{
+    m_telemetry->start(m_hostPort);
+    registerBonjour();
+    emit connectionStatusChanged(m_inputUniverse, 0);
 }
 
 void VdjBridgePlugin::setBonjour(bool on)

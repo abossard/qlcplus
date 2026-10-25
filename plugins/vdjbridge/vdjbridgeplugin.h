@@ -95,6 +95,8 @@ signals:
     void clientDisconnected();
 
 private:
+    /** (Re)start the open input's server on m_hostPort and advertise it */
+    void listen();
     void setBonjour(bool on);
     void registerBonjour();
     void setBonjourError(const QString &error);
