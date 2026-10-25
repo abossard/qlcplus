@@ -37,7 +37,17 @@ static void feedSong(DjFsm *fsm, int deck, const QString &fp,
     fsm->onDeckTrigger(deck, "get_title", title);
     fsm->onDeckTrigger(deck, "get_artist", artist);
     fsm->onDeckTrigger(deck, "get_bpm", bpm);
+    fsm->onDeckTrigger(deck, "loaded", "on");
     fsm->onTickEnded();
+}
+
+/** A handover as VirtualDJ streams it: every other deck's master flag off, this one's on, one write */
+static void master(VdjBridge &bridge, int index0)
+{
+    for (int d = 0; d < DjFsm::MaxDecks; d++)
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, d), Q_ARG(QString, "masterdeck"),
+                                  Q_ARG(QVariant, QVariant(d == index0 ? "on" : "off")));
+    QMetaObject::invokeMethod(&bridge, "onTickEnded");
 }
 
 /** The deferred Show creation of a song announced since, shortened for tests */
@@ -515,6 +525,7 @@ void DjManager_Test::performModeGatesAutoPlay()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("get_filepath", QVariant("/m/perform.mp3"));
+    deckTrigger("loaded", QVariant("on"));
     deckTrigger("get_title", QVariant("Perform"));
     deckTrigger("get_artist", QVariant("DJ"));
     deckTrigger("get_bpm", QVariant(120.0));
@@ -571,6 +582,7 @@ void DjManager_Test::performOffStopsRunningShow()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("get_filepath", QVariant("/m/po.mp3"));
+    deckTrigger("loaded", QVariant("on"));
     QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
         Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
 
@@ -619,7 +631,9 @@ void DjManager_Test::performLoadsAndSwitchesActiveShow()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger(0, "get_filepath", QVariant("/m/a.mp3"));
+    deckTrigger(0, "loaded", QVariant("on"));
     deckTrigger(1, "get_filepath", QVariant("/m/b.mp3"));
+    deckTrigger(1, "loaded", QVariant("on"));
     deckTrigger(0, "play", QVariant("on"));
     deckTrigger(1, "play", QVariant("on"));
 
@@ -627,16 +641,14 @@ void DjManager_Test::performLoadsAndSwitchesActiveShow()
 
     // Active deck 1 + Perform ON → show A loads/runs; show B is not the active
     // show so it is not actively running.
-    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    master(bridge, 0);
     mgr.setPerformMode(true);
     QTest::qWait(60);
     QVERIFY(showA->isRunning() && !showA->isPaused());
     QVERIFY(!(showB->isRunning() && !showB->isPaused()));
 
     // Active deck changes to deck 2 → show B is loaded immediately, show A stopped.
-    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-        Q_ARG(int, 1), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    master(bridge, 1);
     QTest::qWait(60);
     QVERIFY(showB->isRunning() && !showB->isPaused());
     QVERIFY(!showA->isRunning());
@@ -678,8 +690,8 @@ void DjManager_Test::externalPositionSyncDrivesShowWhenPerforming()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("get_filepath", QVariant("/m/sync.mp3"));
-    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    deckTrigger("loaded", QVariant("on"));
+    master(bridge, 0);
 
     doc->masterTimer()->start();
     mgr.setPerformMode(true);
@@ -732,10 +744,7 @@ void DjManager_Test::performShowsActiveShowInShowManager()
     mgr.assignShow("/m/one.mp3", static_cast<int>(show1->id()));
     mgr.assignShow("/m/two.mp3", static_cast<int>(show2->id()));
 
-    auto setMasterDeck = [&bridge](int deck) {
-        QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-            Q_ARG(int, deck - 1), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
-    };
+    auto setMasterDeck = [&bridge](int deck) { master(bridge, deck - 1); };
 
     QSignalSpy spy(&bridge, &VdjBridge::performShowSelected);
 
@@ -794,8 +803,7 @@ void DjManager_Test::performResolvesShowAfterWorkspaceReload()
     // VDJ loads the song: the existing show is reused, no duplicate created
     const int showsBefore = doc->functionsByType(Function::ShowType).count();
     feedSong(bridge.djFsm(), 1, "/m/reload.mp3", "Reloaded", "DJ", 120.0);
-    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    master(bridge, 0);
 
     // Enabling Perform resolves the reloaded show immediately and the Show
     // Manager follow fires — the previously distrusted case.
@@ -836,6 +844,7 @@ void DjManager_Test::deckTableReflectsFsmStateAndUpdates()
 
     // Playing deck 1 updates its state to Playing.
     fsm->onDeckTrigger(1, "play", "on");
+    fsm->onTickEnded();
     QCOMPARE(deckModel->data(i0, DjDeckModel::StateRole).toString(), QString("Playing"));
 
     delete doc;
@@ -855,8 +864,7 @@ void DjManager_Test::deckTablePositionReflectsActiveDeck()
     feedSong(fsm, 1, "/m/a.mp3", "Song A", "Artist A", 120.0);
 
     // Make deck 1 the active deck so the active-position properties track it.
-    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    master(bridge, 0);
     QCOMPARE(mgr.activeDeck(), 1);
 
     QAbstractItemModel *deckModel = mgr.deckModel();
@@ -969,19 +977,18 @@ void DjManager_Test::perDeckMasterdeckSetsActiveDeck()
     feedSong(fsm, 2, "/m/d2.mp3", "Two", "A2", 124.0);
 
     // the per-deck masterdeck flag names the active deck
-    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-        Q_ARG(int, 0), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    master(bridge, 0);
     QCOMPARE(mgr.activeDeck(), 1);
     QCOMPARE(mgr.activeTitle(), QString("One"));
 
-    QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
-        Q_ARG(int, 1), Q_ARG(QString, "masterdeck"), Q_ARG(QVariant, QVariant("on")));
+    master(bridge, 1);
     QCOMPARE(mgr.activeDeck(), 2);
     QCOMPARE(mgr.activeTitle(), QString("Two"));
     QCOMPARE(mgr.activeArtist(), QString("A2"));
 
     // an eject empties the header too, though the deck keeps VDJ's last artist for the next song
     fsm->onDeckTrigger(2, "loaded", "off");
+    fsm->onTickEnded();
     QCOMPARE(mgr.activeDeck(), 2);
     QCOMPARE(mgr.activeTitle(), QString());
     QCOMPARE(mgr.activeArtist(), QString());
@@ -1022,6 +1029,7 @@ void DjManager_Test::deferredShowCreationRevalidates()
     fsm->onDeckTrigger(1, "get_title", "Late");
     fsm->onDeckTrigger(1, "get_artist", "DJ");
     fsm->onDeckTrigger(1, "get_bpm", 120.0);
+    fsm->onDeckTrigger(1, "loaded", "on");
     fsm->onTickEnded();
     fsm->onDeckTrigger(1, "get_filepath", "/m/late.mp3");
     fsm->onTickEnded();
@@ -1084,6 +1092,7 @@ void DjManager_Test::playingASongModifiesTheWorkspace()
 
     // lastPlayed is saved with the workspace: playing dirties it
     fsm->onDeckTrigger(1, "play", "on");
+    fsm->onTickEnded();
     QVERIFY(doc->function(showId)->lastPlayed().isValid());
     QVERIFY(doc->isModified());
 

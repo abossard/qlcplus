@@ -131,8 +131,14 @@ struct PerformRig
         tickEnd();
     }
 
-    /** VirtualDJ's per-deck master flag, as the telemetry streams it */
-    void master(int index0) { deck(index0, "masterdeck", QVariant("on")); }
+    /** A handover as VirtualDJ streams it: the old master's flag off and the new one's on, one write */
+    void master(int index0)
+    {
+        for (int d = 0; d < DjFsm::MaxDecks; d++)
+            if (d != index0)
+                send(d, "masterdeck", QVariant("off"));
+        deck(index0, "masterdeck", QVariant("on"));
+    }
 
     /** An Automix load: one write */
     void load(int index0, const QString &filepath)
@@ -141,6 +147,7 @@ struct PerformRig
         send(index0, "get_title", QStringLiteral("Title %1").arg(index0));
         send(index0, "get_artist", QStringLiteral("Artist"));
         send(index0, "get_bpm", 128.0);
+        send(index0, "loaded", QVariant("on"));
         tickEnd();
     }
 
@@ -233,7 +240,6 @@ void VdjBridge_Test::handoverLeavesTheShowInOrder()
     QSignalSpy states(rig.bridge.performFsm(), &PerformFsm::stateChanged);
 
     // deck 1 masterdeck off, deck 2 masterdeck on: one handover
-    rig.deck(0, "masterdeck", QVariant("off"));
     rig.master(1);
 
     QCOMPARE(states.count(), 1);
@@ -790,6 +796,7 @@ void VdjBridge_Test::ejectKeepsTheTempo()
     send(bridge, "get_filepath", QVariant("/m/a.mp3"));
     send(bridge, "get_title", QVariant("Song A"));
     send(bridge, "get_artist", QVariant("Artist A"));
+    send(bridge, "loaded", QVariant("on"));
     deckTrigger("get_bpm", QVariant(128.0));
     deckTrigger("play", QVariant("on"));
     QCOMPARE(doc.inputOutputMap()->bpmNumber(), 128);
@@ -820,11 +827,10 @@ void VdjBridge_Test::activeDeckFollowsThePerDeckMasterdeck()
 
     rig.master(0);
     QCOMPARE(fsm->activeDeck(), 1);
-    rig.deck(0, "masterdeck", QVariant("off"));
     rig.master(1);
     QCOMPARE(fsm->activeDeck(), 2);
     // a phantom deck beyond get_decks never becomes master
-    rig.master(2);
+    rig.deck(2, "masterdeck", QVariant("on"));
     QCOMPARE(fsm->activeDeck(), 2);
 }
 
@@ -1020,6 +1026,7 @@ void VdjBridge_Test::performAdoptsAndReleasesSyncSource()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger("get_filepath", QVariant("/music/adopt.mp3"));
+    deckTrigger("loaded", QVariant("on"));
     deckTrigger("masterdeck", QVariant("on"));
 
     doc->masterTimer()->start();
@@ -1060,6 +1067,7 @@ void VdjBridge_Test::performAdoptionSuppressesAudioForAlreadyRunningShow()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger(0, "get_filepath", QVariant("/music/adopt-running.mp3"));
+    deckTrigger(0, "loaded", QVariant("on"));
     deckTrigger(0, "play", QVariant("on"));
     deckTrigger(0, "masterdeck", QVariant("on"));
 
@@ -1122,7 +1130,9 @@ void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression()
         QMetaObject::invokeMethod(&bridge, "onTickEnded");
     };
     deckTrigger(0, "get_filepath", QVariant("/music/perform-a.mp3"));
+    deckTrigger(0, "loaded", QVariant("on"));
     deckTrigger(1, "get_filepath", QVariant("/music/perform-b.mp3"));
+    deckTrigger(1, "loaded", QVariant("on"));
     deckTrigger(0, "play", QVariant("on"));
     deckTrigger(1, "play", QVariant("on"));
     deckTrigger(0, "masterdeck", QVariant("on"));
@@ -1147,6 +1157,8 @@ void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression()
 
     if (switchDeck)
     {
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, 0), Q_ARG(QString, "masterdeck"),
+                                  Q_ARG(QVariant, QVariant("off")));
         deckTrigger(1, "masterdeck", QVariant("on"));
         QTest::qWait(120);
         QVERIFY(!showA.show->performAudioSuppressed());
@@ -1271,6 +1283,7 @@ void VdjBridge_Test::engineBpmFollowsVdjAndIgnoresJitter()
     send(bridge, "get_filepath", QVariant("/m/a.mp3"));
     send(bridge, "get_title", QVariant("Song A"));
     send(bridge, "get_artist", QVariant("Artist A"));
+    send(bridge, "loaded", QVariant("on"));
     deckTrigger("get_bpm", QVariant(128.0));
     deckTrigger("play", QVariant("on"));
     QCOMPARE(doc.inputOutputMap()->bpmNumber(), 128);
@@ -1302,6 +1315,7 @@ void VdjBridge_Test::engineBpmOnlyForThePluginBeatGenerator()
     };
     deckTrigger("masterdeck", QVariant("on"));
     deckTrigger("get_filepath", QVariant("/m/a.mp3"));
+    deckTrigger("loaded", QVariant("on"));
     deckTrigger("get_bpm", QVariant(128.0));
     deckTrigger("play", QVariant("on"));
 
@@ -1330,6 +1344,7 @@ void VdjBridge_Test::engineBpmDropsLowWhenPaused()
     send(bridge, "get_filepath", QVariant("/m/a.mp3"));
     send(bridge, "get_title", QVariant("Song A"));
     send(bridge, "get_artist", QVariant("Artist A"));
+    send(bridge, "loaded", QVariant("on"));
     deckTrigger("get_bpm", QVariant(128.0));
 
     // Playing → steady song BPM.
@@ -1372,6 +1387,7 @@ void VdjBridge_Test::engineBpmLockReleasedOnDisconnect()
     send(bridge, "get_filepath", QVariant("/m/a.mp3"));
     send(bridge, "get_title", QVariant("Song A"));
     send(bridge, "get_artist", QVariant("Artist A"));
+    send(bridge, "loaded", QVariant("on"));
     deckTrigger("get_bpm", QVariant(128.0));
     deckTrigger("play", QVariant("on"));
     deckTrigger("play", QVariant(playing ? "on" : "off"));

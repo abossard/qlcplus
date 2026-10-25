@@ -5247,6 +5247,7 @@ void ShowCommandRecorder_Test::vdjAdoption_firstFreshSampleBeginsTheTraversal()
     });
     bridge.showFactory()->registerMapping(QStringLiteral("/music/adopted.mp3"), show->id());
     deck("get_filepath", QStringLiteral("/music/adopted.mp3"));
+    deck("loaded", QStringLiteral("on"));
     deck("masterdeck", QStringLiteral("on"));
     deck("get_time elapsed absolute", double(elapsedAtPlay));
     bridge.setPerformMode(true);
@@ -35330,6 +35331,7 @@ void ShowCommandRecorder_Test::recordingsPerform_editsWhileVdjDrives()
     });
     bridge->showFactory()->registerMapping(QStringLiteral("/music/live-edit.mp3"), showId);
     deck("get_filepath", QStringLiteral("/music/live-edit.mp3"));
+    deck("loaded", QStringLiteral("on"));
     deck("masterdeck", QStringLiteral("on"));
     bridge->setPerformMode(true);
     deck("play", QStringLiteral("on"));

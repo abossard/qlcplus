@@ -6438,6 +6438,7 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
 
     bridge->showFactory()->registerMapping(filepath, show->id());
     QVERIFY(deckTrigger("get_filepath", filepath));
+    QVERIFY(deckTrigger("loaded", "on"));
     QVERIFY(deckTrigger("get_title", "Playhead test"));
     QVERIFY(deckTrigger("get_artist", "QLC+"));
     QVERIFY(deckTrigger("get_bpm", 120.0));

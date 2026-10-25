@@ -23,40 +23,30 @@
 #include <QObject>
 #include <QString>
 #include <QVariant>
+
 #include <array>
 #include <optional>
 
 /**
- * Typesafe multi-deck finite state machine for VirtualDJ integration.
+ * DjFsm mirrors VirtualDJ's per-deck telemetry.
  *
- * VirtualDJ sends a trigger only when its value changes, one write per tick,
- * so the last title, artist, bpm or key seen IS the current song's until a
- * change arrives, and an empty artist is a value. A load is one write
- * (Automix: filepath and metadata together) or two (manual: metadata first,
- * filepath 33 to 167 ms later). The FSM buffers a deck's song fields and
- * commits them at the write boundary (onTickEnded): a write with a new
- * filepath commits a load, announced as one complete snapshot (songChanged)
- * once filepath and title are present; song fields without a filepath are
- * held, so a load's first write waits for its filepath, and flush as
- * songUpdated when the deck's position moves on without one. The wire is
- * a delta against VDJ's last-sent value per trigger, across ejects: an
- * eject (loaded off, the placeholder title) empties the deck at once but
- * keeps every last value, so a reload of the same file (title, bpm, loaded
- * on, no filepath) or a next song that shares a field is announced
- * complete. Transport (play, master flag) and position apply at once. No
- * timers, no debounce: synchronous and unit-testable.
+ * The wire is a delta: VDJ sends each trigger when its value changes, against
+ * the value it last sent for that deck, across ejects. Every slot keeps exactly
+ * those last-sent values (song fields, loaded, play, master flag, fader,
+ * position). A deck is loaded when `loaded` is on, a filepath is known and the
+ * title is not the empty deck's placeholder; its song is then the mirror.
  *
- * Deck transport state:
- *   Empty   — no song. A song-less deck is never Playing/Paused even if VDJ
- *             broadcasts a play trigger for it (filters phantom/mirror decks).
- *   Loading — filepath known, required metadata still incomplete
- *   Loaded  — required metadata present, not playing
- *   Playing — playing
- *   Paused  — was playing, now paused
+ * Song fields (filepath, title, artist, bpm, key, length) of a loaded deck are
+ * held until the deck's first write that carries a filepath or a position
+ * sample; an empty deck mirrors them at once, and `loaded` on brings the
+ * ejected file back unless the write carries a per-file field other than
+ * title and bpm: a manual load sends its metadata one write before the
+ * filepath, a reload of the ejected file resends only what the eject changed,
+ * and VDJ resends per-file fields only when the file changed. Position and
+ * fader apply as they arrive. No timers, no debounce: synchronous and testable.
  *
- * VirtualDJ can advertise more deck slots than there are real decks; the FSM
- * tracks a configurable number of decks (deckCount, default 2) and ignores
- * triggers for decks beyond the count.
+ * The active deck is the lowest tracked deck whose master flag is on,
+ * recomputed at every write boundary and when the deck count moves.
  */
 class DjFsm : public QObject
 {
@@ -115,19 +105,13 @@ public:
 
     // --- Event inputs (deck is 1-based) ---
 
-    /** Route a per-deck telemetry trigger into the FSM. Ignored when the deck
-     *  number exceeds deckCount, except "masterdeck", kept for every deck so
-     *  get_decks finds the master whichever way the count moves. Song fields
-     *  wait for onTickEnded(); "loaded" off and the placeholder title empty
-     *  the deck at once (VDJ sends no empty filepath on eject) and keep VDJ's
-     *  last values for the next load, the fader is no song field. */
+    /** Mirror a per-deck telemetry trigger. Ignored when the deck number
+     *  exceeds deckCount, except "masterdeck", kept for every deck so get_decks
+     *  finds the master whichever way the count moves. */
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
 
-    /** The objects of one VDJ write are in: every deck commits its song fields. */
+    /** The objects of one VDJ write are in: every deck settles its view. */
     void onTickEnded();
-
-    /** Set the active/master deck (1-based). Ignored when beyond deckCount. */
-    void onMasterDeck(int deck);
 
     /** VDJ socket dropped: no active deck first, then every deck empty. */
     void onDisconnected();
@@ -159,7 +143,7 @@ signals:
     void activeSongChanged();
 
 private:
-    /** A deck's song fields of the write under way, or held from the previous one */
+    /** A deck's song fields VDJ sent since their last commit */
     struct Pending
     {
         std::optional<QString> filepath;
@@ -168,40 +152,28 @@ private:
         std::optional<QString> key;
         std::optional<double>  bpm;
         std::optional<int>     totalMs;
-
-        bool any() const { return filepath || title || artist || key || bpm || totalMs; }
     };
 
     struct Slot
     {
-        Deck     deck;
-        DeckSong last;                  //!< VDJ's last-sent song fields, kept across ejects
+        Deck     deck;                   //!< the view: the song while loaded, transport, position
+        DeckSong last;                   //!< VDJ's last-sent song fields
         Pending  pending;
-        bool     positionSeen = false;  //!< an elapsed sample in the write under way
-        bool     ejectedThisWrite = false;
-        bool     loadedOn = false;      //!< "loaded" on arrived since the deck emptied
-        bool     ejected = false;       //!< an eject since the last load: bpmBeforeEject applies
-        double   bpmBeforeEject = 0.0;  //!< the eject's bpm 120 is an artefact, not this
-        QString  titleBeforeEject;
-        QString  committedFilepath;     //!< last announced filepath
-        bool     master = false;        //!< VDJ's per-deck masterdeck flag
-        bool     wasPlaying = false;    //!< distinguishes Paused from Loaded
-        bool     rawPlaying = false;    //!< last raw play trigger (pre-validity gating)
-        int      posEmitSecond = -1;    //!< last elapsed second a positionChanged was emitted for
-        int      posEmitBeatQ  = -1000; //!< last quarter-beat a positionChanged was emitted for
+        bool     loaded = false;         //!< VDJ's "loaded"
+        bool     play = false;           //!< VDJ's "play"
+        bool     master = false;         //!< VDJ's per-deck "masterdeck"
+        bool     positionSeen = false;   //!< the write under way carried an elapsed sample
+        bool     loadedOnSeen = false;   //!< the write under way carried "loaded" on
+        bool     perFileSeen = false;    //!< the write under way carried a per-file field other than title and bpm
+        bool     wasPlaying = false;     //!< distinguishes Paused from Loaded
+        int      posEmitSecond = -1;     //!< last elapsed second a positionChanged was emitted for
+        int      posEmitBeatQ  = -1000;  //!< last quarter-beat a positionChanged was emitted for
     };
 
     static bool indexValid(int index0) { return index0 >= 0 && index0 < MaxDecks; }
     bool deckTracked(int deck1) const { return deck1 >= 1 && deck1 <= m_deckCount; }
-    Slot &slotForDeck(int deck);     // 1-based; clamps invalid input to deck 1
-    void resetSlot(Slot &s, int deck1);
-    void ejectDeck(Slot &s, int deck1);
-    void emptyDeck(Slot &s);
-    void followMasterFlags();
-    void recomputeState(Slot &s);
-    static bool isPlaceholderTitle(const QString &title);
-    bool reloadPending(const Slot &s) const;
-    void commitPending(Slot &s, int deck1);
+    void settle(Slot &s, int deck1);
+    void recomputeActiveDeck();
     void maybeEmitPosition(Slot &s, int deck1);
     void recomputeActiveSong();
 
