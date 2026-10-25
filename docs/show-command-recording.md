@@ -144,10 +144,10 @@ before, and a document without `Order` uses its file order. Unsupported
 versions/actions and invalid values, including `Order` on only some commands or
 used twice, are errors; they must not load as an empty successful track.
 Both edges of a saved hold share one `Pair` identity and keep separate event
-IDs. Loading drops an orphan, mismatched, overlapping or unclosed pair with a
-warning and keeps the rest of the track. A hold the performer still holds is
-not in the track yet (see Live input while recording); a press left without
-its release in a track ends at the extent when the Show is saved.
+IDs. A track holds whole holds only: a Show refuses a press without its
+release, and loading drops an orphan, mismatched, overlapping or unclosed pair
+with a warning and keeps the rest of the track. A hold the performer still
+holds is not in the track yet (see Live input while recording).
 
 Edit XML only while the workspace is closed or saved elsewhere. Keep the target
 function definitions in the same workspace. A function reference does not freeze
@@ -549,7 +549,15 @@ skipped and its live request never waits behind that replay.
   control in its time: a recorded hold on at the press ends there, its edges
   inside go, and one still on at the release starts again there. Nothing
   outside the hold is removed, and no hold of no time is cut off. Until it
-  ends, the hold is in no track, the Recordings lane included.
+  ends, the hold is in no track, the Recordings lane included, and the
+  recorded values it goes over are only not played: they leave the track
+  with the hold, so a save during the hold keeps them.
+- A hold belongs to the take it was pressed in. Its release ends it whether
+  REC records the release or not: a release while REC is off, from a script,
+  or after its Show was deleted records nothing, and nothing of that hold
+  reaches a later take. When REC goes on recording the Show into a new
+  take, as when switching between the Show Manager and Perform, a hold still
+  held goes on from its press. A new workspace drops every hold.
 - A recorded value of a control is replaced, and removed from the track,
   when the performer moved that control since its previous recorded value in
   this pass. A press or release of a hold is no move: a hold owns only the
@@ -559,7 +567,8 @@ skipped and its live request never waits behind that replay.
   anything.
 - A hold still held when the position moves back is recorded up to the
   departure and goes on from the arrival, so the file keeps its press before
-  its release and the native hold is not touched.
+  its release and the native hold is not touched. A release after a move back
+  was asked for, before it lands, ends the hold at the departure.
 - On the next pass every recorded event replays, the live ones included;
   controls nobody touched replay their recording exactly. In the pass a hold
   was played live its release turns the control off; a recorded hold it
