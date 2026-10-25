@@ -1747,40 +1747,37 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
 
 bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
 {
+    Q_ASSERT(doc != nullptr);
+
     // a file holds no hold in progress: one left open ends at the extent
     ShowCommandTrack closed = *this;
     if (closed.closeOpenHolds(m_extent) == false)
         return false;
-    return closed.writeXML(doc);
-}
-
-bool ShowCommandTrack::writeXML(QXmlStreamWriter *doc) const
-{
-    Q_ASSERT(doc != nullptr);
+    const QVector<ShowCommand> &commands = closed.m_commands;
 
     // a track of function commands only keeps writing exactly the legacy document
-    const bool controlStates = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool controlStates = std::any_of(commands.cbegin(), commands.cend(),
                                            [](const ShowCommand &cmd)
                                            { return isControlAction(cmd.action); });
-    const bool requiresV4 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV4 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetSliderReset; });
-    const bool requiresV5 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV5 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetSliderColors; });
-    const bool requiresV6 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV6 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetXYPadPosition; });
-    const bool requiresV7 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV7 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetAnimationFader; });
-    const bool requiresV8 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV8 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetXYPadFloor; });
-    const bool requiresV9 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV9 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return ShowCommand::hasTypedPayload(cmd.action); });
-    const bool requiresV3 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV3 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         {
                                             return cmd.pairId != ShowCommand::InvalidId ||
@@ -1804,10 +1801,10 @@ bool ShowCommandTrack::writeXML(QXmlStreamWriter *doc) const
     // orders the file order gives back on loading are not written, so such a
     // track keeps writing exactly the document it did before orders existed
     bool fileOrder = true;
-    for (int i = 0; i < m_commands.count(); i++)
-        fileOrder = fileOrder && m_commands.at(i).order == quint32(i);
+    for (int i = 0; i < commands.count(); i++)
+        fileOrder = fileOrder && commands.at(i).order == quint32(i);
 
-    for (const ShowCommand &cmd : m_commands)
+    for (const ShowCommand &cmd : commands)
     {
         doc->writeStartElement(KXMLShowCommand);
         doc->writeAttribute(KXMLShowCommandId, QString::number(cmd.id));
