@@ -549,9 +549,9 @@ private:
         ShowControlConfiguration claimedConfiguration;
     };
 
-    /** One control around one timeline operation (a replayed op, or an
-     *  authored user request): its native state just before and after. A
-     *  button is 1 while Active, a slider its raw value. */
+    /** One control around one replayed op: its native state just before and
+     *  after. A button is 1 while Active, a slider its raw value. Live input,
+     *  recorded or not, is no timeline operation. */
     struct TimelineFact
     {
         quint32 showId;

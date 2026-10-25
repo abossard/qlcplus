@@ -769,9 +769,7 @@ void ShowCommandRecorder::drainUserRequests()
 
         m_userRequests.removeAt(i);
         const TracedCall traced;
-        const bool authored = request.authoredShowId != ShowCommand::InvalidId;
         const FunctionParent requestOwner(FunctionParent::ManualVCWidget, request.control->id());
-        const QVector<TimelineFact> closure = authored ? closureOf(request.control, requestOwner) : QVector<TimelineFact>();
         const ShowCommandInput &input = request.input;
         const auto receipt = ShowControlAction::apply(m_doc, request.control, input, requestOwner,
                                                       false, false, &request);
@@ -782,10 +780,10 @@ void ShowCommandRecorder::drainUserRequests()
                          receipt.executionFailed ? Outcome::Failed : Outcome::Cancelled, receipt.refusal);
             continue;
         }
-        if (request.authoredShowId == ShowCommand::InvalidId &&
-            ShowCommandFsm::isUserOrigin(input.origin) && request.accepted.snapshot.enabled)
+        // the performer's own action stays when the timeline rolls back
+        if (ShowCommandFsm::isUserOrigin(input.origin) && request.accepted.snapshot.enabled)
             for (TimelineFact &fact : m_timeline)
-                if (fact.control == request.control && fact.owner.type() == FunctionParent::Function)
+                if (fact.control == request.control)
                     fact.superseded = true;
         if (input.action == ShowCommandAction::SetButtonState)
         {
@@ -798,9 +796,6 @@ void ShowCommandRecorder::drainUserRequests()
             else if (input.role == ShowControlRole::BlackoutButton && intentShowId != ShowCommand::InvalidId)
                 m_userBlackoutIntent.insert(intentShowId, input.on);
         }
-        if (authored)
-            journal(closure, request.authoredShowId, request.acceptedTimeMs,
-                    receipt.buttonOp == ShowCommandFsm::ShowButtonOp::Start, requestOwner, receipt);
         if (request.cause.generation != 0)
             traceRequest(request, Phase::Execute, receipt.unchanged ? Outcome::Skipped
                          : receipt.requested || !receipt.functions.isEmpty() ||
