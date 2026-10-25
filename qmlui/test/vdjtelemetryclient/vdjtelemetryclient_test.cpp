@@ -183,26 +183,40 @@ void VdjTelemetryClient_Test::subscriptionMessageShape()
     QVERIFY(obj.value("trigger").isArray());
 }
 
+void VdjTelemetryClient_Test::subscriptionTriggerCount_data()
+{
+    QTest::addColumn<QString>("trigger");
+    QTest::addColumn<bool>("subscribed");
+
+    // what DjFsm, VdjBridge and the DJ Manager read
+    for (const char *t : { "get_filepath", "loaded", "get_time", "get_time elapsed absolute", "get_beatpos",
+                           "get_title", "get_artist", "get_title_artist", "get_album", "get_genre", "get_bpm",
+                           "get_key", "get_firstbeat", "get_time total", "play", "volume", "masterdeck" })
+        QTest::newRow(t) << QStringLiteral("deck 4 %1").arg(QLatin1String(t)) << true;
+    QTest::newRow("get_decks") << "get_decks" << true;
+    // read by nothing
+    for (const char *t : { "get_position", "get_vu_meter", "level", "eq_high", "eq_med", "eq_low", "gain",
+                           "loop", "get_loop" })
+        QTest::newRow(t) << QStringLiteral("deck 1 %1").arg(QLatin1String(t)) << false;
+    for (const char *t : { "master_volume", "crossfader", "headphone_volume", "masterdeck",
+                           "get_crossfader_result full", "mixer_order", "get_vu_meter" })
+        QTest::newRow(t) << QString::fromLatin1(t) << false;
+}
+
 void VdjTelemetryClient_Test::subscriptionTriggerCount()
 {
+    QFETCH(QString, trigger);
+    QFETCH(bool, subscribed);
+
     QByteArray msg = VdjTelemetryClient::buildSubscriptionMessage();
     QJsonDocument doc = QJsonDocument::fromJson(msg.trimmed());
-    QJsonArray triggers = doc.object().value("trigger").toArray();
-
-    // 4 decks × 25 per-deck triggers + 8 globals = 108
-    // (Exact count depends on kDeckTriggers and kGlobalTriggers)
-    QVERIFY(triggers.size() >= 100);
-    QVERIFY(triggers.size() <= 120);
-
-    // Verify some expected triggers exist
     QStringList triggerStrings;
-    for (const QJsonValue &v : triggers)
+    for (const QJsonValue &v : doc.object().value("trigger").toArray())
         triggerStrings.append(v.toString());
 
-    QVERIFY(triggerStrings.contains("deck 1 get_title"));
-    QVERIFY(triggerStrings.contains("deck 4 get_position"));
-    QVERIFY(triggerStrings.contains("master_volume"));
-    QVERIFY(triggerStrings.contains("crossfader"));
+    // 4 decks x 17 per-deck triggers + get_decks
+    QCOMPARE(triggerStrings.size(), 69);
+    QCOMPARE(triggerStrings.contains(trigger), subscribed);
 
     // VDJ streams a tick's changes in this order: a track change must reach
     // consumers before the new track's position does

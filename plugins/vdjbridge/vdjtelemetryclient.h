@@ -66,7 +66,7 @@ public:
     /** Return the connected client's address:port string, or empty. */
     QString clientAddress() const;
 
-    /** Build the 112-trigger subscription JSON payload. */
+    /** The subscription: the triggers QLC+ reads, for each of kDeckCount decks */
     static QByteArray buildSubscriptionMessage(int frequency = kDefaultFrequency);
 
     /** Parse a single NDJSON line. Exposed for testing. */

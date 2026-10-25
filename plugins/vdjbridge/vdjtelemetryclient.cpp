@@ -26,31 +26,24 @@
 
 static const char *kLogTag = "[VdjTelemetry]";
 
-// --- Per-deck triggers ---
-// These are subscribed for each of 4 decks as "deck N <trigger>".
+// Only what DjFsm, VdjBridge and the DJ Manager read: VDJ sends a trigger on
+// every change, so each one more is traffic (a VU meter streams at the tick rate).
 
-// VDJ sends a tick's changed triggers in this order: the song's identity
-// first, so a track change reaches consumers before its new position does
+// Per deck, as "deck N <trigger>". VDJ sends a tick's changed triggers in this
+// order: the song's identity first, so a track change reaches consumers before
+// its new position does
 static const QStringList kDeckTriggers = {
     "get_filepath", "loaded",
     // Continuous
-    "get_position", "get_time", "get_time elapsed absolute",
-    "get_beatpos", "get_vu_meter", "level",
-    // On-load metadata
+    "get_time", "get_time elapsed absolute", "get_beatpos",
+    // On-load metadata; title_artist, album, genre and firstbeat mark a new file's fields
     "get_title", "get_artist", "get_title_artist",
     "get_album", "get_genre", "get_bpm", "get_key", "get_firstbeat",
     "get_time total", "play", "volume", "masterdeck",
-    // EQ
-    "eq_high", "eq_med", "eq_low", "gain",
-    // Loop
-    "loop", "get_loop",
 };
 
-// --- Global triggers ---
-static const QStringList kGlobalTriggers = {
-    "master_volume", "get_decks", "crossfader", "headphone_volume",
-    "masterdeck", "get_crossfader_result full", "mixer_order", "get_vu_meter",
-};
+// the real deck count; decks above it mirror VDJ's default deck
+static const QStringList kGlobalTriggers = { "get_decks" };
 
 VdjTelemetryClient::VdjTelemetryClient(QObject *parent)
     : QObject(parent)
@@ -238,14 +231,12 @@ QByteArray VdjTelemetryClient::buildSubscriptionMessage(int frequency)
 {
     QJsonArray triggers;
 
-    // Per-deck triggers for decks 1–4
     for (int deck = 1; deck <= kDeckCount; ++deck)
     {
         for (const QString &t : kDeckTriggers)
             triggers.append(QString("deck %1 %2").arg(deck).arg(t));
     }
 
-    // Global triggers
     for (const QString &t : kGlobalTriggers)
         triggers.append(t);
 

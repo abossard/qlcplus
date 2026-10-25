@@ -65,14 +65,26 @@ A single JSON object, sent once on connect:
 | `frequency` | string | `"25"` (updates per second for continuous fields) |
 | `trigger`   | array  | **112 elements** = 26 distinct per-deck triggers × 4 decks + 8 globals |
 
-The per-deck triggers requested (each prefixed `deck N `, N=1–4):
+DMXDesktop requested (each prefixed `deck N `, N=1–4):
 `get_bpm, volume, play, get_key, get_title_artist, get_artist, get_title,
 get_album, get_genre, get_position, loaded, get_time, get_time total, eq_high,
 eq_med, eq_low, gain, get_filepath, level, get_vu_meter, get_time elapsed absolute,
-get_beatpos, get_firstbeat, loop, get_loop, masterdeck` (the per-deck master flag;
-at a handover the old master sends `off` and the new one `on` in the same tick).
+get_beatpos, get_firstbeat, loop, get_loop, masterdeck`.
 Globals: `master_volume, get_decks, crossfader, headphone_volume, masterdeck,
 get_crossfader_result full, mixer_order, get_vu_meter`.
+
+QLC+ subscribes only what it reads, **69 triggers** = 17 per deck × 4 + `get_decks`
+(`plugins/vdjbridge/vdjtelemetryclient.cpp`), in this order:
+`get_filepath, loaded, get_time, get_time elapsed absolute, get_beatpos,
+get_title, get_artist, get_title_artist, get_album, get_genre, get_bpm, get_key,
+get_firstbeat, get_time total, play, volume, masterdeck` (the per-deck master
+flag; at a handover the old master sends `off` and the new one `on` in the same
+tick). `get_title_artist`, `get_album`, `get_genre` and `get_firstbeat` are read
+only as "this file's fields arrived" (`qmlui/djfsm.cpp`). Not subscribed, since
+nothing reads them: `get_position, get_vu_meter, level, eq_high, eq_med, eq_low,
+gain, loop, get_loop` and the globals `master_volume, crossfader,
+headphone_volume, masterdeck, get_crossfader_result full, mixer_order,
+get_vu_meter`. The tables below keep their measured types.
 
 ## Client → server: streamed frames
 

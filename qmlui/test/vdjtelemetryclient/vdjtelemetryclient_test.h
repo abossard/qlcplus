@@ -24,6 +24,7 @@ private slots:
 
     // Subscription handshake
     void subscriptionMessageShape();
+    void subscriptionTriggerCount_data();
     void subscriptionTriggerCount();
 
     // TCP server lifecycle
