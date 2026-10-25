@@ -40,9 +40,28 @@ void VdjTelemetryClient_Test::parseSubscribedDeckTrigger_data()
         << QByteArray(R"({"evt":"subscribed","trigger":"deck 4 get_bpm","value":128.5})")
         << 3 << "get_bpm" << QVariant(128.5);
 
+    // a value reaches consumers as JSON typed it: a string stays a string
     QTest::newRow("deck1_volume_string")
         << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 volume","value":"0.85"})")
-        << 0 << "volume" << QVariant(0.85);
+        << 0 << "volume" << QVariant("0.85");
+    QTest::newRow("numeric-looking title")
+        << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"007"})")
+        << 0 << "get_title" << QVariant("007");
+    QTest::newRow("title 1.0")
+        << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"1.0"})")
+        << 0 << "get_title" << QVariant("1.0");
+    QTest::newRow("title NaN")
+        << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"NaN"})")
+        << 0 << "get_title" << QVariant("NaN");
+    QTest::newRow("title with spaces")
+        << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":" 7 "})")
+        << 0 << "get_title" << QVariant(" 7 ");
+    QTest::newRow("title true")
+        << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"true"})")
+        << 0 << "get_title" << QVariant("true");
+    QTest::newRow("play on")
+        << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 play","value":"on"})")
+        << 0 << "play" << QVariant("on");
 }
 
 void VdjTelemetryClient_Test::parseSubscribedDeckTrigger()
@@ -61,14 +80,9 @@ void VdjTelemetryClient_Test::parseSubscribedDeckTrigger()
     QCOMPARE(spy[0][0].toInt(), expectedDeck);
     QCOMPARE(spy[0][1].toString(), expectedTrigger);
 
-    // Compare values with type awareness
-    QVariant actual = spy[0][2].value<QVariant>();
-    if (expectedValue.typeId() == QMetaType::Double)
-        QCOMPARE(actual.toDouble(), expectedValue.toDouble());
-    else if (expectedValue.typeId() == QMetaType::Bool)
-        QCOMPARE(actual.toBool(), expectedValue.toBool());
-    else
-        QCOMPARE(actual.toString(), expectedValue.toString());
+    const QVariant actual = spy[0][2].value<QVariant>();
+    QCOMPARE(actual.typeId(), expectedValue.typeId());
+    QCOMPARE(actual, expectedValue);
 }
 
 void VdjTelemetryClient_Test::parseSubscribedGlobalTrigger_data()

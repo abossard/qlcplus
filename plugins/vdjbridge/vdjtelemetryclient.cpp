@@ -258,28 +258,6 @@ QByteArray VdjTelemetryClient::buildSubscriptionMessage(int frequency)
     return json;
 }
 
-// Helper: coerce a QJsonValue to a QVariant defensively
-static QVariant coerceValue(const QJsonValue &v)
-{
-    if (v.isDouble())
-        return v.toDouble();
-    if (v.isBool())
-        return v.toBool();
-    if (v.isString())
-    {
-        const QString s = v.toString();
-        // Try numeric coercion
-        bool ok = false;
-        double d = s.toDouble(&ok);
-        if (ok) return d;
-        // Try bool coercion
-        if (s.compare("true", Qt::CaseInsensitive) == 0) return true;
-        if (s.compare("false", Qt::CaseInsensitive) == 0) return false;
-        return s;
-    }
-    return QVariant();
-}
-
 void VdjTelemetryClient::parseLine(const QByteArray &line)
 {
     QJsonParseError err;
@@ -307,7 +285,8 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
     if (evt == "subscribed")
     {
         QString trigger = obj.value("trigger").toString();
-        QVariant value = coerceValue(obj.value("value"));
+        // as JSON typed it: each consumer reads the trigger's own type
+        const QVariant value = obj.value("value").toVariant();
 
         if (trigger.isEmpty())
             return;
