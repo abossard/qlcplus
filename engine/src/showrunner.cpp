@@ -254,7 +254,7 @@ void ShowRunner::write(MasterTimer *timer)
         // stop all running functions and reset scan indices
         if (newTime < m_elapsedTime && m_elapsedTime > 0)
         {
-            seekTo(newTime, false);
+            seekTo(newTime);
         }
 
         m_elapsedTime = newTime;
@@ -273,9 +273,9 @@ void ShowRunner::write(MasterTimer *timer)
     const quint64 requestedForwardTime =
             m_requestedForwardTime.exchange(NoSeekRequested, std::memory_order_acquire);
     if (requestedSeekTime != NoSeekRequested)
-        seekTo(quint32(requestedSeekTime), true);
+        seekTo(quint32(requestedSeekTime));
     else if (requestedForwardTime != NoSeekRequested)
-        seekTo(quint32(requestedForwardTime), true, true);
+        seekTo(quint32(requestedForwardTime), true);
 
     bool seekRestartPending = false;
     const auto waitForSeekRestart = [this, &seekRestartPending](Function *function) {
@@ -549,7 +549,7 @@ void ShowRunner::requestSeek(quint32 ms, bool forward)
     (forward ? m_requestedForwardTime : m_requestedSeekTime).store(ms, std::memory_order_release);
 }
 
-void ShowRunner::seekTo(quint32 newTime, bool requested, bool forward)
+void ShowRunner::seekTo(quint32 newTime, bool forward)
 {
     qDebug() << "[ShowRunner] Seeking:" << m_elapsedTime << "->" << newTime;
 
@@ -614,7 +614,7 @@ void ShowRunner::seekTo(quint32 newTime, bool requested, bool forward)
     // ids published from here on belong to the next traversal and stay shielded
     m_commandState = ShowCommandFsm::seek(m_commandState, newTime);
     if (m_show != NULL)
-        m_commandTraversal = m_show->commandTraversalRestarted(m_commandTraversal, requested);
+        m_commandTraversal = m_show->commandTraversalRestarted(m_commandTraversal, true);
     if (m_externalBaselinePending == false)
         m_pendingRollback = newTime;
 }

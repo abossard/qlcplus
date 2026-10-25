@@ -154,11 +154,11 @@ private:
 
     QSet<Function *> m_seekRestartFunctions;
 
-    /** requested: consuming Show::requestSeek, not an external clock jump.
-     *  Ordinary clips stop and are rescheduled either way. A forward request
-     *  keeps the command traversal and plays the crossed interval; otherwise
-     *  the traversal restarts at newTime and rolls back its own effects. */
-    void seekTo(quint32 newTime, bool requested, bool forward = false);
+    /** Ordinary clips stop and are rescheduled. A forward request keeps the
+     *  command traversal and plays the crossed interval; otherwise the
+     *  traversal restarts at newTime, unless the Show restarted it already
+     *  for this move, and rolls back its own effects. */
+    void seekTo(quint32 newTime, bool forward = false);
 
     void syncPerformAudioSuppression();
     bool isAudioFunction(const Function *function) const;

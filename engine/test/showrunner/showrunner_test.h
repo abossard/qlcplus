@@ -84,6 +84,8 @@ private slots:
     void commandStopRetiresSupersededClipDeadline();
     void commandForwardSeekPlaysCrossedCommands();
     void commandLiveInputDoesNotEchoButLoopReplays();
+    void commandLiveInputAfterAMoveBackDoesNotEcho_data();
+    void commandLiveInputAfterAMoveBackDoesNotEcho();
     void commandExtentAndRecordingKeepAlive_data();
     void commandExtentAndRecordingKeepAlive();
     void commandIntensityAfterNaturalCompletion();

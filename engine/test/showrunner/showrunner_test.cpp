@@ -1621,6 +1621,72 @@ void ShowRunner_Test::commandLiveInputDoesNotEchoButLoopReplays()
     QCOMPARE(replayedSecond, 1);
 }
 
+void ShowRunner_Test::commandLiveInputAfterAMoveBackDoesNotEcho_data()
+{
+    QTest::addColumn<bool>("external");
+
+    QTest::newRow("external clock moves back") << true;
+    QTest::newRow("requested seek back") << false;
+}
+
+void ShowRunner_Test::commandLiveInputAfterAMoveBackDoesNotEcho()
+{
+    QFETCH(bool, external);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *arrival = makeScene(doc, fixture->id(), 0, 200);
+    Scene *earlier = makeScene(doc, fixture->id(), 1, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack live;
+    live.setExtent(2000);
+    QVERIFY(show->setCommandTrack(live));
+    QSignalSpy arrivalStarts(arrival, &Function::running);
+    QSignalSpy earlierStarts(earlier, &Function::running);
+
+    if (external)
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(0);
+        timer->timerTick();
+        show->setExternalElapsedTime(300);
+    }
+    else
+    {
+        show->start(timer, FunctionParent::master(), 300);
+    }
+    timer->timerTick();
+    // the previous pass executed a live input at 300
+    QVERIFY(live.insert(ShowCommand::start(1, 300, earlier->id())));
+    QVERIFY(show->setCommandTrack(live, {1}));
+    for (int i = 0; i < 10; i++)
+        timer->timerTick();
+
+    // back to 100: input accepted before the runner's next tick is the next pass's
+    if (external)
+        show->setExternalElapsedTime(100);
+    else
+        show->requestSeek(100);
+    QVERIFY(live.insert(ShowCommand::start(2, 100, arrival->id())));
+    QVERIFY(show->setCommandTrack(live, {2}));
+    timer->timerTick();
+    if (external)
+        show->setExternalElapsedTime(500);
+    for (int i = 0; i < 25; i++)
+        timer->timerTick();
+    const int echoed = arrivalStarts.count();
+    const int replayed = earlierStarts.count();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(echoed, 0);
+    QCOMPARE(replayed, 1);
+}
+
 void ShowRunner_Test::commandExtentAndRecordingKeepAlive_data()
 {
     QTest::addColumn<quint32>("extent");
@@ -3442,7 +3508,7 @@ void ShowRunner_Test::commandTraversalBoundaries()
         show->stop(FunctionParent::master());
         show->start(timer, FunctionParent::master());
         authorLive(0);
-        retired->seekTo(0, true);
+        retired->seekTo(0);
     }
     else if (rig == QStringLiteral("requested seek live"))
     {
