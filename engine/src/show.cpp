@@ -473,10 +473,7 @@ bool Show::removeTrack(quint32 id)
         Q_ASSERT(track != NULL);
 
         const QString name = QString("%1-%2").arg(track->name()).arg(track->id());
-        int index = -1;
-        for (int i = 0; i < attributes().count(); i++)
-            if (attributes().at(i).m_name == name)
-                index = i;
+        const int index = getAttributeIndex(name);
         unregisterAttribute(name);
         // the attributes behind it moved down: so does the copy the runner takes
         {
