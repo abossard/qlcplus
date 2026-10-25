@@ -356,6 +356,9 @@ bool ShowCommandRecorder::dispatchNow(const ShowRecordEvent &event)
     }
     if (changed)
     {
+        // a take replaces only what the performer touched while it records
+        m_liveHolds.clear();
+        m_movedLive.clear();
         m_takeId++;
         emit stateChanged();
         emit editGateChanged();
@@ -730,8 +733,11 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
     // the identity this capture issues is the one its entries name
     if (request.cause.generation != 0)
         request.cause.controlId = input.controlId;
-    if (authorAt(input, request.acceptedTimeMs))
-        request.authoredShowId = trackedShowId();
+    if (authorAt(input, request.acceptedTimeMs) == false)
+        return;
+    request.authoredShowId = trackedShowId();
+    if (input.action != ShowCommandAction::SetButtonState || ShowCommand::isHoldRole(input.role) == false)
+        m_movedLive.insert(qMakePair(input.controlId, int(input.action)));
 }
 
 void ShowCommandRecorder::drainUserRequests()
@@ -790,7 +796,14 @@ void ShowCommandRecorder::drainUserRequests()
             const quint32 intentShowId = request.authoredShowId != ShowCommand::InvalidId
                                            ? request.authoredShowId : trackedShowId();
             if (QSet<quint32> *holds = userHolds(input.role))
+            {
                 setHeld(holds, request.control->id(), input.on);
+                const auto hold = qMakePair(request.control->recordingId(), int(input.role));
+                if (input.on && request.authoredShowId != ShowCommand::InvalidId)
+                    m_liveHolds.insert(hold, qMakePair(request.acceptedTimeMs, ShowCommand::MaxTime));
+                else if (input.on == false && m_liveHolds.contains(hold))
+                    m_liveHolds[hold].second = request.acceptedTimeMs;
+            }
             else if (input.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
                 m_userFreezeIntent.insert(intentShowId, input.on);
             else if (input.role == ShowControlRole::BlackoutButton && intentShowId != ShowCommand::InvalidId)
@@ -831,6 +844,7 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
 
     VCWidget *control = m_userRequests.at(index).control;
     const ShowCommandInput &input = m_userRequests.at(index).input;
+    const bool recorded = m_userRequests.at(index).authoredShowId != ShowCommand::InvalidId;
     const ShowControlCoupling coupling = couplingOf(control, ShowControlAction::functionId(control, &input));
     const auto dependent = [&](VCWidget *other, quint32 functionId)
     {
@@ -852,6 +866,9 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
         if (ShowCommand::isControlAction(cmd.action))
         {
             VCWidget *replayed = resolveControl(cmd);
+            // the replay of the control the performer touches is replaced, never waited for
+            if (recorded && replayed == control)
+                continue;
             ShowCommandInput replayInput;
             replayInput.action = cmd.action;
             replayInput.payload = cmd.payload;
@@ -1931,8 +1948,14 @@ void ShowCommandRecorder::slotShowClock()
     // the clock moved: it is the position again, not a cursor set before
     m_hostCursorShowId = ShowCommand::InvalidId;
     const quint32 now = show->commandPosition();
-    if (now < m_lastClock && ShowEventLog::generation() != 0)
-        traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3));
+    if (now < m_lastClock)
+    {
+        if (ShowEventLog::generation() != 0)
+            traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3));
+        // another pass: what the performer touched in the last one replays again
+        m_liveHolds.clear();
+        m_movedLive.clear();
+    }
     m_lastClock = now;
 }
 
@@ -2563,7 +2586,12 @@ void ShowCommandRecorder::slotShowPlayback()
     if (show == nullptr || show->isRunning() == false)
         return;
     forgetTimeline(show->id());
-    if (show == m_trackedShow && ShowEventLog::generation() != 0)
+    if (show != m_trackedShow)
+        return;
+    // Play begins a pass: what was touched before it replays, a hold still held stays
+    m_movedLive.clear();
+    m_liveHolds.removeIf([](const auto &hold) { return hold.value().second != ShowCommand::MaxTime; });
+    if (ShowEventLog::generation() != 0)
         traceTransport(Outcome::Applied, tr("Playing"), targetName());
 }
 
@@ -3124,6 +3152,13 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
             run.claimedConfiguration = configurationOf(control, &input);
         }
 
+        if (replacedByLive(run, cmd))
+        {
+            trace(Outcome::Skipped, tr("replaced by live input"));
+            run.next++;
+            continue;
+        }
+
         const ShowControlCoupling coupling = couplingOf(control, ShowControlAction::functionId(control, &input));
         QVector<ShowFunctionExpectation> expectations;
         for (int i = run.unsettled.count() - 1; i >= 0; i--)
@@ -3207,6 +3242,23 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
     }
 
     run.show->acknowledgeControlBatch(run.batch.traversal, run.batch.seq);
+    return true;
+}
+
+bool ShowCommandRecorder::replacedByLive(const ControlRun &run, const ShowCommand &cmd)
+{
+    if (run.show->id() != m_rec.boundShowId())
+        return false;
+    if (cmd.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(cmd.role))
+    {
+        const auto hold = m_liveHolds.constFind(qMakePair(cmd.controlId, int(cmd.role)));
+        return hold != m_liveHolds.cend() && hold->first <= cmd.time && cmd.time <= hold->second;
+    }
+    if (m_movedLive.remove(qMakePair(cmd.controlId, int(cmd.action))) == false)
+        return false;
+    ShowCommandTransition replaced;
+    replaced.removed.append(cmd.id);
+    commit(replaced, run.show);
     return true;
 }
 

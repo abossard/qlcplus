@@ -6791,19 +6791,17 @@ void ShowCommandRecorder_Test::userRequest_survivesReplayCancelNotWorkspaceReset
     }
 }
 
-void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay_data()
+void ShowCommandRecorder_Test::recArmedUserInput_replacesTheReplayOfItsControl_data()
 {
     QTest::addColumn<bool>("button");
-    QTest::addColumn<bool>("waits");
 
-    QTest::newRow("adjust slider") << false << true;
-    QTest::newRow("toggle button") << true << true;
+    QTest::newRow("adjust slider") << false;
+    QTest::newRow("toggle button") << true;
 }
 
-void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay()
+void ShowCommandRecorder_Test::recArmedUserInput_replacesTheReplayOfItsControl()
 {
     QFETCH(bool, button);
-    QFETCH(bool, waits);
 
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -6838,12 +6836,13 @@ void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay()
         timer->timerTick();
     QCOMPARE(batches.count(), 1);
 
-    // recorded at acceptance, then ordered behind the crossed replay like any request
+    // recorded and executed at acceptance: the crossed replay of the control it
+    // touches is replaced, never waited for
     if (button)
         toggle->requestUserStateChange(true);
     else
         slider->requestUserValue(140);
-    QCOMPARE(recorder.pendingUserRequests().count(), waits ? 1 : 0);
+    QCOMPARE(recorder.pendingUserRequests().count(), 0);
     QCOMPARE(show->commandTrack().count(), 2);
 
     tickAndDeliver(&doc, 8);
@@ -6852,7 +6851,8 @@ void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay()
         QCOMPARE(toggle->state(), VCButton::Active);
     else
         QCOMPARE(slider->value(), 140);
-    QCOMPARE(show->commandTrack().count(), 2);
+    QCOMPARE(show->commandTrack().count(), 1);
+    QVERIFY(show->commandTrack().commands().first().id != 0);
 
     QVERIFY(recorder.setRecording(false));
     show->stop(FunctionParent::master());
@@ -15110,6 +15110,180 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
     QCOMPARE(holdSpans(show->commandTrack()), live);
 }
 
+void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
+{
+    QTest::addColumn<QString>("script");
+    QTest::addColumn<QStringList>("seen");
+
+    // A VirtualDJ-like loop 0-6 s, its clock in 100 ms samples: to plays on,
+    // wrap jumps back to 0; REC armed first keeps the empty Show playing.
+    // F a Flash button, T a Toggle, S an Adjust slider. A log lists what
+    // changed since the last one as time=value: F its DMX, T its state, S its
+    // value. The track lists F's holds, T's states and S's sample times.
+    const QString holdTake = QStringLiteral("rec;playext;to:1500;click:T;to:2000;press:F;to:4000;release:F;"
+                                            "to:4500;click:T;to:6000;log;wrap;");
+    const QString slideTake = QStringLiteral("rec;playext;to:1000;slide:25;to:2000;slide:50;to:3000;slide:75;"
+                                             "to:4000;slide:100;to:5000;slide:125;to:6000;log;wrap;");
+    const QStringList take{ QStringLiteral("F:2000=200,4000=0 T:1500=1,4500=0") };
+    QTest::newRow("a hold over a recorded hold replaces it, the toggle replays")
+        << holdTake + QStringLiteral("to:1000;press:F;to:5000;release:F;to:6000;log;wrap;to:6000;log;track")
+        << take + QStringList{ QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000-5000 T:1500=1,4500=0") };
+    // a live value replaces the recorded ones the playhead reaches after it,
+    // until one comes with no live value since the previous
+    QTest::newRow("a slider moved over recorded samples replaces them")
+        << slideTake + QStringLiteral("to:1500;slide:200;to:2500;slide:190;to:3500;slide:180;to:6000;log;"
+                                      "wrap;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:1000=25,2000=50,3000=75,4000=100,5000=125"),
+                        QStringLiteral("S:1000=25,1500=200,2500=190,3500=180,5000=125"),
+                        QStringLiteral("S:1000=25,1500=200,2500=190,3500=180,5000=125"),
+                        QStringLiteral("S:1000,1500,2500,3500,5000") };
+    QTest::newRow("REC off: the next pass replays as before")
+        << holdTake + QStringLiteral("recoff;to:6000;log;wrap;to:6000;log;track")
+        << take + QStringList{ take.first(), take.first(), QStringLiteral("F:2000-4000 T:1500=1,4500=0") };
+    // REC off, the recorded release wins over the performer's hold; REC on, the hold replaces it
+    QTest::newRow("REC off then on across passes")
+        << holdTake + QStringLiteral("recoff;to:1000;press:F;to:5000;release:F;to:6000;log;track;wrap;rec;"
+                                     "to:1000;press:F;to:5000;release:F;to:6000;log;track")
+        << take + QStringList{ QStringLiteral("F:1000=200,4000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:2000-4000 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000-5000 T:1500=1,4500=0") };
+}
+
+void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
+{
+    QFETCH(QString, script);
+    QFETCH(QStringList, seen);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *flashed = addTarget(&doc);
+    QVERIFY(flashed);
+    const quint32 fixture = flashed->values().first().fxi;
+    Scene *toggled = new Scene(&doc);
+    toggled->setValue(SceneValue(fixture, 1, 120));
+    QVERIFY(doc.addFunction(toggled));
+    Scene *faded = new Scene(&doc);
+    faded->setValue(SceneValue(fixture, 2, 200));
+    QVERIFY(doc.addFunction(faded));
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), flashed->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    VCButton *toggle = addToggle(bridge, ui.vc(), frame, toggled->id(), 100, QStringLiteral("T"));
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, faded->id());
+    QVERIFY(flash && toggle && slider);
+    QVERIFY(show->setCommandTrack(ShowCommandTrack()));
+
+    quint32 clock = 0;
+    QMap<QChar, int> was;
+    QMap<QChar, QStringList> changes;
+    const auto sample = [&]() {
+        // the replay and the live input took effect: the next tick wrote them
+        tickAndDeliver(&doc, 3);
+        tickAndRenderUniverses(&doc);
+        QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+        const int dmx = uchar(universes.first()->preGMValues().at(0));
+        doc.inputOutputMap()->releaseUniverses(false);
+        const QMap<QChar, int> now{ { QLatin1Char('F'), dmx },
+                                    { QLatin1Char('T'), toggle->state() == VCButton::Active ? 1 : 0 },
+                                    { QLatin1Char('S'), slider->value() } };
+        for (auto it = now.cbegin(); it != now.cend(); ++it)
+        {
+            if (was.contains(it.key()) && was.value(it.key()) != it.value())
+                changes[it.key()].append(QStringLiteral("%1=%2").arg(clock).arg(it.value()));
+            was.insert(it.key(), it.value());
+        }
+    };
+    const auto at = [&](quint32 ms) {
+        clock = ms;
+        show->setExternalElapsedTime(ms);
+        sample();
+    };
+
+    QStringList saw;
+    for (const QString &step : script.split(QLatin1Char(';')))
+    {
+        const QString verb = step.section(QLatin1Char(':'), 0, 0);
+        const QString arg = step.section(QLatin1Char(':'), 1);
+        if (verb == QLatin1String("playext"))
+        {
+            show->setSyncSource(ShowRunner::External);
+            show->start(doc.masterTimer(), FunctionParent::master());
+            at(0);
+        }
+        else if (verb == QLatin1String("rec") || verb == QLatin1String("recoff"))
+        {
+            QVERIFY(recorder.setResolvedShow(show->id()));
+            QVERIFY2(recorder.setRecording(verb == QLatin1String("rec")), qPrintable(recorder.lastError()));
+        }
+        else if (verb == QLatin1String("to"))
+        {
+            while (clock < arg.toUInt())
+                at(clock + 100);
+        }
+        else if (verb == QLatin1String("wrap"))
+            at(0);
+        else if (verb == QLatin1String("press") || verb == QLatin1String("release"))
+        {
+            flash->requestUserStateChange(verb == QLatin1String("press"));
+            sample();
+        }
+        else if (verb == QLatin1String("click"))
+        {
+            toggle->requestUserStateChange(true);
+            sample();
+        }
+        else if (verb == QLatin1String("slide"))
+        {
+            slider->requestUserValue(arg.toInt());
+            sample();
+        }
+        else if (verb == QLatin1String("log"))
+        {
+            QStringList line;
+            for (auto it = changes.cbegin(); it != changes.cend(); ++it)
+                if (!it.value().isEmpty())
+                    line.append(QString(it.key()) + QLatin1Char(':') + it.value().join(QLatin1Char(',')));
+            saw.append(line.join(QLatin1Char(' ')));
+            changes.clear();
+        }
+        else if (verb == QLatin1String("track"))
+        {
+            const ShowCommandTrack track = show->commandTrack();
+            QVERIFY(track.malformedHoldPairs().isEmpty());
+            QStringList toggles, samples;
+            for (const ShowCommand &cmd : track.commands())
+            {
+                if (cmd.controlId == toggle->recordingId())
+                    toggles.append(QStringLiteral("%1=%2").arg(cmd.time).arg(int(cmd.on)));
+                else if (cmd.controlId == slider->recordingId())
+                    samples.append(QString::number(cmd.time));
+            }
+            QStringList line;
+            if (!holdSpans(track).isEmpty())
+                line.append(QStringLiteral("F:") + holdSpans(track).replace(QLatin1Char(' '), QLatin1Char(',')));
+            if (!toggles.isEmpty())
+                line.append(QStringLiteral("T:") + toggles.join(QLatin1Char(',')));
+            if (!samples.isEmpty())
+                line.append(QStringLiteral("S:") + samples.join(QLatin1Char(',')));
+            saw.append(line.join(QLatin1Char(' ')));
+        }
+        else
+            QFAIL(qPrintable(QStringLiteral("unknown step ") + step));
+    }
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QCOMPARE(saw, seen);
+}
+
 namespace
 {
 /** A flash button whose recorded hold [1000, 5000] the Show replays at 2000 */
@@ -15728,13 +15902,13 @@ void ShowCommandRecorder_Test::nonUserChanges_recordNothing()
     }
     else
     {
-        // the replayed ON is owed, so A's click waits behind it
+        // the replayed ON is owed, so the slider on A's Function waits behind it
         QSignalSpy batches(r.show, &Show::controlBatchesReady);
         playExternalFromZero(r.show, &r.doc);
         r.show->setExternalElapsedTime(2600);
         for (int i = 0; i < 20 && batches.isEmpty(); i++)
             r.doc.masterTimer()->timerTick();
-        r.ba->requestUserStateChange(true);
+        r.slider->requestUserValue(51);
         QCOMPARE(r.recorder.pendingUserRequests().count(), 1);
         QVERIFY(r.recorder.setRecording(false));
         tickAndDeliver(&r.doc, 8);
@@ -15857,8 +16031,9 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
     if (scenario == QLatin1String("checkpoint") || scenario == QLatin1String("queued"))
     {
         QVERIFY(r.recorder.checkpoint());
-        // both requests on A wait behind its crossed replay
-        QCOMPARE(r.recorder.pendingUserRequests().count(), scenario == QLatin1String("queued") ? 2 : 0);
+        // A waits behind the crossed replay of the slider on its Function; the
+        // slider's own request does not
+        QCOMPARE(r.recorder.pendingUserRequests().count(), scenario == QLatin1String("queued") ? 1 : 0);
     }
     else if (scenario == QLatin1String("disarm"))
     {
@@ -20976,14 +21151,11 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
     VCBridgeV5 bridge(&doc, ui.vc());
     const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frame, scene->id(), 10, QStringLiteral("Replayed"));
-    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, Function::invalidId());
-    slider->setSliderMode(VCSlider::Level);
-    slider->addLevelChannel(scene->values().first().fxi, 3);
+    // on the replayed button's Function: its request waits behind that replay
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, scene->id());
     slider->setCaption(QStringLiteral("Accepted caption"));
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::setButtonState(0, 100, button->ensureRecordingId(), true)));
-    QVERIFY(track.insert(ShowCommand::setSliderPosition(1, 110, slider->ensureRecordingId(),
-                                                        ShowControlRole::LevelSlider, QString(), 0.3)));
     QVERIFY(track.setExtent(60000));
     QVERIFY(show->setCommandTrack(track));
     QSignalSpy batches(show, &Show::controlBatchesReady);

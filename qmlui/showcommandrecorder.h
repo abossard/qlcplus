@@ -577,6 +577,19 @@ private:
     /** Return what this Show's timeline changed after the run's rollback time
      *  to its state before the first of those changes, as one delta */
     void rollBackTimeline(ControlRun &run);
+    /** While REC records into the run's Show, a replayed command of a control
+     *  the performer touches is replaced instead of applied: a hold edge
+     *  within the performer's hold of that control in this pass, any other
+     *  command when the control was moved live since the playhead last
+     *  reached one of its recorded events. That one is removed from the
+     *  track here; a hold's release removes what it spanned. */
+    bool replacedByLive(const ControlRun &run, const ShowCommand &cmd);
+    /** The performer's holds in this pass, recorded by REC, by (identity,
+     *  role): from the press to the release, MaxTime while held */
+    QHash<QPair<QUuid, int>, QPair<quint32, quint32>> m_liveHolds;
+    /** (identity, action) of the controls without a pressed state REC
+     *  recorded live since the playhead last reached one of their events */
+    QSet<QPair<QUuid, int>> m_movedLive;
     /** A replayed slider write the run waits for, then a start it may cause */
     void awaitRecordedWrite(ControlRun &run, VCWidget *control, quint64 generation);
     /** Every write the run waited for retired: wait for the starts and stops
