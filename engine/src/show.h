@@ -538,6 +538,9 @@ protected:
      *  under m_commandTrackMutex: the runner takes these, never the
      *  attributes the GUI keeps writing while it reads */
     QVector<qreal> m_trackIntensities;
+    /** The same, without overrides: what the reset after a stop leaves.
+     *  Lets postRun reset the copy without reading the attributes */
+    QVector<qreal> m_trackBaseIntensities;
     /** Number of currently running children */
     QSet <quint32> m_runningChildren;
 

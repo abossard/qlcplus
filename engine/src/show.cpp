@@ -494,7 +494,10 @@ bool Show::removeTrack(quint32 id)
         {
             QMutexLocker locker(&m_commandTrackMutex);
             if (index >= 0 && index < m_trackIntensities.count())
+            {
                 m_trackIntensities.removeAt(index);
+                m_trackBaseIntensities.removeAt(index);
+            }
         }
 
         //emit trackRemoved(id);
@@ -1248,10 +1251,11 @@ void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
     }
     Function::postRun(timer, universes);
 
-    // the stop reset the attributes: the copy the next run takes follows
+    // the stop reset the attributes: the copy the next run takes follows,
+    // from the values adjustAttribute stored, as the GUI writes the attributes now
+    // shortcut: assumes the reset ran (no caller stops with preserveAttributes), check it if one does
     QMutexLocker locker(&m_commandTrackMutex);
-    for (int i = 0; i < m_trackIntensities.count(); i++)
-        m_trackIntensities[i] = getAttributeValue(i);
+    m_trackIntensities = m_trackBaseIntensities;
 }
 
 void Show::slotChildStopped(quint32 fid)
@@ -1274,8 +1278,12 @@ int Show::adjustAttribute(qreal fraction, int attributeId)
     {
         QMutexLocker locker(&m_commandTrackMutex);
         while (m_trackIntensities.count() <= attrIndex)
+        {
             m_trackIntensities.append(1.0);
+            m_trackBaseIntensities.append(1.0);
+        }
         m_trackIntensities[attrIndex] = getAttributeValue(attrIndex);
+        m_trackBaseIntensities[attrIndex] = attributes().at(attrIndex).m_value;
     }
     m_trackIntensityChanged.store(true, std::memory_order_release);
     return attrIndex;
