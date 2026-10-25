@@ -1177,7 +1177,8 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         QVector<qreal> intensities;
         {
             QMutexLocker locker(&m_commandTrackMutex);
-            intensities = m_trackIntensities;
+            // a deep copy: a shared one leaves the buffer the GUI writes in place once its ref drops
+            intensities = QVector<qreal>(m_trackIntensities.cbegin(), m_trackIntensities.cend());
         }
         int i = 0;
         foreach (Track *track, m_tracks)
