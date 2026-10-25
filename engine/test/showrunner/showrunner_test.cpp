@@ -1867,6 +1867,62 @@ void ShowRunner_Test::seekRestartsWhatItDoesNotKeep()
     QCOMPARE(QStringLiteral("%1 %2").arg(before).arg(after), expected);
 }
 
+void ShowRunner_Test::seekJudgesBeatClipsOnTheClockThatPlaysThem()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    // the MasterTimer beats at 60 BPM, the external clock plays the Show at 120
+    timer->setBeatSourceType(MasterTimer::Internal);
+    timer->requestBpmNumber(60);
+    auto *fixture = makeFixture(doc, 2);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    scene->setTempoType(Function::Beats);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setTimeDivision(Show::BPM_4_4, 120);
+    // beats 4 to 8: 2 s to 4 s at 120 BPM
+    auto *track = new Track(scene->id());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(scene->id());
+    item->setStartTime(4000);
+    item->setDuration(4000);
+    track->addShowFunction(item);
+    show->addTrack(track);
+    Scene *keeper = makeScene(doc, fixture->id(), 1, 0);
+    auto *keeperTrack = new Track(keeper->id());
+    auto *kept = new ShowFunction(show->getLatestShowFunctionId());
+    kept->setFunctionID(keeper->id());
+    kept->setStartTime(0);
+    kept->setDuration(9000);
+    keeperTrack->addShowFunction(kept);
+    show->addTrack(keeperTrack);
+
+    show->setSyncSource(ShowRunner::External);
+    show->start(timer, FunctionParent::master());
+    for (quint32 ms = 0; ms <= 3000; ms += 100)
+    {
+        show->setExternalElapsedTime(ms);
+        timer->timerTick();
+    }
+    QVERIFY(scene->isRunning());
+    QSignalSpy starts(scene, &Function::running);
+    QSignalSpy stops(scene, SIGNAL(stopped(quint32)));
+    // back to beat 5: still inside the clip on the Show's clock
+    show->setExternalElapsedTime(2500);
+    timer->timerTick();
+    const uchar output = sampleChannel(doc, 0);
+    timer->timerTick();
+    // lit, however far its fade has come
+    const QString actual = QStringLiteral("%1 %2 %3").arg(starts.count()).arg(stops.count()).arg(output > 0);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+    timer->setBeatSourceType(MasterTimer::None);
+
+    QCOMPARE(actual, QStringLiteral("0 0 1"));
+}
+
 void ShowRunner_Test::commandLiveInputAfterAMoveBackDoesNotEcho_data()
 {
     QTest::addColumn<bool>("external");

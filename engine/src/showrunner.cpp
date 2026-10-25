@@ -566,8 +566,9 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
 
     m_elapsedTime = newTime;
     m_internalBeatClockMs = newTime;
+    // the clock that plays the beats: an external one plays them at the Show's BPM
     const MasterTimer *timer = m_doc->masterTimer();
-    const int bpm = timer->beatSourceType() == MasterTimer::None
+    const int bpm = m_syncSource == External || timer->beatSourceType() == MasterTimer::None
             ? (m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120)
             : timer->bpmNumber();
     if (bpm > 0)

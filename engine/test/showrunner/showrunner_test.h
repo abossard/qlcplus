@@ -54,6 +54,7 @@ private slots:
     void seekRestartsAudioAtTheTarget();
     void seekRestartsWhatItDoesNotKeep_data();
     void seekRestartsWhatItDoesNotKeep();
+    void seekJudgesBeatClipsOnTheClockThatPlaysThem();
 
     // The GUI never reaches the runner: the timer thread takes its settings once per tick
     void syncSourceChangeAppliesOnNextTick_data();
