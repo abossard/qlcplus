@@ -164,30 +164,6 @@ void VdjTelemetryClient::onReadyRead()
         feed(m_client->readAll());
 }
 
-int VdjTelemetryClient::objectEnd(const QByteArray &data, int from)
-{
-    int depth = 0;
-    bool inString = false;
-    for (int i = from; i < data.size(); i++)
-    {
-        const char c = data.at(i);
-        if (inString)
-        {
-            if (c == '\\')
-                i++;
-            else if (c == '"')
-                inString = false;
-        }
-        else if (c == '"')
-            inString = true;
-        else if (c == '{')
-            depth++;
-        else if (c == '}' && --depth == 0)
-            return i + 1;
-    }
-    return -1;
-}
-
 void VdjTelemetryClient::feed(const QByteArray &chunk)
 {
     m_buffer.append(chunk);
@@ -209,7 +185,26 @@ void VdjTelemetryClient::feed(const QByteArray &chunk)
             pos = next < 0 ? m_buffer.size() : next;
             continue;
         }
-        const int end = objectEnd(m_buffer, pos);
+        // the object ends at its closing brace, braces and quotes inside strings aside
+        int end = -1, depth = 0;
+        bool inString = false;
+        for (int i = pos; i < m_buffer.size() && end < 0; i++)
+        {
+            const char b = m_buffer.at(i);
+            if (inString)
+            {
+                if (b == '\\')
+                    i++;
+                else if (b == '"')
+                    inString = false;
+            }
+            else if (b == '"')
+                inString = true;
+            else if (b == '{')
+                depth++;
+            else if (b == '}' && --depth == 0)
+                end = i + 1;
+        }
         if (end < 0)
             break; // the object goes on in the next chunk
         parseLine(m_buffer.mid(pos, end - pos));

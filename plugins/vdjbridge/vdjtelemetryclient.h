@@ -108,9 +108,6 @@ private:
     void setStatus(Status s);
     void closeClient();
 
-    /** Index past the object starting at from, -1 while it is incomplete */
-    static int objectEnd(const QByteArray &data, int from);
-
     QTcpServer m_server;
     QTcpSocket *m_client = nullptr;
     QByteArray m_buffer;
