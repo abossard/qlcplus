@@ -111,7 +111,10 @@ public:
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
 
     /** The objects of one VDJ write are in: every deck settles its view, then the
-     *  master, then the write's notifications go out, the master's first. */
+     *  master, then the write's notifications go out, the master's first.
+     *  activeDeckChanged, activeSongChanged, songChanged, songUpdated and the
+     *  deckChanged sent here see the whole write settled; a volume's deckChanged
+     *  and positionChanged go out mid-write, from onDeckTrigger. */
     void onTickEnded();
 
     /** VDJ socket dropped: no active deck first, then every deck empty. */

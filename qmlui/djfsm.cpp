@@ -191,7 +191,8 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
 void DjFsm::onTickEnded()
 {
     // every deck's view, then the master, then the write's notifications, the
-    // master's first: whoever hears one sees the whole write settled
+    // master's first: these see the whole write settled; a volume's deckChanged
+    // and positionChanged went out mid-write, as their triggers arrived
     std::array<Deck, MaxDecks> before;
     for (int d = 0; d < m_deckCount; ++d)
     {
@@ -215,14 +216,14 @@ void DjFsm::onTickEnded()
 void DjFsm::settle(Slot &s)
 {
     Pending &p = s.pending;
-    const bool loaded = s.deck.song.isValid();
+    const bool hadSong = s.deck.song.isValid();
 
     // held song fields are the file's whose filepath the write carries, or a
     // position sample of the loaded song; `loaded` on brings the ejected file
     // back unless the write carries a per-file field, which VDJ resends for
     // another file only; an empty deck's values are nobody's and mirror at once
-    if (p.filepath || (s.positionSeen && loaded) || !s.loaded
-        || (s.loadedOnSeen && !loaded && !s.perFileSeen))
+    if (p.filepath || (s.positionSeen && hadSong) || !s.loaded
+        || (s.loadedOnSeen && !hadSong && !s.perFileSeen))
     {
         if (p.filepath && *p.filepath != s.last.filepath)
             s.deck.positionStale = !s.positionSeen;
