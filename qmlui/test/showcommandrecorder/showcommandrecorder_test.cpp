@@ -15170,6 +15170,10 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
         << QStringList{ QStringLiteral("F:0=200,1000=0"),
                         QStringLiteral("F:0=200,1000=0,5500=200,500=0,5500=200,6000=0"),
                         QStringLiteral("F:0-500,500-1000,5500-6000") };
+    // REC records from when it turns on, also a hold held then
+    QTest::newRow("a flash held when REC turns on is recorded from then")
+        << QStringLiteral("rec;playext;recoff;to:1000;press:F;to:2000;rec;to:3000;release:F;to:6000;log;track")
+        << QStringList{ QStringLiteral("F:1000=200,3000=0"), QStringLiteral("F:2000-3000") };
     // a touch is the control's, whatever action it records: the flash holds full
     QTest::newRow("a slider's live flash replaces its recorded values")
         << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;log;wrap;to:1500;flash:S;"

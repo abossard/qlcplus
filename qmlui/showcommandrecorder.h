@@ -599,6 +599,8 @@ private:
      *  Show records ends at the departure, and one the performer still
      *  holds starts again at the arrival, live, so its native hold stays */
     void holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival);
+    /** REC began recording into show: a hold the performer holds now starts there */
+    void recordHeldHolds(Show *show);
     /** Whether a widget carrying controlId is in the performer's hold set for role */
     bool heldLive(const QUuid &controlId, ShowControlRole role);
     /** What a touch counts in: the take and the pass it was made in */

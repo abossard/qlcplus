@@ -357,6 +357,9 @@ bool ShowCommandRecorder::dispatchNow(const ShowRecordEvent &event)
     if (changed)
     {
         m_takeId++;
+        // a take records the holds held as it begins
+        if (Show *show = qobject_cast<Show *>(m_doc->function(m_rec.boundShowId())))
+            recordHeldHolds(show);
         emit stateChanged();
         emit editGateChanged();
     }
@@ -2019,6 +2022,31 @@ void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint
         const auto stamp = touchStamp(show);
         if (authorAt(again, arrival) && stamp)
             m_liveHolds[press.controlId] = { { *stamp, arrival, ShowCommand::MaxTime } };
+    }
+}
+
+void ShowCommandRecorder::recordHeldHolds(Show *show)
+{
+    if (m_vc == nullptr || show != trackedShow() || isAuthoring() == false)
+        return;
+    const quint32 at = qMin(acceptancePosition(show), ShowCommand::MaxTime);
+    const auto stamp = touchStamp(show);
+    for (const QSet<quint32> *holds : { &m_userFreezeHolds, &m_userFlashHolds, &m_userSliderFlashHolds })
+    {
+        for (quint32 widgetId : *holds)
+        {
+            VCWidget *widget = m_vc->widget(widgetId);
+            if (widget == nullptr)
+                continue;
+            ShowCommandInput press;
+            press.origin = ShowCommandOrigin::Pointer;
+            press.action = ShowCommandAction::SetButtonState;
+            press.controlId = widget->ensureRecordingId();
+            press.role = configurationOf(widget).snapshot.role;
+            press.on = true;
+            if (authorAt(press, at) && stamp)
+                m_liveHolds[press.controlId] = { { *stamp, at, ShowCommand::MaxTime } };
+        }
     }
 }
 
