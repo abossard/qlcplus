@@ -24,9 +24,9 @@
 #ifdef Q_OS_MACOS
 #include <QSocketNotifier>
 #include <arpa/inet.h>
-#endif
 
 static const char *kLogTag = "[VDJ Bonjour]";
+#endif
 
 VdjBonjour::VdjBonjour(QObject *parent)
     : QObject(parent)
