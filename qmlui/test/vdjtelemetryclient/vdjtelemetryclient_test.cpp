@@ -850,4 +850,29 @@ void VdjTelemetryClient_Test::bonjourAdvertisesOnlyAListeningServer()
     plugin.closeInput(0, 3);
 }
 
+void VdjTelemetryClient_Test::aPortOutsideOneTo65535IsIgnored_data()
+{
+    // from vdj/telemetryPort or a workspace file
+    QTest::addColumn<QVariant>("port");
+    QTest::newRow("0: any port") << QVariant(0);
+    QTest::newRow("\"0\"") << QVariant("0");
+    QTest::newRow("past 65535") << QVariant(70000);
+    QTest::newRow("not a number") << QVariant("port");
+}
+
+void VdjTelemetryClient_Test::aPortOutsideOneTo65535IsIgnored()
+{
+    QFETCH(QVariant, port);
+
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18072);
+    QVERIFY(plugin.openInput(0, 3));
+
+    plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), port);
+    QCOMPARE(plugin.hostPort(), quint16(18072));
+    QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Advertising));
+    QVERIFY(!plugin.getParameters(3, 0, QLCIOPlugin::Input).contains("hostPort"));
+    plugin.closeInput(0, 3);
+}
+
 QTEST_MAIN(VdjTelemetryClient_Test)

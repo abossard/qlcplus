@@ -22,6 +22,8 @@
 #include "vdjtelemetryclient.h"
 #include "vdjbonjour.h"
 
+#include <QDebug>
+
 VdjBridgePlugin::~VdjBridgePlugin()
 {
     if (m_open)
@@ -186,14 +188,24 @@ QString VdjBridgePlugin::clientAddress() const
 void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability type,
                                    QString name, QVariant value)
 {
-    if (name == QLatin1String(VDJ_HOST_PORT) && value.toUInt() != m_hostPort)
+    if (name == QLatin1String(VDJ_HOST_PORT))
     {
-        m_hostPort = static_cast<quint16>(value.toUInt());
-        if (m_open)
+        // 0 would listen on any port and advertise port 0: treated as unset
+        const uint port = value.toUInt();
+        if (port == 0 || port > 65535)
         {
-            m_telemetry->start(m_hostPort);
-            registerBonjour();
-            emit connectionStatusChanged(m_inputUniverse, 0);
+            qWarning() << "[VdjBridge] ignoring hostPort" << value;
+            return;
+        }
+        if (port != m_hostPort)
+        {
+            m_hostPort = quint16(port);
+            if (m_open)
+            {
+                m_telemetry->start(m_hostPort);
+                registerBonjour();
+                emit connectionStatusChanged(m_inputUniverse, 0);
+            }
         }
     }
     else if (name == QLatin1String(VDJ_BONJOUR_ENABLED))
