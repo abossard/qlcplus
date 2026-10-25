@@ -192,7 +192,7 @@ VCAudioTriggers::~VCAudioTriggers()
     if (m_captureEnabled)
         setCaptureEnabled(false);
     if (m_item)
-        delete m_item;
+        delete m_item.data();
 }
 
 QString VCAudioTriggers::defaultCaption() const
@@ -223,6 +223,7 @@ void VCAudioTriggers::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
+    delete m_item.data();
     m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create audio triggers component" << component->errors();
@@ -2662,7 +2663,9 @@ void VCAudioTriggers::rebuildBarAbsDmxChannels(BandMapping &bm) const
     {
         if (Fixture *fx = m_doc->fixture(scv.fxi))
         {
-            const quint32 absAddr = fx->universeAddress() + scv.channel;
+            const quint32 absAddr = fx->channelAddress(scv.channel);
+            if (absAddr == QLCChannel::invalid())
+                continue;
             bm.absDmxChannels.append(int(absAddr));
         }
     }

@@ -52,6 +52,7 @@ private slots:
     void deleteUniverses_batchOutOfOrder_removesBoth();
     void deleteUniverses_wouldLeaveGap_rejected();
     void deleteUniverses_duplicateIds_deletedOnce();
+    void deleteUniverses_crossUniverseFixture_rejected_data();
     void deleteUniverses_crossUniverseFixture_rejected();
     void deleteUniverses_withPatchedFixtures_rejected();
     void deleteUniverses_lastRemaining_rejected();

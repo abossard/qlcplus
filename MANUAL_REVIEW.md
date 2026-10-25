@@ -2618,3 +2618,84 @@ The earlier statement “Their cause and whether they predate the integrated mer
 Retained [diagnostic output](build/preview-width-correction-20261023/diagnostic.log) and [summary](build/preview-width-correction-20261023/summary.json) report `viewport=991`, `preview=1982.07` for Time/VDJ or `1982.03` for BPM, with `viewChunk=0`, `contentX=0` and the correct timeline identity. At the left edge, clamping the three-viewport cache leaves roughly two viewport widths, explaining the unchanged failing bound. E10 independently reproduced these values and verified the relevant first-parent blob identities.
 
 All prior failures remain failures: full suite `564 passed, 15 failed, 8 skipped`; focused run `23 passed, 15 failed, 0 skipped`; diagnostic `17 passed, 15 failed, 0 skipped` (each inner exit 15). The full UI suite is not green. No full first-parent suite was executed, so this localized attribution does not establish complete pre-merge runtime equivalence or approval of the cache policy. No production/test source changes or weakened assertions were made. Reconciling the fork cache policy and its tests is explicitly out of the current integration scope and requires separate owner scope. All existing human checks and sign-offs remain unchanged and pending where previously pending.
+
+## 42. Upstream master 0eee616b5 integration (2026-10-25)
+
+> Incoming commits: `98c3cb6c4`, `c961fe09a`, `dd77f9b50`, `6f7f290da`, `76ed135e4`, `a4820e523`, `0eee616b5`. Local integration starts from `mcp-server@4bc0df66e`. Upstream source: `mcallegari/qlcplus:master`, fetched through the `upstream` remote. Automated evidence below does not sign off these human checks.
+
+### 42.1 RGB panel universe split [DMX]
+
+- **Do:** In a disposable workspace, patch an RGB panel near the end of a universe. Compare whole-pixel splitting with filling every available channel. Include an RGBW or 16-bit panel and a panel spanning more than two universes. Save, reopen and verify the physical patch.
+- ☐ Whole-pixel mode keeps each pixel together and leaves only the expected unused tail channels. Fill mode uses the remaining channels before continuing in the next universe.
+- ☐ The physical pixel order, components and 16-bit behavior agree with the saved patch after reopening. No adjacent fixture responds to the panel's unused tail channels.
+
+### 42.2 Cross-universe playback and fork HUE output [DMX]
+
+- **Do:** Use the split panel in Scene, RGB Matrix and fork HUE Matrix functions. Exercise Simple Desk, a VC level slider and audio-trigger DMX mappings across the split. Compare fixture-console and monitor feedback with actual output.
+- ☐ Output follows the intended pixel and component across each universe boundary, including fork HUE effects. No color jumps to the preceding universe or neighboring fixture.
+- ☐ Editor feedback, monitor colors and physical output stay consistent while changing values and stopping playback, without stuck channels.
+
+### 42.3 QML view and VC projection lifetime
+
+- **Do:** Repeatedly switch between fixture views, Scene editing, Show editing and Virtual Console. Reload VC pages containing nested frames and several widget types. Select, align, distribute and edit widgets after returning to a page.
+- ☐ Views and pages reopen with one coherent visual instance per widget. No stale selection outline, duplicate widget or crash appears after the old QML objects are destroyed.
+- ☐ Fork outline selection, logical geometry, popup placement and native authoring still address the intended widget after reload.
+
+### 42.4 Frame enable and Click and Go live actions
+
+- **Do:** In a disposable console, toggle a frame's enabled state in Edit and Operate modes. Change a slider's Click and Go primary and secondary colors at the same slider level. Exercise available history controls and, with a second instance, Tardis synchronization.
+- ☐ Frame state and slider colors propagate to the intended peer and restore correctly through supported history actions. Edit-mode frame changes do not create duplicate history entries.
+- ☐ Fork recording and playback retain the intended color/value transition. Changing colors at an unchanged slider level is not silently ignored.
+
+### 42.5 Android native workspace dialog
+
+- **Do:** On Android, open an existing workspace through the native document provider, including a `content://` location. Save a copy through the native picker, reopen it, and cancel each dialog once. Compare the desktop Open and Save paths.
+- ☐ Android can select and reopen the intended workspace without an extension filter hiding it. Cancel leaves the current workspace unchanged.
+- ☐ Save targets the chosen provider and location. Desktop dialogs continue to open and save normally without loading Android-only QML imports.
+
+### 42.6 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, platform/Qt version, panel split mode/address, output hardware and Tardis peer details. Leave unavailable hardware, Android and peer paths unsigned.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| RGB panel split and persistence | | | | | |
+| Cross-universe playback and HUE | | | | | |
+| QML lifetime and VC authoring | | | | | |
+| Frame and Click and Go actions | | | | | |
+| Android native dialogs and desktop comparison | | | | | |
+
+#### Automated evidence, 2026-10-25
+
+- Final application and affected-suite build: exit `0`. `qlcplus5` includes the upstream QPointer changes and fork MCP/UI consumers. The existing Release configuration and warning exceptions were unchanged. An earlier build attempt stopped on missing Qt headers in `scene_test`; an unchanged retry and the final batch completed successfully, without dependency installation or source changes for that transient failure.
+- Build command from the repository root:
+
+```sh
+cmake --build build --target qlcplus5 fixture_test doc_test fadechannel_test genericdmxsource_test rgbmatrix_test huematrix_test scene_test script_test upstreamintegration_test mcp_vc_query_filter_test mcp_vc_validation_test mcp_vc_authoring_apply_tools_test mcp_io_tools_test mcp_query_tools_test -j8
+python3 build/upstream-integration-20261025/run-tests.py
+```
+
+- Native execution used Qt `6.12.0`, offscreen/software rendering, per-suite isolated HOME/config/runtime directories, `-maxwarnings 0`, source-test working directories for relative engine resources, and owned scratch working directories for MCP/UI tests. [Final build log](build/upstream-integration-20261025/build-final.log), [exact per-suite commands, working directories, exits and totals](build/upstream-integration-20261025/results.json).
+
+| Suite | Passed | Failed | Skipped | Exit |
+|-------|--------|--------|---------|------|
+| fixture | 29 | 0 | 0 | 0 |
+| doc | 30 | 0 | 0 | 0 |
+| fadechannel | 14 | 0 | 0 | 0 |
+| genericdmxsource | 5 | 0 | 0 | 0 |
+| rgbmatrix | 27 | 0 | 0 | 0 |
+| huematrix | 257 | 0 | 0 | 0 |
+| scene | 20 | 0 | 0 | 0 |
+| script | 3 | 0 | 0 | 0 |
+| mcp_vc_query_filter | 65 | 0 | 0 | 0 |
+| mcp_vc_validation | 76 | 0 | 0 | 0 |
+| mcp_vc_authoring_apply_tools | 47 | 0 | 0 | 0 |
+| mcp_io_tools | 60 | 0 | 0 | 0 |
+| mcp_query_tools | 94 | 0 | 0 | 0 |
+| upstreamintegration | 564 | 15 | 8 | 15 |
+
+- Native aggregate: `1291 passed, 15 failed, 8 skipped`. The batch runner exits `1` because the full UI suite exits `15`. All fifteen failures remain `timelineViewport` rows at `preview->width() <= width`; the eight skips are opt-in VC screenshots requiring `QLC_VC_VISUAL_DIR`. The preview-cache attribution in section 41 remains applicable: ShowItem.qml, ShowManager.qml, HeaderAndCursor.qml and the integration-test source are byte-identical to first parent `4bc0df66e`. No width assertions or cache policy were changed. This is not a green full UI suite or a full first-parent runtime comparison.
+- Fork split-address repair: HUEMatrix's cached pixel plan now resolves each channel with upstream `Fixture::channelAddress`; MCP universe deletion uses `Fixture::lastUniverse`. The new parameterized `C2_splitPixelPlan` regression failed before the HUE repair (`4 passed, 1 failed`, exit `1`, pixel mode selected universe `0` instead of `1`) and all three mode rows pass afterward. The existing MCP cross-universe deletion test now covers fill and whole-pixel modes and the changed fixture API. [Pre-repair regression](build/upstream-integration-20261025/hue-regression-before.log), [final HUE log](build/upstream-integration-20261025/huematrix.log), [final MCP I/O log](build/upstream-integration-20261025/mcp_io_tools.log).
+- Conflict seams retain the cached first FadeChannel index while adopting upstream resolved-address semantics, guard and release old VC projections while preserving fork QML contexts, retain fork selection/authoring admission, and combine upstream frame/color live actions with fork editor history and recording. Linux package installation keeps the fork's Qt6/MCP architecture matrix and dependency verification while adding upstream mirror retries.
+- Workflow YAML parses and every shell run block passes `bash -n`. Linux CI/package execution, v4, Windows, physical DMX, Android document providers, Tardis peers and native desktop focus are not verified by this macOS/offscreen run.
+- Review parser tests: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `49 passed`, exit `0`. Both native-canvas and TypeScript parsers recognize six new cases and eleven unique pending checks. All preceding parsed sections are identical. Original document prefix preserved: `184943` bytes, SHA-256 `0f1423f1dc6b282ba1835af7a3914c5a50e8e52a240272ba2bac0a25951f957e`. [Parser tests](build/upstream-integration-20261025/review-parser-tests.log), [byte and parser preservation check](build/upstream-integration-20261025/review-preservation.log).

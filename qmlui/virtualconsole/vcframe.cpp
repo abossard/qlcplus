@@ -72,7 +72,7 @@ VCFrame::~VCFrame()
     deleteChildren();
 
     if (m_item)
-        delete m_item;
+        delete m_item.data();
 }
 
 void VCFrame::initializeProperties()
@@ -110,6 +110,7 @@ void VCFrame::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
+    delete m_item.data();
     m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create frame component" << component->errors();
@@ -946,6 +947,8 @@ void VCFrame::setDisabled(bool disable)
     /* The enable button also works while operating: only editing makes history */
     if (disable != isDisabled() && m_vc && m_vc->editMode())
         VCEditor::recordProperty(this, "isDisabled", isDisabled(), disable);
+    else if (isDisabled() != disable)
+        Tardis::instance()->enqueueAction(Tardis::VCFrameSetDisabled, id(), isDisabled(), disable);
     for (VCWidget *widget : children(true)) // C++11
         widget->setDisabled(disable);
 

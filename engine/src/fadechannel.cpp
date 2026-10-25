@@ -161,11 +161,35 @@ void FadeChannel::autoDetect(const Doc *doc)
         // it means channel was an absolute address, so, fix it
         if (fixtureWasInvalid)
         {
-            m_channels[0] -= fixture->address();
+            // cross-universe fixture channels are not necessarily
+            // contiguous, so look for the right channel index
+            quint32 absChannel = m_channels[0];
+            quint32 chIndex = fixture->channelIndexForAddress(absChannel);
+
+            if (fixture->crossUniverse() != Fixture::CrossUniverseNone && chIndex != QLCChannel::invalid())
+                m_channels[0] = chIndex;
+            else
+                m_channels[0] -= fixture->address();
             m_firstChannel = m_channels[0];
         }
 
         quint32 chIndex = channel();
+
+        // m_address holds the address of the primary channel
+        m_address += chIndex;
+
+        // a cross-universe fixture channel may belong to a following universe
+        // and, in pixel mode, channels are not contiguous
+        if (fixture->crossUniverse() != Fixture::CrossUniverseNone)
+        {
+            quint32 absAddress = fixture->channelAddress(chIndex);
+            if (absAddress != QLCChannel::invalid())
+            {
+                m_universe = absAddress >> 9;
+                m_address = absAddress & 0x01FF;
+            }
+        }
+
         m_primaryChannel = mode ? mode->primaryChannel(chIndex) : QLCChannel::invalid();
         m_channelRef = fixture->channel(chIndex);
 
@@ -243,6 +267,23 @@ int FadeChannel::channelIndex(quint32 channel) const
 quint32 FadeChannel::primaryChannel() const
 {
     return m_primaryChannel;
+}
+
+quint32 FadeChannel::address() const
+{
+    if (m_address == QLCChannel::invalid())
+        return channel();
+
+    return m_address;
+}
+
+quint32 FadeChannel::addressInUniverse() const
+{
+    quint32 addr = address();
+    if (addr == QLCChannel::invalid())
+        return QLCChannel::invalid();
+
+    return addr % UNIVERSE_SIZE;
 }
 
 /************************************************************************

@@ -1246,7 +1246,6 @@ void HUEMatrix::rebuildPixelPlan(const FixtureGroup *grp)
             continue;
 
         QLCFixtureHead head = fxi->head(grpHead.head);
-        const quint32 absAddress = fxi->universeAddress();
         const quint32 fxID = grpHead.fxi;
         const quint16 px = quint16(pt.x());
         const quint16 py = quint16(pt.y());
@@ -1254,10 +1253,13 @@ void HUEMatrix::rebuildPixelPlan(const FixtureGroup *grp)
         auto addEntry = [&](quint32 ch, PixelValueSource src) {
             if (ch == QLCChannel::invalid())
                 return;
+            const quint32 absAddress = fxi->channelAddress(ch);
+            if (absAddress == QLCChannel::invalid())
+                return;
             PixelPlanEntry e;
             e.x = px;
             e.y = py;
-            e.universeIndex = quint32((absAddress + ch) / 512);
+            e.universeIndex = absAddress >> 9;
             e.fixtureID = fxID;
             e.channel = ch;
             e.source = src;

@@ -31,7 +31,7 @@ VCLabel::VCLabel(Doc *doc, QObject *parent)
 VCLabel::~VCLabel()
 {
     if (m_item)
-        delete m_item;
+        delete m_item.data();
 }
 
 QString VCLabel::defaultCaption() const
@@ -59,6 +59,7 @@ void VCLabel::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
+    delete m_item.data();
     m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create label component" << component->errors();

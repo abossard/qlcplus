@@ -72,7 +72,7 @@ VCCueList::VCCueList(Doc *doc, QObject *parent)
 VCCueList::~VCCueList()
 {
     if (m_item)
-        delete m_item;
+        delete m_item.data();
 }
 
 QString VCCueList::defaultCaption() const
@@ -100,6 +100,7 @@ void VCCueList::render(QQuickView *view, QQuickItem *parent)
         return;
     }
 
+    delete m_item.data();
     m_item = createRenderItem(component, view, parent);
     if (m_item == nullptr)
         qWarning() << Q_FUNC_INFO << "Unable to create cue list component" << component->errors();

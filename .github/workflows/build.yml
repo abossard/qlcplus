@@ -93,8 +93,16 @@ jobs:
       # when every package fails to install.
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ${PACKAGES_ALL}
+          for i in 1 2 3; do
+            if sudo apt-get update && sudo apt-get install -y --no-install-recommends ${PACKAGES_ALL}; then
+              break
+            fi
+            if [ "$i" -eq 3 ]; then
+              exit 1
+            fi
+            echo "apt install failed (attempt $i), retrying in 30s..."
+            sleep 30
+          done
           pkg-config --exists libftdi1 libusb-1.0
           echo "OK: libftdi1 $(pkg-config --modversion libftdi1), libusb-1.0 $(pkg-config --modversion libusb-1.0)"
 

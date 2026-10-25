@@ -21,8 +21,8 @@
 #define VCWIDGET_H
 
 #include <QQuickView>
-#include <QPointer>
 #include <QQuickItem>
+#include <QPointer>
 #include <QObject>
 #include <QColor>
 #include <QRect>
@@ -158,7 +158,8 @@ protected:
     /** Reference to the project document */
     Doc* m_doc;
 
-    /** Reference to the onscreen Quick item */
+    /** Reference to the onscreen Quick item. It is created and owned by
+     *  this widget, but guarded in case the QML side destroys it */
     QPointer<QQuickItem> m_item;
 
     /*********************************************************************

@@ -139,6 +139,40 @@ void HUEMatrix_Test::functionType()
     QVERIFY(qobject_cast<RGBMatrix*>(&mtx) != NULL);
 }
 
+void HUEMatrix_Test::C2_splitPixelPlan_data()
+{
+    QTest::addColumn<int>("mode");
+    QTest::addColumn<quint32>("address");
+    QTest::newRow("unsplit") << int(Fixture::CrossUniverseNone) << quint32(100);
+    QTest::newRow("fill") << int(Fixture::CrossUniverseFill) << quint32(508);
+    QTest::newRow("pixel") << int(Fixture::CrossUniversePixel) << quint32(508);
+}
+
+void HUEMatrix_Test::C2_splitPixelPlan()
+{
+    QFETCH(int, mode);
+    QFETCH(quint32, address);
+    Doc doc(this);
+    auto *fixture = new Fixture(&doc);
+    QLCFixtureDef *definition = fixture->genericRGBPanelDef(3, Fixture::RGB, false);
+    QLCFixtureMode *fixtureMode = fixture->genericRGBPanelMode(definition, Fixture::RGB, false, 3, 1);
+    fixture->setFixtureDefinition(definition, fixtureMode);
+    fixture->setAddress(address);
+    fixture->setUniverse(0);
+    fixture->setCrossUniverse(Fixture::CrossUniverseMode(mode));
+    QVERIFY(doc.addFixture(fixture));
+
+    FixtureGroup group(&doc);
+    group.setSize(QSize(3, 1));
+    QVERIFY(group.assignFixture(fixture->id()));
+
+    HUEMatrix matrix(&doc);
+    matrix.rebuildPixelPlan(&group);
+    QCOMPARE(matrix.m_pixelPlan.size(), 9);
+    for (const auto &entry : matrix.m_pixelPlan)
+        QCOMPARE(entry.universeIndex, fixture->channelAddress(entry.channel) >> 9);
+}
+
 /****************************************************************************
  * AC5 - script partitioning
  ****************************************************************************/

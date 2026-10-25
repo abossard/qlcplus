@@ -107,6 +107,7 @@ bool VCWidget::initRenderItem(QQuickView *view, QQuickItem *parent,
         return false;
     }
 
+    delete m_item.data();
     m_item = createRenderItem(component, view, parent);
     delete component;
 
