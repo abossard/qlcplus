@@ -182,6 +182,8 @@ public:
      *  queued request; recording and playback go on. False, keeping every
      *  candidate, when a Show rejects it. */
     bool checkpoint();
+    /** The save checkpoint() was for is over, written or not: its snapshot goes */
+    void endCheckpoint();
 
     /** Drop the accepted input no Show has taken */
     void discardUnpublished();

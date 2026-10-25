@@ -40,6 +40,7 @@
 #include <QFileInfo>
 #include <QFileOpenEvent>
 #include <QSaveFile>
+#include <QScopeGuard>
 #include <QDir>
 #include <algorithm>
 #include <unistd.h>
@@ -1646,6 +1647,11 @@ QFile::FileError App::saveXML(const QString& fileName, SaveOrigin origin)
         setSaveError(m_showCommandRecorder->lastError(), autosave);
         return QFile::AbortError;
     }
+    // the snapshot the checkpoint armed is for this save only, written or not
+    const auto endCheckpoint = qScopeGuard([this, origin]() {
+        if (origin == WorkspaceSave && m_showCommandRecorder != nullptr)
+            m_showCommandRecorder->endCheckpoint();
+    });
 
 #if defined(Q_OS_ANDROID)
     QFile file(fileName);

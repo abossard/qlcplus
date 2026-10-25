@@ -267,6 +267,8 @@ public:
      *  track instead of the live one, then discards it. Runtime playback and
      *  commandTrack() reads are unchanged. */
     void armCommandTrackSaveProjection(const ShowCommandTrack &track);
+    /** Discard an armed projection no saveXML() used */
+    void disarmCommandTrackSaveProjection();
 
     /**
      * Validate and publish a command track. The candidate is rejected as a

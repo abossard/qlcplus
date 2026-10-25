@@ -17654,6 +17654,60 @@ void ShowCommandRecorder_Test::appSave_unwritableFile_reportedByOrigin()
         QVERIFY(messageBar->property("message").toString().contains(reason));
 }
 
+void ShowCommandRecorder_Test::appSave_failedSaveLeavesNoSnapshot()
+{
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString readOnlyDir = files.filePath(QStringLiteral("locked"));
+    QVERIFY(QDir().mkpath(readOnlyDir));
+    QVERIFY(QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+    const auto unlock = qScopeGuard([&readOnlyDir]() {
+        QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    });
+
+    AppRig rig;
+    QVERIFY(rig.recorder);
+    auto *vc = qobject_cast<VirtualConsole *>(rig.context("virtualConsole"));
+    QVERIFY(vc);
+    Scene *target = addTarget(rig.doc);
+    QVERIFY(target);
+    VCBridgeV5 bridge(rig.doc, vc);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(vc->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    QVERIFY(flash);
+    Show *show = rig.addShow(0);
+    QVERIFY(rig.recorder->setResolvedShow(show->id()));
+    QVERIFY(rig.recorder->setRecording(true));
+    show->start(rig.doc->masterTimer(), FunctionParent::master());
+    for (int i = 0; i < 20 && !show->isRunning(); i++)
+        tickAndDeliver(rig.doc, 1);
+    show->setExternalElapsedTime(1000);
+    flash->requestUserStateChange(true);
+    tickAndDeliver(rig.doc, 2);
+    show->setExternalElapsedTime(2000);
+    tickAndDeliver(rig.doc, 2);
+
+    // the save checkpoints, then cannot open its file
+    QVERIFY(!rig.app->saveWorkspace(readOnlyDir + QStringLiteral("/refused.qxw")));
+    // the next copy (an autosave, a client's) writes the Show as it is: the hold still held is in no track
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(show->saveXML(&writer));
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show copy(rig.doc);
+    QVERIFY(copy.loadXML(reader));
+
+    flash->requestUserStateChange(false);
+    QVERIFY(rig.recorder->setRecording(false));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(rig.doc, 3);
+
+    QCOMPARE(holdSpans(copy.commandTrack()), QString());
+}
+
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()
 {
     QTest::addColumn<QString>("route");

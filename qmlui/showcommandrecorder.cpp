@@ -391,6 +391,12 @@ bool ShowCommandRecorder::checkpoint()
     return false;
 }
 
+void ShowCommandRecorder::endCheckpoint()
+{
+    if (Show *show = trackedShow())
+        show->disarmCommandTrackSaveProjection();
+}
+
 bool ShowCommandRecorder::publishAccepted(bool disarming, QString *error)
 {
     const ShowTraceCause operation = newCause();

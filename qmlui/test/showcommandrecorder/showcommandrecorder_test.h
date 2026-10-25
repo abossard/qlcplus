@@ -457,6 +457,7 @@ private slots:
     void appSave_checkpointsRecording();
     void appSave_unwritableFile_reportedByOrigin_data();
     void appSave_unwritableFile_reportedByOrigin();
+    void appSave_failedSaveLeavesNoSnapshot();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState_data();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState();
     void appReplacement_confirmsRecording_data();

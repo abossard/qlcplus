@@ -629,6 +629,12 @@ void Show::armCommandTrackSaveProjection(const ShowCommandTrack &track)
     m_commandTrackSaveProjectionArmed = true;
 }
 
+void Show::disarmCommandTrackSaveProjection()
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    m_commandTrackSaveProjectionArmed = false;
+}
+
 QString Show::commandTrackError(const ShowCommandTrack &track) const
 {
     Doc *document = doc();
