@@ -145,9 +145,9 @@ versions/actions and invalid values, including `Order` on only some commands or
 used twice, are errors; they must not load as an empty successful track.
 Both edges of a saved hold share one `Pair` identity and keep separate event
 IDs. Loading drops an orphan, mismatched, overlapping or unclosed pair with a
-warning and keeps the rest of the track; a saved Show ends a hold still in
-progress at its extent, or at the next press of its control when that comes
-first, its release before that press; nothing else changes.
+warning and keeps the rest of the track. A hold the performer still holds is
+not in the track yet (see Live input while recording); a press left without
+its release in a track ends at the extent when the Show is saved.
 
 Edit XML only while the workspace is closed or saved elsewhere. Keep the target
 function definitions in the same workspace. A function reference does not freeze
@@ -526,10 +526,10 @@ retained command or clip. Visible rows follow renamed, rebound, enabled/disabled
 controls and renamed functions. Editor steps are not sent to connected
 network clients. The workspace Save
 operation stores the track with its Show, including input accepted until the
-save, while REC and playback continue. An open hold gets a temporary release
-in the saved snapshot at save time; live authoring keeps the same open pair.
-REC-off closes the authored pair at that time, leaves the physical hold active
-and does not record its later release. The saved end is the last recorded
+save, while REC and playback continue. A hold still held is written up to the
+save time in the saved snapshot and goes on being recorded; an autosave writes
+the recording without it. REC off records the hold up to that time, leaves
+the physical hold active and does not record its later release. The saved end is the last recorded
 command or clip; time spent with REC armed is not saved. If the recording
 cannot be stored, the save fails and keeps it. New, Open and Exit ask to save or
 discard while REC is armed, even without other unsaved changes.
@@ -544,11 +544,12 @@ the Show is stopped belongs to no pass. Replay of a touched control is
 skipped and its live request never waits behind that replay.
 
 - A Flash button, slider flash or FreezeHold is touched from its press to its
-  release; a press on a control already held live records nothing. What was
-  recorded for that control inside the hold is replaced: a recorded hold on
-  at the press ends there (one that begins there goes whole), the recorded
-  edges inside go, and a recorded hold still on at the release starts again
-  there. Nothing outside the hold is removed, and no hold of no time is left.
+  release; a press on a control already held live records nothing. The hold
+  enters the track whole when it ends, and replaces what was recorded for that
+  control in its time: a recorded hold on at the press ends there, its edges
+  inside go, and one still on at the release starts again there. Nothing
+  outside the hold is removed, and no hold of no time is cut off. Until it
+  ends, the hold is in no track, the Recordings lane included.
 - A recorded value of a control is replaced, and removed from the track,
   when the performer moved that control since its previous recorded value in
   this pass. A press or release of a hold is no move: a hold owns only the
@@ -556,9 +557,9 @@ skipped and its live request never waits behind that replay.
 - REC turning on while a hold is held starts a live hold there, and REC
   turning off ends it there: only what happens while REC records replaces
   anything.
-- A hold still held when the position moves back ends at the departure and
-  starts again at the arrival with a live press, so the file keeps its press
-  before its release and the native hold is not touched.
+- A hold still held when the position moves back is recorded up to the
+  departure and goes on from the arrival, so the file keeps its press before
+  its release and the native hold is not touched.
 - On the next pass every recorded event replays, the live ones included;
   controls nobody touched replay their recording exactly. In the pass a hold
   was played live its release turns the control off; a recorded hold it
