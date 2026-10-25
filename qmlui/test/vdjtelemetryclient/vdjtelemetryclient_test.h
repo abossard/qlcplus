@@ -44,6 +44,8 @@ private slots:
     void framing();
     void beatsOfAConnectionStartAtItsSnapshot_data();
     void beatsOfAConnectionStartAtItsSnapshot();
+    void anObjectOpenPastTheCapDropsTheClient_data();
+    void anObjectOpenPastTheCapDropsTheClient();
 };
 
 #endif

@@ -588,4 +588,53 @@ void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot()
     plugin.closeInput(0, 0);
 }
 
+void VdjTelemetryClient_Test::anObjectOpenPastTheCapDropsTheClient_data()
+{
+    QTest::addColumn<QByteArray>("data");
+    QTest::addColumn<int>("triggers");
+    QTest::addColumn<bool>("dropped");
+
+    const QByteArray object = R"({"evt":"subscribed","trigger":"deck 1 get_time","value":1000})";
+    // a snapshot is ~7 KB; the cap is 1 MB of one unfinished object
+    QTest::newRow("an object open past 1 MB")
+        << QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":")") + QByteArray(1024 * 1024, 'x')
+        << 0 << true;
+    QTest::newRow("complete objects beyond 1 MB in one write") << object.repeated(20000) << 20000 << false;
+}
+
+void VdjTelemetryClient_Test::anObjectOpenPastTheCapDropsTheClient()
+{
+    QFETCH(QByteArray, data);
+    QFETCH(int, triggers);
+    QFETCH(bool, dropped);
+
+    VdjTelemetryClient server;
+    QVERIFY(server.start(18060));
+    QSignalSpy deckSpy(&server, &VdjTelemetryClient::deckTriggerReceived);
+    QSignalSpy discSpy(&server, &VdjTelemetryClient::clientDisconnected);
+
+    QTcpSocket vdj;
+    vdj.connectToHost("127.0.0.1", 18060);
+    QVERIFY(vdj.waitForConnected(2000));
+    QTRY_VERIFY_WITH_TIMEOUT(vdj.bytesAvailable() > 0, 2000);
+    vdj.readAll();
+    vdj.write(data);
+    vdj.write(R"({"evt":"subscribed","trigger":"deck 2 play","value":"on"})");
+    vdj.flush();
+
+    if (dropped)
+    {
+        QTRY_COMPARE_WITH_TIMEOUT(discSpy.count(), 1, 5000);
+        QTRY_COMPARE_WITH_TIMEOUT(vdj.state(), QAbstractSocket::UnconnectedState, 2000);
+        QCOMPARE(server.status(), VdjTelemetryClient::Listening);
+    }
+    else
+    {
+        QTRY_COMPARE_WITH_TIMEOUT(deckSpy.count(), triggers + 1, 5000);
+        QCOMPARE(discSpy.count(), 0);
+        QCOMPARE(server.status(), VdjTelemetryClient::ClientConnected);
+    }
+    server.stop();
+}
+
 QTEST_MAIN(VdjTelemetryClient_Test)

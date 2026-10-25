@@ -25,6 +25,7 @@
 #include <QDebug>
 
 static const char *kLogTag = "[VdjTelemetry]";
+static const int kMaxOpenObjectBytes = 1024 * 1024;
 
 // Only what DjFsm, VdjBridge and the DJ Manager read: VDJ sends a trigger on
 // every change, so each one more is traffic (a VU meter streams at the tick rate).
@@ -217,6 +218,14 @@ void VdjTelemetryClient::feed(const QByteArray &chunk)
     // loopback capture), upgrade to a settle timeout when VDJ runs over the LAN
     if (writeOpen && m_buffer.isEmpty())
         emit tickEnded();
+    // an object still open past the cap is not VDJ's (a snapshot is ~7 KB)
+    if (m_buffer.size() > kMaxOpenObjectBytes)
+    {
+        qWarning() << kLogTag << "Dropping the client: an object open for" << m_buffer.size() << "bytes";
+        m_buffer.clear();
+        if (m_client)
+            onClientDisconnected();
+    }
 }
 
 void VdjTelemetryClient::onClientDisconnected()
