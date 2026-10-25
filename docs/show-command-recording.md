@@ -552,12 +552,14 @@ skipped and its live request never waits behind that replay.
   ends, the hold is in no track, the Recordings lane included, and the
   recorded values it goes over are only not played: they leave the track
   with the hold, so a save during the hold keeps them.
-- A hold belongs to the take it was pressed in. Its release ends it whether
-  REC records the release or not: a release while REC is off, from a script,
-  or after its Show was deleted records nothing, and nothing of that hold
-  reaches a later take. When REC goes on recording the Show into a new
-  take, as when switching between the Show Manager and Perform, a hold still
-  held goes on from its press. A new workspace drops every hold.
+- A hold belongs to the take it was pressed in. Its release ends it as the
+  release is accepted, before it waits behind any replay, whether REC records
+  the release or not: a release while REC is off, from a script, or after its
+  Show was deleted records nothing, removes nothing the hold went over, and
+  nothing of that hold reaches a later take. When REC goes on recording the
+  Show into a new take, as when switching between the Show Manager and
+  Perform, a hold still held goes on from its press. A new workspace drops
+  every hold.
 - A recorded value of a control is replaced, and removed from the track,
   when the performer moved that control since its previous recorded value in
   this pass. A press or release of a hold is no move: a hold owns only the
@@ -579,7 +581,8 @@ Known limits: a hold that spans a wrap replays with its release at the
 departure and its press at the arrival, so on later passes the control can
 be off for up to one clock sample at the wrap. Two clock samples in one
 engine tick, back and then forward, end a traversal that the runner then
-continues.
+continues. A control removed while held and back with its identity in the
+same take (undo, cut and paste) goes on with that hold from its first press.
 
 Recording is not an undo history of raw widget changes. Programmatic changes and
 audio mappings do not create events, and a recorded Collection launch does not
