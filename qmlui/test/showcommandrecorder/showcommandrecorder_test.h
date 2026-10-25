@@ -418,6 +418,8 @@ private slots:
     void liveInput_touchBelongsToItsPass();
     void liveInput_releaseBeforeAMoveBackLands();
     void liveInput_doubleTapBehindAReplay();
+    void liveInput_takeChangesWhileAReleaseWaits_data();
+    void liveInput_takeChangesWhileAReleaseWaits();
     void liveInput_holdBelongsToItsTakeAndShow_data();
     void liveInput_holdBelongsToItsTakeAndShow();
     void replayedHold_survivesEditAtCursor_data();

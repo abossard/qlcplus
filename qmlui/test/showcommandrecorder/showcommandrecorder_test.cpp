@@ -15482,6 +15482,93 @@ void ShowCommandRecorder_Test::liveInput_doubleTapBehindAReplay()
     QCOMPARE(holdSpans(mine), QStringLiteral("2000-2100 2200-3000"));
 }
 
+void ShowCommandRecorder_Test::liveInput_takeChangesWhileAReleaseWaits_data()
+{
+    QTest::addColumn<QString>("transition");
+    QTest::addColumn<bool>("queuedPress");
+    QTest::newRow("same take") << QStringLiteral("none") << false;
+    QTest::newRow("REC off and on before queued release executes") << QStringLiteral("rec") << false;
+    QTest::newRow("Perform engages before queued release executes") << QStringLiteral("perform") << false;
+    QTest::newRow("Perform ends before queued release executes") << QStringLiteral("perform off") << false;
+    QTest::newRow("Perform engages before queued press executes") << QStringLiteral("perform") << true;
+}
+
+void ShowCommandRecorder_Test::liveInput_takeChangesWhileAReleaseWaits()
+{
+    QFETCH(QString, transition);
+    QFETCH(bool, queuedPress);
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    show->setSyncSource(ShowRunner::External);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    auto *other = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 48), target->id(), QStringLiteral("G"), QStringLiteral("flash"))));
+    QVERIFY(flash && other);
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    if (transition == QLatin1String("perform off"))
+        QVERIFY(recorder.setResolvedShow(show->id(), ShowRecordSource::Perform));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master());
+    const auto to = [&](quint32 from, quint32 ms) {
+        for (quint32 t = from; t <= ms; t += 100)
+        {
+            show->setExternalElapsedTime(t);
+            tickAndDeliver(&doc, 3);
+        }
+    };
+    to(0, 2000);
+    other->requestUserStateChange(true);
+    tickAndDeliver(&doc, 3);
+    to(2100, 4000);
+    other->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    to(4100, 6000);
+    to(0, 1000);
+    if (!queuedPress)
+    {
+        flash->requestUserStateChange(true);
+        tickAndDeliver(&doc, 3);
+    }
+    to(1100, 1900);
+    show->setExternalElapsedTime(2000);
+    doc.masterTimer()->timerTick();
+    flash->requestUserStateChange(queuedPress);
+    QVERIFY(!recorder.pendingUserRequests().isEmpty());
+    if (transition == QLatin1String("rec"))
+    {
+        QVERIFY(recorder.setRecording(false));
+        QVERIFY(recorder.setRecording(true));
+    }
+    else if (transition == QLatin1String("perform"))
+        QVERIFY(recorder.setResolvedShow(show->id(), ShowRecordSource::Perform));
+    else if (transition == QLatin1String("perform off"))
+        recorder.releasePerform();
+    to(2100, 3000);
+    QVERIFY(recorder.pendingUserRequests().isEmpty());
+    if (queuedPress)
+    {
+        flash->requestUserStateChange(false);
+        tickAndDeliver(&doc, 3);
+    }
+    QVERIFY(recorder.setRecording(false));
+    ShowCommandTrack mine;
+    for (const ShowCommand &cmd : show->commandTrack().commands())
+        if (cmd.controlId == flash->recordingId())
+            QVERIFY(mine.insert(cmd));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QCOMPARE(holdSpans(mine), queuedPress ? QStringLiteral("2000-3000") : QStringLiteral("1000-2000"));
+}
+
 void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow_data()
 {
     QTest::addColumn<QString>("steps");

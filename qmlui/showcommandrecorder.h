@@ -597,8 +597,8 @@ private:
      *  there, or goes on into the take when it is recorded already */
     void recordHeldHolds(Show *show);
 
-    /** Whether a widget carrying controlId is in the performer's hold set for role */
-    bool heldLive(const QUuid &controlId, ShowControlRole role);
+    /** Whether a live control carrying controlId is held by accepted input */
+    bool heldLive(const QUuid &controlId) const;
     /** What a touch counts in: the take and the pass it was made in */
     using TouchStamp = QPair<quint64, quint64>;
     /** The take and pass of a touch on show made now; none while it is stopped */
@@ -616,6 +616,8 @@ private:
     };
     /** Every hold of the current take and pass, per control */
     QHash<QUuid, QVector<LiveSpan>> m_liveHolds;
+    /** Accepted holds, independent of native execution and the current take */
+    QHash<quint32, QPointer<VCWidget>> m_acceptedHolds;
     /** Whether span is still held in the current take */
     bool heldInTake(const LiveSpan &span) const;
     /** The performer's hold of span recorded into show up to to, through

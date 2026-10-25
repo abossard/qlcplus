@@ -184,6 +184,7 @@ ShowCommandRecorder::ShowCommandRecorder(Doc *doc, QObject *parent)
         m_userFreezeHolds.clear();
         m_userFlashHolds.clear();
         m_userSliderFlashHolds.clear();
+        m_acceptedHolds.clear();
         m_liveHolds.clear();
         m_movedLive.clear();
         m_eventIdFloors.clear();
@@ -695,12 +696,17 @@ void ShowCommandRecorder::requestUserControl(ShowControlRequest request)
         QScopedValueRollback<const ShowControlRequest *> traced(m_tracedRequest, &request);
         captureUserRequest(request);
     }
-    // a release ends its hold as it is accepted: REC recorded it, or nothing of it stays
-    if (request.input.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(request.input.role) &&
-        request.input.on == false)
+    if (request.input.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(request.input.role))
     {
-        m_liveHolds[request.control->recordingId()].removeIf(
-            [](const LiveSpan &span) { return span.to == ShowCommand::MaxTime; });
+        if (request.input.on)
+            m_acceptedHolds.insert(request.control->id(), request.control);
+        else
+        {
+            m_acceptedHolds.remove(request.control->id());
+            // REC recorded the release, or nothing of its open hold stays
+            m_liveHolds[request.control->recordingId()].removeIf(
+                [](const LiveSpan &span) { return span.to == ShowCommand::MaxTime; });
+        }
     }
     m_userRequests.append(request);
     drainUserRequests();
@@ -2022,7 +2028,7 @@ void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint
     {
         for (const LiveSpan &span : spans)
         {
-            if (span.to == ShowCommand::MaxTime && heldLive(span.hold.controlId, span.hold.role))
+            if (span.to == ShowCommand::MaxTime && heldLive(span.hold.controlId))
                 again.append({ m_takeId, touchStamp(show), arrival, ShowCommand::MaxTime, span.hold, {} });
         }
     }
@@ -2081,42 +2087,35 @@ void ShowCommandRecorder::recordHeldHolds(Show *show)
         return;
     const quint32 at = qMin(acceptancePosition(show), ShowCommand::MaxTime);
     const auto stamp = touchStamp(show);
-    for (const QSet<quint32> *holds : { &m_userFreezeHolds, &m_userFlashHolds, &m_userSliderFlashHolds })
+    for (VCWidget *widget : std::as_const(m_acceptedHolds))
     {
-        for (quint32 widgetId : *holds)
+        if (widget == nullptr)
+            continue;
+        ShowCommandInput hold;
+        hold.origin = ShowCommandOrigin::Pointer;
+        hold.action = ShowCommandAction::SetButtonState;
+        hold.controlId = widget->ensureRecordingId();
+        hold.role = configurationOf(widget).snapshot.role;
+        hold.on = true;
+        // a hold of the take that just ended goes on into this one
+        QVector<LiveSpan> &spans = m_liveHolds[hold.controlId];
+        const auto open = std::find_if(spans.begin(), spans.end(), [this](const LiveSpan &span)
+                                       { return span.to == ShowCommand::MaxTime && span.take + 1 == m_takeId; });
+        if (open != spans.end())
         {
-            VCWidget *widget = m_vc->widget(widgetId);
-            if (widget == nullptr)
-                continue;
-            ShowCommandInput hold;
-            hold.origin = ShowCommandOrigin::Pointer;
-            hold.action = ShowCommandAction::SetButtonState;
-            hold.controlId = widget->ensureRecordingId();
-            hold.role = configurationOf(widget).snapshot.role;
-            hold.on = true;
-            // a hold of the take that just ended goes on into this one
-            QVector<LiveSpan> &spans = m_liveHolds[hold.controlId];
-            const auto open = std::find_if(spans.begin(), spans.end(), [this](const LiveSpan &span)
-                                           { return span.to == ShowCommand::MaxTime && span.take + 1 == m_takeId; });
-            if (open != spans.end())
-            {
-                open->take = m_takeId;
-                open->stamp = stamp;
-            }
-            else
-                spans = { { m_takeId, stamp, at, ShowCommand::MaxTime, hold, {} } };
+            open->take = m_takeId;
+            open->stamp = stamp;
         }
+        else
+            spans = { { m_takeId, stamp, at, ShowCommand::MaxTime, hold, {} } };
     }
 }
 
-bool ShowCommandRecorder::heldLive(const QUuid &controlId, ShowControlRole role)
+bool ShowCommandRecorder::heldLive(const QUuid &controlId) const
 {
-    const QSet<quint32> *holds = userHolds(role);
-    if (holds == nullptr || m_vc == nullptr)
-        return false;
-    for (VCWidget *widget : m_vc->widgetsByRecordingId(controlId))
+    for (VCWidget *widget : m_acceptedHolds)
     {
-        if (holds->contains(widget->id()))
+        if (widget != nullptr && widget->recordingId() == controlId)
             return true;
     }
     return false;

@@ -558,8 +558,11 @@ skipped and its live request never waits behind that replay.
   Show was deleted records nothing, removes nothing the hold went over, and
   nothing of that hold reaches a later take. When REC goes on recording the
   Show into a new take, as when switching between the Show Manager and
-  Perform, a hold still held goes on from its press. A new workspace drops
-  every hold.
+  Perform, a hold still held goes on from its press. Held controls follow
+  accepted input order, even while native execution waits: a queued press
+  carries into the new take, and a queued release cannot reopen a hold there.
+  Native output, release and rollback keep their separate executed ownership.
+  A new workspace drops every hold.
 - A recorded value of a control is replaced, and removed from the track,
   when the performer moved that control since its previous recorded value in
   this pass. A press or release of a hold is no move: a hold owns only the
