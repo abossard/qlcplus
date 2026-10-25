@@ -589,22 +589,34 @@ private:
      *  to its state before the first of those changes, as one delta */
     void rollBackTimeline(ControlRun &run);
     /** While REC records into the run's Show, a replayed command of a control
-     *  the performer touches is replaced instead of applied: a hold edge
-     *  within the performer's hold of that control in this pass, any other
-     *  command when the control was moved live since the playhead last
-     *  reached one of its recorded events. That one is removed from the
-     *  track here; a hold's release removes what it spanned. */
+     *  the performer touches in the run's take and pass is replaced instead
+     *  of applied: one within the performer's hold of that control, or a
+     *  recorded value when the control was moved live, by any action, since
+     *  its previous recorded value. A value is removed from the track here;
+     *  a hold's release removes the edges it replaced. */
     bool replacedByLive(const ControlRun &run, const ShowCommand &cmd);
     /** The position moved back from departure to arrival: a hold the bound
      *  Show records ends at the departure, and one the performer still
      *  holds starts again at the arrival, live, so its native hold stays */
     void holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival);
-    /** The performer's holds in this pass, recorded by REC, by (identity,
-     *  role): from the press to the release, MaxTime while held */
-    QHash<QPair<QUuid, int>, QPair<quint32, quint32>> m_liveHolds;
-    /** (identity, action) of the controls without a pressed state REC
-     *  recorded live since the playhead last reached one of their events */
-    QSet<QPair<QUuid, int>> m_movedLive;
+    /** Whether a widget carrying controlId is in the performer's hold set for role */
+    bool heldLive(const QUuid &controlId, ShowControlRole role);
+    /** What a touch counts in: the take and the pass it was made in */
+    using TouchStamp = QPair<quint64, quint64>;
+    /** The take and pass of a touch on show made now; none while it is stopped */
+    std::optional<TouchStamp> touchStamp(const Show *show) const;
+    /** One performer's hold: from the press to the release, MaxTime while held */
+    struct LiveSpan
+    {
+        TouchStamp stamp;
+        quint32 from = 0;
+        quint32 to = ShowCommand::MaxTime;
+    };
+    /** Every hold of the current take and pass, per control */
+    QHash<QUuid, QVector<LiveSpan>> m_liveHolds;
+    /** The controls moved live since the playhead last reached one of their
+     *  recorded values, with the take and pass of that move */
+    QHash<QUuid, TouchStamp> m_movedLive;
     /** A replayed slider write the run waits for, then a start it may cause */
     void awaitRecordedWrite(ControlRun &run, VCWidget *control, quint64 generation);
     /** Every write the run waited for retired: wait for the starts and stops

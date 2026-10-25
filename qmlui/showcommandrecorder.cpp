@@ -356,9 +356,6 @@ bool ShowCommandRecorder::dispatchNow(const ShowRecordEvent &event)
     }
     if (changed)
     {
-        // a take replaces only what the performer touched while it records
-        m_liveHolds.clear();
-        m_movedLive.clear();
         m_takeId++;
         emit stateChanged();
         emit editGateChanged();
@@ -767,8 +764,8 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
         if (again.authored.isEmpty() == false)
             commit(again, trackedShow());
     }
-    if (input.action != ShowCommandAction::SetButtonState || ShowCommand::isHoldRole(input.role) == false)
-        m_movedLive.insert(qMakePair(input.controlId, int(input.action)));
+    if (const auto stamp = touchStamp(trackedShow()))
+        m_movedLive.insert(input.controlId, *stamp);
 }
 
 void ShowCommandRecorder::drainUserRequests()
@@ -829,11 +826,18 @@ void ShowCommandRecorder::drainUserRequests()
             if (QSet<quint32> *holds = userHolds(input.role))
             {
                 setHeld(holds, request.control->id(), input.on);
-                const auto hold = qMakePair(request.control->recordingId(), int(input.role));
-                if (input.on && request.authoredShowId != ShowCommand::InvalidId)
-                    m_liveHolds.insert(hold, qMakePair(request.acceptedTimeMs, ShowCommand::MaxTime));
-                else if (input.on == false && m_liveHolds.contains(hold))
-                    m_liveHolds[hold].second = request.acceptedTimeMs;
+                QVector<LiveSpan> &spans = m_liveHolds[request.control->recordingId()];
+                const auto stamp = touchStamp(trackedShow());
+                if (input.on && request.authoredShowId != ShowCommand::InvalidId && stamp)
+                {
+                    spans.removeIf([&stamp](const LiveSpan &span) { return span.stamp != *stamp; });
+                    spans.append({ *stamp, request.acceptedTimeMs, ShowCommand::MaxTime });
+                }
+                for (LiveSpan &span : spans)
+                {
+                    if (input.on == false && span.to == ShowCommand::MaxTime)
+                        span.to = request.acceptedTimeMs;
+                }
             }
             else if (input.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
                 m_userFreezeIntent.insert(intentShowId, input.on);
@@ -1983,8 +1987,6 @@ void ShowCommandRecorder::slotShowClock()
     {
         if (ShowEventLog::generation() != 0)
             traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3));
-        // another pass: what the performer touched in the last one replays again
-        m_movedLive.clear();
         holdAcrossTheMove(show, m_lastClock, now);
     }
     m_lastClock = now;
@@ -1992,13 +1994,6 @@ void ShowCommandRecorder::slotShowClock()
 
 void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival)
 {
-    QHash<QPair<QUuid, int>, QPair<quint32, quint32>> held;
-    for (auto it = m_liveHolds.cbegin(); it != m_liveHolds.cend(); ++it)
-    {
-        if (it.value().second == ShowCommand::MaxTime)
-            held.insert(it.key(), qMakePair(arrival, ShowCommand::MaxTime));
-    }
-    m_liveHolds = held;
     const ShowCommandTrack track = withUnpublished(show);
     const QVector<ShowCommand> open = track.openHolds();
     if (show->id() != m_rec.boundShowId() || open.isEmpty())
@@ -2013,7 +2008,7 @@ void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint
         reportFailure(error);
     for (const ShowCommand &press : open)
     {
-        if (held.contains(qMakePair(press.controlId, int(press.role))) == false)
+        if (heldLive(press.controlId, press.role) == false)
             continue;
         ShowCommandInput again;
         again.origin = ShowCommandOrigin::Pointer;
@@ -2021,8 +2016,30 @@ void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint
         again.controlId = press.controlId;
         again.role = press.role;
         again.on = true;
-        authorAt(again, arrival);
+        const auto stamp = touchStamp(show);
+        if (authorAt(again, arrival) && stamp)
+            m_liveHolds[press.controlId] = { { *stamp, arrival, ShowCommand::MaxTime } };
     }
+}
+
+bool ShowCommandRecorder::heldLive(const QUuid &controlId, ShowControlRole role)
+{
+    const QSet<quint32> *holds = userHolds(role);
+    if (holds == nullptr || m_vc == nullptr)
+        return false;
+    for (VCWidget *widget : m_vc->widgetsByRecordingId(controlId))
+    {
+        if (holds->contains(widget->id()))
+            return true;
+    }
+    return false;
+}
+
+std::optional<ShowCommandRecorder::TouchStamp> ShowCommandRecorder::touchStamp(const Show *show) const
+{
+    if (show == nullptr || show->stopped())
+        return std::nullopt;
+    return TouchStamp(m_takeId, show->commandTraversal());
 }
 
 void ShowCommandRecorder::slotCommandTrackChanged()
@@ -2710,12 +2727,7 @@ void ShowCommandRecorder::slotShowPlayback()
     if (show == nullptr || show->isRunning() == false)
         return;
     forgetTimeline(show->id());
-    if (show != m_trackedShow)
-        return;
-    // Play begins a pass: what was touched before it replays, a hold still held stays
-    m_movedLive.clear();
-    m_liveHolds.removeIf([](const auto &hold) { return hold.value().second != ShowCommand::MaxTime; });
-    if (ShowEventLog::generation() != 0)
+    if (show == m_trackedShow && ShowEventLog::generation() != 0)
         traceTransport(Outcome::Applied, tr("Playing"), targetName());
 }
 
@@ -3373,12 +3385,17 @@ bool ShowCommandRecorder::replacedByLive(const ControlRun &run, const ShowComman
 {
     if (run.show->id() != m_rec.boundShowId())
         return false;
+    const TouchStamp now(m_takeId, run.batch.traversal);
+    bool held = false;
+    for (const LiveSpan &span : m_liveHolds.value(cmd.controlId))
+        held = held || (span.stamp == now && span.from <= cmd.time && cmd.time <= span.to);
+    // the hold's release replaces the edges inside it
     if (cmd.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(cmd.role))
-    {
-        const auto hold = m_liveHolds.constFind(qMakePair(cmd.controlId, int(cmd.role)));
-        return hold != m_liveHolds.cend() && hold->first <= cmd.time && cmd.time <= hold->second;
-    }
-    if (m_movedLive.remove(qMakePair(cmd.controlId, int(cmd.action))) == false)
+        return held;
+    // a recorded value met: the next one replays unless the control moves again
+    const bool moved = m_movedLive.contains(cmd.controlId) && m_movedLive.value(cmd.controlId) == now;
+    m_movedLive.remove(cmd.controlId);
+    if (held == false && moved == false)
         return false;
     ShowCommandTransition replaced;
     replaced.removed.append(cmd.id);

@@ -15170,6 +15170,12 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
         << QStringList{ QStringLiteral("F:0=200,1000=0"),
                         QStringLiteral("F:0=200,1000=0,5500=200,500=0,5500=200,6000=0"),
                         QStringLiteral("F:0-500,500-1000,5500-6000") };
+    // a touch is the control's, whatever action it records: the flash holds full
+    QTest::newRow("a slider's live flash replaces its recorded values")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;log;wrap;to:1500;flash:S;"
+                          "to:3500;unflash:S;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:1500=255,3500=75"),
+                        QStringLiteral("F:1500-3500") };
     // the hold goes on through the wrap: two pairs, the native hold untouched
     QTest::newRow("a flash held across the wrap stays on through it")
         << QStringLiteral("rec;playext;to:5000;press:F;to:6000;log;wrap;to:1000;release:F;log;track;"
@@ -15272,6 +15278,11 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
             slider->requestUserValue(arg.toInt());
             sample();
         }
+        else if (verb == QLatin1String("flash") || verb == QLatin1String("unflash"))
+        {
+            slider->requestUserFlash(verb == QLatin1String("flash"));
+            sample();
+        }
         else if (verb == QLatin1String("log"))
         {
             QStringList line;
@@ -15290,7 +15301,7 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
             {
                 if (cmd.controlId == toggle->recordingId())
                     toggles.append(QStringLiteral("%1=%2").arg(cmd.time).arg(int(cmd.on)));
-                else if (cmd.controlId == slider->recordingId())
+                else if (cmd.controlId == slider->recordingId() && cmd.action == ShowCommandAction::SetSliderPosition)
                     samples.append(QString::number(cmd.time));
             }
             QStringList line;
@@ -15309,6 +15320,55 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
     show->stop(FunctionParent::master());
     tickAndDeliver(&doc, 3);
     QCOMPARE(saw, seen);
+}
+
+void ShowCommandRecorder_Test::liveInput_touchBelongsToItsPass()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *faded = addTarget(&doc);
+    QVERIFY(faded);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, faded->id());
+    QVERIFY(slider);
+    ShowCommandTrack track;
+    for (const auto &[time, position] : { std::pair<quint32, qreal>{ 1100, 0.1 }, { 1500, 0.2 } })
+        QVERIFY(track.insert(ShowCommand::setSliderPosition(track.nextEventId(), time, slider->ensureRecordingId(),
+                                                            ShowControlRole::AdjustSlider, QStringLiteral("Intensity"),
+                                                            position)));
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master(), 6000);
+    tickAndDeliver(&doc, 3);
+
+    // moved after the seek was asked for, before the runner took it: a touch of the next pass
+    show->requestSeek(1000);
+    slider->requestUserValue(200);
+    for (int i = 0; i < 100 && show->commandPosition() < 1300; i++)
+        tickAndDeliver(&doc);
+    tickAndDeliver(&doc, 3);
+    const int touched = slider->value();
+    for (int i = 0; i < 100 && show->commandPosition() < 1600; i++)
+        tickAndDeliver(&doc);
+    tickAndDeliver(&doc, 3);
+    const int after = slider->value();
+    QStringList times;
+    for (const ShowCommand &cmd : show->commandTrack().commands())
+        times.append(QString::number(cmd.time));
+
+    QVERIFY(recorder.setRecording(false));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(QStringLiteral("%1 %2 %3").arg(touched).arg(after).arg(times.join(QLatin1Char(','))),
+             QStringLiteral("200 51 1000,1500"));
 }
 
 namespace

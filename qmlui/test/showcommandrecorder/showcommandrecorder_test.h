@@ -416,6 +416,7 @@ private slots:
     void holdPairs_showSurvivesSaveAndReload();
     void liveInput_replacesWhileTouched_data();
     void liveInput_replacesWhileTouched();
+    void liveInput_touchBelongsToItsPass();
     void replayedHold_survivesEditAtCursor_data();
     void replayedHold_survivesEditAtCursor();
     void replayedHold_historyEditReleasesIt_data();
