@@ -141,8 +141,9 @@ QString VdjBridgePlugin::inputInfo(quint32 input)
     str += QString("<P><B>%1:</B> %2</P>")
             .arg(tr("Bonjour service"))
             .arg(!m_bonjourEnabled ? tr("disabled")
-                 : m_bonjourError.isEmpty() ? QStringLiteral("_os2l._tcp (%1)").arg(m_serviceName)
-                 : tr("not registered: %1").arg(m_bonjourError));
+                 : !m_bonjourError.isEmpty() ? tr("not registered: %1").arg(m_bonjourError)
+                 : portInUse() ? tr("not registered while the port is in use")
+                 : QStringLiteral("_os2l._tcp (%1)").arg(m_serviceName));
     return str;
 }
 
@@ -170,6 +171,11 @@ bool VdjBridgePlugin::canConfigure() const
     return true;
 }
 
+bool VdjBridgePlugin::portInUse() const
+{
+    return m_telemetry && m_telemetry->status() == VdjTelemetryClient::PortInUse;
+}
+
 QString VdjBridgePlugin::clientAddress() const
 {
     if (m_telemetry && m_telemetry->clientAddress().isEmpty() == false)
@@ -185,11 +191,8 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
         m_hostPort = static_cast<quint16>(value.toUInt());
         if (m_open)
         {
-            // a port in use leaves nothing to advertise
-            if (m_telemetry->start(m_hostPort))
-                registerBonjour();
-            else if (m_bonjour)
-                m_bonjour->unregisterService();
+            m_telemetry->start(m_hostPort);
+            registerBonjour();
             emit connectionStatusChanged(m_inputUniverse, 0);
         }
     }
@@ -236,5 +239,7 @@ void VdjBridgePlugin::registerBonjour()
         return;
     m_bonjourError.clear();
     m_bonjour->unregisterService();
-    m_bonjour->registerService(m_serviceName, m_hostPort);
+    // advertised only while a server listens
+    if (!portInUse())
+        m_bonjour->registerService(m_serviceName, m_hostPort);
 }

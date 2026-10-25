@@ -813,4 +813,41 @@ void VdjTelemetryClient_Test::aSavedPortRestartsAnInputOpenedOnABusyPort()
     plugin.closeInput(0, 3);
 }
 
+void VdjTelemetryClient_Test::bonjourAdvertisesOnlyAListeningServer_data()
+{
+    QTest::addColumn<QString>("edit");
+    QTest::newRow("service name") << "name";
+    QTest::newRow("Bonjour off and on") << "toggle";
+}
+
+void VdjTelemetryClient_Test::bonjourAdvertisesOnlyAListeningServer()
+{
+    QFETCH(QString, edit);
+
+    QTcpServer other;
+    QVERIFY(other.listen(QHostAddress::Any, 18070));
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18069);
+    QVERIFY(plugin.openInput(0, 3));
+    QCOMPARE(vdjBonjourLive(), 1);
+
+    plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18070);
+    QCOMPARE(vdjBonjourLive(), 0);
+    if (edit == QLatin1String("name"))
+        plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("serviceName"), QStringLiteral("Booth"));
+    else
+    {
+        plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("bonjourEnabled"), false);
+        plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("bonjourEnabled"), true);
+    }
+    // nobody listens on a port in use
+    QCOMPARE(vdjBonjourLive(), 0);
+    QVERIFY2(!plugin.inputInfo(0).contains("_os2l._tcp ("), qPrintable(plugin.inputInfo(0)));
+
+    plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18071);
+    QCOMPARE(vdjBonjourLive(), 1);
+    QVERIFY(plugin.inputInfo(0).contains("_os2l._tcp ("));
+    plugin.closeInput(0, 3);
+}
+
 QTEST_MAIN(VdjTelemetryClient_Test)

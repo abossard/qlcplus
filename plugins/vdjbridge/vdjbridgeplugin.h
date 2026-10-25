@@ -71,6 +71,8 @@ public:
     bool     bonjourEnabled() const { return m_bonjourEnabled; }
     QString  serviceName() const { return m_serviceName; }
     QString  clientAddress() const;
+    /** The input is open and another program holds its port */
+    bool     portInUse() const;
     /** Why the Bonjour service is not registered, or empty */
     QString  bonjourError() const { return m_bonjourError; }
     void setParameter(quint32 universe, quint32 line, Capability type,
