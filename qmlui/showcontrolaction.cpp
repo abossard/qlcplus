@@ -1286,10 +1286,7 @@ bool ShowControlAction::release(Doc *doc, VCWidget *control, const FunctionParen
     Function *function = doc->function(functionId(control));
     if (function == nullptr || !function->hasSource(owner))
         return false;
-    if (owner.type() == FunctionParent::ManualVCWidget)
-        function->stopSource(owner);
-    else
-        function->stop(owner);
+    function->stop(owner);
     return true;
 }
 
