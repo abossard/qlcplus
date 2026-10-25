@@ -248,3 +248,10 @@ tcpdump -r "$PCAP" -A | grep -oaE '\{"message":"[a-z]+"[^}]*\}' | sort | uniq -c
 
 - **Service type**: `_os2l._tcp`, **Domain**: `local.`, **Port**: the TCP server port (8050).
 - macOS: native `dns_sd.h` (`DNSServiceRegister`). Elsewhere: manual IP:port in VDJ.
+- The OS2L plugin registers the same service type (`QLC+`, port 9996). With both
+  inputs open QLC+ advertises two `_os2l._tcp` services, and VDJ connects to one
+  of them by registration order: open only the input VDJ should talk to, or turn
+  Bonjour off in the other plugin's configuration.
+- A registration that fails (or that mDNSResponder later reports as failed)
+  releases its `DNSServiceRef`; the VDJ Bridge shows the reason in its
+  configuration status and input info.
