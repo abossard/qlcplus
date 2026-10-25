@@ -636,6 +636,7 @@ private:
         ShowCommand command;
         quint64 traversal; //!< the traversal it ran live in
         ShowTraceCause cause; //!< diagnostics of the input it came from
+        bool removal = false; //!< the input replaced command: it goes
     };
     QVector<Unpublished> m_unpublished;
     /** The Show's track with the accepted input it has not taken yet */

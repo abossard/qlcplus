@@ -14983,14 +14983,14 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
                                  << QStringLiteral("1000-2000") << QStringLiteral("1000-2000") << true;
     QTest::newRow("seek back, earlier pair") << take + QStringLiteral("at 6000, press, at 7000, release, rec off")
                                              << both << both << true;
-    // a hold ends where the next recorded hold of its control begins
+    // a hold replaces the recorded holds of its control it spans
     QTest::newRow("seek back, held into a later pair")
         << take + QStringLiteral("at 6000, press, at 11000, release, rec off")
-        << QStringLiteral("6000-9999 10000-12000") << QStringLiteral("6000-9999 10000-12000") << true;
-    // the recording already holds the control there: the press and its release add nothing
+        << QStringLiteral("6000-11000") << QStringLiteral("6000-11000") << true;
+    // a press cuts the recorded hold it lands in and starts its own
     QTest::newRow("seek back, press inside a recorded hold")
         << take + QStringLiteral("at 11000, press, at 13000, release, rec off")
-        << QStringLiteral("10000-12000") << QStringLiteral("10000-12000") << true;
+        << QStringLiteral("10000-11000 11000-13000") << QStringLiteral("10000-11000 11000-13000") << true;
     QTest::newRow("seek back, REC off while held") << take + QStringLiteral("at 6000, press, at 8000, rec off")
                                                    << QStringLiteral("6000-8000 10000-12000")
                                                    << QStringLiteral("6000-8000 10000-12000") << true;

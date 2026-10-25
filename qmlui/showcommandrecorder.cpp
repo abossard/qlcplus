@@ -445,6 +445,11 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString
     {
         if (accepted.showId != show->id())
             continue;
+        if (accepted.removal)
+        {
+            candidate.remove(accepted.command.id);
+            continue;
+        }
         if (candidate.insert(accepted.command, error) == false)
             return false;
         if (accepted.traversal == latest)
@@ -454,7 +459,7 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString
         candidate.closeOpenHolds(qMin(acceptancePosition(show), ShowCommand::MaxTime), error) == false)
         return false;
     // nothing new and already ending at its content: nothing to publish
-    if (candidate.count() == show->commandTrack().count() && candidate.extent() == candidate.lastCommandTime())
+    if (candidate.commands() == show->commandTrack().commands() && candidate.extent() == candidate.lastCommandTime())
         return true;
     const quint32 extentBefore = show->commandTrack().extent();
     candidate.setExtent(candidate.lastCommandTime());
@@ -476,8 +481,10 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString
                 unobserved = true;
                 continue;
             }
-            traceCommand(accepted.cause, Phase::Commit, Outcome::Published, nullptr, &accepted.command, show->id(),
-                         tr("added"));
+            traceCommand(accepted.cause, Phase::Commit, Outcome::Published,
+                         accepted.removal ? &accepted.command : nullptr,
+                         accepted.removal ? nullptr : &accepted.command, show->id(),
+                         accepted.removal ? tr("replaced by live input") : tr("added"));
             extentCause = &accepted.cause;
         }
         if (extentBefore != candidate.extent() && extentCause != nullptr && !unobserved)
@@ -608,7 +615,7 @@ ShowCommandTrack ShowCommandRecorder::withUnpublished(const Show *show) const
     for (const Unpublished &pending : std::as_const(m_unpublished))
     {
         if (pending.showId == show->id())
-            accepted.insert(pending.command);
+            pending.removal ? accepted.remove(pending.command.id) : accepted.insert(pending.command);
     }
     return accepted;
 }
@@ -2005,6 +2012,12 @@ bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *
 {
     // accepted input is kept whether or not the Show takes it now
     const ShowTraceCause cause = ShowEventLog::generation() != 0 ? currentCause() : ShowTraceCause();
+    const ShowCommandTrack accepted = withUnpublished(show);
+    for (quint32 id : transition.removed)
+    {
+        if (const int index = accepted.indexOfId(id); index >= 0)
+            m_unpublished.append({ show->id(), accepted.commands().at(index), show->commandTraversal(), cause, true });
+    }
     for (const ShowCommand &cmd : transition.authored)
         m_unpublished.append({ show->id(), cmd, show->commandTraversal(), cause });
 

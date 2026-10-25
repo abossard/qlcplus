@@ -2739,20 +2739,23 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
     QTest::newRow("record pair") << QStringLiteral("press 1000, release 2000") << QStringLiteral("1000-2000");
     QTest::newRow("seek back, earlier pair") << take + QStringLiteral("press 6000, release 7000")
                                              << QStringLiteral("6000-7000 10000-12000");
-    // a hold ends where the next recorded hold of its control begins
+    // a hold replaces the recorded holds of its control it spans
     QTest::newRow("seek back, held into a later pair") << take + QStringLiteral("press 6000, release 11000")
-                                                       << QStringLiteral("6000-9999 10000-12000");
-    // the recording already holds the control there: nothing new, its release neither
+                                                       << QStringLiteral("6000-11000");
+    // a press cuts the recorded hold it lands in, its release first at that time
     QTest::newRow("seek back, press inside a recorded hold") << take + QStringLiteral("press 11000, release 13000")
-                                                             << QStringLiteral("10000-12000");
+                                                             << QStringLiteral("10000-11000 11000-13000");
     QTest::newRow("seek back, press at a recorded release") << take + QStringLiteral("press 12000, release 13000")
                                                             << QStringLiteral("10000-12000 12000-13000");
     QTest::newRow("second press while held") << QStringLiteral("press 1000, press 1500, release 2000")
-                                             << QStringLiteral("1000-2000");
+                                             << QStringLiteral("1000-1500 1500-2000");
     QTest::newRow("release with nothing held") << QStringLiteral("release 1000, press 2000, release 3000")
                                                << QStringLiteral("2000-3000");
     QTest::newRow("hold at a frozen position") << QStringLiteral("press 4000, release 4000")
                                                << QStringLiteral("4000-4000");
+    // a hold replaces only what was pressed after it
+    QTest::newRow("holds at a frozen position") << QStringLiteral("press 4000, release 4000, press 4000, release 4000")
+                                                << QStringLiteral("4000-4000 4000-4000");
     // a release before its open press closes nothing; REC off never closes before the press
     QTest::newRow("loop back while held") << QStringLiteral("press 10000, seek 5000, release 6000")
                                           << QStringLiteral("10000-");
@@ -2761,7 +2764,7 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
     QTest::newRow("REC off before a later pair") << take + QStringLiteral("press 6000, close 8000")
                                                  << QStringLiteral("6000-8000 10000-12000");
     QTest::newRow("REC off held into a later pair") << take + QStringLiteral("press 6000, close 11000")
-                                                    << QStringLiteral("6000-9999 10000-12000");
+                                                    << QStringLiteral("6000-11000");
 }
 
 void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
@@ -2794,6 +2797,8 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
         input.on = verb == QLatin1String("press");
         const ShowCommandTransition taken = ShowCommandFsm::userInput(track, state, input);
         QVERIFY2(taken.error.isEmpty(), qPrintable(taken.error));
+        for (quint32 id : taken.removed)
+            QVERIFY(track.remove(id));
         for (const ShowCommand &cmd : taken.authored)
             QVERIFY(track.insert(cmd));
         state = taken.state;
@@ -2817,10 +2822,10 @@ void ShowCommandTrack_Test::saveEndsHoldInProgress_data()
     QTest::addColumn<QString>("saved"); // empty: the save is refused
 
     QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << true << QStringLiteral("1000-2000");
-    // a hold left in progress ends at the extent in the file, and before a later pair
+    // a hold left in progress ends at the extent in the file, replacing the holds it spans
     QTest::newRow("hold in progress") << QStringLiteral("1:on@1000") << true << QStringLiteral("1000-6000");
     QTest::newRow("hold in progress before a later pair")
-        << QStringLiteral("1:on@1000 2:on@4000 2:off@5000") << true << QStringLiteral("1000-3999 4000-5000");
+        << QStringLiteral("1:on@1000 2:on@4000 2:off@5000") << true << QStringLiteral("1000-6000");
     // the release that ends it needs an event id
     QTest::newRow("hold in progress, no event id left") << QStringLiteral("1:on@1000") << false << QString();
 }
