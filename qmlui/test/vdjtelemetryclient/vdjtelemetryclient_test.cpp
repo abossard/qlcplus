@@ -728,7 +728,9 @@ void VdjTelemetryClient_Test::parametersAreKeptWithTheInputsUniverse()
     // the workspace saves a universe's patch with these parameters and sets them again on load
     plugin.setParameter(3, 0, QLCIOPlugin::Input, name, value);
     QCOMPARE(plugin.getParameters(3, 0, QLCIOPlugin::Input).value(name), value);
+    // closing unmaps the universe: its patch is gone
     plugin.closeInput(0, 3);
+    QVERIFY(plugin.getParameters(3, 0, QLCIOPlugin::Input).isEmpty());
 }
 
 void VdjTelemetryClient_Test::aPortEditRebindsWhenFinished_data()

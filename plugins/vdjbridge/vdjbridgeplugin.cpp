@@ -121,7 +121,7 @@ void VdjBridgePlugin::closeInput(quint32 input, quint32 universe)
     if (!m_open)
         return;
 
-    removeFromMap(input, universe, Input);
+    removeFromMap(universe, input, Input);
 
     setBonjour(false);
 
