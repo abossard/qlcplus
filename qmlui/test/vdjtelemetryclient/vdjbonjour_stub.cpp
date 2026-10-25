@@ -8,7 +8,16 @@
 
 #include "vdjbonjour.h"
 
+#include <QSet>
+
 int vdjBonjourRegistrations = 0;
+static QSet<const VdjBonjour *> registered;
+
+/** Services registered right now */
+int vdjBonjourLive()
+{
+    return int(registered.size());
+}
 
 VdjBonjour::VdjBonjour(QObject *parent)
     : QObject(parent)
@@ -21,16 +30,22 @@ VdjBonjour::VdjBonjour(QObject *parent)
 
 VdjBonjour::~VdjBonjour()
 {
+    unregisterService();
 }
 
 bool VdjBonjour::registerService(const QString &, quint16)
 {
+    // as the real one: a live registration is kept, not made again
+    if (registered.contains(this))
+        return true;
+    registered.insert(this);
     vdjBonjourRegistrations++;
     return true;
 }
 
 void VdjBonjour::unregisterService()
 {
+    registered.remove(this);
 }
 
 #ifdef Q_OS_MACOS

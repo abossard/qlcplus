@@ -18,7 +18,9 @@
 #include <QSpinBox>
 #include <QTcpServer>
 
-extern int vdjBonjourRegistrations; // vdjbonjour_stub.cpp
+// vdjbonjour_stub.cpp
+extern int vdjBonjourRegistrations;
+int vdjBonjourLive();
 
 // ========================================================================
 // NDJSON parser tests
@@ -650,14 +652,17 @@ void VdjTelemetryClient_Test::anObjectOpenPastTheCapDropsTheClient()
 
 void VdjTelemetryClient_Test::aConnectionThatEndsAdvertisesAgain_data()
 {
-    QTest::addColumn<bool>("vdjCloses");
-    QTest::newRow("VDJ closes the connection") << true;
-    QTest::newRow("QLC+ drops the connection") << false;
+    QTest::addColumn<QString>("end");
+    QTest::addColumn<int>("registrations");
+    QTest::newRow("VDJ closes the connection") << "close" << 2;
+    QTest::newRow("QLC+ drops the connection") << "drop" << 2;
+    QTest::newRow("a new client replaces the old one") << "replace" << 1;
 }
 
 void VdjTelemetryClient_Test::aConnectionThatEndsAdvertisesAgain()
 {
-    QFETCH(bool, vdjCloses);
+    QFETCH(QString, end);
+    QFETCH(int, registrations);
 
     VdjBridgePlugin plugin;
     plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18061);
@@ -665,25 +670,35 @@ void VdjTelemetryClient_Test::aConnectionThatEndsAdvertisesAgain()
     QVERIFY(plugin.openInput(0, 0));
     QCOMPARE(vdjBonjourRegistrations, before + 1);
     QSignalSpy discSpy(&plugin, &VdjBridgePlugin::clientDisconnected);
+    QSignalSpy connSpy(&plugin, &VdjBridgePlugin::clientConnected);
 
-    QTcpSocket vdj;
+    QTcpSocket vdj, next;
     vdj.connectToHost("127.0.0.1", 18061);
     QVERIFY(vdj.waitForConnected(2000));
     QTRY_VERIFY_WITH_TIMEOUT(vdj.bytesAvailable() > 0, 2000);
     vdj.readAll();
-    if (vdjCloses)
+    if (end == QLatin1String("close"))
         vdj.disconnectFromHost();
-    else
+    else if (end == QLatin1String("drop"))
     {
         vdj.write("{\"value\":\"" + QByteArray(1024 * 1024, 'x'));
         vdj.flush();
     }
+    else
+    {
+        next.connectToHost("127.0.0.1", 18061);
+        QVERIFY(next.waitForConnected(2000));
+        QTRY_COMPARE_WITH_TIMEOUT(connSpy.count(), 2, 2000);
+    }
     QTRY_COMPARE_WITH_TIMEOUT(discSpy.count(), 1, 5000);
 
-    // measured: VDJ reconnects only to a service registered again
-    QCOMPARE(vdjBonjourRegistrations, before + 2);
+    // measured: VDJ reconnects only to a service registered again; a
+    // replacing client is already connected
+    QCOMPARE(vdjBonjourRegistrations, before + registrations);
+    QCOMPARE(vdjBonjourLive(), 1);
     plugin.closeInput(0, 0);
-    QCOMPARE(vdjBonjourRegistrations, before + 2);
+    QCOMPARE(vdjBonjourRegistrations, before + registrations);
+    QCOMPARE(vdjBonjourLive(), 0);
 }
 
 void VdjTelemetryClient_Test::aBonjourFailureShowsInTheStatus()
