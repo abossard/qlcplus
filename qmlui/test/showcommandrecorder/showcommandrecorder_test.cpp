@@ -17681,6 +17681,26 @@ void ShowCommandRecorder_Test::appShowDeletion_undoneShowBindsWhenShownAgain()
     rig.recorder->setRecording(false);
 }
 
+void ShowCommandRecorder_Test::appSongShows_choiceSurvivesSaveAndLoad()
+{
+    // a song's Show choice is saved with the workspace and read back after its Shows
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString path = files.filePath(QStringLiteral("choice.qxw"));
+    AppRig rig;
+    auto *bridge = qobject_cast<VdjBridge *>(rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    Show *chosen = rig.addShow(0);
+    chosen->setName(QStringLiteral("Chosen"));
+    const quint32 chosenId = chosen->id();
+    bridge->showFactory()->registerMapping(QStringLiteral("/music/choice.mp3"), chosenId);
+    QVERIFY(rig.app->saveWorkspace(path));
+
+    QVERIFY(rig.app->loadWorkspace(path));
+    QCOMPARE(rig.doc->function(chosenId)->name(), QStringLiteral("Chosen"));
+    QCOMPARE(bridge->showFactory()->showIdForFilepath(QStringLiteral("/music/choice.mp3")), chosenId);
+}
+
 void ShowCommandRecorder_Test::appMcpReplacement_needsDiscardWhileRecording_data()
 {
     QTest::addColumn<QString>("tool");
