@@ -482,8 +482,8 @@ void DjFsm_Test::playBeforeFilepathIsRecovered()
 
 void DjFsm_Test::playAcceptsBoolAndNumericForms()
 {
-    // The protocol documents play as int/bool; the telemetry client coerces
-    // JSON true→bool and 1→double. All truthy forms must mean "playing".
+    // The protocol documents play as int/bool; JSON true arrives as a bool and
+    // 1 as a number. All truthy forms must mean "playing".
     DjFsm fsm;
     loadSong(fsm, 1, "/music/a.mp3", "Song A", "Artist A", 120.0);
 

@@ -5,7 +5,7 @@ add_executable(${module_name} WIN32
     ../../vdjbridge.cpp ../../vdjbridge.h
     ../../performfsm.cpp ../../performfsm.h
     ../../../plugins/vdjbridge/vdjtelemetryclient.cpp ../../../plugins/vdjbridge/vdjtelemetryclient.h
-    ../../../plugins/vdjbridge/vdjbonjour.cpp ../../../plugins/vdjbridge/vdjbonjour.h
+    vdjbonjour_stub.cpp ../../../plugins/vdjbridge/vdjbonjour.h
     ../../../plugins/vdjbridge/vdjbridgeplugin.cpp ../../../plugins/vdjbridge/vdjbridgeplugin.h
     ../../../plugins/vdjbridge/configurevdjbridge.cpp ../../../plugins/vdjbridge/configurevdjbridge.h
     ../../../plugins/interfaces/qlcioplugin.cpp ../../../plugins/interfaces/qlcioplugin.h

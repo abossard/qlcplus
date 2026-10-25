@@ -24,6 +24,7 @@ private slots:
 
     // Subscription handshake
     void subscriptionMessageShape();
+    void subscriptionTriggerCount_data();
     void subscriptionTriggerCount();
 
     // TCP server lifecycle
@@ -41,6 +42,23 @@ private slots:
     void stopDropsTheClient();
     void framing_data();
     void framing();
+    void beatsOfAConnectionStartAtItsSnapshot_data();
+    void beatsOfAConnectionStartAtItsSnapshot();
+    void anObjectOpenPastTheCapDropsTheClient_data();
+    void anObjectOpenPastTheCapDropsTheClient();
+    void aConnectionThatEndsAdvertisesAgain_data();
+    void aConnectionThatEndsAdvertisesAgain();
+    void aBonjourFailureShowsInTheStatus();
+    void parametersAreKeptWithTheInputsUniverse_data();
+    void parametersAreKeptWithTheInputsUniverse();
+    void aPortEditRebindsWhenFinished_data();
+    void aPortEditRebindsWhenFinished();
+    void aSavedPortRestartsAnInputOpenedOnABusyPort();
+    void openingAnOpenInputBindsABusyPortAgain();
+    void bonjourAdvertisesOnlyAListeningServer_data();
+    void bonjourAdvertisesOnlyAListeningServer();
+    void aPortOutsideOneTo65535IsIgnored_data();
+    void aPortOutsideOneTo65535IsIgnored();
 };
 
 #endif

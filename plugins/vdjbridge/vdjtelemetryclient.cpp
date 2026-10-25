@@ -25,32 +25,26 @@
 #include <QDebug>
 
 static const char *kLogTag = "[VdjTelemetry]";
+static const int kMaxOpenObjectBytes = 1024 * 1024;
 
-// --- Per-deck triggers ---
-// These are subscribed for each of 4 decks as "deck N <trigger>".
+// Only what DjFsm, VdjBridge and the DJ Manager read: VDJ sends a trigger on
+// every change, so each one more is traffic (a VU meter streams at the tick rate).
 
-// VDJ sends a tick's changed triggers in this order: the song's identity
-// first, so a track change reaches consumers before its new position does
+// Per deck, as "deck N <trigger>". VDJ sends a tick's changed triggers in this
+// order: the song's identity first, so a track change reaches consumers before
+// its new position does
 static const QStringList kDeckTriggers = {
     "get_filepath", "loaded",
     // Continuous
-    "get_position", "get_time", "get_time elapsed absolute",
-    "get_beatpos", "get_vu_meter", "level",
-    // On-load metadata
+    "get_time", "get_time elapsed absolute", "get_beatpos",
+    // On-load metadata; title_artist, album, genre and firstbeat mark a new file's fields
     "get_title", "get_artist", "get_title_artist",
     "get_album", "get_genre", "get_bpm", "get_key", "get_firstbeat",
     "get_time total", "play", "volume", "masterdeck",
-    // EQ
-    "eq_high", "eq_med", "eq_low", "gain",
-    // Loop
-    "loop", "get_loop",
 };
 
-// --- Global triggers ---
-static const QStringList kGlobalTriggers = {
-    "master_volume", "get_decks", "crossfader", "headphone_volume",
-    "masterdeck", "get_crossfader_result full", "mixer_order", "get_vu_meter",
-};
+// the real deck count; decks above it mirror VDJ's default deck
+static const QStringList kGlobalTriggers = { "get_decks" };
 
 VdjTelemetryClient::VdjTelemetryClient(QObject *parent)
     : QObject(parent)
@@ -73,12 +67,12 @@ bool VdjTelemetryClient::start(quint16 port)
     {
         qWarning() << kLogTag << "Failed to bind port" << port
                     << ":" << m_server.errorString();
-        setStatus(PortInUse);
+        m_status = PortInUse;
         return false;
     }
 
     qDebug() << kLogTag << "Listening on port" << port;
-    setStatus(Listening);
+    m_status = Listening;
     return true;
 }
 
@@ -91,7 +85,7 @@ void VdjTelemetryClient::stop()
         m_server.close();
         qDebug() << kLogTag << "Server stopped";
     }
-    setStatus(Idle);
+    m_status = Idle;
     // closing the input is a disconnect to its consumers, like VDJ going away
     if (hadClient)
         emit clientDisconnected();
@@ -104,15 +98,6 @@ QString VdjTelemetryClient::clientAddress() const
     return QString();
 }
 
-void VdjTelemetryClient::setStatus(Status s)
-{
-    if (m_status != s)
-    {
-        m_status = s;
-        emit statusChanged(s);
-    }
-}
-
 void VdjTelemetryClient::closeClient()
 {
     if (m_client)
@@ -122,6 +107,7 @@ void VdjTelemetryClient::closeClient()
         m_client->deleteLater();
         m_client = nullptr;
         m_buffer.clear();
+        m_subscriptionAnswered = false;
     }
 }
 
@@ -154,7 +140,7 @@ void VdjTelemetryClient::onNewConnection()
     m_client->write(sub);
     m_client->flush();
 
-    setStatus(ClientConnected);
+    m_status = ClientConnected;
     emit clientConnected();
 }
 
@@ -223,13 +209,21 @@ void VdjTelemetryClient::feed(const QByteArray &chunk)
     // loopback capture), upgrade to a settle timeout when VDJ runs over the LAN
     if (writeOpen && m_buffer.isEmpty())
         emit tickEnded();
+    // an object still open past the cap is not VDJ's (a snapshot is ~7 KB)
+    if (m_buffer.size() > kMaxOpenObjectBytes)
+    {
+        qWarning() << kLogTag << "Dropping the client: an object open for" << m_buffer.size() << "bytes";
+        m_buffer.clear();
+        if (m_client)
+            onClientDisconnected();
+    }
 }
 
 void VdjTelemetryClient::onClientDisconnected()
 {
     qDebug() << kLogTag << "Client disconnected";
     closeClient();
-    setStatus(Listening);
+    m_status = Listening;
     emit clientDisconnected();
 }
 
@@ -237,14 +231,12 @@ QByteArray VdjTelemetryClient::buildSubscriptionMessage(int frequency)
 {
     QJsonArray triggers;
 
-    // Per-deck triggers for decks 1–4
     for (int deck = 1; deck <= kDeckCount; ++deck)
     {
         for (const QString &t : kDeckTriggers)
             triggers.append(QString("deck %1 %2").arg(deck).arg(t));
     }
 
-    // Global triggers
     for (const QString &t : kGlobalTriggers)
         triggers.append(t);
 
@@ -256,28 +248,6 @@ QByteArray VdjTelemetryClient::buildSubscriptionMessage(int frequency)
     QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     json.append('\n');
     return json;
-}
-
-// Helper: coerce a QJsonValue to a QVariant defensively
-static QVariant coerceValue(const QJsonValue &v)
-{
-    if (v.isDouble())
-        return v.toDouble();
-    if (v.isBool())
-        return v.toBool();
-    if (v.isString())
-    {
-        const QString s = v.toString();
-        // Try numeric coercion
-        bool ok = false;
-        double d = s.toDouble(&ok);
-        if (ok) return d;
-        // Try bool coercion
-        if (s.compare("true", Qt::CaseInsensitive) == 0) return true;
-        if (s.compare("false", Qt::CaseInsensitive) == 0) return false;
-        return s;
-    }
-    return QVariant();
 }
 
 void VdjTelemetryClient::parseLine(const QByteArray &line)
@@ -296,6 +266,10 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
 
     if (evt == "beat")
     {
+        // a reconnecting VDJ first drains every beat it queued while
+        // disconnected (measured: 22,946 after 3 h), then sends the snapshot
+        if (!m_subscriptionAnswered)
+            return;
         int pos = obj.value("pos").toInt();
         qreal bpm = obj.value("bpm").toDouble();
         qreal strength = obj.value("strength").toDouble();
@@ -303,11 +277,12 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
         emit beatReceived(pos, bpm, strength, change);
         return;
     }
-
     if (evt == "subscribed")
     {
+        m_subscriptionAnswered = true;
         QString trigger = obj.value("trigger").toString();
-        QVariant value = coerceValue(obj.value("value"));
+        // as JSON typed it: each consumer reads the trigger's own type
+        const QVariant value = obj.value("value").toVariant();
 
         if (trigger.isEmpty())
             return;

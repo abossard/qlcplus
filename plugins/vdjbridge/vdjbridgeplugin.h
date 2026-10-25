@@ -33,14 +33,13 @@ class VdjBonjour;
 
 /**
  * QLC+ I/O plugin that exposes the VirtualDJ DMXDesktop telemetry
- * protocol (TCP, default port 8050, Bonjour service
+ * protocol (TCP, default port VDJ_DEFAULT_PORT, Bonjour service
  * "_os2l._tcp") as a QLC+ input.
  *
- * Emits the standard QLCIOPlugin::beatReceived() and
- * valueChanged(...) for engine beat-source integration, plus custom
- * signals carrying the rich DMXDesktop payload (per-deck triggers,
- * global mixer state, telemetry-style beats) that the qmlui VdjBridge
- * facade consumes via string-based SIGNAL/SLOT.
+ * Emits valueChanged(...) on the beat channel for the engine's beat
+ * source, plus custom signals carrying the DMXDesktop payload (per-deck
+ * and global triggers, telemetry beats) that the qmlui VdjBridge facade
+ * consumes via string-based SIGNAL/SLOT.
  */
 class VdjBridgePlugin final : public QLCIOPlugin
 {
@@ -67,19 +66,19 @@ public:
 
     // Accessors for the configuration dialog
     quint16  hostPort() const { return m_hostPort; }
+    /** The universe the input is open on, or QLCIOPlugin::invalidLine() */
+    quint32  inputUniverse() const { return m_inputUniverse; }
     bool     bonjourEnabled() const { return m_bonjourEnabled; }
     QString  serviceName() const { return m_serviceName; }
     QString  clientAddress() const;
+    /** The input is open and another program holds its port */
+    bool     portInUse() const;
+    /** Why the Bonjour service is not registered, or empty */
+    QString  bonjourError() const { return m_bonjourError; }
     void setParameter(quint32 universe, quint32 line, Capability type,
                       QString name, QVariant value) override;
 
 signals:
-    // Standard zero-arg beat signal (matches OS2L convention) — emitted
-    // alongside valueChanged(...) on every telemetry beat so the engine
-    // beat-source machinery and other listeners that only know the
-    // QLCIOPlugin interface can pick it up.
-    void beatReceived();
-
     // Rich beat signal carrying DMXDesktop telemetry payload
     // (position, BPM, strength, deck-change flag).
     void telemetryBeatReceived(int pos, qreal bpm, qreal strength, bool change);
@@ -96,9 +95,16 @@ signals:
     void clientDisconnected();
 
 private:
+    /** (Re)start the open input's server on m_hostPort and advertise it */
+    void listen();
+    void setBonjour(bool on);
+    void registerBonjour();
+    void setBonjourError(const QString &error);
+
     quint16  m_hostPort       = VDJ_DEFAULT_PORT;
     bool     m_bonjourEnabled = true;
     QString  m_serviceName    = QStringLiteral("QLC+ VDJ");
+    QString  m_bonjourError;
     quint32  m_inputUniverse  = QLCIOPlugin::invalidLine();
     bool     m_open           = false;
 

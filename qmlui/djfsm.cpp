@@ -23,8 +23,7 @@
 #include <cmath>
 
 namespace {
-// VDJ booleans arrive as "on"/"off", true/false, or 1/0 (the telemetry client
-// coerces JSON numbers→double and JSON bools→bool). Treat any truthy form as on.
+// VDJ booleans arrive as "on"/"off"; a JSON bool or number counts by its truth
 bool triggerIsOn(const QVariant &value)
 {
     if (value.typeId() == QMetaType::Bool)

@@ -38,7 +38,7 @@ public:
     explicit ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent = nullptr);
 
 private slots:
-    void slotPortChanged(int value);
+    void slotPortChanged();
     void slotBonjourToggled(bool checked);
     void slotServiceNameChanged(const QString &text);
     void slotClearLog();

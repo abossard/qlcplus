@@ -50,10 +50,10 @@ QString VdjBridgePlugin::pluginInfo() const
     str  = QString("<HTML><HEAD><TITLE>%1</TITLE></HEAD><BODY>").arg(name());
     str += QString("<H3>%1</H3>").arg(name());
     str += tr("This plugin exposes VirtualDJ DMXDesktop telemetry "
-              "(TCP, default port 8050, Bonjour service "
+              "(TCP, default port %1, Bonjour service "
               "<tt>_os2l._tcp</tt>) as a QLC+ input. "
               "It emits beat events and per-deck metadata that the "
-              "qmlui VdjBridge facade consumes to drive the Song Manager.");
+              "qmlui VdjBridge facade consumes to drive the Song Manager.").arg(VDJ_DEFAULT_PORT);
     str += QString("</BODY></HTML>");
     return str;
 }
@@ -63,7 +63,12 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
     Q_UNUSED(input)
 
     if (m_open)
+    {
+        // opened again (App's auto-open, then the workspace's patch): a busy port is tried again
+        if (portInUse())
+            listen();
         return true;
+    }
 
     m_inputUniverse = universe;
     m_telemetry = new VdjTelemetryClient(this);
@@ -76,12 +81,8 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
             this, &VdjBridgePlugin::tickEnded);
     connect(m_telemetry, &VdjTelemetryClient::beatReceived,
             this, [this](int pos, qreal bpm, qreal strength, bool change) {
-        // Mirror OS2L's pattern: emit valueChanged on a fixed beat
-        // channel (8341 / 0xff) so the engine beat-source machinery
-        // picks it up, then emit both the standard zero-arg beat and
-        // the rich telemetry-payload beat.
+        // the engine's beat source takes a plugin beat on channel 8341, as OS2L sends it
         emit valueChanged(m_inputUniverse, 0, 8341, 255, QStringLiteral("beat"));
-        emit beatReceived();
         emit telemetryBeatReceived(pos, bpm, strength, change);
     });
     connect(m_telemetry, &VdjTelemetryClient::clientConnected,
@@ -91,23 +92,18 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
     });
     connect(m_telemetry, &VdjTelemetryClient::clientDisconnected,
             this, [this, input, universe]() {
+        // VDJ reconnects only to a service registered again (measured); a
+        // listening server means the input is open and no client took over
+        if (m_telemetry->status() == VdjTelemetryClient::Listening)
+            registerBonjour();
         emit clientDisconnected();
         emit connectionStatusChanged(universe, input);
     });
 
-    if (!m_telemetry->start(m_hostPort))
-    {
-        qWarning() << "[VdjBridge] failed to bind TCP port" << m_hostPort;
-        delete m_telemetry;
-        m_telemetry = nullptr;
-        return false;
-    }
-
-    if (m_bonjourEnabled)
-    {
-        m_bonjour = new VdjBonjour(this);
-        m_bonjour->registerService(m_serviceName, m_hostPort);
-    }
+    // open and mapped on a busy port too: the workspace's saved port comes
+    // after the open and restarts the server (Universe::loadXML)
+    m_telemetry->start(m_hostPort);
+    setBonjour(m_bonjourEnabled);
 
     addToMap(universe, input, Input);
 
@@ -121,14 +117,9 @@ void VdjBridgePlugin::closeInput(quint32 input, quint32 universe)
     if (!m_open)
         return;
 
-    removeFromMap(input, universe, Input);
+    removeFromMap(universe, input, Input);
 
-    if (m_bonjour)
-    {
-        m_bonjour->unregisterService();
-        m_bonjour->deleteLater();
-        m_bonjour = nullptr;
-    }
+    setBonjour(false);
 
     if (m_telemetry)
     {
@@ -153,12 +144,14 @@ QString VdjBridgePlugin::inputInfo(quint32 input)
     QString str;
     str  = QString("<H3>%1</H3>").arg(QStringLiteral("VDJ Telemetry"));
     str += QString("<P><B>%1:</B> %2</P>")
-            .arg(tr("Listen port")).arg(m_hostPort);
+            .arg(tr("Listen port"))
+            .arg(portInUse() ? tr("Port %1 in use").arg(m_hostPort) : QString::number(m_hostPort));
     str += QString("<P><B>%1:</B> %2</P>")
             .arg(tr("Bonjour service"))
-            .arg(m_bonjourEnabled
-                 ? QStringLiteral("_os2l._tcp (%1)").arg(m_serviceName)
-                 : tr("disabled"));
+            .arg(!m_bonjourEnabled ? tr("disabled")
+                 : !m_bonjourError.isEmpty() ? tr("not registered: %1").arg(m_bonjourError)
+                 : portInUse() ? tr("not registered while the port is in use")
+                 : QStringLiteral("_os2l._tcp (%1)").arg(m_serviceName));
     return str;
 }
 
@@ -167,9 +160,12 @@ int VdjBridgePlugin::connectionStatus(quint32 input)
     Q_UNUSED(input)
     if (!m_telemetry)
         return QLCIOPlugin::Idle;
-    if (m_telemetry->status() == VdjTelemetryClient::ClientConnected)
-        return QLCIOPlugin::Connected;
-    return QLCIOPlugin::Advertising;
+    switch (m_telemetry->status())
+    {
+        case VdjTelemetryClient::ClientConnected: return QLCIOPlugin::Connected;
+        case VdjTelemetryClient::Listening:       return QLCIOPlugin::Advertising;
+        default:                                  return QLCIOPlugin::Idle; // a port in use hears nothing
+    }
 }
 
 void VdjBridgePlugin::configure()
@@ -181,6 +177,11 @@ void VdjBridgePlugin::configure()
 bool VdjBridgePlugin::canConfigure() const
 {
     return true;
+}
+
+bool VdjBridgePlugin::portInUse() const
+{
+    return m_telemetry && m_telemetry->status() == VdjTelemetryClient::PortInUse;
 }
 
 QString VdjBridgePlugin::clientAddress() const
@@ -195,50 +196,76 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
 {
     if (name == QLatin1String(VDJ_HOST_PORT))
     {
-        quint16 newPort = static_cast<quint16>(value.toUInt());
-        if (newPort == m_hostPort)
-            return;
-        m_hostPort = newPort;
-        if (m_open && m_telemetry)
+        // 0 would listen on any port and advertise port 0: treated as unset
+        const uint port = value.toUInt();
+        if (port == 0 || port > 65535)
         {
-            m_telemetry->stop();
-            m_telemetry->start(m_hostPort);
-            if (m_bonjour)
-            {
-                m_bonjour->unregisterService();
-                m_bonjour->registerService(m_serviceName, m_hostPort);
-            }
+            qWarning() << "[VdjBridge] ignoring hostPort" << value;
+            return;
+        }
+        if (port != m_hostPort)
+        {
+            m_hostPort = quint16(port);
+            if (m_open)
+                listen();
         }
     }
     else if (name == QLatin1String(VDJ_BONJOUR_ENABLED))
     {
         m_bonjourEnabled = value.toBool();
         if (m_open)
-        {
-            if (m_bonjourEnabled && !m_bonjour)
-            {
-                m_bonjour = new VdjBonjour(this);
-                m_bonjour->registerService(m_serviceName, m_hostPort);
-            }
-            else if (!m_bonjourEnabled && m_bonjour)
-            {
-                m_bonjour->unregisterService();
-                m_bonjour->deleteLater();
-                m_bonjour = nullptr;
-            }
-        }
+            setBonjour(m_bonjourEnabled);
     }
     else if (name == QLatin1String(VDJ_SERVICE_NAME))
     {
         m_serviceName = value.toString();
-        if (m_open && m_bonjour)
-        {
-            m_bonjour->unregisterService();
-            m_bonjour->registerService(m_serviceName, m_hostPort);
-        }
+        registerBonjour();
+    }
+    // kept with the input's universe: the workspace saves them with its patch
+    QLCIOPlugin::setParameter(universe, line, type, name, value);
+}
+
+void VdjBridgePlugin::listen()
+{
+    m_telemetry->start(m_hostPort);
+    registerBonjour();
+    emit connectionStatusChanged(m_inputUniverse, 0);
+}
+
+void VdjBridgePlugin::setBonjour(bool on)
+{
+    if (on == (m_bonjour != nullptr))
+        return;
+    if (on)
+    {
+        m_bonjour = new VdjBonjour(this);
+        connect(m_bonjour, &VdjBonjour::serviceRegistrationFailed, this, &VdjBridgePlugin::setBonjourError);
+        registerBonjour();
     }
     else
     {
-        QLCIOPlugin::setParameter(universe, line, type, name, value);
+        m_bonjour->unregisterService();
+        m_bonjour->deleteLater();
+        m_bonjour = nullptr;
+        setBonjourError(QString());
     }
+}
+
+void VdjBridgePlugin::registerBonjour()
+{
+    if (!m_bonjour)
+        return;
+    setBonjourError(QString());
+    m_bonjour->unregisterService();
+    // advertised only while a server listens
+    if (!portInUse())
+        m_bonjour->registerService(m_serviceName, m_hostPort);
+}
+
+void VdjBridgePlugin::setBonjourError(const QString &error)
+{
+    if (error == m_bonjourError)
+        return;
+    m_bonjourError = error;
+    emit connectionStatusChanged(m_inputUniverse, 0);
 }

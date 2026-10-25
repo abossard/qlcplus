@@ -905,9 +905,8 @@ void DjManager_Test::getDecksDrivesDeckCount()
     };
 
     // VDJ reports 2 real decks → tracked count drops to 2 and the table shrinks.
-    // The telemetry client coerces JSON numbers to double, so feed double to
-    // exercise the real wire type (not just int).
-    sendDecks(QVariant(2.0));
+    // VDJ's integer arrives as QJsonValue::toVariant() gives it: a qlonglong
+    sendDecks(QVariant(qlonglong(2)));
     QCOMPARE(fsm->deckCount(), 2);
     QCOMPARE(mgr.deckModel()->rowCount(QModelIndex()), 2);
 

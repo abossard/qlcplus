@@ -25,12 +25,11 @@ value updates at the requested frequency.
 | Discovery     | Bonjour/mDNS service `_os2l._tcp` on the same port           |
 | Encoding      | UTF-8                                                         |
 
-**Framing — how to split the stream:** VDJ does not delimit messages. Insert a
-break at every `}{` boundary and parse each object. QLC+ does exactly this:
-`m_lineBuffer.replace("}{", "}\n{")` then splits on `\n`
-(`plugins/vdjbridge/vdjtelemetryclient.cpp:163-169`).
-> Limitation: a literal `}{` inside a JSON string value (e.g. an odd track title)
-> would mis-split. A string-aware/brace-depth splitter would be more robust.
+**Framing — how to split the stream:** VDJ does not delimit messages, and a
+literal `}{` inside a string value reaches the wire (measured with a title
+`a"b}{c\d`), so splitting on `}{` text is wrong. QLC+ cuts objects by brace
+depth outside strings (`VdjTelemetryClient::feed`). An object still open after
+1 MB (a snapshot is ~7 KB) drops the connection.
 
 ## Connection lifecycle (observed frame directions & sizes)
 
@@ -40,7 +39,16 @@ break at every `}{` boundary and parse each object. QLC+ does exactly this:
    **3560 bytes**, ~112 triggers).
 4. **Client → server**: VDJ streams `subscribed` value-updates and `beat` events
    (`…57522 → …8050`).
-5. On disconnect the server resets deck state and keeps listening; VDJ reconnects.
+5. On disconnect the server resets deck state, keeps listening and registers its
+   Bonjour service again, whichever side closed. Measured: after a server-side
+   close VDJ did not reconnect for 212 s, and reconnected ~0.3 s after the
+   service was registered again.
+
+Before the `subscribe` only beats arrive. A reconnecting VDJ first drains every
+beat it queued while disconnected (measured: 22,946 beats after 3 h, 11 minutes
+at 33/s), then sends the subscription snapshot. QLC+ forwards a connection's
+beats only after its first `subscribed` object; the ones before it are backlog
+(`plugins/vdjbridge/vdjtelemetryclient.cpp`).
 
 Message tally over a ~5-minute session: `subscribed` **193,367**, `beat` **587**,
 `subscribe` **1**, `unsubscribe` **1**.
@@ -59,14 +67,26 @@ A single JSON object, sent once on connect:
 | `frequency` | string | `"25"` (updates per second for continuous fields) |
 | `trigger`   | array  | **112 elements** = 26 distinct per-deck triggers × 4 decks + 8 globals |
 
-The per-deck triggers requested (each prefixed `deck N `, N=1–4):
+DMXDesktop requested (each prefixed `deck N `, N=1–4):
 `get_bpm, volume, play, get_key, get_title_artist, get_artist, get_title,
 get_album, get_genre, get_position, loaded, get_time, get_time total, eq_high,
 eq_med, eq_low, gain, get_filepath, level, get_vu_meter, get_time elapsed absolute,
-get_beatpos, get_firstbeat, loop, get_loop, masterdeck` (the per-deck master flag;
-at a handover the old master sends `off` and the new one `on` in the same tick).
+get_beatpos, get_firstbeat, loop, get_loop, masterdeck`.
 Globals: `master_volume, get_decks, crossfader, headphone_volume, masterdeck,
 get_crossfader_result full, mixer_order, get_vu_meter`.
+
+QLC+ subscribes only what it reads, **69 triggers** = 17 per deck × 4 + `get_decks`
+(`plugins/vdjbridge/vdjtelemetryclient.cpp`), in this order:
+`get_filepath, loaded, get_time, get_time elapsed absolute, get_beatpos,
+get_title, get_artist, get_title_artist, get_album, get_genre, get_bpm, get_key,
+get_firstbeat, get_time total, play, volume, masterdeck` (the per-deck master
+flag; at a handover the old master sends `off` and the new one `on` in the same
+tick). `get_title_artist`, `get_album`, `get_genre` and `get_firstbeat` are read
+only as "this file's fields arrived" (`qmlui/djfsm.cpp`). Not subscribed, since
+nothing reads them: `get_position, get_vu_meter, level, eq_high, eq_med, eq_low,
+gain, loop, get_loop` and the globals `master_volume, crossfader,
+headphone_volume, masterdeck, get_crossfader_result full, mixer_order,
+get_vu_meter`. The tables below keep their measured types.
 
 ## Client → server: streamed frames
 
@@ -227,3 +247,10 @@ tcpdump -r "$PCAP" -A | grep -oaE '\{"message":"[a-z]+"[^}]*\}' | sort | uniq -c
 
 - **Service type**: `_os2l._tcp`, **Domain**: `local.`, **Port**: the TCP server port (8050).
 - macOS: native `dns_sd.h` (`DNSServiceRegister`). Elsewhere: manual IP:port in VDJ.
+- The OS2L plugin registers the same service type (`QLC+`, port 9996). With both
+  inputs open QLC+ advertises two `_os2l._tcp` services, and VDJ connects to one
+  of them by registration order: open only the input VDJ should talk to, or turn
+  Bonjour off in the other plugin's configuration.
+- A registration that fails (or that mDNSResponder later reports as failed)
+  releases its `DNSServiceRef`; the VDJ Bridge shows the reason in its
+  configuration status and input info.

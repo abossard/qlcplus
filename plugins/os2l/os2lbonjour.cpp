@@ -116,7 +116,8 @@ void OS2LBonjour::unregisterService()
     if (m_notifier)
     {
         m_notifier->setEnabled(false);
-        delete m_notifier;
+        // this may run inside the notifier's own activated()
+        m_notifier->deleteLater();
         m_notifier = nullptr;
     }
 
@@ -137,7 +138,13 @@ void OS2LBonjour::bonjourSocketReadyRead()
     {
         DNSServiceErrorType err = DNSServiceProcessResult(m_dnssRef);
         if (err != kDNSServiceErr_NoError)
-            qWarning() << "[OS2L Bonjour] DNSServiceProcessResult error:" << err;
+        {
+            // a ref left allocated keeps a readable fd: the notifier would fire forever
+            QString msg = QString("DNSServiceProcessResult error %1").arg(err);
+            qWarning() << "[OS2L Bonjour]" << msg;
+            unregisterService();
+            emit serviceRegistrationFailed(msg);
+        }
     }
 }
 
@@ -169,6 +176,7 @@ void DNSSD_API OS2LBonjour::registerCallback(
     {
         QString msg = QString("Registration callback error %1").arg(errorCode);
         qWarning() << "[OS2L Bonjour]" << msg;
+        self->unregisterService(); // dns_sd allows deallocating inside the callback
         emit self->serviceRegistrationFailed(msg);
     }
 }
