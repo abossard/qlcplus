@@ -518,7 +518,7 @@ ShowCommandTrack ShowCommandRecorder::projectedCheckpointTrack(Show *show, bool 
                 if (heldInTake(span) == false)
                     continue;
                 const ShowCommandTransition held = ShowCommandFsm::liveHold(candidate, span.hold, span.from, now);
-                for (quint32 id : held.removed)
+                for (quint32 id : held.removed + span.skipped)
                     candidate.remove(id);
                 for (const ShowCommand &cmd : held.authored)
                     candidate.insert(cmd);
@@ -763,7 +763,7 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
         {
             const auto stamp = touchStamp(trackedShow());
             spans.removeIf([&stamp](const LiveSpan &span) { return span.stamp != stamp; });
-            spans.append({ m_takeId, stamp, request.acceptedTimeMs, ShowCommand::MaxTime, input });
+            spans.append({ m_takeId, stamp, request.acceptedTimeMs, ShowCommand::MaxTime, input, {} });
             request.authoredShowId = trackedShowId();
             if (diag)
                 traceDecision(Outcome::Recorded, tr("the hold is recorded when it ends"), input,
@@ -2018,7 +2018,7 @@ void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint
         for (const LiveSpan &span : spans)
         {
             if (span.to == ShowCommand::MaxTime && heldLive(span.hold.controlId, span.hold.role))
-                again.append({ m_takeId, touchStamp(show), arrival, ShowCommand::MaxTime, span.hold });
+                again.append({ m_takeId, touchStamp(show), arrival, ShowCommand::MaxTime, span.hold, {} });
         }
     }
     // the departure belongs to the pass that ended: not live in the next one
@@ -2032,11 +2032,18 @@ void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint
 
 bool ShowCommandRecorder::recordHold(Show *show, const LiveSpan &span, quint32 to, bool live)
 {
-    const ShowCommandTransition held = ShowCommandFsm::liveHold(withUnpublished(show), span.hold, span.from, to);
+    const ShowCommandTrack track = withUnpublished(show);
+    ShowCommandTransition held = ShowCommandFsm::liveHold(track, span.hold, span.from, to);
     if (held.error.isEmpty() == false)
     {
         reportFailure(held.error);
         return false;
+    }
+    // the recorded values it went over go with it
+    for (quint32 id : span.skipped)
+    {
+        if (track.indexOfId(id) >= 0 && held.removed.contains(id) == false)
+            held.removed.append(id);
     }
     if (live)
         return commit(held, show);
@@ -2092,7 +2099,7 @@ void ShowCommandRecorder::recordHeldHolds(Show *show)
                 open->stamp = stamp;
             }
             else
-                spans = { { m_takeId, stamp, at, ShowCommand::MaxTime, hold } };
+                spans = { { m_takeId, stamp, at, ShowCommand::MaxTime, hold, {} } };
         }
     }
 }
@@ -3409,17 +3416,26 @@ bool ShowCommandRecorder::replacedByLive(const ControlRun &run, const ShowComman
     if (run.show->id() != m_rec.boundShowId())
         return false;
     const TouchStamp now(m_takeId, run.batch.traversal);
-    bool held = false;
-    for (const LiveSpan &span : m_liveHolds.value(cmd.controlId))
-        held = held || (span.stamp == now && span.from <= cmd.time && cmd.time <= span.to);
+    LiveSpan *held = nullptr;
+    for (LiveSpan &span : m_liveHolds[cmd.controlId])
+    {
+        if (span.stamp == now && span.from <= cmd.time && cmd.time <= span.to)
+            held = &span;
+    }
     // the hold's release replaces the edges inside it
     if (cmd.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(cmd.role))
-        return held;
+        return held != nullptr;
     // a recorded value met: the next one replays unless the control moves again
     const bool moved = m_movedLive.contains(cmd.controlId) && m_movedLive.value(cmd.controlId) == now;
     m_movedLive.remove(cmd.controlId);
-    if (held == false && moved == false)
+    if (held == nullptr && moved == false)
         return false;
+    // under a hold still held it only goes unplayed: the hold's recording removes it
+    if (held != nullptr && held->to == ShowCommand::MaxTime)
+    {
+        held->skipped.append(cmd.id);
+        return true;
+    }
     ShowCommandTransition replaced;
     replaced.removed.append(cmd.id);
     commit(replaced, run.show);

@@ -15197,6 +15197,18 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
                           "to:3500;unflash:S;to:6000;log;track")
         << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:1500=255,3500=75"),
                         QStringLiteral("F:1500-3500") };
+    // until the flash is recorded, what it covers only goes unplayed: a save keeps it
+    QTest::newRow("a save during a slider's live flash keeps what it covers")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;log;wrap;to:1500;flash:S;"
+                          "to:3500;save;checkpoint;unflash:S;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:2000,3000"),
+                        QStringLiteral("F:1500-3500"), QStringLiteral("S:1500=255,3500=75"),
+                        QStringLiteral("F:1500-3500") };
+    // lag: the value at the release replays after it, and goes as the flash covered it
+    QTest::newRow("a value the flash covered replayed after its release")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;wrap;to:1500;flash:S;to:2900;"
+                          "lag:3000;unflash:S;to:6000;track")
+        << QStringList{ QStringLiteral("F:1500-3000") };
     // a hold's time is its press-to-release span only: the values after it replay
     QTest::newRow("a slider's live flash leaves its later values alone")
         << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:5000;slide:125;to:5500;slide:10;"
@@ -15267,6 +15279,24 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
         show->setExternalElapsedTime(ms);
         sample();
     };
+    const auto trackLine = [&](const ShowCommandTrack &track) {
+        QStringList toggles, samples;
+        for (const ShowCommand &cmd : track.commands())
+        {
+            if (cmd.controlId == toggle->recordingId())
+                toggles.append(QStringLiteral("%1=%2").arg(cmd.time).arg(int(cmd.on)));
+            else if (cmd.controlId == slider->recordingId() && cmd.action == ShowCommandAction::SetSliderPosition)
+                samples.append(QString::number(cmd.time));
+        }
+        QStringList line;
+        if (!holdSpans(track).isEmpty())
+            line.append(QStringLiteral("F:") + holdSpans(track).replace(QLatin1Char(' '), QLatin1Char(',')));
+        if (!toggles.isEmpty())
+            line.append(QStringLiteral("T:") + toggles.join(QLatin1Char(',')));
+        if (!samples.isEmpty())
+            line.append(QStringLiteral("S:") + samples.join(QLatin1Char(',')));
+        return line.join(QLatin1Char(' '));
+    };
 
     QStringList saw;
     for (const QString &step : script.split(QLatin1Char(';')))
@@ -15291,6 +15321,13 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
         }
         else if (verb == QLatin1String("wrap"))
             at(0);
+        else if (verb == QLatin1String("lag"))
+        {
+            // the runner reached it, its replay not delivered yet
+            clock = arg.toUInt();
+            show->setExternalElapsedTime(clock);
+            doc.masterTimer()->timerTick();
+        }
         else if (verb == QLatin1String("press") || verb == QLatin1String("release"))
         {
             flash->requestUserStateChange(verb == QLatin1String("press"));
@@ -15322,24 +15359,25 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
         }
         else if (verb == QLatin1String("track"))
         {
-            const ShowCommandTrack track = show->commandTrack();
-            QVERIFY(track.malformedHoldPairs().isEmpty());
-            QStringList toggles, samples;
-            for (const ShowCommand &cmd : track.commands())
-            {
-                if (cmd.controlId == toggle->recordingId())
-                    toggles.append(QStringLiteral("%1=%2").arg(cmd.time).arg(int(cmd.on)));
-                else if (cmd.controlId == slider->recordingId() && cmd.action == ShowCommandAction::SetSliderPosition)
-                    samples.append(QString::number(cmd.time));
-            }
-            QStringList line;
-            if (!holdSpans(track).isEmpty())
-                line.append(QStringLiteral("F:") + holdSpans(track).replace(QLatin1Char(' '), QLatin1Char(',')));
-            if (!toggles.isEmpty())
-                line.append(QStringLiteral("T:") + toggles.join(QLatin1Char(',')));
-            if (!samples.isEmpty())
-                line.append(QStringLiteral("S:") + samples.join(QLatin1Char(',')));
-            saw.append(line.join(QLatin1Char(' ')));
+            QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
+            saw.append(trackLine(show->commandTrack()));
+        }
+        else if (verb == QLatin1String("save") || verb == QLatin1String("checkpoint"))
+        {
+            // an autosave writes the track as it is, a workspace save checkpoints first
+            if (verb == QLatin1String("checkpoint"))
+                QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+            QBuffer buffer;
+            buffer.open(QIODevice::WriteOnly);
+            QXmlStreamWriter writer(&buffer);
+            QVERIFY(show->saveXML(&writer));
+            Doc reloaded(nullptr, 1);
+            QXmlStreamReader reader(buffer.data());
+            reader.readNextStartElement();
+            QVERIFY(Function::loader(reader, &reloaded));
+            auto *copy = qobject_cast<Show *>(reloaded.function(show->id()));
+            QVERIFY(copy);
+            saw.append(trackLine(copy->commandTrack()));
         }
         else
             QFAIL(qPrintable(QStringLiteral("unknown step ") + step));

@@ -610,6 +610,7 @@ private:
         quint32 from = 0;
         quint32 to = ShowCommand::MaxTime;
         ShowCommandInput hold;
+        QVector<quint32> skipped; //!< recorded values it went over, removed when it is recorded
     };
     /** Every hold of the current take and pass, per control */
     QHash<QUuid, QVector<LiveSpan>> m_liveHolds;
