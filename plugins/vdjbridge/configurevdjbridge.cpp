@@ -251,7 +251,7 @@ void ConfigureVdjBridge::updateStatusLabel()
         m_statusLabel->setText(tr("Listening (port %1)").arg(port));
         break;
     default:
-        m_statusLabel->setText(tr("Idle"));
+        m_statusLabel->setText(m_plugin->portInUse() ? tr("Port %1 in use").arg(port) : tr("Idle"));
         break;
     }
     if (!m_plugin->bonjourError().isEmpty())

@@ -723,9 +723,15 @@ void VdjTelemetryClient_Test::aBonjourFailureShowsInTheStatus()
     QVERIFY2(plugin.inputInfo(0).contains("error -65563"), qPrintable(plugin.inputInfo(0)));
     QVERIFY2(status->text().contains("error -65563"), qPrintable(status->text()));
 
-    // the next registration starts clean
+    // the next registration starts clean, and says so
     plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("serviceName"), QStringLiteral("Booth"));
+    QCOMPARE(statusSpy.count(), 2);
     QVERIFY(!plugin.inputInfo(0).contains("error -65563"));
+    QVERIFY2(!status->text().contains("error -65563"), qPrintable(status->text()));
+
+    emit bonjour->serviceRegistrationFailed(QStringLiteral("DNSServiceProcessResult error -65563"));
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("bonjourEnabled"), false);
+    QVERIFY2(!status->text().contains("error -65563"), qPrintable(status->text()));
     plugin.closeInput(0, 0);
 }
 
@@ -759,14 +765,16 @@ void VdjTelemetryClient_Test::aPortEditRebindsWhenFinished_data()
 {
     QTest::addColumn<bool>("inUse");
     QTest::addColumn<int>("status");
-    QTest::newRow("a free port") << false << int(QLCIOPlugin::Advertising);
-    QTest::newRow("a port in use listens to nothing") << true << int(QLCIOPlugin::Idle);
+    QTest::addColumn<QString>("text"); // in the dialog's status and the input info
+    QTest::newRow("a free port") << false << int(QLCIOPlugin::Advertising) << "18066";
+    QTest::newRow("a port in use listens to nothing") << true << int(QLCIOPlugin::Idle) << "Port 18066 in use";
 }
 
 void VdjTelemetryClient_Test::aPortEditRebindsWhenFinished()
 {
     QFETCH(bool, inUse);
     QFETCH(int, status);
+    QFETCH(QString, text);
 
     QTcpServer other;
     if (inUse)
@@ -789,6 +797,9 @@ void VdjTelemetryClient_Test::aPortEditRebindsWhenFinished()
     QCOMPARE(plugin.getParameters(3, 0, QLCIOPlugin::Input).value("hostPort").toInt(), 18066);
     QCOMPARE(statusSpy.count(), 1);
     QCOMPARE(plugin.connectionStatus(0), status);
+    QLabel *label = dialog.findChild<QLabel *>(QStringLiteral("statusLabel"));
+    QVERIFY2(label->text().contains(text), qPrintable(label->text()));
+    QVERIFY2(plugin.inputInfo(0).contains(text), qPrintable(plugin.inputInfo(0)));
     plugin.closeInput(0, 3);
 }
 

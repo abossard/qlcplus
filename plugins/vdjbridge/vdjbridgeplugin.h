@@ -97,6 +97,7 @@ signals:
 private:
     void setBonjour(bool on);
     void registerBonjour();
+    void setBonjourError(const QString &error);
 
     quint16  m_hostPort       = VDJ_DEFAULT_PORT;
     bool     m_bonjourEnabled = true;

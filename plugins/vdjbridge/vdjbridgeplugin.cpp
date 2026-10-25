@@ -139,7 +139,8 @@ QString VdjBridgePlugin::inputInfo(quint32 input)
     QString str;
     str  = QString("<H3>%1</H3>").arg(QStringLiteral("VDJ Telemetry"));
     str += QString("<P><B>%1:</B> %2</P>")
-            .arg(tr("Listen port")).arg(m_hostPort);
+            .arg(tr("Listen port"))
+            .arg(portInUse() ? tr("Port %1 in use").arg(m_hostPort) : QString::number(m_hostPort));
     str += QString("<P><B>%1:</B> %2</P>")
             .arg(tr("Bonjour service"))
             .arg(!m_bonjourEnabled ? tr("disabled")
@@ -230,10 +231,7 @@ void VdjBridgePlugin::setBonjour(bool on)
     if (on)
     {
         m_bonjour = new VdjBonjour(this);
-        connect(m_bonjour, &VdjBonjour::serviceRegistrationFailed, this, [this](const QString &error) {
-            m_bonjourError = error;
-            emit connectionStatusChanged(m_inputUniverse, 0);
-        });
+        connect(m_bonjour, &VdjBonjour::serviceRegistrationFailed, this, &VdjBridgePlugin::setBonjourError);
         registerBonjour();
     }
     else
@@ -241,7 +239,7 @@ void VdjBridgePlugin::setBonjour(bool on)
         m_bonjour->unregisterService();
         m_bonjour->deleteLater();
         m_bonjour = nullptr;
-        m_bonjourError.clear();
+        setBonjourError(QString());
     }
 }
 
@@ -249,9 +247,17 @@ void VdjBridgePlugin::registerBonjour()
 {
     if (!m_bonjour)
         return;
-    m_bonjourError.clear();
+    setBonjourError(QString());
     m_bonjour->unregisterService();
     // advertised only while a server listens
     if (!portInUse())
         m_bonjour->registerService(m_serviceName, m_hostPort);
+}
+
+void VdjBridgePlugin::setBonjourError(const QString &error)
+{
+    if (error == m_bonjourError)
+        return;
+    m_bonjourError = error;
+    emit connectionStatusChanged(m_inputUniverse, 0);
 }
