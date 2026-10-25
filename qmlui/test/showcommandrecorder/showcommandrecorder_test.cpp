@@ -15012,6 +15012,9 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::newRow("Perform engages on the Show while held")
         << QStringLiteral("rec on, at 1000, press, at 2000, perform, at 3000, release, rec off")
         << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
+    QTest::newRow("Perform engages on the Show while held, then REC off")
+        << QStringLiteral("rec on, at 1000, press, at 2000, perform, at 3000, rec off, at 4000, release")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
     QTest::newRow("Perform ends onto the Show while held")
         << QStringLiteral("perform, rec on, at 1000, press, at 2000, perform off, at 3000, release, rec off")
         << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
@@ -15345,6 +15348,142 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
     show->stop(FunctionParent::master());
     tickAndDeliver(&doc, 3);
     QCOMPARE(saw, seen);
+}
+
+void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow_data()
+{
+    QTest::addColumn<QString>("steps");
+    QTest::addColumn<QString>("recorded"); // the holds of the Show bound last, as a save writes them
+
+    // a release REC does not take still ends the hold, and a hold stays with its take and Show
+    QTest::newRow("A deleted while held, then a hold in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, release, bind B, at 3000, press, at 4000, "
+                          "release, rec off")
+        << QStringLiteral("3000-4000");
+    QTest::newRow("A deleted while held, then REC off in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, release, bind B, at 5000, rec off")
+        << QString();
+    QTest::newRow("discarded while held, then a take in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, discard, release, bind B, rec on, at 5000, rec off")
+        << QString();
+    QTest::newRow("workspace replaced while held, then a take in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, clear, bind B, rec on, at 5000, rec off")
+        << QString();
+    // still held as the next take begins: recorded from then
+    QTest::newRow("A deleted while held, B bound while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, at 2000, bind B, at 5000, rec off, release")
+        << QStringLiteral("2000-5000");
+    QTest::newRow("discarded while held, REC on again while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, discard, at 2000, bind A, rec on, at 3000, release, rec off")
+        << QStringLiteral("2000-3000");
+    QTest::newRow("Perform moves REC to B while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, at 2000, perform B, at 3000, release, rec off")
+        << QStringLiteral("2000-3000");
+    QTest::newRow("released by a script")
+        << QStringLiteral("bind A, rec on, at 1000, press, at 2000, script release, at 5000, rec off")
+        << QString();
+    // a hold whose control is gone never ends: no other take or Show takes it
+    QTest::newRow("the held button removed, then REC off in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, at 5000, rec off")
+        << QString();
+    QTest::newRow("the held button removed, then another take on A")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, discard, at 2000, bind A, rec on, at 5000, rec off")
+        << QString();
+    QTest::newRow("the held button removed, then a save in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, at 5000")
+        << QString();
+}
+
+void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow()
+{
+    QFETCH(QString, steps);
+    QFETCH(QString, recorded);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    QHash<QChar, Show *> shows;
+    const auto addShow = [&](QChar name) {
+        Show *show = new Show(&doc);
+        QVERIFY(doc.addFunction(show));
+        show->setSyncSource(ShowRunner::External);
+        shows.insert(name, show);
+    };
+    addShow(QLatin1Char('A'));
+    addShow(QLatin1Char('B'));
+    Show *bound = nullptr;
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Holds"), false);
+    const int flashId =
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"));
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(flashId));
+    QVERIFY(flash);
+
+    for (const QString &step : steps.split(QStringLiteral(", ")))
+    {
+        if (step.startsWith(QLatin1String("at ")))
+        {
+            for (Show *show : std::as_const(shows))
+                show->setExternalElapsedTime(step.mid(3).toUInt());
+        }
+        else if (step.startsWith(QLatin1String("bind ")))
+        {
+            bound = shows.value(step.at(5));
+            QVERIFY(recorder.setResolvedShow(bound->id()));
+        }
+        else if (step.startsWith(QLatin1String("perform ")))
+        {
+            bound = shows.value(step.at(8));
+            QVERIFY(recorder.setResolvedShow(bound->id(), ShowRecordSource::Perform));
+        }
+        else if (step.startsWith(QLatin1String("rec ")))
+            QVERIFY2(recorder.setRecording(step == QLatin1String("rec on")), qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("press") || step == QLatin1String("release"))
+            flash->requestUserStateChange(step == QLatin1String("press"));
+        else if (step == QLatin1String("script release"))
+            flash->requestUserStateChange(false, ShowCommandOrigin::Programmatic);
+        else if (step == QLatin1String("remove F"))
+        {
+            QVERIFY(bridge.removeWidget(flashId));
+            flash = nullptr;
+        }
+        else if (step == QLatin1String("delete A"))
+            QVERIFY(doc.deleteFunction(shows.take(QLatin1Char('A'))->id()));
+        else if (step == QLatin1String("discard"))
+            recorder.discardRecording();
+        else if (step == QLatin1String("clear"))
+        {
+            // as a New or Open: the recording goes, then the console, then the rest
+            recorder.discardRecording();
+            ui.vc()->resetContents();
+            flash = nullptr;
+            // the timer lets go of the flash before its Scene is deleted
+            target->unFlash(doc.masterTimer());
+            tickAndDeliver(&doc);
+            doc.clearContents();
+            shows.clear();
+            addShow(QLatin1Char('B'));
+        }
+        else
+            QFAIL(qPrintable(QStringLiteral("unknown step ") + step));
+        tickAndDeliver(&doc);
+    }
+
+    QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+    QBuffer buffer;
+    buffer.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&buffer);
+    bound->saveXML(&writer);
+    Doc reloaded(nullptr, 1);
+    QXmlStreamReader reader(buffer.data());
+    reader.readNextStartElement();
+    QVERIFY(Function::loader(reader, &reloaded));
+    auto *copy = qobject_cast<Show *>(reloaded.function(bound->id()));
+    QVERIFY(copy);
+    QCOMPARE(holdSpans(copy->commandTrack()), recorded);
 }
 
 void ShowCommandRecorder_Test::liveInput_touchBelongsToItsPass()

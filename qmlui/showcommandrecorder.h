@@ -605,6 +605,7 @@ private:
      *  held. It is in the track only once it ended. */
     struct LiveSpan
     {
+        quint64 take = 0;                //!< the take it was opened in, so on its Show
         std::optional<TouchStamp> stamp; //!< none while the Show is stopped
         quint32 from = 0;
         quint32 to = ShowCommand::MaxTime;
@@ -612,6 +613,8 @@ private:
     };
     /** Every hold of the current take and pass, per control */
     QHash<QUuid, QVector<LiveSpan>> m_liveHolds;
+    /** Whether span is still held in the current take */
+    bool heldInTake(const LiveSpan &span) const;
     /** The performer's hold of span recorded into show up to to, through
      *  ShowCommandFsm::liveHold(); live: not played again in this pass */
     bool recordHold(Show *show, const LiveSpan &span, quint32 to, bool live);
