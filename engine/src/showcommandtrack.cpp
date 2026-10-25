@@ -544,18 +544,6 @@ namespace
         return off;
     }
 
-    /** The first press of the control and role pressed at index press after it, nullptr when none */
-    const ShowCommand *nextPress(const QVector<ShowCommand> &commands, const QVector<HoldPair> &pairs, int press)
-    {
-        const ShowCommand &on = commands.at(press);
-        for (const HoldPair &pair : pairs)
-        {
-            if (pair.press > press && commands.at(pair.press).controlId == on.controlId &&
-                commands.at(pair.press).role == on.role)
-                return &commands.at(pair.press);
-        }
-        return nullptr;
-    }
 }
 
 /************************************************************************
@@ -1409,17 +1397,6 @@ QVector<quint32> ShowCommandTrack::malformedHoldPairs() const
     return malformedPairs(m_commands, holdPairs(m_commands));
 }
 
-QVector<ShowCommand> ShowCommandTrack::openHolds() const
-{
-    QVector<ShowCommand> open;
-    for (const HoldPair &pair : holdPairs(m_commands))
-    {
-        if (!pair.broken && pair.release < 0)
-            open.append(m_commands.at(pair.press));
-    }
-    return open;
-}
-
 bool ShowCommandTrack::closeOpenHolds(quint32 time, QString *error)
 {
     ShowCommandTrack closed = *this;
@@ -1428,13 +1405,7 @@ bool ShowCommandTrack::closeOpenHolds(quint32 time, QString *error)
     {
         if (pair.broken || pair.release >= 0)
             continue;
-        const ShowCommand *next = nextPress(m_commands, pairs, pair.press);
-        const ShowCommand off = holdRelease(m_commands, pair.press, next != nullptr ? qMin(time, next->time) : time,
-                                            closed.nextEventId());
-        if (!closed.insert(off, error))
-            return false;
-        // at the next press's time the release comes first: that press goes after it
-        if (next != nullptr && next->time == off.time && (!closed.remove(next->id) || !closed.insert(*next, error)))
+        if (!closed.insert(holdRelease(m_commands, pair.press, time, closed.nextEventId()), error))
             return false;
     }
     *this = closed;
@@ -2071,88 +2042,9 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     cmd.on = input.on;
     cmd.position = input.position;
 
-    QVector<ShowCommand> authored, trailing;
-    QVector<quint32> removed;
-    if (cmd.id != ShowCommand::InvalidId && cmd.action == ShowCommandAction::SetButtonState &&
-        ShowCommand::isHoldRole(cmd.role))
-    {
-        const QVector<ShowCommand> &commands = track.commands();
-        const QVector<HoldPair> pairs = holdPairs(commands);
-        if (cmd.on)
-        {
-            // a press ends the recorded hold of its control in effect at its time
-            // there, before itself; one that begins there goes whole
-            ShowCommandTrack cut = track;
-            for (const HoldPair &pair : pairs)
-            {
-                if (pair.broken || commands.at(pair.press).controlId != cmd.controlId ||
-                    commands.at(pair.press).role != cmd.role)
-                    continue;
-                // a press on a control the performer holds already starts nothing
-                if (pair.release < 0)
-                    return result;
-                const ShowCommand &on = commands.at(pair.press);
-                const ShowCommand &off = commands.at(pair.release);
-                if (on.time > cmd.time || off.time <= cmd.time)
-                    continue;
-                removed.append(off.id);
-                cut.remove(off.id);
-                if (on.time == cmd.time)
-                {
-                    removed.append(on.id);
-                    cut.remove(on.id);
-                    continue;
-                }
-                authored.append(holdRelease(commands, pair.press, cmd.time, cut.nextEventId()));
-                cut.insert(authored.last());
-            }
-            cmd.id = cut.nextEventId();
-            cmd.pairId = cut.nextPairId();
-            if (cmd.pairId == ShowCommand::InvalidId)
-            {
-                result.error = QStringLiteral("no free hold pair id left in this track");
-                return result;
-            }
-        }
-        else
-        {
-            // the open pair closes only from a position at or after its own press
-            int open = -1;
-            for (const HoldPair &pair : pairs)
-            {
-                if (pair.broken || pair.release >= 0)
-                    continue;
-                if (commands.at(pair.press).controlId == cmd.controlId && commands.at(pair.press).role == cmd.role)
-                    open = pair.press;
-            }
-            if (open < 0 || commands.at(open).time > cmd.time)
-                return result;
-            cmd = holdRelease(commands, open, cmd.time, cmd.id);
-            // what was recorded inside the hold goes; a recorded hold still on
-            // at the release resumes there, after it
-            ShowCommandTrack resumed = track;
-            resumed.insert(cmd);
-            for (const HoldPair &pair : pairs)
-            {
-                if (pair.press <= open)
-                    continue;
-                const ShowCommand &on = commands.at(pair.press);
-                if (on.controlId != cmd.controlId || on.role != cmd.role || on.time > cmd.time)
-                    continue;
-                removed.append(on.id);
-                if (pair.release >= 0 && commands.at(pair.release).time <= cmd.time)
-                {
-                    removed.append(commands.at(pair.release).id);
-                    continue;
-                }
-                ShowCommand again = on;
-                again.id = resumed.nextEventId();
-                again.time = cmd.time;
-                resumed.insert(again);
-                trailing.append(again);
-            }
-        }
-    }
+    // a hold is recorded whole when it ends, by liveHold()
+    if (cmd.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(cmd.role))
+        return result;
 
     if (cmd.id == ShowCommand::InvalidId)
     {
@@ -2165,13 +2057,108 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     if (!result.error.isEmpty())
         return result;
 
-    authored.append(cmd);
-    authored += trailing;
-    result.authored = authored;
-    result.removed = removed;
-    // the host already executed this input: mark those occurrences, leave the cursor alone
-    for (const ShowCommand &live : std::as_const(authored))
-        result.state.consumedLiveEventIds.insert(live.id, liveMarkOf(live));
+    result.authored.append(cmd);
+    // the host already executed this input: mark that occurrence, leave the cursor alone
+    result.state.consumedLiveEventIds.insert(cmd.id, liveMarkOf(cmd));
+    return result;
+}
+
+ShowCommandTransition ShowCommandFsm::liveHold(const ShowCommandTrack &track, const ShowCommandInput &hold,
+                                               quint32 from, quint32 to)
+{
+    ShowCommandTransition result;
+    to = qMax(from, to);
+    const QVector<ShowCommand> &commands = track.commands();
+    ShowCommandTrack held = track;
+    QVector<ShowCommand> atFrom, atTo, later;
+    // a recorded hold is on from its press until its release; one that overlaps [from, to]
+    // ends at from when it was on before, and starts again at to when it is still on there
+    for (const HoldPair &pair : holdPairs(commands))
+    {
+        if (pair.broken || pair.press < 0 || pair.release < 0)
+            continue;
+        const ShowCommand &on = commands.at(pair.press);
+        const ShowCommand &off = commands.at(pair.release);
+        if (on.controlId != hold.controlId || on.role != hold.role || off.time <= from || on.time > to)
+            continue;
+        result.removed.append(on.time < from ? off.id : on.id);
+        if (on.time < from)
+        {
+            ShowCommand cut = off;
+            cut.time = from;
+            atFrom.append(cut);
+        }
+        if (off.time > to)
+        {
+            ShowCommand again = on;
+            again.time = to;
+            if (on.time < from)
+            {
+                // the cut hold keeps its pair, the rest takes a new one
+                again.pairId = ShowCommand::InvalidId;
+                ShowCommand end = off;
+                end.pairId = ShowCommand::InvalidId;
+                later.append(end);
+            }
+            atTo.append(again);
+        }
+        else if (on.time >= from)
+            result.removed.append(off.id);
+    }
+    ShowCommand press;
+    press.time = from;
+    press.functionId = hold.functionId;
+    press.action = ShowCommandAction::SetButtonState;
+    press.intensity = hold.intensity;
+    press.controlId = hold.controlId;
+    press.role = hold.role;
+    press.attribute = hold.attribute;
+    press.payload = hold.payload;
+    press.on = true;
+    press.position = hold.position;
+    press.pairId = ShowCommand::InvalidId;
+    ShowCommand release = press;
+    release.time = to;
+    release.on = false;
+
+    // in this order at equal times: what ends at from, the live hold, what starts again at to
+    for (quint32 id : std::as_const(result.removed))
+        held.remove(id);
+    quint32 pairs = ShowCommand::InvalidId;
+    for (QVector<ShowCommand> *group : { &atFrom, &atTo, &later })
+    {
+        if (group == &atTo)
+        {
+            press.pairId = held.nextPairId();
+            release.pairId = press.pairId;
+            group->prepend(release);
+            group->prepend(press);
+        }
+        for (ShowCommand &cmd : *group)
+        {
+            // a press opening a new pair takes the next pair id, its release the same
+            if (cmd.pairId == ShowCommand::InvalidId)
+                cmd.pairId = cmd.on ? (pairs = held.nextPairId()) : pairs;
+            cmd.id = held.nextEventId();
+            if (cmd.id == ShowCommand::InvalidId || cmd.pairId == ShowCommand::InvalidId)
+            {
+                result = ShowCommandTransition();
+                result.error = cmd.id == ShowCommand::InvalidId ? QStringLiteral("no free event id left in this track")
+                                                                : QStringLiteral("no free hold pair id left in this track");
+                return result;
+            }
+            cmd = cmd.canonicalized();
+            result.error = ShowCommand::validate(cmd);
+            if (!result.error.isEmpty() || !held.insert(cmd, &result.error))
+            {
+                const QString error = result.error;
+                result = ShowCommandTransition();
+                result.error = error;
+                return result;
+            }
+            result.authored.append(cmd);
+        }
+    }
     return result;
 }
 

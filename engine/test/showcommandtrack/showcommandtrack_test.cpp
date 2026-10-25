@@ -2735,18 +2735,32 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
     QTest::addColumn<QString>("steps");
     QTest::addColumn<QString>("spans");
 
+    // as the recorder drives it: a press opens a live hold, a release or REC
+    // off ends it, a seek back while held ends it where the clock was and
+    // starts it again at the arrival; "at" moves the clock
     const QString take = QStringLiteral("press 10000, release 12000, seek 5000, ");
     QTest::newRow("record pair") << QStringLiteral("press 1000, release 2000") << QStringLiteral("1000-2000");
     QTest::newRow("seek back, earlier pair") << take + QStringLiteral("press 6000, release 7000")
                                              << QStringLiteral("6000-7000 10000-12000");
-    // a hold replaces what was recorded inside it; a recorded hold still on at the release resumes there
+    // what was recorded inside the hold goes; a recorded hold still on at its end starts again there
     QTest::newRow("seek back, held into a later pair") << take + QStringLiteral("press 6000, release 11000")
                                                        << QStringLiteral("6000-11000 11000-12000");
     QTest::newRow("seek back, held over a later pair") << take + QStringLiteral("press 6000, release 13000")
                                                        << QStringLiteral("6000-13000");
-    // a press cuts the recorded hold it lands in, its release first at that time
+    QTest::newRow("covering two holds")
+        << QStringLiteral("press 2000, release 3000, press 4000, release 5000, seek 0, press 1000, release 6000")
+        << QStringLiteral("1000-6000");
+    QTest::newRow("starting before a hold, ending inside it")
+        << QStringLiteral("press 2000, release 4000, seek 0, press 1000, release 3000")
+        << QStringLiteral("1000-3000 3000-4000");
+    // a recorded hold on at the press ends there
     QTest::newRow("seek back, press inside a recorded hold") << take + QStringLiteral("press 11000, release 13000")
                                                              << QStringLiteral("10000-11000 11000-13000");
+    QTest::newRow("seek back, a tap inside a recorded hold") << take + QStringLiteral("press 10500, release 11000")
+                                                             << QStringLiteral("10000-10500 10500-11000 11000-12000");
+    // one that begins at the press goes, no hold of no time is cut off
+    QTest::newRow("seek back, press at a recorded press") << take + QStringLiteral("press 10000, release 11000")
+                                                          << QStringLiteral("10000-11000 11000-12000");
     QTest::newRow("seek back, press at a recorded release") << take + QStringLiteral("press 12000, release 13000")
                                                             << QStringLiteral("10000-12000 12000-13000");
     // a press on a control already held live starts nothing
@@ -2754,27 +2768,23 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
                                              << QStringLiteral("1000-2000");
     QTest::newRow("second press while held inside a recorded hold")
         << take + QStringLiteral("press 11000, press 11500, release 13000") << QStringLiteral("10000-11000 11000-13000");
-    // a recorded hold beginning at the press goes whole, no hold of no time is
-    // left; the recorder resumes its rest at the release
-    QTest::newRow("seek back, press at a recorded press") << take + QStringLiteral("press 10000, release 11000")
-                                                          << QStringLiteral("10000-11000");
     QTest::newRow("release with nothing held") << QStringLiteral("release 1000, press 2000, release 3000")
                                                << QStringLiteral("2000-3000");
     QTest::newRow("hold at a frozen position") << QStringLiteral("press 4000, release 4000")
                                                << QStringLiteral("4000-4000");
-    // a hold replaces only what was pressed after it
     QTest::newRow("holds at a frozen position") << QStringLiteral("press 4000, release 4000, press 4000, release 4000")
                                                 << QStringLiteral("4000-4000 4000-4000");
-    // a release before its open press closes nothing; REC off never closes before the press
     QTest::newRow("loop back while held") << QStringLiteral("press 10000, seek 5000, release 6000")
-                                          << QStringLiteral("10000-");
-    QTest::newRow("loop back while held, REC off") << QStringLiteral("press 10000, seek 5000, release 6000, close 6000")
-                                                   << QStringLiteral("10000-10000");
+                                          << QStringLiteral("5000-6000 10000-10000");
+    QTest::newRow("loop back while held, REC off") << QStringLiteral("press 10000, seek 5000, close 6000")
+                                                   << QStringLiteral("5000-6000 10000-10000");
+    QTest::newRow("two wraps while held")
+        << QStringLiteral("press 5000, at 6000, seek 0, at 6000, seek 0, release 1000")
+        << QStringLiteral("0-1000 1000-6000");
     QTest::newRow("REC off before a later pair") << take + QStringLiteral("press 6000, close 8000")
                                                  << QStringLiteral("6000-8000 10000-12000");
-    // closed for a file, a hold ends before the next recorded hold of its control and removes nothing
-    QTest::newRow("closed held into a later pair") << take + QStringLiteral("press 6000, close 11000")
-                                                   << QStringLiteral("6000-10000 10000-12000");
+    QTest::newRow("REC off held into a later pair") << take + QStringLiteral("press 6000, close 11000")
+                                                    << QStringLiteral("6000-11000 11000-12000");
 }
 
 void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
@@ -2783,45 +2793,45 @@ void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
     QFETCH(QString, spans);
 
     ShowCommandTrack track;
-    ShowCommandState state = ShowCommandState();
+    ShowCommandInput hold;
+    hold.origin = ShowCommandOrigin::Pointer;
+    hold.action = ShowCommandAction::SetButtonState;
+    hold.controlId = kControlA;
+    hold.role = ShowControlRole::FlashButton;
+    std::optional<quint32> held;
+    quint32 position = 0;
+    const auto end = [&](quint32 time) {
+        const ShowCommandTransition ended = ShowCommandFsm::liveHold(track, hold, *held, time);
+        QVERIFY2(ended.error.isEmpty(), qPrintable(ended.error));
+        for (quint32 id : ended.removed)
+            QVERIFY(track.remove(id));
+        for (const ShowCommand &cmd : ended.authored)
+            QVERIFY(track.insert(cmd));
+    };
     for (const QString &step : steps.split(QStringLiteral(", ")))
     {
         const QString verb = step.section(' ', 0, 0);
         const quint32 time = step.section(' ', 1, 1).toUInt();
-        if (verb == QLatin1String("seek"))
+        if (verb == QLatin1String("seek") && held)
         {
-            state = ShowCommandFsm::seek(state, time);
-            continue;
+            end(position);
+            held = time;
         }
-        if (verb == QLatin1String("close"))
+        else if (verb == QLatin1String("press") && !held)
+            held = time;
+        else if ((verb == QLatin1String("release") || verb == QLatin1String("close")) && held)
         {
-            QVERIFY(track.closeOpenHolds(time));
-            continue;
+            end(time);
+            held.reset();
         }
-        state.position = time;
-        ShowCommandInput input;
-        input.origin = ShowCommandOrigin::Pointer;
-        input.action = ShowCommandAction::SetButtonState;
-        input.controlId = kControlA;
-        input.role = ShowControlRole::FlashButton;
-        input.on = verb == QLatin1String("press");
-        const ShowCommandTransition taken = ShowCommandFsm::userInput(track, state, input);
-        QVERIFY2(taken.error.isEmpty(), qPrintable(taken.error));
-        for (quint32 id : taken.removed)
-            QVERIFY(track.remove(id));
-        for (const ShowCommand &cmd : taken.authored)
-            QVERIFY(track.insert(cmd));
-        state = taken.state;
+        position = time;
         QVERIFY2(track.malformedHoldPairs().isEmpty(), qPrintable(step));
     }
     QCOMPARE(holdSpans(track), spans);
 
-    // closed for saving, the track reads back as it was
-    ShowCommandTrack saved = track;
-    QVERIFY(saved.closeOpenHolds(state.position));
     ShowCommandTrack loaded;
-    QVERIFY(fromXml(toXml(saved), &loaded));
-    QCOMPARE(loaded.commands(), saved.commands());
+    QVERIFY(fromXml(toXml(track), &loaded));
+    QCOMPARE(loaded.commands(), track.commands());
     QVERIFY(loaded.malformedHoldPairs().isEmpty());
 }
 
@@ -2832,10 +2842,8 @@ void ShowCommandTrack_Test::saveEndsHoldInProgress_data()
     QTest::addColumn<QString>("saved"); // empty: the save is refused
 
     QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << true << QStringLiteral("1000-2000");
-    // a hold left in progress ends at the extent in the file, or before the next hold of its control
+    // a hold left in progress ends at the extent in the file
     QTest::newRow("hold in progress") << QStringLiteral("1:on@1000") << true << QStringLiteral("1000-6000");
-    QTest::newRow("hold in progress before a later pair")
-        << QStringLiteral("1:on@1000 2:on@4000 2:off@5000") << true << QStringLiteral("1000-4000 4000-5000");
     // the release that ends it needs an event id
     QTest::newRow("hold in progress, no event id left") << QStringLiteral("1:on@1000") << false << QString();
 }
@@ -2949,10 +2957,13 @@ void ShowCommandTrack_Test::idsRunOutExplicitly()
     ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
     state.position = 5000;
-    const ShowCommandTransition step = ShowCommandFsm::userInput(track, state, input);
+    // a hold is refused when it ends: its release records it
+    const ShowCommandTransition step = pairs ? ShowCommandFsm::liveHold(track, input, 5000, 6000)
+                                             : ShowCommandFsm::userInput(track, state, input);
     QVERIFY(step.authored.isEmpty());
     QVERIFY(!step.error.isEmpty());
-    QVERIFY(step.state == state);
+    // liveHold() carries no transport state
+    QVERIFY(pairs || step.state == state);
 }
 
 void ShowCommandTrack_Test::pairIdsAreNeverReissued_data()
@@ -2992,16 +3003,13 @@ void ShowCommandTrack_Test::pairIdsAreNeverReissued()
         QVERIFY(track.replace(holdEdge(1, QStringLiteral("2:off@2000"))));
     }
 
-    ShowCommandState state = ShowCommandState();
-    state.position = 5000;
-    ShowCommandInput press;
-    press.origin = ShowCommandOrigin::Pointer;
-    press.action = ShowCommandAction::SetButtonState;
-    press.controlId = kControlA;
-    press.role = ShowControlRole::FlashButton;
-    press.on = true;
-    const ShowCommandTransition taken = ShowCommandFsm::userInput(track, state, press);
-    QCOMPARE(taken.authored.count(), 1);
+    ShowCommandInput hold;
+    hold.origin = ShowCommandOrigin::Pointer;
+    hold.action = ShowCommandAction::SetButtonState;
+    hold.controlId = kControlA;
+    hold.role = ShowControlRole::FlashButton;
+    const ShowCommandTransition taken = ShowCommandFsm::liveHold(track, hold, 5000, 6000);
+    QCOMPARE(taken.authored.count(), 2);
     QCOMPARE(taken.authored.first().pairId, pairId);
 }
 

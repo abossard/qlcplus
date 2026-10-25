@@ -13109,9 +13109,10 @@ void ShowCommandRecorder_Test::flashMixedIngressOverlap_recordsExactTimesAndOrde
     QVERIFY(pairA != pairB);
     QCOMPARE(commands.at(2).pairId, pairA);
     QCOMPARE(commands.at(3).pairId, pairB);
-    QVERIFY(commands.at(0).id < commands.at(1).id);
-    QVERIFY(commands.at(1).id < commands.at(2).id);
-    QVERIFY(commands.at(2).id < commands.at(3).id);
+    // a hold takes its ids when it ends: A's edges before B's
+    QVERIFY(commands.at(0).id < commands.at(2).id);
+    QVERIFY(commands.at(2).id < commands.at(1).id);
+    QVERIFY(commands.at(1).id < commands.at(3).id);
 }
 
 void ShowCommandRecorder_Test::sliderFlashReplay_restoresRuntimePreFlashValue()
@@ -13818,7 +13819,7 @@ void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedSliderFlash()
     }
 }
 
-void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen_data()
+void ShowCommandRecorder_Test::checkpoint_midHoldSavesTheHoldSoFar_data()
 {
     QTest::addColumn<QString>("control");
     QTest::newRow("freezehold") << QStringLiteral("freezehold");
@@ -13826,7 +13827,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLi
     QTest::newRow("sliderflash") << QStringLiteral("sliderflash");
 }
 
-void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen()
+void ShowCommandRecorder_Test::checkpoint_midHoldSavesTheHoldSoFar()
 {
     QFETCH(QString, control);
 
@@ -13876,19 +13877,13 @@ void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLi
         slider->requestUserFlash(true);
     tickAndDeliver(&doc, 2);
 
-    const QVector<ShowCommand> beforeCheckpoint = show->commandTrack().commands();
-    QCOMPARE(beforeCheckpoint.count(), 1);
-    QVERIFY(beforeCheckpoint.at(0).on);
-    QVERIFY(beforeCheckpoint.at(0).pairId != ShowCommand::InvalidId);
-    const quint32 pairId = beforeCheckpoint.at(0).pairId;
+    // a hold is in the track once it ends
+    QVERIFY(show->commandTrack().commands().isEmpty());
 
     show->setExternalElapsedTime(12000);
     QVERIFY(recorder.checkpoint());
     tickAndDeliver(&doc, 2);
-
-    const QVector<ShowCommand> liveDuringHold = show->commandTrack().commands();
-    QCOMPARE(liveDuringHold.count(), 1);
-    QCOMPARE(liveDuringHold.at(0).pairId, pairId);
+    QVERIFY(show->commandTrack().commands().isEmpty());
 
     QBuffer buffer;
     QVERIFY(buffer.open(QIODevice::WriteOnly));
@@ -13901,13 +13896,15 @@ void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLi
     QVERIFY(reader.readNextStartElement());
     Show loaded(&doc);
     QVERIFY(loaded.loadXML(reader));
+    // the save writes the hold up to the save
     const QVector<ShowCommand> checkpointCommands = loaded.commandTrack().commands();
     QCOMPARE(checkpointCommands.count(), 2);
     QVERIFY(checkpointCommands.at(0).on);
     QVERIFY(!checkpointCommands.at(1).on);
     QCOMPARE(checkpointCommands.at(0).time, 10000u);
     QCOMPARE(checkpointCommands.at(1).time, 12000u);
-    QCOMPARE(checkpointCommands.at(0).pairId, pairId);
+    const quint32 pairId = checkpointCommands.at(0).pairId;
+    QVERIFY(pairId != ShowCommand::InvalidId);
     QCOMPARE(checkpointCommands.at(1).pairId, pairId);
 
     show->setExternalElapsedTime(20000);
@@ -14066,20 +14063,24 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
     r.show->setExternalElapsedTime(11500);
     r.slider->requestUserValue(77);
     const QVector<ShowCommand> beforeFailure = r.show->commandTrack().commands();
-    int holdOnIndex = -1;
-    bool sawMissingStart = false;
-    for (int i = 0; i < beforeFailure.count(); i++)
-    {
-        const ShowCommand &cmd = beforeFailure.at(i);
-        if (cmd.action == ShowCommandAction::SetButtonState && cmd.on && cmd.time == 10000u &&
-            cmd.pairId != ShowCommand::InvalidId)
-            holdOnIndex = i;
-        if (cmd.action == ShowCommandAction::Start && cmd.functionId == goneId && cmd.time == 11000u)
-            sawMissingStart = true;
-    }
-    QVERIFY(holdOnIndex >= 0);
-    QVERIFY(!sawMissingStart);
-    const quint32 pairId = beforeFailure.at(holdOnIndex).pairId;
+    const QUuid holdControl = hold != nullptr ? hold->recordingId() : slider->recordingId();
+    // the edges of the held control in commands, as "on@time" and "off@time", one pair id between them
+    const auto holdEdges = [&holdControl](const QVector<ShowCommand> &commands) {
+        QStringList edges;
+        QSet<quint32> pairs;
+        for (const ShowCommand &cmd : commands)
+        {
+            if (cmd.action != ShowCommandAction::SetButtonState || cmd.controlId != holdControl)
+                continue;
+            edges.append(QStringLiteral("%1@%2").arg(cmd.on ? "on" : "off").arg(cmd.time));
+            pairs.insert(cmd.pairId);
+        }
+        return pairs.count() <= 1 ? edges.join(QLatin1Char(' ')) : QStringLiteral("pairs differ");
+    };
+    // a hold is in the track once it ends
+    QCOMPARE(holdEdges(beforeFailure), QString());
+    for (const ShowCommand &cmd : beforeFailure)
+        QVERIFY(cmd.action != ShowCommandAction::Start || cmd.functionId != goneId);
 
     r.show->setExternalElapsedTime(12000);
     QVERIFY(!r.recorder.checkpoint());
@@ -14122,29 +14123,17 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
         QCOMPARE(found->order, accepted.order);
         QCOMPARE(found->pairId, accepted.pairId);
     }
-    bool sawProjectedClosure = false;
     bool sawStart = false;
-    bool sawLiveProjectedClosure = false;
     for (const ShowCommand &cmd : saved.commands())
     {
-        if (cmd.action == ShowCommandAction::SetButtonState &&
-            cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
-            cmd.pairId == pairId && !cmd.on && cmd.time == 12000u)
-            sawProjectedClosure = true;
         if (cmd.action == ShowCommandAction::Start && cmd.functionId == goneId &&
             cmd.time == 11000u)
             sawStart = true;
     }
-    for (const ShowCommand &cmd : liveAfterRetry)
-    {
-        if (cmd.action == ShowCommandAction::SetButtonState &&
-            cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
-            cmd.pairId == pairId && !cmd.on && cmd.time == 12000u)
-            sawLiveProjectedClosure = true;
-    }
-    QVERIFY(sawProjectedClosure);
+    // saved up to the save, still held live
+    QCOMPARE(holdEdges(saved.commands()), QStringLiteral("on@10000 off@12000"));
     QVERIFY(sawStart);
-    QVERIFY(!sawLiveProjectedClosure);
+    QCOMPARE(holdEdges(liveAfterRetry), QString());
 
     r.show->setExternalElapsedTime(20000);
     if (hold != nullptr)
@@ -14162,14 +14151,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
         QCOMPARE(*found, accepted);
         QCOMPARE(found->order, accepted.order);
     }
-    bool sawLiveRelease = false;
-    for (const ShowCommand &cmd : liveAfterRelease)
-    {
-        if (cmd.action == ShowCommandAction::SetButtonState && cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
-            cmd.pairId == pairId && !cmd.on && cmd.time == 20000u)
-            sawLiveRelease = true;
-    }
-    QVERIFY(sawLiveRelease);
+    QCOMPARE(holdEdges(liveAfterRelease), QStringLiteral("on@10000 off@20000"));
 }
 
 void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFreezeHold_data()
@@ -15002,9 +14984,30 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::newRow("seek back, REC off while held") << take + QStringLiteral("at 6000, press, at 8000, rec off")
                                                    << QStringLiteral("6000-8000 10000-12000")
                                                    << QStringLiteral("6000-8000 10000-12000") << true;
+    // a hold is in the track once it ends; the workspace save writes it up to the save
     QTest::newRow("seek back, save while held") << take + QStringLiteral("at 6000, press, at 8000")
-                                                << QStringLiteral("6000- 10000-12000")
+                                                << QStringLiteral("10000-12000")
                                                 << QStringLiteral("6000-8000 10000-12000") << true;
+    // an autosave writes the recording as it is: only the hold in progress is missing
+    QTest::newRow("seek back, autosave while held inside a recorded hold")
+        << take + QStringLiteral("at 10500, press, at 11000") << QStringLiteral("10000-12000")
+        << QStringLiteral("10000-12000") << false;
+    QTest::newRow("covering two holds")
+        << QStringLiteral("rec on, at 2000, press, at 3000, release, at 4000, press, at 5000, release, at 0, at 1000, "
+                          "press, at 6000, release, rec off")
+        << QStringLiteral("1000-6000") << QStringLiteral("1000-6000") << true;
+    QTest::newRow("starting before a hold, ending inside it")
+        << QStringLiteral("rec on, at 2000, press, at 4000, release, at 0, at 1000, press, at 3000, release, rec off")
+        << QStringLiteral("1000-3000 3000-4000") << QStringLiteral("1000-3000 3000-4000") << true;
+    QTest::newRow("second press while held")
+        << QStringLiteral("rec on, at 1000, press, at 1500, press, at 2000, release, rec off")
+        << QStringLiteral("1000-2000") << QStringLiteral("1000-2000") << true;
+    QTest::newRow("two wraps while held")
+        << QStringLiteral("rec on, at 5000, press, at 6000, at 0, at 6000, at 0, at 1000, release, rec off")
+        << QStringLiteral("0-1000 1000-6000") << QStringLiteral("0-1000 1000-6000") << true;
+    QTest::newRow("REC off and on while held")
+        << QStringLiteral("rec on, at 1000, press, at 2000, rec off, at 3000, rec on, at 4000, release, rec off")
+        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
     // held across a move back: it ends at the departure and starts again at the arrival
     QTest::newRow("loop back while held, REC off")
         << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
@@ -15019,9 +15022,9 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::newRow("undo a deletion after the Show was restored")
         << deleted + QStringLiteral("restore, ") + again + QStringLiteral("undo")
         << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
-    // saved without a checkpoint, the file ends the open hold at the authored extent
+    // saved without a checkpoint, the hold in progress is not in the file
     QTest::newRow("save while held, no checkpoint") << QStringLiteral("rec on, at 6000, press, at 8000")
-                                                    << QStringLiteral("6000-") << QStringLiteral("6000-6000") << false;
+                                                    << QString() << QString() << false;
 }
 
 void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
@@ -21018,7 +21021,8 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
         }
     };
     assertFlashCommands(authoredBeforePress, 2);
-    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 2);
+    // a hold is published once, at its release
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 1);
 
     // open the panel from its control; details begin now
     ed.click(ed.item(QStringLiteral("recordDebugButton")));
@@ -21038,7 +21042,7 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     press(40);
     assertFlashCommands(afterClosedTrack, 40);
     QCOMPARE(ed.show->commandTrack().count(), baselineCommands + 40);
-    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 42);
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 21);
     QQuickItem *panel = ed.item(QStringLiteral("showDebugPanel"));
     QQuickItem *list = ed.item(QStringLiteral("eventsList"));
     QVERIFY(panel && list);
@@ -21076,7 +21080,7 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     press(40);
     assertFlashCommands(afterFirstPhase, 40);
     QCOMPARE(ed.show->commandTrack().count(), baselineCommands + 80);
-    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 82);
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 41);
     const quint64 revisionBeforeUiInspection = ed.show->commandTrackRevision();
     const QVector<ShowCommand> commandsBeforeUiInspection = ed.show->commandTrack().commands();
     QCOMPARE(list->property("contentY").toReal(), contentY);
@@ -21149,7 +21153,7 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     // only presentation changed after UI inspection interactions above
     QCOMPARE(ed.show->commandTrackRevision(), revisionBeforeUiInspection);
     QCOMPARE(ed.show->commandTrack().commands(), commandsBeforeUiInspection);
-    QCOMPARE(revisionBeforeUiInspection, revisionBeforePress + 82);
+    QCOMPARE(revisionBeforeUiInspection, revisionBeforePress + 41);
     QCOMPARE(commandsBeforeUiInspection.count(), authoredBeforePress.count() + 82);
     QVERIFY(ed.rig.recorder->isAuthoring());
 

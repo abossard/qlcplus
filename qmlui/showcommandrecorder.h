@@ -435,14 +435,6 @@ private:
     /** Keep a transition as input the Show has not taken yet; live input is
      *  not played again in this pass */
     void accept(const ShowCommandTransition &transition, Show *show, bool live);
-    /** The open holds of track ended at time as their releases end them,
-     *  each recorded hold a press cut resumed there when still on */
-    ShowCommandTransition holdsEnded(ShowCommandTrack track, quint32 time) const;
-    /** The recorded hold the press of hold's control cut, from time to where
-     *  it ended, when that is later: nothing otherwise */
-    ShowCommandTransition resumed(const ShowCommandTrack &track, const ShowCommand &hold, quint32 time) const;
-    /** Per control, where the recorded hold its live press cut ended */
-    QHash<QUuid, quint32> m_holdResume;
 
     /** The single place that hands a candidate track to the Show, with the
      *  ids executed live in appliedTraversal. Fills error when it rejects it;
@@ -596,26 +588,34 @@ private:
      *  a hold's release removes the edges it replaced. */
     bool replacedByLive(const ControlRun &run, const ShowCommand &cmd);
     /** The position moved back from departure to arrival: a hold the bound
-     *  Show records ends at the departure, and one the performer still
-     *  holds starts again at the arrival, live, so its native hold stays */
+     *  Show records is recorded up to the departure, and one the performer
+     *  still holds goes on from the arrival */
     void holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival);
     /** REC began recording into show: a hold the performer holds now starts there */
     void recordHeldHolds(Show *show);
+
     /** Whether a widget carrying controlId is in the performer's hold set for role */
     bool heldLive(const QUuid &controlId, ShowControlRole role);
     /** What a touch counts in: the take and the pass it was made in */
     using TouchStamp = QPair<quint64, quint64>;
     /** The take and pass of a touch on show made now; none while it is stopped */
     std::optional<TouchStamp> touchStamp(const Show *show) const;
-    /** One performer's hold: from the press to the release, MaxTime while held */
+    /** One performer's hold: from the press to the release, MaxTime while
+     *  held. It is in the track only once it ended. */
     struct LiveSpan
     {
-        TouchStamp stamp;
+        std::optional<TouchStamp> stamp; //!< none while the Show is stopped
         quint32 from = 0;
         quint32 to = ShowCommand::MaxTime;
+        ShowCommandInput hold;
     };
     /** Every hold of the current take and pass, per control */
     QHash<QUuid, QVector<LiveSpan>> m_liveHolds;
+    /** The performer's hold of span recorded into show up to to, through
+     *  ShowCommandFsm::liveHold(); live: not played again in this pass */
+    bool recordHold(Show *show, const LiveSpan &span, quint32 to, bool live);
+    /** Every hold still held recorded into show up to to, each span ended there */
+    void endLiveHolds(Show *show, quint32 to);
     /** The controls moved live since the playhead last reached one of their
      *  recorded values, with the take and pass of that move */
     QHash<QUuid, TouchStamp> m_movedLive;

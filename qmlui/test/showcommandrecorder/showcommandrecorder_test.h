@@ -394,8 +394,8 @@ private slots:
     void replayStop_releasesOnlyReplayOwnedFlash();
     void replayStop_releasesOnlyReplayOwnedSliderFlash_data();
     void replayStop_releasesOnlyReplayOwnedSliderFlash();
-    void checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen_data();
-    void checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen();
+    void checkpoint_midHoldSavesTheHoldSoFar_data();
+    void checkpoint_midHoldSavesTheHoldSoFar();
     void replayStop_releasesOnlyReplayOwnedFreezeHold_data();
     void replayStop_releasesOnlyReplayOwnedFreezeHold();
     void replayStop_doesNotRollbackValues_butBackwardSeekDoes();
