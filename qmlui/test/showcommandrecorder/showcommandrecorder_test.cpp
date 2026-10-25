@@ -15361,6 +15361,46 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
     QCOMPARE(saw, seen);
 }
 
+void ShowCommandRecorder_Test::liveInput_releaseBeforeAMoveBackLands()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    QVERIFY(flash);
+    ShowCommandTrack track;
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master(), 6000);
+    tickAndDeliver(&doc, 3);
+
+    const quint32 press = show->commandPosition();
+    flash->requestUserStateChange(true);
+    tickAndDeliver(&doc, 10);
+    // released after the move back was asked for, before the runner took it
+    show->requestSeek(1000);
+    const quint32 departure = show->commandPosition();
+    flash->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    const QString spans = holdSpans(show->commandTrack());
+
+    QVERIFY(recorder.setRecording(false));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(spans, QStringLiteral("%1-%2").arg(press).arg(departure));
+}
+
 void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow_data()
 {
     QTest::addColumn<QString>("steps");

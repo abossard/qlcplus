@@ -771,8 +771,9 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
         }
         else if (input.on == false && open != nullptr)
         {
-            open->to = request.acceptedTimeMs;
-            if (recordHold(trackedShow(), *open, request.acceptedTimeMs, true))
+            // released before a move back lands: the hold ends where the playhead is
+            open->to = request.acceptedTimeMs < open->from ? trackedShow()->commandPosition() : request.acceptedTimeMs;
+            if (recordHold(trackedShow(), *open, open->to, true))
                 request.authoredShowId = trackedShowId();
         }
         // a press on a control already held live, or a release of none, records nothing
