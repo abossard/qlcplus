@@ -2066,7 +2066,14 @@ void ShowCommandRecorder::recordHeldHolds(Show *show)
             hold.controlId = widget->ensureRecordingId();
             hold.role = configurationOf(widget).snapshot.role;
             hold.on = true;
-            m_liveHolds[hold.controlId] = { { stamp, at, ShowCommand::MaxTime, hold } };
+            // a hold recorded already goes on into this take
+            QVector<LiveSpan> &spans = m_liveHolds[hold.controlId];
+            const auto open = std::find_if(spans.begin(), spans.end(),
+                                           [](const LiveSpan &span) { return span.to == ShowCommand::MaxTime; });
+            if (open != spans.end())
+                open->stamp = stamp;
+            else
+                spans = { { stamp, at, ShowCommand::MaxTime, hold } };
         }
     }
 }

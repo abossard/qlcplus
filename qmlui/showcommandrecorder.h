@@ -591,7 +591,8 @@ private:
      *  Show records is recorded up to the departure, and one the performer
      *  still holds goes on from the arrival */
     void holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival);
-    /** REC began recording into show: a hold the performer holds now starts there */
+    /** A take began recording into show: a hold the performer holds now starts
+     *  there, or goes on into the take when it is recorded already */
     void recordHeldHolds(Show *show);
 
     /** Whether a widget carrying controlId is in the performer's hold set for role */

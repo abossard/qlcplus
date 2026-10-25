@@ -15008,6 +15008,13 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
     QTest::newRow("REC off and on while held")
         << QStringLiteral("rec on, at 1000, press, at 2000, rec off, at 3000, rec on, at 4000, release, rec off")
         << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
+    // another take on the same Show goes on with the hold
+    QTest::newRow("Perform engages on the Show while held")
+        << QStringLiteral("rec on, at 1000, press, at 2000, perform, at 3000, release, rec off")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
+    QTest::newRow("Perform ends onto the Show while held")
+        << QStringLiteral("perform, rec on, at 1000, press, at 2000, perform off, at 3000, release, rec off")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
     // held across a move back: it ends at the departure and starts again at the arrival
     QTest::newRow("loop back while held, REC off")
         << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
@@ -15092,6 +15099,10 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
         else if (step == QLatin1String("undo") || step == QLatin1String("redo"))
             QVERIFY2(recorder.applyHistoryEdit(QVariant::fromValue(deletion), step == QLatin1String("undo")),
                      qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("perform"))
+            QVERIFY(recorder.setResolvedShow(showId, ShowRecordSource::Perform));
+        else if (step == QLatin1String("perform off"))
+            recorder.releasePerform();
         else
         {
             // native undo of its deletion brings the Show back from its XML
