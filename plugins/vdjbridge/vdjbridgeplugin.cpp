@@ -162,9 +162,12 @@ int VdjBridgePlugin::connectionStatus(quint32 input)
     Q_UNUSED(input)
     if (!m_telemetry)
         return QLCIOPlugin::Idle;
-    if (m_telemetry->status() == VdjTelemetryClient::ClientConnected)
-        return QLCIOPlugin::Connected;
-    return QLCIOPlugin::Advertising;
+    switch (m_telemetry->status())
+    {
+        case VdjTelemetryClient::ClientConnected: return QLCIOPlugin::Connected;
+        case VdjTelemetryClient::Listening:       return QLCIOPlugin::Advertising;
+        default:                                  return QLCIOPlugin::Idle; // a port in use hears nothing
+    }
 }
 
 void VdjBridgePlugin::configure()
@@ -188,17 +191,17 @@ QString VdjBridgePlugin::clientAddress() const
 void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability type,
                                    QString name, QVariant value)
 {
-    if (name == QLatin1String(VDJ_HOST_PORT))
+    if (name == QLatin1String(VDJ_HOST_PORT) && value.toUInt() != m_hostPort)
     {
-        quint16 newPort = static_cast<quint16>(value.toUInt());
-        if (newPort == m_hostPort)
-            return;
-        m_hostPort = newPort;
-        if (m_open && m_telemetry)
+        m_hostPort = static_cast<quint16>(value.toUInt());
+        if (m_open)
         {
-            m_telemetry->stop();
-            m_telemetry->start(m_hostPort);
-            registerBonjour();
+            // a port in use leaves nothing to advertise
+            if (m_telemetry->start(m_hostPort))
+                registerBonjour();
+            else if (m_bonjour)
+                m_bonjour->unregisterService();
+            emit connectionStatusChanged(m_inputUniverse, 0);
         }
     }
     else if (name == QLatin1String(VDJ_BONJOUR_ENABLED))
@@ -212,10 +215,8 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
         m_serviceName = value.toString();
         registerBonjour();
     }
-    else
-    {
-        QLCIOPlugin::setParameter(universe, line, type, name, value);
-    }
+    // kept with the input's universe: the workspace saves them with its patch
+    QLCIOPlugin::setParameter(universe, line, type, name, value);
 }
 
 void VdjBridgePlugin::setBonjour(bool on)

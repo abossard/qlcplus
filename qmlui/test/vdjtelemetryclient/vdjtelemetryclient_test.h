@@ -49,6 +49,10 @@ private slots:
     void aConnectionThatEndsAdvertisesAgain_data();
     void aConnectionThatEndsAdvertisesAgain();
     void aBonjourFailureShowsInTheStatus();
+    void parametersAreKeptWithTheInputsUniverse_data();
+    void parametersAreKeptWithTheInputsUniverse();
+    void aPortEditRebindsWhenFinished_data();
+    void aPortEditRebindsWhenFinished();
 };
 
 #endif

@@ -15,6 +15,8 @@
 #include "vdjbonjour.h"
 #include "configurevdjbridge.h"
 #include <QLabel>
+#include <QSpinBox>
+#include <QTcpServer>
 
 extern int vdjBonjourRegistrations; // vdjbonjour_stub.cpp
 
@@ -703,6 +705,67 @@ void VdjTelemetryClient_Test::aBonjourFailureShowsInTheStatus()
     plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("serviceName"), QStringLiteral("Booth"));
     QVERIFY(!plugin.inputInfo(0).contains("error -65563"));
     plugin.closeInput(0, 0);
+}
+
+void VdjTelemetryClient_Test::parametersAreKeptWithTheInputsUniverse_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QVariant>("value");
+    QTest::newRow("port") << "hostPort" << QVariant(18064);
+    QTest::newRow("Bonjour off") << "bonjourEnabled" << QVariant(false);
+    QTest::newRow("service name") << "serviceName" << QVariant("Booth");
+}
+
+void VdjTelemetryClient_Test::parametersAreKeptWithTheInputsUniverse()
+{
+    QFETCH(QString, name);
+    QFETCH(QVariant, value);
+
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18063);
+    QVERIFY(plugin.openInput(0, 3));
+
+    // the workspace saves a universe's patch with these parameters and sets them again on load
+    plugin.setParameter(3, 0, QLCIOPlugin::Input, name, value);
+    QCOMPARE(plugin.getParameters(3, 0, QLCIOPlugin::Input).value(name), value);
+    plugin.closeInput(0, 3);
+}
+
+void VdjTelemetryClient_Test::aPortEditRebindsWhenFinished_data()
+{
+    QTest::addColumn<bool>("inUse");
+    QTest::addColumn<int>("status");
+    QTest::newRow("a free port") << false << int(QLCIOPlugin::Advertising);
+    QTest::newRow("a port in use listens to nothing") << true << int(QLCIOPlugin::Idle);
+}
+
+void VdjTelemetryClient_Test::aPortEditRebindsWhenFinished()
+{
+    QFETCH(bool, inUse);
+    QFETCH(int, status);
+
+    QTcpServer other;
+    if (inUse)
+        QVERIFY(other.listen(QHostAddress::Any, 18066));
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18065);
+    QVERIFY(plugin.openInput(0, 3));
+    ConfigureVdjBridge dialog(&plugin);
+    QSpinBox *port = dialog.findChild<QSpinBox *>();
+    QVERIFY(port != nullptr);
+    QSignalSpy statusSpy(&plugin, &QLCIOPlugin::connectionStatusChanged);
+
+    // typing 18066 passes 1, 18, 180, ...: none of them is a port to bind
+    port->setValue(18066);
+    QCOMPARE(plugin.hostPort(), quint16(18065));
+    QCOMPARE(statusSpy.count(), 0);
+
+    emit port->editingFinished();
+    QCOMPARE(plugin.hostPort(), quint16(18066));
+    QCOMPARE(plugin.getParameters(3, 0, QLCIOPlugin::Input).value("hostPort").toInt(), 18066);
+    QCOMPARE(statusSpy.count(), 1);
+    QCOMPARE(plugin.connectionStatus(0), status);
+    plugin.closeInput(0, 3);
 }
 
 QTEST_MAIN(VdjTelemetryClient_Test)

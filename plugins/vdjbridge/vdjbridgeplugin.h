@@ -67,6 +67,8 @@ public:
 
     // Accessors for the configuration dialog
     quint16  hostPort() const { return m_hostPort; }
+    /** The universe the input is open on, or QLCIOPlugin::invalidLine() */
+    quint32  inputUniverse() const { return m_inputUniverse; }
     bool     bonjourEnabled() const { return m_bonjourEnabled; }
     QString  serviceName() const { return m_serviceName; }
     QString  clientAddress() const;

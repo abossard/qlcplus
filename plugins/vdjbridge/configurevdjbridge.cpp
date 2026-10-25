@@ -99,7 +99,8 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
     mainLayout->addLayout(buttonLayout);
 
     // --- Connections: UI controls ---
-    connect(m_portSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+    // a port typed digit by digit is bound once, when finished
+    connect(m_portSpin, &QSpinBox::editingFinished,
             this, &ConfigureVdjBridge::slotPortChanged);
     connect(m_bonjourCheck, &QCheckBox::toggled,
             this, &ConfigureVdjBridge::slotBonjourToggled);
@@ -131,26 +132,22 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
 // UI control slots
 // ──────────────────────────────────────────────────────────────────
 
-void ConfigureVdjBridge::slotPortChanged(int value)
+void ConfigureVdjBridge::slotPortChanged()
 {
-    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
-                           QStringLiteral(VDJ_HOST_PORT),
-                           QVariant(static_cast<quint16>(value)));
-    updateStatusLabel();
+    m_plugin->setParameter(m_plugin->inputUniverse(), 0, QLCIOPlugin::Input,
+                           QStringLiteral(VDJ_HOST_PORT), m_portSpin->value());
 }
 
 void ConfigureVdjBridge::slotBonjourToggled(bool checked)
 {
-    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
-                           QStringLiteral(VDJ_BONJOUR_ENABLED),
-                           QVariant(checked));
+    m_plugin->setParameter(m_plugin->inputUniverse(), 0, QLCIOPlugin::Input,
+                           QStringLiteral(VDJ_BONJOUR_ENABLED), checked);
 }
 
 void ConfigureVdjBridge::slotServiceNameChanged(const QString &text)
 {
-    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
-                           QStringLiteral(VDJ_SERVICE_NAME),
-                           QVariant(text));
+    m_plugin->setParameter(m_plugin->inputUniverse(), 0, QLCIOPlugin::Input,
+                           QStringLiteral(VDJ_SERVICE_NAME), text);
 }
 
 void ConfigureVdjBridge::slotClearLog()
@@ -237,7 +234,7 @@ void ConfigureVdjBridge::upsertDebugEntry(const QString &source, const QString &
 void ConfigureVdjBridge::updateStatusLabel()
 {
     int status = m_plugin->connectionStatus(0);
-    quint16 port = static_cast<quint16>(m_portSpin->value());
+    quint16 port = m_plugin->hostPort();
 
     switch (status)
     {
