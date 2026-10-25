@@ -23,6 +23,8 @@
 #include <QObject>
 #include <QHash>
 #include <QString>
+#include <QXmlStreamReader>
+#include <QXmlStreamWriter>
 
 #include "djfsm.h"
 
@@ -36,12 +38,11 @@ inline const QString kSongFolderPath = QStringLiteral("Songs");
 /**
  * The song-to-Show index and the builder of song Shows.
  *
- * A song (a file path) maps to the Show whose first Audio clip plays it: that
- * is read from the Doc, never stored a second time, so a workspace load or a
- * deleted Show cannot leave a stale id behind. The user's Assign and Clear
- * are overrides on top of it, for this session. Path separators are
- * normalized where a key enters the index, so a Windows path and its POSIX
- * form are one song.
+ * A song (a file path) maps to the user's choice (Assign, or the Show New
+ * built; Clear removes the choice), else to the first Show in Doc order whose
+ * first Audio clip plays it. The choice is saved with the workspace; a choice
+ * whose Show is gone is dropped. Path separators are normalized where a key
+ * enters the index, so a Windows path and its POSIX form are one song.
  */
 class ShowFactory : public QObject
 {
@@ -50,7 +51,7 @@ class ShowFactory : public QObject
 public:
     explicit ShowFactory(Doc *doc, QObject *parent = nullptr);
 
-    /** The Show for a song: the user's override, else the Doc's; Function::invalidId() for none. */
+    /** The Show for a song: the user's choice, else the Doc's; Function::invalidId() for none. */
     quint32 showIdForFilepath(const QString &filepath) const;
 
     /** The first Audio clip of a Show, nullptr without one */
@@ -72,13 +73,13 @@ public:
      */
     quint32 buildShow(const DjFsm::DeckSong &info);
 
-    /** The user's choice for a song: a Show, or Function::invalidId() for none
-     *  even when the Doc has one. Kept until the Doc is cleared, or the Show
-     *  removed. */
+    /** The user's choice for a song: a Show, or Function::invalidId() to drop
+     *  the choice. Kept until the Doc is cleared, or the Show removed. */
     void registerMapping(const QString &filepath, quint32 showId);
 
-    /** Whether the user chose for this song (Assign or Clear) */
-    bool hasOverride(const QString &filepath) const;
+    /** The choices, a fork-owned element of the workspace */
+    void saveXML(QXmlStreamWriter *doc) const;
+    bool loadXML(QXmlStreamReader &doc);
 
     /** One spelling for a song path: the key of the index and of the song rows */
     static QString normalizePath(const QString &filepath);
@@ -96,7 +97,7 @@ private:
     const QHash<QString, quint32> &docIndex() const;
 
     Doc *m_doc;
-    QHash<QString, quint32> m_overrides;
+    QHash<QString, quint32> m_choices;
     mutable QHash<QString, quint32> m_docIndex;
     mutable bool m_docIndexDirty = true;
 };

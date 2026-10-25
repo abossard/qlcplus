@@ -17,6 +17,7 @@
 #include "function.h"
 #include "scene.h"
 
+#include <QBuffer>
 #include <QDir>
 #include <QSignalSpy>
 
@@ -119,10 +120,11 @@ void ShowFactory_Test::indexFollowsTheDoc()
     // a loaded workspace: the Show maps without anyone registering it
     Show *a = addSongShow(&doc, "A", "/music/a.mp3");
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
-    // the newest Show of a song wins: "New" builds it to replace the old one
-    Show *again = addSongShow(&doc, "A again", "/music/a.mp3");
-    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), again->id());
-    QCOMPARE(factory.buildShow(song("/music/a.mp3", "A", "X")), factory.showIdForFilepath("/music/a.mp3"));
+    // several Shows of one song: the first in Doc order
+    addSongShow(&doc, "A again", "/music/a.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    QVERIFY(factory.buildShow(song("/music/a.mp3", "A", "X")) != a->id());
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
     QVERIFY(mapping.count() > 0);
 
     // the Shows go: the song has none; its Audio alone maps nothing
@@ -142,7 +144,7 @@ void ShowFactory_Test::indexFollowsTheDoc()
     QCOMPARE(factory.showIdForFilepath("/music/c.mp3"), c->id());
 }
 
-void ShowFactory_Test::overridesWinUntilTheDocIsCleared()
+void ShowFactory_Test::choicesWinUntilTheDocIsCleared()
 {
     Doc doc(nullptr, 4);
     ShowFactory factory(&doc);
@@ -150,23 +152,25 @@ void ShowFactory_Test::overridesWinUntilTheDocIsCleared()
     Show *other = new Show(&doc);
     other->setName("Other");
     doc.addFunction(other);
+    doc.resetModified();
     QSignalSpy mapping(&factory, &ShowFactory::mappingChanged);
 
-    // Assign: the user's Show, although the Doc names another
+    // Assign: the user's Show, although the Doc names another; saved with the workspace
     factory.registerMapping("/music/a.mp3", other->id());
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), other->id());
+    QVERIFY(doc.isModified());
     QCOMPARE(mapping.count(), 1);
     QCOMPARE(mapping[0][0].toString(), QString("/music/a.mp3"));
     QCOMPARE(mapping[0][1].toUInt(), other->id());
-
-    // Clear: none, although the Doc has one, and an unrelated Doc change keeps it so
-    factory.registerMapping("/music/a.mp3", Function::invalidId());
-    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
     doc.addFunction(new Show(&doc));
-    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
-    Q_UNUSED(a)
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), other->id());
 
-    // the workspace goes: so do the overrides
+    // Clear drops the choice: the Doc's Show again
+    factory.registerMapping("/music/a.mp3", Function::invalidId());
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+
+    // the workspace goes: so do the choices
+    factory.registerMapping("/music/a.mp3", other->id());
     doc.clearContents();
     Show *b = addSongShow(&doc, "A", "/music/a.mp3");
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), b->id());
@@ -185,20 +189,73 @@ void ShowFactory_Test::overrideGoesWithItsShow()
     const quint32 chosenId = chosen->id();
     factory.registerMapping("/music/a.mp3", chosenId);
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), chosenId);
-    QVERIFY(factory.hasOverride("/music/a.mp3"));
 
     QVERIFY(doc.deleteFunction(chosenId));
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
-    QVERIFY(!factory.hasOverride("/music/a.mp3"));
     Scene *scene = new Scene(&doc);
     doc.addFunction(scene);
     QCOMPARE(scene->id(), chosenId);
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+}
 
-    // Clear is a choice too, kept apart from "no choice"
-    factory.registerMapping("/music/a.mp3", Function::invalidId());
-    QVERIFY(factory.hasOverride("/music/a.mp3"));
+void ShowFactory_Test::choicesSurviveSaveAndLoad_data()
+{
+    QTest::addColumn<QString>("choice");
+    QTest::addColumn<bool>("showSurvives");
+
+    QTest::newRow("Assign") << "assign" << true;
+    QTest::newRow("New") << "new" << true;
+    QTest::newRow("Clear") << "clear" << true;
+    QTest::newRow("a choice whose Show is gone is dropped") << "assign" << false;
+}
+
+void ShowFactory_Test::choicesSurviveSaveAndLoad()
+{
+    QFETCH(QString, choice);
+    QFETCH(bool, showSurvives);
+
+    // the Doc's Show of A, and the one the user chooses instead
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    quint32 chosen = Function::invalidId();
+    if (choice == QLatin1String("new"))
+        chosen = factory.buildShow(song("/music/a.mp3", "A", "X"));
+    else
+    {
+        Show *other = new Show(&doc);
+        doc.addFunction(other);
+        chosen = other->id();
+    }
+    factory.registerMapping("/music/a.mp3", chosen);
+    if (choice == QLatin1String("clear"))
+        factory.registerMapping("/music/a.mp3", Function::invalidId());
+    const quint32 before = factory.showIdForFilepath("/music/a.mp3");
+    QCOMPARE(before, choice == QLatin1String("clear") ? a->id() : chosen);
+
+    QBuffer xml;
+    xml.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartDocument();
+    factory.saveXML(&writer);
+    writer.writeEndDocument();
+
+    // reload: the Doc's Functions first, under their ids, then the choices
+    doc.clearContents();
     QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
+    a = addSongShow(&doc, "A", "/music/a.mp3");
+    if (showSurvives)
+    {
+        Show *again = new Show(&doc);
+        QVERIFY(doc.addFunction(again, chosen));
+        if (choice == QLatin1String("new"))
+            factory.buildShow(song("/music/a.mp3", "A", "X"));
+    }
+    QXmlStreamReader reader(xml.data());
+    QVERIFY(reader.readNextStartElement() || choice == QLatin1String("clear"));
+    if (choice != QLatin1String("clear"))
+        QVERIFY(factory.loadXML(reader));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), showSurvives ? before : a->id());
 }
 
 void ShowFactory_Test::clipChangesReachTheIndex()

@@ -69,6 +69,7 @@
 #include "networkmanager.h"
 #include "flowconsole.h"
 #include "vdjbridge.h"
+#include "showfactory.h"
 #include "djmanager.h"
 #include "stagewizard.h"
 
@@ -1589,6 +1590,10 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         {
             m_flowConsole->loadXML(doc);
         }
+        else if (doc.name() == QStringLiteral("SongShows") && m_vdjBridge)
+        {
+            m_vdjBridge->showFactory()->loadXML(doc);
+        }
 #if 0
         else if (doc.name() == KXMLQLCSimpleDesk)
         {
@@ -1688,6 +1693,10 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
 
     /* Write Flow Console to the XML document */
     m_flowConsole->saveXML(&doc);
+
+    /* Write the songs' Show choices to the XML document */
+    if (m_vdjBridge)
+        m_vdjBridge->showFactory()->saveXML(&doc);
 
     /* Write Simple Desk to the XML document */
     //SimpleDesk::instance()->saveXML(&doc);

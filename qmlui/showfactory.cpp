@@ -38,7 +38,7 @@ ShowFactory::ShowFactory(Doc *doc, QObject *parent)
     if (!m_doc)
         return;
     connect(m_doc, &Doc::cleared, this, [this]() {
-        m_overrides.clear();
+        m_choices.clear();
         docChanged();
     });
     // a Show's clips and an Audio's source make the index; their changes reach it
@@ -52,10 +52,10 @@ ShowFactory::ShowFactory(Doc *doc, QObject *parent)
     connect(m_doc, &Doc::functionNameChanged, this, songFunctionChanged);
     connect(m_doc, &Doc::functionRemoved, this, [this](quint32 id) {
         // the user's choice goes with its Show; its id is handed to the next Function
-        for (auto it = m_overrides.begin(); it != m_overrides.end();)
+        for (auto it = m_choices.begin(); it != m_choices.end();)
         {
             if (it.value() == id)
-                it = m_overrides.erase(it);
+                it = m_choices.erase(it);
             else
                 ++it;
         }
@@ -102,11 +102,11 @@ const QHash<QString, quint32> &ShowFactory::docIndex() const
     if (m_docIndexDirty)
     {
         m_docIndex.clear();
-        // the newest Show of a song wins: "New" builds it to replace the old one
+        // several Shows of one song: the first in Doc order
         for (Function *f : m_doc->functionsByType(Function::ShowType))
         {
             const QString filepath = songFilepath(m_doc, qobject_cast<Show *>(f));
-            if (!filepath.isEmpty())
+            if (!filepath.isEmpty() && !m_docIndex.contains(filepath))
                 m_docIndex.insert(filepath, f->id());
         }
         m_docIndexDirty = false;
@@ -119,15 +119,7 @@ quint32 ShowFactory::showIdForFilepath(const QString &filepath) const
     const QString key = normalizePath(filepath);
     if (key.isEmpty() || !m_doc)
         return Function::invalidId();
-    const auto override = m_overrides.constFind(key);
-    if (override != m_overrides.constEnd())
-        return override.value();
-    return docIndex().value(key, Function::invalidId());
-}
-
-bool ShowFactory::hasOverride(const QString &filepath) const
-{
-    return m_overrides.contains(normalizePath(filepath));
+    return m_choices.value(key, docIndex().value(key, Function::invalidId()));
 }
 
 QString ShowFactory::showNameForSong(const DjFsm::DeckSong &info)
@@ -202,6 +194,43 @@ void ShowFactory::registerMapping(const QString &filepath, quint32 showId)
     const QString key = normalizePath(filepath);
     if (key.isEmpty())
         return;
-    m_overrides.insert(key, showId);
+    if (showId == Function::invalidId())
+        m_choices.remove(key);
+    else
+        m_choices.insert(key, showId);
+    if (m_doc)
+        m_doc->setModified();
     emit mappingChanged(filepath, showId);
+}
+
+void ShowFactory::saveXML(QXmlStreamWriter *doc) const
+{
+    if (m_choices.isEmpty())
+        return;
+    doc->writeStartElement(QStringLiteral("SongShows"));
+    for (auto it = m_choices.constBegin(); it != m_choices.constEnd(); ++it)
+    {
+        doc->writeStartElement(QStringLiteral("Song"));
+        doc->writeAttribute(QStringLiteral("Path"), it.key());
+        doc->writeAttribute(QStringLiteral("Show"), QString::number(it.value()));
+        doc->writeEndElement();
+    }
+    doc->writeEndElement();
+}
+
+bool ShowFactory::loadXML(QXmlStreamReader &doc)
+{
+    if (doc.name() != QLatin1String("SongShows"))
+        return false;
+    while (doc.readNextStartElement())
+    {
+        const QXmlStreamAttributes attrs = doc.attributes();
+        const quint32 showId = attrs.value(QStringLiteral("Show")).toUInt();
+        // the Shows were read before this element: a choice whose Show is gone is dropped
+        if (doc.name() == QLatin1String("Song") && m_doc && qobject_cast<Show *>(m_doc->function(showId)))
+            m_choices.insert(normalizePath(attrs.value(QStringLiteral("Path")).toString()), showId);
+        doc.skipCurrentElement();
+    }
+    docChanged();
+    return true;
 }

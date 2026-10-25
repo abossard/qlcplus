@@ -21,8 +21,10 @@ private slots:
     void buildShow_data();
     void buildShow();
     void indexFollowsTheDoc();
-    void overridesWinUntilTheDocIsCleared();
+    void choicesWinUntilTheDocIsCleared();
     void overrideGoesWithItsShow();
+    void choicesSurviveSaveAndLoad_data();
+    void choicesSurviveSaveAndLoad();
     void clipChangesReachTheIndex();
     void normalizePath_data();
     void normalizePath();
