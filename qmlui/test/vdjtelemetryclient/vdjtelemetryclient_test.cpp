@@ -352,7 +352,8 @@ void VdjTelemetryClient_Test::bridgeDeckTriggerRouting()
     // one VDJ write: a load
     fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_filepath","value":"/music/bridge.mp3"})" "\n");
     fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"Bridge Test"})" "\n");
-    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_bpm","value":130.0})");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_bpm","value":130.0})" "\n");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 loaded","value":"on"})");
     fakeClient.flush();
 
     // The DjFsm is the single source of truth for deck state.
@@ -426,7 +427,8 @@ void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState()
 
     // Set some deck data
     fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_filepath","value":"/music/t.mp3"})" "\n");
-    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"Test"})");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"Test"})" "\n");
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 loaded","value":"on"})");
     fakeClient.flush();
 
     DjFsm *fsm = bridge.djFsm();
