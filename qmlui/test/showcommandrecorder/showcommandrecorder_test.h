@@ -452,6 +452,7 @@ private slots:
     void appPerform_handsRecordingOver();
     void appSave_checkpointsRecording_data();
     void appSave_checkpointsRecording();
+    void appSave_refusedWhenARecordingCannotBeWritten_data();
     void appSave_refusedWhenARecordingCannotBeWritten();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState_data();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState();

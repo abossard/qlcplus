@@ -364,11 +364,12 @@ Popup
         }
     }
 
-    // an autosave or a save for a network client fails the same way, and says so here too
+    // a save for a network client fails the same way, and says so here too. Nobody
+    // waits on the timed autosave: the console's message bar tells it, no dialog
     Connections
     {
         target: qlcplus
-        function onSaveErrorChanged() { if (qlcplus.saveError.length) saveFailed() }
+        function onSaveErrorChanged() { if (qlcplus.saveError.length && !qlcplus.saveErrorAutosave) saveFailed() }
     }
 
     CustomPopupDialog

@@ -929,7 +929,7 @@ void App::slotClientProjectRequest(QString sessionId)
     if (fileName.isEmpty() || m_doc->isModified())
     {
         fileName = QString("%1/%2").arg(QDir::tempPath()).arg("qlcplus_netproject.qxw");
-        if (saveXML(fileName, true) != QFile::NoError)
+        if (saveXML(fileName, ClientCopy) != QFile::NoError)
         {
             qWarning() << Q_FUNC_INFO << "Unable to serve the project to" << sessionId;
             return;
@@ -1001,7 +1001,8 @@ bool App::docModified() const
 
 void App::slotDocAutosave()
 {
-    saveXML(autoSaveFileName(), true);
+    if (saveXML(autoSaveFileName(), Autosave) != QFile::NoError)
+        qWarning() << Q_FUNC_INFO << "Autosave failed:" << m_saveError;
 }
 
 void App::initDoc()
@@ -1633,14 +1634,16 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
     return true;
 }
 
-QFile::FileError App::saveXML(const QString& fileName, bool autosave)
+QFile::FileError App::saveXML(const QString& fileName, SaveOrigin origin)
 {
+    const bool autosave = origin == Autosave;
+
     /* A save stores the recording's accepted input and ends its Shows at their
        content; recording and playback go on. The Doc is marked unmodified
        below, so nothing accepted may be left unpublished. */
-    if (autosave == false && m_showCommandRecorder != nullptr && m_showCommandRecorder->checkpoint() == false)
+    if (origin == WorkspaceSave && m_showCommandRecorder != nullptr && m_showCommandRecorder->checkpoint() == false)
     {
-        setSaveError(m_showCommandRecorder->lastError());
+        setSaveError(m_showCommandRecorder->lastError(), autosave);
         return QFile::AbortError;
     }
 
@@ -1648,7 +1651,7 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     QFile file(fileName);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate) == false)
     {
-        setSaveError(file.errorString());
+        setSaveError(file.errorString(), autosave);
         return file.error();
     }
 #else
@@ -1656,7 +1659,7 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     QSaveFile file(fileName);
     if (file.open(QIODevice::WriteOnly) == false)
     {
-        setSaveError(file.errorString());
+        setSaveError(file.errorString(), autosave);
         return file.error();
     }
 #endif
@@ -1707,7 +1710,8 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
         qWarning() << Q_FUNC_INFO << "Error writing XML to" << fileName;
         setSaveError(engineSaved ? tr("%1 could not be written").arg(fileName)
                                  : tr("The recording of a Show cannot be written: no event id is left to end a "
-                                      "hold in progress"));
+                                      "hold in progress"),
+                     autosave);
 #if defined(Q_OS_ANDROID)
         file.close();
 #else
@@ -1720,19 +1724,19 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     file.close();
     if (file.error() != QFile::NoError)
     {
-        setSaveError(file.errorString());
+        setSaveError(file.errorString(), autosave);
         return file.error();
     }
 #else
     if (file.commit() == false)
     {
         qWarning() << Q_FUNC_INFO << "Could not save" << fileName;
-        setSaveError(file.errorString());
+        setSaveError(file.errorString(), autosave);
         return file.error();
     }
 #endif
 
-    if (!autosave)
+    if (origin == WorkspaceSave)
     {
         /* Set the file name for the current Doc instance and
            set it also in an unmodified state. */
@@ -1740,7 +1744,7 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
         m_doc->resetModified();
     }
 
-    setSaveError(QString());
+    setSaveError(QString(), autosave);
     return QFile::NoError;
 }
 
@@ -1749,11 +1753,17 @@ QString App::saveError() const
     return m_saveError;
 }
 
-void App::setSaveError(const QString &error)
+bool App::saveErrorAutosave() const
 {
-    if (m_saveError == error)
+    return m_saveErrorAutosave;
+}
+
+void App::setSaveError(const QString &error, bool autosave)
+{
+    if (m_saveError == error && m_saveErrorAutosave == autosave)
         return;
     m_saveError = error;
+    m_saveErrorAutosave = autosave;
     emit saveErrorChanged();
 }
 

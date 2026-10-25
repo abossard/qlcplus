@@ -17268,8 +17268,22 @@ bool clickDialogButton(QQuickView *window, QObject *dialog, int button)
 }
 } // namespace
 
+void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten_data()
+{
+    QTest::addColumn<QString>("origin");
+    QTest::addColumn<bool>("dialog");
+
+    QTest::newRow("save") << QStringLiteral("save") << true;
+    // in the middle of a set nobody waits on the timed autosave: no modal dialog over the console
+    QTest::newRow("autosave") << QStringLiteral("autosave") << false;
+    QTest::newRow("copy for a network client") << QStringLiteral("client") << true;
+}
+
 void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
 {
+    QFETCH(QString, origin);
+    QFETCH(bool, dialog);
+
     AppRig rig;
     QVERIFY(rig.recorder && rig.manager);
     Scene *target = new Scene(rig.doc);
@@ -17290,13 +17304,32 @@ void ShowCommandRecorder_Test::appSave_refusedWhenARecordingCannotBeWritten()
     const QMetaProperty saveError = meta->property(meta->indexOfProperty("saveError"));
     QVERIFY(saveError.isValid() && saveError.hasNotifySignal());
     QSignalSpy reported(rig.app.get(), saveError.notifySignal());
+    QVERIFY(QMetaObject::invokeMethod(rig.app->rootObject(), "switchToContext", Q_ARG(QVariant, QStringLiteral("VC")),
+                                      Q_ARG(QVariant, QStringLiteral("qrc:/VirtualConsole.qml"))));
+    QCoreApplication::processEvents();
+    QObject *popup = rig.qml(QStringLiteral("actionsMenu"))->findChild<QObject *>(QStringLiteral("saveErrorPopup"));
+    QObject *messageBar = rig.app->rootObject()->findChild<QObject *>(QStringLiteral("vcLayoutError"));
+    QVERIFY(popup && messageBar);
     QTemporaryDir dir;
     const QString path = dir.filePath(QStringLiteral("refused.qxw"));
-    QVERIFY(!rig.app->saveWorkspace(path));
-    QVERIFY(!QFile::exists(path));
+    if (origin == QLatin1String("save"))
+        QVERIFY(!rig.app->saveWorkspace(path));
+    else if (origin == QLatin1String("autosave"))
+    {
+        rig.app->setFileName(path);
+        emit rig.doc->needAutosave();
+    }
+    else
+        QVERIFY(QMetaObject::invokeMethod(rig.app.get(), "slotClientProjectRequest", Q_ARG(QString, QStringLiteral("client"))));
+    QCOMPARE(QDir(dir.path()).entryList(QDir::Files), QStringList());
     QVERIFY(reported.count() >= 1);
     QVERIFY2(saveError.read(rig.app.get()).toString().contains(QStringLiteral("event id")),
              qPrintable(saveError.read(rig.app.get()).toString()));
+    QCOMPARE(popup->property("visible").toBool(), dialog);
+    // the autosave says it at the bottom of the console instead
+    QCOMPARE(messageBar->property("visible").toBool(), !dialog);
+    if (!dialog)
+        QVERIFY(messageBar->property("message").toString().contains(QStringLiteral("event id")));
 }
 
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()
