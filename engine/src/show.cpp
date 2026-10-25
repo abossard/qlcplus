@@ -377,11 +377,21 @@ void Show::setSyncSource(int source)
 
 void Show::setExternalElapsedTime(quint32 ms)
 {
-    const bool changed = m_externalElapsedTime.exchange(ms, std::memory_order_relaxed) != ms;
+    const quint32 previous = m_externalElapsedTime.exchange(ms, std::memory_order_relaxed);
     // after the value: a reader that sees the anchor also sees a value at least as new
     quint64 none = NoSample;
     m_playFirstSample.compare_exchange_strong(none, ms, std::memory_order_acq_rel);
-    if (changed)
+    bool back = false;
+    if (ms < previous)
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        back = m_syncSource == ShowRunner::External && stopped() == false;
+        if (back)
+            endTraversal(ms);
+    }
+    if (back)
+        emit commandTraversalCancelled();
+    if (previous != ms)
         emit externalElapsedTimeChanged(ms);
 }
 
@@ -407,13 +417,18 @@ void Show::requestSeek(quint32 ms)
             m_requestedSeekTime.store(ms, std::memory_order_release);
             return;
         }
-        for (auto it = m_commandAppliedIds.cbegin(); it != m_commandAppliedIds.cend(); ++it)
-            m_requestedSeekIds.insert(it.key());
-        cancelControlWork();
-        // after the cancellation, so the runner consuming it publishes anew
-        m_requestedSeekTime.store(ms, std::memory_order_release);
+        endTraversal(ms);
     }
     emit commandTraversalCancelled();
+}
+
+void Show::endTraversal(quint32 ms)
+{
+    for (auto it = m_commandAppliedIds.cbegin(); it != m_commandAppliedIds.cend(); ++it)
+        m_requestedSeekIds.insert(it.key());
+    cancelControlWork();
+    // after the cancellation, so the runner consuming it publishes anew
+    m_requestedSeekTime.store(ms, std::memory_order_release);
 }
 
 std::optional<quint32> Show::pendingBackwardSeek() const
@@ -1199,15 +1214,13 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         source = m_syncSource;
         seekTime = m_requestedSeekTime.exchange(NoSeekRequested, std::memory_order_acquire);
         forwardTime = m_requestedForwardTime.exchange(NoSeekRequested, std::memory_order_acquire);
-        // an external clock ignores it; consumed, what it ends is history
-        if (seekTime != NoSeekRequested && source == ShowRunner::Autonomous)
-        {
-            for (quint32 id : std::as_const(m_requestedSeekIds))
-                m_commandAppliedIds.remove(id);
-        }
-        else
-            seekTime = NoSeekRequested;
+        // consumed, what the move back ended is history; an external clock
+        // takes its own move from its value
+        for (quint32 id : std::as_const(m_requestedSeekIds))
+            m_commandAppliedIds.remove(id);
         m_requestedSeekIds.clear();
+        if (source != ShowRunner::Autonomous)
+            seekTime = NoSeekRequested;
         // the runner reached it since the request was classified: playback crossed it already
         if (source != ShowRunner::Autonomous ||
             forwardTime <= m_commandPosition.load(std::memory_order_relaxed))

@@ -357,6 +357,9 @@ bool ShowCommandRecorder::dispatchNow(const ShowRecordEvent &event)
     if (changed)
     {
         m_takeId++;
+        // a take records the holds held as it begins
+        if (Show *show = qobject_cast<Show *>(m_doc->function(m_rec.boundShowId())))
+            recordHeldHolds(show);
         emit stateChanged();
         emit editGateChanged();
     }
@@ -406,7 +409,10 @@ bool ShowCommandRecorder::publishAccepted(bool disarming, QString *error)
     {
         // a deleted Show took its accepted input with it, and is never bound
         Show *show = qobject_cast<Show *>(m_doc->function(showId));
-        if (show != nullptr && publishUnpublished(show, disarming, error) == false)
+        // REC off ends the performer's holds where it is
+        if (show != nullptr && disarming && showId == m_rec.boundShowId())
+            endLiveHolds(show, qMin(acceptancePosition(show), ShowCommand::MaxTime));
+        if (show != nullptr && publishUnpublished(show, error) == false)
             published = false;
     }
     if (operation.generation == 0 || operation.generation != ShowEventLog::generation())
@@ -427,7 +433,7 @@ void ShowCommandRecorder::discardUnpublished()
     m_unpublished.clear();
 }
 
-bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString *error)
+bool ShowCommandRecorder::publishUnpublished(Show *show, QString *error)
 {
     // traversals only grow, so only the latest accepted one can still be
     // current; the Show decides that as it publishes: live ids must not echo,
@@ -445,16 +451,18 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString
     {
         if (accepted.showId != show->id())
             continue;
+        if (accepted.removal)
+        {
+            candidate.remove(accepted.command.id);
+            continue;
+        }
         if (candidate.insert(accepted.command, error) == false)
             return false;
-        if (accepted.traversal == latest)
+        if (accepted.live && accepted.traversal == latest)
             executed.insert(accepted.command.id);
     }
-    if (disarming && show->id() == m_rec.boundShowId() &&
-        candidate.closeOpenHolds(qMin(acceptancePosition(show), ShowCommand::MaxTime), error) == false)
-        return false;
     // nothing new and already ending at its content: nothing to publish
-    if (candidate.count() == show->commandTrack().count() && candidate.extent() == candidate.lastCommandTime())
+    if (candidate.commands() == show->commandTrack().commands() && candidate.extent() == candidate.lastCommandTime())
         return true;
     const quint32 extentBefore = show->commandTrack().extent();
     candidate.setExtent(candidate.lastCommandTime());
@@ -476,8 +484,10 @@ bool ShowCommandRecorder::publishUnpublished(Show *show, bool disarming, QString
                 unobserved = true;
                 continue;
             }
-            traceCommand(accepted.cause, Phase::Commit, Outcome::Published, nullptr, &accepted.command, show->id(),
-                         tr("added"));
+            traceCommand(accepted.cause, Phase::Commit, Outcome::Published,
+                         accepted.removal ? &accepted.command : nullptr,
+                         accepted.removal ? nullptr : &accepted.command, show->id(),
+                         accepted.removal ? tr("replaced by live input") : tr("added"));
             extentCause = &accepted.cause;
         }
         if (extentBefore != candidate.extent() && extentCause != nullptr && !unobserved)
@@ -497,9 +507,23 @@ ShowCommandTrack ShowCommandRecorder::projectedCheckpointTrack(Show *show, bool 
     bool hasProjection = false;
     if (show->id() == m_rec.boundShowId())
     {
-        const int before = candidate.count();
-        hasProjection = candidate.closeOpenHolds(qMin(acceptancePosition(show), ShowCommand::MaxTime)) &&
-                        candidate.count() != before;
+        // the holds still held, as their releases would record them now
+        const quint32 now = qMin(acceptancePosition(show), ShowCommand::MaxTime);
+        for (const QVector<LiveSpan> &spans : m_liveHolds)
+        {
+            for (const LiveSpan &span : spans)
+            {
+                if (span.to != ShowCommand::MaxTime)
+                    continue;
+                const ShowCommandTransition held = ShowCommandFsm::liveHold(candidate, span.hold, span.from, now);
+                for (quint32 id : held.removed)
+                    candidate.remove(id);
+                for (const ShowCommand &cmd : held.authored)
+                    candidate.insert(cmd);
+            }
+        }
+        // a removal can keep the count: the commands tell
+        hasProjection = candidate.commands() != show->commandTrack().commands();
         if (hasProjection)
             candidate.setExtent(candidate.lastCommandTime());
     }
@@ -608,7 +632,7 @@ ShowCommandTrack ShowCommandRecorder::withUnpublished(const Show *show) const
     for (const Unpublished &pending : std::as_const(m_unpublished))
     {
         if (pending.showId == show->id())
-            accepted.insert(pending.command);
+            pending.removal ? accepted.remove(pending.command.id) : accepted.insert(pending.command);
     }
     return accepted;
 }
@@ -723,8 +747,42 @@ void ShowCommandRecorder::captureUserRequest(ShowControlRequest &request)
     // the identity this capture issues is the one its entries name
     if (request.cause.generation != 0)
         request.cause.controlId = input.controlId;
-    if (authorAt(input, request.acceptedTimeMs))
-        request.authoredShowId = trackedShowId();
+    // a hold owns its time from press to release only, and is recorded whole when it ends
+    if (input.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(input.role))
+    {
+        QVector<LiveSpan> &spans = m_liveHolds[input.controlId];
+        LiveSpan *open = nullptr;
+        for (LiveSpan &span : spans)
+        {
+            if (span.to == ShowCommand::MaxTime)
+                open = &span;
+        }
+        if (input.on && open == nullptr)
+        {
+            const auto stamp = touchStamp(trackedShow());
+            spans.removeIf([&stamp](const LiveSpan &span) { return span.stamp != stamp; });
+            spans.append({ stamp, request.acceptedTimeMs, ShowCommand::MaxTime, input });
+            request.authoredShowId = trackedShowId();
+            if (diag)
+                traceDecision(Outcome::Recorded, tr("the hold is recorded when it ends"), input,
+                              request.acceptedTimeMs);
+        }
+        else if (input.on == false && open != nullptr)
+        {
+            open->to = request.acceptedTimeMs;
+            if (recordHold(trackedShow(), *open, request.acceptedTimeMs, true))
+                request.authoredShowId = trackedShowId();
+        }
+        // a press on a control already held live, or a release of none, records nothing
+        else if (diag)
+            traceDecision(Outcome::Ignored, tr("not recordable"), input, request.acceptedTimeMs);
+        return;
+    }
+    if (authorAt(input, request.acceptedTimeMs) == false)
+        return;
+    request.authoredShowId = trackedShowId();
+    if (const auto stamp = touchStamp(trackedShow()))
+        m_movedLive.insert(input.controlId, *stamp);
 }
 
 void ShowCommandRecorder::drainUserRequests()
@@ -762,9 +820,7 @@ void ShowCommandRecorder::drainUserRequests()
 
         m_userRequests.removeAt(i);
         const TracedCall traced;
-        const bool authored = request.authoredShowId != ShowCommand::InvalidId;
         const FunctionParent requestOwner(FunctionParent::ManualVCWidget, request.control->id());
-        const QVector<TimelineFact> closure = authored ? closureOf(request.control, requestOwner) : QVector<TimelineFact>();
         const ShowCommandInput &input = request.input;
         const auto receipt = ShowControlAction::apply(m_doc, request.control, input, requestOwner,
                                                       false, false, &request);
@@ -775,25 +831,24 @@ void ShowCommandRecorder::drainUserRequests()
                          receipt.executionFailed ? Outcome::Failed : Outcome::Cancelled, receipt.refusal);
             continue;
         }
-        if (request.authoredShowId == ShowCommand::InvalidId &&
-            ShowCommandFsm::isUserOrigin(input.origin) && request.accepted.snapshot.enabled)
+        // the performer's own action stays when the timeline rolls back
+        if (ShowCommandFsm::isUserOrigin(input.origin) && request.accepted.snapshot.enabled)
             for (TimelineFact &fact : m_timeline)
-                if (fact.control == request.control && fact.owner.type() == FunctionParent::Function)
+                if (fact.control == request.control)
                     fact.superseded = true;
         if (input.action == ShowCommandAction::SetButtonState)
         {
             const quint32 intentShowId = request.authoredShowId != ShowCommand::InvalidId
                                            ? request.authoredShowId : trackedShowId();
             if (QSet<quint32> *holds = userHolds(input.role))
+            {
                 setHeld(holds, request.control->id(), input.on);
+            }
             else if (input.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
                 m_userFreezeIntent.insert(intentShowId, input.on);
             else if (input.role == ShowControlRole::BlackoutButton && intentShowId != ShowCommand::InvalidId)
                 m_userBlackoutIntent.insert(intentShowId, input.on);
         }
-        if (authored)
-            journal(closure, request.authoredShowId, request.acceptedTimeMs,
-                    receipt.buttonOp == ShowCommandFsm::ShowButtonOp::Start, requestOwner, receipt);
         if (request.cause.generation != 0)
             traceRequest(request, Phase::Execute, receipt.unchanged ? Outcome::Skipped
                          : receipt.requested || !receipt.functions.isEmpty() ||
@@ -829,6 +884,7 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
 
     VCWidget *control = m_userRequests.at(index).control;
     const ShowCommandInput &input = m_userRequests.at(index).input;
+    const bool recorded = m_userRequests.at(index).authoredShowId != ShowCommand::InvalidId;
     const ShowControlCoupling coupling = couplingOf(control, ShowControlAction::functionId(control, &input));
     const auto dependent = [&](VCWidget *other, quint32 functionId)
     {
@@ -850,6 +906,9 @@ bool ShowCommandRecorder::userRequestWaits(int index) const
         if (ShowCommand::isControlAction(cmd.action))
         {
             VCWidget *replayed = resolveControl(cmd);
+            // the replay of the control the performer touches is replaced, never waited for
+            if (recorded && replayed == control)
+                continue;
             ShowCommandInput replayInput;
             replayInput.action = cmd.action;
             replayInput.payload = cmd.payload;
@@ -1929,9 +1988,107 @@ void ShowCommandRecorder::slotShowClock()
     // the clock moved: it is the position again, not a cursor set before
     m_hostCursorShowId = ShowCommand::InvalidId;
     const quint32 now = show->commandPosition();
-    if (now < m_lastClock && ShowEventLog::generation() != 0)
-        traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3));
+    if (now < m_lastClock)
+    {
+        if (ShowEventLog::generation() != 0)
+            traceTransport(Outcome::Applied, tr("Show clock moved back"), QString::number(now / 1000.0, 'f', 3));
+        holdAcrossTheMove(show, m_lastClock, now);
+    }
     m_lastClock = now;
+}
+
+void ShowCommandRecorder::holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival)
+{
+    if (show->id() != m_rec.boundShowId())
+        return;
+    QVector<LiveSpan> again;
+    for (const QVector<LiveSpan> &spans : std::as_const(m_liveHolds))
+    {
+        for (const LiveSpan &span : spans)
+        {
+            if (span.to == ShowCommand::MaxTime && heldLive(span.hold.controlId, span.hold.role))
+                again.append({ touchStamp(show), arrival, ShowCommand::MaxTime, span.hold });
+        }
+    }
+    // the departure belongs to the pass that ended: not live in the next one
+    endLiveHolds(show, departure);
+    QString error;
+    if (publishUnpublished(show, &error) == false)
+        reportFailure(error);
+    for (const LiveSpan &span : std::as_const(again))
+        m_liveHolds[span.hold.controlId] = { span };
+}
+
+bool ShowCommandRecorder::recordHold(Show *show, const LiveSpan &span, quint32 to, bool live)
+{
+    const ShowCommandTransition held = ShowCommandFsm::liveHold(withUnpublished(show), span.hold, span.from, to);
+    if (held.error.isEmpty() == false)
+    {
+        reportFailure(held.error);
+        return false;
+    }
+    if (live)
+        return commit(held, show);
+    accept(held, show, false);
+    return true;
+}
+
+void ShowCommandRecorder::endLiveHolds(Show *show, quint32 to)
+{
+    for (QVector<LiveSpan> &spans : m_liveHolds)
+    {
+        for (LiveSpan &span : spans)
+        {
+            if (span.to != ShowCommand::MaxTime)
+                continue;
+            recordHold(show, span, to, false);
+            span.to = to;
+        }
+    }
+}
+
+void ShowCommandRecorder::recordHeldHolds(Show *show)
+{
+    if (m_vc == nullptr || show != trackedShow() || isAuthoring() == false)
+        return;
+    const quint32 at = qMin(acceptancePosition(show), ShowCommand::MaxTime);
+    const auto stamp = touchStamp(show);
+    for (const QSet<quint32> *holds : { &m_userFreezeHolds, &m_userFlashHolds, &m_userSliderFlashHolds })
+    {
+        for (quint32 widgetId : *holds)
+        {
+            VCWidget *widget = m_vc->widget(widgetId);
+            if (widget == nullptr)
+                continue;
+            ShowCommandInput hold;
+            hold.origin = ShowCommandOrigin::Pointer;
+            hold.action = ShowCommandAction::SetButtonState;
+            hold.controlId = widget->ensureRecordingId();
+            hold.role = configurationOf(widget).snapshot.role;
+            hold.on = true;
+            m_liveHolds[hold.controlId] = { { stamp, at, ShowCommand::MaxTime, hold } };
+        }
+    }
+}
+
+bool ShowCommandRecorder::heldLive(const QUuid &controlId, ShowControlRole role)
+{
+    const QSet<quint32> *holds = userHolds(role);
+    if (holds == nullptr || m_vc == nullptr)
+        return false;
+    for (VCWidget *widget : m_vc->widgetsByRecordingId(controlId))
+    {
+        if (holds->contains(widget->id()))
+            return true;
+    }
+    return false;
+}
+
+std::optional<ShowCommandRecorder::TouchStamp> ShowCommandRecorder::touchStamp(const Show *show) const
+{
+    if (show == nullptr || show->stopped())
+        return std::nullopt;
+    return TouchStamp(m_takeId, show->commandTraversal());
 }
 
 void ShowCommandRecorder::slotCommandTrackChanged()
@@ -2001,16 +2158,28 @@ void ShowCommandRecorder::reloadTrack()
     emit editGateChanged();
 }
 
-bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *show)
+void ShowCommandRecorder::accept(const ShowCommandTransition &transition, Show *show, bool live)
+{
+    const ShowTraceCause cause = ShowEventLog::generation() != 0 ? currentCause() : ShowTraceCause();
+    const ShowCommandTrack accepted = withUnpublished(show);
+    for (quint32 id : transition.removed)
+    {
+        if (const int index = accepted.indexOfId(id); index >= 0)
+            m_unpublished.append({ show->id(), accepted.commands().at(index), show->commandTraversal(), cause, true, live });
+    }
+    for (const ShowCommand &cmd : transition.authored)
+        m_unpublished.append({ show->id(), cmd, show->commandTraversal(), cause, false, live });
+}
+
+bool ShowCommandRecorder::commit(const ShowCommandTransition &transition, Show *show, bool live)
 {
     // accepted input is kept whether or not the Show takes it now
     const ShowTraceCause cause = ShowEventLog::generation() != 0 ? currentCause() : ShowTraceCause();
-    for (const ShowCommand &cmd : transition.authored)
-        m_unpublished.append({ show->id(), cmd, show->commandTraversal(), cause });
+    accept(transition, show, live);
 
     // published, it is unsaved Show content; kept, it is unsaved input
     QString error;
-    if (publishUnpublished(show, false, &error))
+    if (publishUnpublished(show, &error))
         return true;
 
     if (ShowEventLog::generation() != 0)
@@ -3116,6 +3285,13 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
             run.claimedConfiguration = configurationOf(control, &input);
         }
 
+        if (replacedByLive(run, cmd))
+        {
+            trace(Outcome::Skipped, tr("replaced by live input"));
+            run.next++;
+            continue;
+        }
+
         const ShowControlCoupling coupling = couplingOf(control, ShowControlAction::functionId(control, &input));
         QVector<ShowFunctionExpectation> expectations;
         for (int i = run.unsettled.count() - 1; i >= 0; i--)
@@ -3199,6 +3375,28 @@ bool ShowCommandRecorder::continueControlRun(ControlRun &run)
     }
 
     run.show->acknowledgeControlBatch(run.batch.traversal, run.batch.seq);
+    return true;
+}
+
+bool ShowCommandRecorder::replacedByLive(const ControlRun &run, const ShowCommand &cmd)
+{
+    if (run.show->id() != m_rec.boundShowId())
+        return false;
+    const TouchStamp now(m_takeId, run.batch.traversal);
+    bool held = false;
+    for (const LiveSpan &span : m_liveHolds.value(cmd.controlId))
+        held = held || (span.stamp == now && span.from <= cmd.time && cmd.time <= span.to);
+    // the hold's release replaces the edges inside it
+    if (cmd.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(cmd.role))
+        return held;
+    // a recorded value met: the next one replays unless the control moves again
+    const bool moved = m_movedLive.contains(cmd.controlId) && m_movedLive.value(cmd.controlId) == now;
+    m_movedLive.remove(cmd.controlId);
+    if (held == false && moved == false)
+        return false;
+    ShowCommandTransition replaced;
+    replaced.removed.append(cmd.id);
+    commit(replaced, run.show);
     return true;
 }
 

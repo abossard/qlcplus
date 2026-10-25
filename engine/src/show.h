@@ -144,7 +144,10 @@ public:
     /** Get the current sync source. */
     int syncSource() const { return m_syncSource.load(); }
 
-    /** Store the latest externally-observed elapsed time in milliseconds. */
+    /** Store the latest externally-observed elapsed time in milliseconds.
+     *  A smaller one, while this Show plays from it, ends the traversal at
+     *  once like a backward requestSeek(): input accepted from then on
+     *  belongs to the next pass. */
     void setExternalElapsedTime(quint32 ms);
     quint32 externalElapsedTime() const
     {
@@ -366,8 +369,9 @@ private:
 
     /** The runtime began another traversal (seek, loop or stop) after the
      *  one it last saw, so live no-echo suppression from that one is over.
-     *  Returns the stamp the runner keeps. Consuming a requested seek keeps
-     *  what was published since the request, and a retired runner changes
+     *  Returns the stamp the runner keeps. Consuming a move back the Show
+     *  ended already (a requested seek, an external clock moving back) keeps
+     *  what was published since, and a retired runner changes
      *  nothing: the newer Play owns it */
     quint64 commandTraversalRestarted(quint64 traversal, bool requested);
 
@@ -377,6 +381,9 @@ private:
     /** With m_commandTrackMutex held: start a traversal, dropping the
      *  outbox and every pending receipt */
     void cancelControlWork();
+    /** With m_commandTrackMutex held: a move back to ms ends the traversal;
+     *  the live marks of the ended pass go when the runner takes the move */
+    void endTraversal(quint32 ms);
 
     /** Stamp and queue a VC batch for the GUI, returning its seq, or 0 when
      *  a requested seek or stop already cancelled it, run was retired, or

@@ -431,7 +431,10 @@ private:
 
     /** Commit an accepted transition: keep the authored commands and publish
      *  them with the traversal metadata that keeps live input from echoing back */
-    bool commit(const ShowCommandTransition &transition, Show *show);
+    bool commit(const ShowCommandTransition &transition, Show *show, bool live = true);
+    /** Keep a transition as input the Show has not taken yet; live input is
+     *  not played again in this pass */
+    void accept(const ShowCommandTransition &transition, Show *show, bool live);
 
     /** The single place that hands a candidate track to the Show, with the
      *  ids executed live in appliedTraversal. Fills error when it rejects it;
@@ -468,7 +471,7 @@ private:
 
     /** Hand a Show the accepted input it has not taken yet, if any, ending at
      *  its last command. A change it publishes is unsaved work. The Show keeps running while recording, never a saved tail. */
-    bool publishUnpublished(Show *show, bool disarming, QString *error);
+    bool publishUnpublished(Show *show, QString *error);
     /** Save-only projection: checkpoint while REC stays on closes open holds
      *  in the saved snapshot without mutating the live track. */
     ShowCommandTrack projectedCheckpointTrack(Show *show, bool *projected) const;
@@ -549,9 +552,9 @@ private:
         ShowControlConfiguration claimedConfiguration;
     };
 
-    /** One control around one timeline operation (a replayed op, or an
-     *  authored user request): its native state just before and after. A
-     *  button is 1 while Active, a slider its raw value. */
+    /** One control around one replayed op: its native state just before and
+     *  after. A button is 1 while Active, a slider its raw value. Live input,
+     *  recorded or not, is no timeline operation. */
     struct TimelineFact
     {
         quint32 showId;
@@ -577,6 +580,45 @@ private:
     /** Return what this Show's timeline changed after the run's rollback time
      *  to its state before the first of those changes, as one delta */
     void rollBackTimeline(ControlRun &run);
+    /** While REC records into the run's Show, a replayed command of a control
+     *  the performer touches in the run's take and pass is replaced instead
+     *  of applied: one within the performer's hold of that control, or a
+     *  recorded value when the control was moved live, by any action, since
+     *  its previous recorded value. A value is removed from the track here;
+     *  a hold's release removes the edges it replaced. */
+    bool replacedByLive(const ControlRun &run, const ShowCommand &cmd);
+    /** The position moved back from departure to arrival: a hold the bound
+     *  Show records is recorded up to the departure, and one the performer
+     *  still holds goes on from the arrival */
+    void holdAcrossTheMove(Show *show, quint32 departure, quint32 arrival);
+    /** REC began recording into show: a hold the performer holds now starts there */
+    void recordHeldHolds(Show *show);
+
+    /** Whether a widget carrying controlId is in the performer's hold set for role */
+    bool heldLive(const QUuid &controlId, ShowControlRole role);
+    /** What a touch counts in: the take and the pass it was made in */
+    using TouchStamp = QPair<quint64, quint64>;
+    /** The take and pass of a touch on show made now; none while it is stopped */
+    std::optional<TouchStamp> touchStamp(const Show *show) const;
+    /** One performer's hold: from the press to the release, MaxTime while
+     *  held. It is in the track only once it ended. */
+    struct LiveSpan
+    {
+        std::optional<TouchStamp> stamp; //!< none while the Show is stopped
+        quint32 from = 0;
+        quint32 to = ShowCommand::MaxTime;
+        ShowCommandInput hold;
+    };
+    /** Every hold of the current take and pass, per control */
+    QHash<QUuid, QVector<LiveSpan>> m_liveHolds;
+    /** The performer's hold of span recorded into show up to to, through
+     *  ShowCommandFsm::liveHold(); live: not played again in this pass */
+    bool recordHold(Show *show, const LiveSpan &span, quint32 to, bool live);
+    /** Every hold still held recorded into show up to to, each span ended there */
+    void endLiveHolds(Show *show, quint32 to);
+    /** The controls moved live since the playhead last reached one of their
+     *  recorded values, with the take and pass of that move */
+    QHash<QUuid, TouchStamp> m_movedLive;
     /** A replayed slider write the run waits for, then a start it may cause */
     void awaitRecordedWrite(ControlRun &run, VCWidget *control, quint64 generation);
     /** Every write the run waited for retired: wait for the starts and stops
@@ -636,6 +678,8 @@ private:
         ShowCommand command;
         quint64 traversal; //!< the traversal it ran live in
         ShowTraceCause cause; //!< diagnostics of the input it came from
+        bool removal = false; //!< the input replaced command: it goes
+        bool live = true; //!< executed live: not played again in this pass
     };
     QVector<Unpublished> m_unpublished;
     /** The Show's track with the accepted input it has not taken yet */

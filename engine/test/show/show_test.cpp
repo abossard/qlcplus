@@ -624,8 +624,6 @@ void Show_Test::commandTrackSaveEndsHoldInProgress_data()
     QTest::newRow("closed pair") << QStringLiteral("1 on 1000, 1 off 2000") << QStringLiteral("1000-2000");
     // a hold left in progress outside recording ends at the extent in the file
     QTest::newRow("hold in progress") << QStringLiteral("1 on 1000") << QStringLiteral("1000-6000");
-    QTest::newRow("hold in progress before a later pair") << QStringLiteral("1 on 1000, 2 on 4000, 2 off 5000")
-                                                         << QStringLiteral("1000-3999 4000-5000");
 }
 
 void Show_Test::commandTrackSaveEndsHoldInProgress()

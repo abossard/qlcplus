@@ -36,6 +36,8 @@
 #include "track.h"
 #include "scene.h"
 #include "collection.h"
+#include "chaser.h"
+#include "chaserstep.h"
 #include "doc.h"
 #include "inputoutputmap.h"
 #include "showrunner_test.h"
@@ -353,19 +355,17 @@ void ShowRunner_Test::localSeekReusesActiveFunction_data()
 {
     QTest::addColumn<quint32>("startTime");
     QTest::addColumn<quint32>("destination");
-    QTest::addColumn<quint32>("cueStart");
 
-    QTest::newRow("same-cue-forward") << quint32(100) << quint32(700) << quint32(0);
-    QTest::newRow("same-cue-backward") << quint32(700) << quint32(100) << quint32(0);
-    QTest::newRow("reused-cue-forward") << quint32(500) << quint32(1500) << quint32(1000);
-    QTest::newRow("reused-cue-backward") << quint32(1500) << quint32(500) << quint32(0);
+    QTest::newRow("same-cue-forward") << quint32(100) << quint32(700);
+    QTest::newRow("same-cue-backward") << quint32(700) << quint32(100);
+    QTest::newRow("reused-cue-forward") << quint32(500) << quint32(1500);
+    QTest::newRow("reused-cue-backward") << quint32(1500) << quint32(500);
 }
 
 void ShowRunner_Test::localSeekReusesActiveFunction()
 {
     QFETCH(quint32, startTime);
     QFETCH(quint32, destination);
-    QFETCH(quint32, cueStart);
 
     Doc doc(nullptr);
     auto *timer = doc.masterTimer();
@@ -395,6 +395,7 @@ void ShowRunner_Test::localSeekReusesActiveFunction()
     show->adjustAttribute(0.4, 0);
     show->start(timer, FunctionParent::master(), startTime);
     timer->timerTick();
+    const quint32 elapsedBefore = scene->elapsed();
 
     QSignalSpy position(show, &Show::timeChanged);
     show->requestSeek(destination);
@@ -421,8 +422,9 @@ void ShowRunner_Test::localSeekReusesActiveFunction()
     const QString actual = QStringLiteral("elapsed=%1 position=%2 output=%3 faders=%4/%5")
             .arg(elapsed).arg(showPosition).arg(output)
             .arg(stoppingFaderCount).arg(restartedFaderCount);
-    QVERIFY2(elapsed == destination - cueStart + MasterTimer::tick()
-             && showPosition == destination + MasterTimer::tick()
+    // the Scene kept running on its own time: no tick waits for a restart
+    QVERIFY2(elapsed == elapsedBefore + 2 * MasterTimer::tick()
+             && showPosition == destination + 2 * MasterTimer::tick()
              && output == uchar(80)
              && stoppingFaderCount == 1
              && restartedFaderCount == 1,
@@ -1619,6 +1621,372 @@ void ShowRunner_Test::commandLiveInputDoesNotEchoButLoopReplays()
     QCOMPARE(echoedSecond, 0);
     QCOMPARE(replayedFirst, 1);
     QCOMPARE(replayedSecond, 1);
+}
+
+void ShowRunner_Test::seekKeepsWhatIsActiveAtTheTarget_data()
+{
+    QTest::addColumn<QString>("clips");   // one Scene's clips, "start-end" in ms
+    QTest::addColumn<bool>("external");   // an external clock moving back, else a requested seek
+    QTest::addColumn<quint32>("target");  // from 6000
+    QTest::addColumn<QString>("expected"); // "running starts stops output" across the move
+
+    QTest::newRow("spans the move back") << QStringLiteral("0-8000") << true << 2000u
+                                         << QStringLiteral("1 0 0 200");
+    QTest::newRow("active at the departure only") << QStringLiteral("3000-8000") << true << 2000u
+                                                  << QStringLiteral("0 0 1 0");
+    QTest::newRow("active at the target only") << QStringLiteral("0-3000") << true << 2000u
+                                               << QStringLiteral("1 1 0 200");
+    QTest::newRow("another clip of it at the target") << QStringLiteral("0-3000,4000-8000") << true << 2000u
+                                                      << QStringLiteral("1 0 0 200");
+    QTest::newRow("requested seek back") << QStringLiteral("0-8000") << false << 2000u
+                                         << QStringLiteral("1 0 0 200");
+    QTest::newRow("requested seek forward") << QStringLiteral("0-8000") << false << 7000u
+                                            << QStringLiteral("1 0 0 200");
+}
+
+void ShowRunner_Test::seekKeepsWhatIsActiveAtTheTarget()
+{
+    QFETCH(QString, clips);
+    QFETCH(bool, external);
+    QFETCH(quint32, target);
+    QFETCH(QString, expected);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 1);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *track = new Track(scene->id());
+    for (const QString &clip : clips.split(QLatin1Char(',')))
+    {
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(scene->id());
+        item->setStartTime(clip.section(QLatin1Char('-'), 0, 0).toUInt());
+        item->setDuration(clip.section(QLatin1Char('-'), 1, 1).toUInt() - item->startTime());
+        track->addShowFunction(item);
+    }
+    show->addTrack(track);
+    // another Function's clip keeps the Show playing
+    Scene *keeper = makeScene(doc, fixture->id(), 0, 0);
+    auto *keeperTrack = new Track(keeper->id());
+    auto *kept = new ShowFunction(show->getLatestShowFunctionId());
+    kept->setFunctionID(keeper->id());
+    kept->setDuration(9000);
+    keeperTrack->addShowFunction(kept);
+    show->addTrack(keeperTrack);
+
+    if (external)
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        for (quint32 ms = 0; ms <= 6000; ms += 100)
+        {
+            show->setExternalElapsedTime(ms);
+            timer->timerTick();
+        }
+    }
+    else
+    {
+        show->start(timer, FunctionParent::master(), 6000);
+        timer->timerTick();
+        timer->timerTick();
+    }
+    QSignalSpy starts(scene, &Function::running);
+    QSignalSpy stops(scene, SIGNAL(stopped(quint32)));
+    if (external)
+        show->setExternalElapsedTime(target);
+    else
+        show->requestSeek(target);
+    timer->timerTick();
+    const uchar output = sampleChannel(doc, 0);
+    timer->timerTick();
+    const QString actual = QStringLiteral("%1 %2 %3 %4").arg(int(scene->isRunning())).arg(starts.count())
+                               .arg(stops.count()).arg(output);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+
+    QCOMPARE(actual, expected);
+}
+
+void ShowRunner_Test::seekRestartsAudioAtTheTarget()
+{
+    Doc doc(nullptr);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    auto *audio = new Audio(&doc);
+    doc.addFunction(audio);
+    auto *scene = new Scene(&doc);
+    doc.addFunction(scene);
+    for (Function *function : {static_cast<Function *>(audio), static_cast<Function *>(scene)})
+    {
+        auto *track = new Track(function->id());
+        auto *item = new ShowFunction(show->getLatestShowFunctionId());
+        item->setFunctionID(function->id());
+        item->setStartTime(0);
+        item->setDuration(10000);
+        track->addShowFunction(item);
+        show->addTrack(track);
+    }
+
+    ShowRunner runner(&doc, show->id());
+    runner.setSyncSource(ShowRunner::External);
+    const FunctionParent showParent(FunctionParent::Function, show->id());
+    auto *renderer = attachNullRenderer(audio, true);
+    QTRY_VERIFY_WITH_TIMEOUT(renderer->isRunning(), 1000);
+    for (Function *function : {static_cast<Function *>(audio), static_cast<Function *>(scene)})
+    {
+        function->m_sources.append(showParent);
+        function->m_running = true;
+        function->m_stop = false;
+        function->m_elapsed = 6000;
+        runner.m_runningQueue.append(qMakePair(function, quint32(10000)));
+    }
+    runner.m_currentTimeFunctionIndex = runner.m_timeFunctions.count();
+    runner.m_elapsedTime = 6000;
+
+    // a stream plays from where it was started: it starts again at the target
+    runner.setExternalElapsedTime(2000);
+    runner.write(doc.masterTimer());
+    QVERIFY(audio->stopped());
+    QVERIFY(!scene->stopped());
+    // the timer finished the stop: the next write starts it at the offset
+    audio->m_running = false;
+    runner.write(doc.masterTimer());
+
+    QVERIFY(!audio->stopped());
+    QCOMPARE(audio->elapsed(), 2000u);
+    QVERIFY(runner.isFunctionScheduled(audio, 10000));
+    // the Scene ran on, untouched
+    QCOMPARE(scene->elapsed(), 6000u);
+    audio->stop(FunctionParent::master());
+    if (audio->m_audio_out != nullptr)
+        audio->m_audio_out->stop();
+    runner.stop();
+}
+
+void ShowRunner_Test::seekRestartsWhatItDoesNotKeep_data()
+{
+    QTest::addColumn<QString>("rig");
+    QTest::addColumn<QString>("expected"); // channel 0 at 5.5 s, then 0.5 s after the move back
+
+    // a Chaser's steps are 1 s each, step n outputs 10 * (n + 1)
+    QTest::newRow("a Chaser starts again on step 0") << QStringLiteral("chaser") << QStringLiteral("60 10");
+    QTest::newRow("a Collection's Chaser starts again on step 0") << QStringLiteral("collection")
+                                                                  << QStringLiteral("60 10");
+    // the nested Show's own clip is 0-2 s
+    QTest::newRow("a nested Show starts again at the offset") << QStringLiteral("nested show")
+                                                              << QStringLiteral("0 200");
+    // a queue entry is no proof the Function runs
+    QTest::newRow("a single-shot Chaser that finished starts again") << QStringLiteral("finished chaser")
+                                                                     << QStringLiteral("0 10");
+    QTest::newRow("a Scene stopped by Master starts again") << QStringLiteral("master stop")
+                                                            << QStringLiteral("0 200");
+    QTest::newRow("a Scene a VC Toggle stopped starts again") << QStringLiteral("toggle stop")
+                                                              << QStringLiteral("0 200");
+    QTest::newRow("a Scene keeps running") << QStringLiteral("scene") << QStringLiteral("200 200");
+}
+
+void ShowRunner_Test::seekRestartsWhatItDoesNotKeep()
+{
+    QFETCH(QString, rig);
+    QFETCH(QString, expected);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    const auto clip = [&](Show *owner, Function *function, quint32 duration) {
+        auto *track = new Track(function->id());
+        auto *item = new ShowFunction(owner->getLatestShowFunctionId());
+        item->setFunctionID(function->id());
+        item->setStartTime(0);
+        item->setDuration(duration);
+        track->addShowFunction(item);
+        owner->addTrack(track);
+    };
+    const auto chaser = [&](int steps, Function::RunOrder order) {
+        auto *chase = new Chaser(&doc);
+        doc.addFunction(chase);
+        chase->setDuration(1000);
+        chase->setRunOrder(order);
+        for (int i = 0; i < steps; i++)
+            chase->addStep(ChaserStep(makeScene(doc, fixture->id(), 0, uchar(10 * (i + 1)))->id()));
+        return chase;
+    };
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    if (rig == QStringLiteral("chaser"))
+        clip(show, chaser(6, Function::Loop), 8000);
+    else if (rig == QStringLiteral("finished chaser"))
+        clip(show, chaser(2, Function::SingleShot), 8000);
+    else if (rig == QStringLiteral("collection"))
+    {
+        auto *look = new Collection(&doc);
+        doc.addFunction(look);
+        look->addFunction(makeScene(doc, fixture->id(), 1, 200)->id());
+        look->addFunction(chaser(6, Function::Loop)->id());
+        clip(show, look, 8000);
+    }
+    else if (rig == QStringLiteral("nested show"))
+    {
+        auto *inner = new Show(&doc);
+        doc.addFunction(inner);
+        clip(inner, scene, 2000);
+        clip(show, inner, 8000);
+    }
+    else
+        clip(show, scene, 8000);
+    // another Function's clip keeps the Show playing
+    clip(show, makeScene(doc, fixture->id(), 1, 0), 9000);
+
+    show->setSyncSource(ShowRunner::External);
+    show->start(timer, FunctionParent::master());
+    // one tick per tick's worth of clock, so a nested Show's own clock keeps up
+    for (quint32 ms = 0; ms <= 5500; ms += MasterTimer::tick())
+    {
+        show->setExternalElapsedTime(ms);
+        timer->timerTick();
+        if (ms == 3000 && rig == QStringLiteral("master stop"))
+            scene->stop(FunctionParent::master());
+        if (ms == 3000 && rig == QStringLiteral("toggle stop"))
+            scene->stop(FunctionParent(FunctionParent::ManualVCWidget, 9));
+    }
+    const uchar before = sampleChannel(doc, 0);
+    show->setExternalElapsedTime(500);
+    for (int i = 0; i < 4; i++)
+        timer->timerTick();
+    const uchar after = sampleChannel(doc, 0);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+
+    QCOMPARE(QStringLiteral("%1 %2").arg(before).arg(after), expected);
+}
+
+void ShowRunner_Test::seekJudgesBeatClipsOnTheClockThatPlaysThem()
+{
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    // the MasterTimer beats at 60 BPM, the external clock plays the Show at 120
+    timer->setBeatSourceType(MasterTimer::Internal);
+    timer->requestBpmNumber(60);
+    auto *fixture = makeFixture(doc, 2);
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    scene->setTempoType(Function::Beats);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    show->setTimeDivision(Show::BPM_4_4, 120);
+    // beats 4 to 8: 2 s to 4 s at 120 BPM
+    auto *track = new Track(scene->id());
+    auto *item = new ShowFunction(show->getLatestShowFunctionId());
+    item->setFunctionID(scene->id());
+    item->setStartTime(4000);
+    item->setDuration(4000);
+    track->addShowFunction(item);
+    show->addTrack(track);
+    Scene *keeper = makeScene(doc, fixture->id(), 1, 0);
+    auto *keeperTrack = new Track(keeper->id());
+    auto *kept = new ShowFunction(show->getLatestShowFunctionId());
+    kept->setFunctionID(keeper->id());
+    kept->setStartTime(0);
+    kept->setDuration(9000);
+    keeperTrack->addShowFunction(kept);
+    show->addTrack(keeperTrack);
+
+    show->setSyncSource(ShowRunner::External);
+    show->start(timer, FunctionParent::master());
+    for (quint32 ms = 0; ms <= 3000; ms += 100)
+    {
+        show->setExternalElapsedTime(ms);
+        timer->timerTick();
+    }
+    QVERIFY(scene->isRunning());
+    QSignalSpy starts(scene, &Function::running);
+    QSignalSpy stops(scene, SIGNAL(stopped(quint32)));
+    // back to beat 5: still inside the clip on the Show's clock
+    show->setExternalElapsedTime(2500);
+    timer->timerTick();
+    const uchar output = sampleChannel(doc, 0);
+    timer->timerTick();
+    // lit, however far its fade has come
+    const QString actual = QStringLiteral("%1 %2 %3").arg(starts.count()).arg(stops.count()).arg(output > 0);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+    timer->setBeatSourceType(MasterTimer::None);
+
+    QCOMPARE(actual, QStringLiteral("0 0 1"));
+}
+
+void ShowRunner_Test::commandLiveInputAfterAMoveBackDoesNotEcho_data()
+{
+    QTest::addColumn<bool>("external");
+
+    QTest::newRow("external clock moves back") << true;
+    QTest::newRow("requested seek back") << false;
+}
+
+void ShowRunner_Test::commandLiveInputAfterAMoveBackDoesNotEcho()
+{
+    QFETCH(bool, external);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    Scene *arrival = makeScene(doc, fixture->id(), 0, 200);
+    Scene *earlier = makeScene(doc, fixture->id(), 1, 200);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack live;
+    live.setExtent(2000);
+    QVERIFY(show->setCommandTrack(live));
+    QSignalSpy arrivalStarts(arrival, &Function::running);
+    QSignalSpy earlierStarts(earlier, &Function::running);
+
+    if (external)
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(0);
+        timer->timerTick();
+        show->setExternalElapsedTime(300);
+    }
+    else
+    {
+        show->start(timer, FunctionParent::master(), 300);
+    }
+    timer->timerTick();
+    // the previous pass executed a live input at 300
+    QVERIFY(live.insert(ShowCommand::start(1, 300, earlier->id())));
+    QVERIFY(show->setCommandTrack(live, {1}));
+    for (int i = 0; i < 10; i++)
+        timer->timerTick();
+
+    // back to 100: input accepted before the runner's next tick is the next pass's
+    if (external)
+        show->setExternalElapsedTime(100);
+    else
+        show->requestSeek(100);
+    QVERIFY(live.insert(ShowCommand::start(2, 100, arrival->id())));
+    QVERIFY(show->setCommandTrack(live, {2}));
+    timer->timerTick();
+    if (external)
+        show->setExternalElapsedTime(500);
+    for (int i = 0; i < 25; i++)
+        timer->timerTick();
+    const int echoed = arrivalStarts.count();
+    const int replayed = earlierStarts.count();
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+
+    QCOMPARE(echoed, 0);
+    QCOMPARE(replayed, 1);
 }
 
 void ShowRunner_Test::commandExtentAndRecordingKeepAlive_data()
@@ -3187,8 +3555,9 @@ void ShowRunner_Test::commandTraversalBoundaries_data()
         << QStringLiteral("F=off/0/0,G=off/0/0") << QStringLiteral("F=on@1/1/0,G=off/0/0");
     QTest::newRow("ordinary crossing runs in its own tick") << QStringLiteral("crossing")
         << QStringLiteral("F=on@0.8/1/0,G=off/0/0") << QStringLiteral("F=on@0.8/1/0,G=off/0/0");
-    QTest::newRow("live id authored during the restart wait") << QStringLiteral("stalled live")
-        << QString() << QStringLiteral("F=on@1/2/1,G=off/0/0");
+    // the clip keeps running through the seek: nothing waits for a restart
+    QTest::newRow("live id authored right after a seek") << QStringLiteral("live after seek")
+        << QString() << QStringLiteral("F=on@1/1/0,G=off/0/0");
     QTest::newRow("live id of the previous traversal replays") << QStringLiteral("previous live")
         << QString() << QStringLiteral("F=off/0/0,G=on@1/1/0");
     // Play, a live id, Stop, Play again: all accepted before the first tick
@@ -3238,7 +3607,7 @@ void ShowRunner_Test::commandTraversalBoundaries()
     Scene *g = makeScene(doc, fixture->id(), 1, 200);
     auto *show = new Show(&doc);
     doc.addFunction(show);
-    if (rig == QStringLiteral("stalled live"))
+    if (rig == QStringLiteral("live after seek"))
     {
         auto *clips = new Track(Function::invalidId());
         auto *item = new ShowFunction(show->getLatestShowFunctionId());
@@ -3316,7 +3685,7 @@ void ShowRunner_Test::commandTraversalBoundaries()
 
     QString reached;
     if (rig == QStringLiteral("zero") || rig == QStringLiteral("crossing") ||
-        rig == QStringLiteral("paused move") || rig == QStringLiteral("stalled live") ||
+        rig == QStringLiteral("paused move") || rig == QStringLiteral("live after seek") ||
         rig == QStringLiteral("previous live") || rig == QStringLiteral("aborted play") ||
         rig.startsWith(QStringLiteral("restart")) || rig == QStringLiteral("requested seek live") ||
         rig.startsWith(QStringLiteral("external")) || rig == QStringLiteral("retired seek") ||
@@ -3378,11 +3747,10 @@ void ShowRunner_Test::commandTraversalBoundaries()
         ticks(ticksToReach(120));
         reached = state();
     }
-    else if (rig == QStringLiteral("stalled live"))
+    else if (rig == QStringLiteral("live after seek"))
     {
         ticks(5);
         show->requestSeek(1000);
-        // the clip's Scene is still finishing its stop, so the traversal waits
         ticks(1);
         authorLive(1000);
     }
@@ -3442,7 +3810,7 @@ void ShowRunner_Test::commandTraversalBoundaries()
         show->stop(FunctionParent::master());
         show->start(timer, FunctionParent::master());
         authorLive(0);
-        retired->seekTo(0, true);
+        retired->seekTo(0);
     }
     else if (rig == QStringLiteral("requested seek live"))
     {
@@ -3902,7 +4270,8 @@ void ShowRunner_Test::commandJumpDispatchesOnlyItsWindow_data()
 
     // VC records: 1@0 2@5000 3@53700 4@120000 5@139300 21@139400 6@140000
     // 7,8@141000 (Order tie) 9@143000 10@150000; legacy Start S@53700 and
-    // F@139400 (before 21); ordinary clip G over the whole song.
+    // F@139400 (before 21); ordinary clip G over the whole song, which keeps
+    // running through every seek.
     // A segment lists the dispatched VC ids in order; R<T> is a rollback batch to T.
     const QList<std::tuple<const char *, const char *, QStringList, const char *>> rows{
         { "external first sample 0 runs the event at 0 once", "playext;ext:0;cut;ext:0;cut",
@@ -3919,34 +4288,34 @@ void ShowRunner_Test::commandJumpDispatchesOnlyItsWindow_data()
           { "5", "21,6,7,8" }, "S=0,F=1,G=1" },
         { "user loop 139300-143000", "playext;ext:0;cut;ext:53700;cut;ext:139300;cut;ext:143000;cut;"
                                      "ext:139300;cut;ext:143000;cut",
-          { "1", "2,3", "4,5", "21,6,7,8,9", "R139300,5", "21,6,7,8,9" }, "S=1,F=2,G=2" },
+          { "1", "2,3", "4,5", "21,6,7,8,9", "R139300,5", "21,6,7,8,9" }, "S=1,F=2,G=1" },
         { "Play from T", "play:120000;cut", { "4" }, "S=0,F=0,G=1" },
         { "Play from 0", "play:0;cut", { "1" }, "S=0,F=0,G=1" },
-        { "requested forward seek", "play:139300;cut;seek:141000;cut", { "5", "21,6,7,8" }, "S=0,F=1,G=2" },
-        { "requested backward seek", "play:141000;cut;seek:139300;cut", { "7,8", "R139300,5" }, "S=0,F=0,G=2" },
+        { "requested forward seek", "play:139300;cut;seek:141000;cut", { "5", "21,6,7,8" }, "S=0,F=1,G=1" },
+        { "requested backward seek", "play:141000;cut;seek:139300;cut", { "7,8", "R139300,5" }, "S=0,F=0,G=1" },
         { "seek to 0 runs the event at 0 once", "play:5000;cut;seek:0;cut;tick:3;cut",
-          { "2", "R0,1", "" }, "S=0,F=0,G=2" },
+          { "2", "R0,1", "" }, "S=0,F=0,G=1" },
         { "backward, then forward before the consume", "play:140000;cut;req:139300;seek:143000;cut",
-          { "6", "R143000,9" }, "S=0,F=0,G=2" },
+          { "6", "R143000,9" }, "S=0,F=0,G=1" },
         { "forward, then backward before the consume", "play:140000;cut;req:143000;seek:139300;cut",
-          { "6", "R139300,5" }, "S=0,F=0,G=2" },
+          { "6", "R139300,5" }, "S=0,F=0,G=1" },
         { "forward, then forward keeps the latest", "play:139300;cut;req:141000;seek:143000;cut",
-          { "5", "21,6,7,8,9" }, "S=0,F=1,G=2" },
+          { "5", "21,6,7,8,9" }, "S=0,F=1,G=1" },
         { "forward request passed before its consume", "play:139940;tick:1;cut;staleseek:140000;tick:5;cut",
           { "6", "" }, "S=0,F=0,G=1" },
         { "paused forward request", "play:139300;cut;pause;req:141000;tick:3;cut;resume;cut",
-          { "5", "", "21,6,7,8" }, "S=0,F=1,G=2" },
+          { "5", "", "21,6,7,8" }, "S=0,F=1,G=1" },
         { "paused backward request", "play:141000;cut;pause;req:139300;tick:3;cut;resume;cut",
-          { "7,8", "", "R139300,5" }, "S=0,F=0,G=2" },
+          { "7,8", "", "R139300,5" }, "S=0,F=0,G=1" },
         { "forward request keeps the held batch, settles F first",
-          "hold;play:139300;cut;seek:141000;cut;ack;cut", { "5", "", "21,6,7,8" }, "S=0,F=1,G=2" },
+          "hold;play:139300;cut;seek:141000;cut;ack;cut", { "5", "", "21,6,7,8" }, "S=0,F=1,G=1" },
         { "backward request drops the held batch", "hold;play:141000;cut;req:139300;ack;cut",
-          { "7,8", "R139300,5" }, "S=0,F=0,G=2" },
+          { "7,8", "R139300,5" }, "S=0,F=0,G=1" },
         { "live mark survives a forward seek, plays after a backward one",
           "play:139300;cut;live:22@140500;tick:1;cut;seek:141000;cut;seek:139300;cut;tick:90;cut",
-          { "5", "", "21,6,7,8", "R139300,5", "21,6,22,7,8" }, "S=0,F=2,G=3" },
+          { "5", "", "21,6,7,8", "R139300,5", "21,6,22,7,8" }, "S=0,F=2,G=1" },
         { "capture between a backward request and its consume", "play:141000;cut;req:139300;live:23@139300;tick:4;cut",
-          { "7,8", "R139300,5" }, "S=0,F=0,G=2" },
+          { "7,8", "R139300,5" }, "S=0,F=0,G=1" },
     };
     for (const auto &row : rows)
         QTest::newRow(std::get<0>(row)) << QString::fromLatin1(std::get<1>(row)) << std::get<2>(row)
@@ -4110,17 +4479,18 @@ void ShowRunner_Test::commandBackwardRollsBackOwnLegacyEffects_data()
     QTest::addColumn<QString>("after");   // F and clip G right after it
     QTest::addColumn<QString>("later");   // F once the next pass reached 450
 
-    // F=state[@intensity]/running() count/stopped() count; window (200, 600]
+    // F=state[@intensity]/running() count/stopped() count; window (200, 600];
+    // the clip G keeps running through every move
     QTest::newRow("a Start in the window stops") << QStringLiteral("start in window")
-        << QStringLiteral("F=on@1/1/0") << QStringLiteral("F=off/1/1,G=on/2") << QStringLiteral("F=on@1/2/1");
+        << QStringLiteral("F=on@1/1/0") << QStringLiteral("F=off/1/1,G=on/1") << QStringLiteral("F=on@1/2/1");
     QTest::newRow("a Stop in the window starts again") << QStringLiteral("stop in window")
-        << QStringLiteral("F=off/1/1") << QStringLiteral("F=on@1/2/1,G=on/2") << QStringLiteral("F=off/2/2");
+        << QStringLiteral("F=off/1/1") << QStringLiteral("F=on@1/2/1,G=on/1") << QStringLiteral("F=off/2/2");
     QTest::newRow("a Start before the window keeps running") << QStringLiteral("start before")
-        << QStringLiteral("F=on@1/1/0") << QStringLiteral("F=on@1/1/0,G=on/2") << QStringLiteral("F=on@1/1/0");
+        << QStringLiteral("F=on@1/1/0") << QStringLiteral("F=on@1/1/0,G=on/1") << QStringLiteral("F=on@1/1/0");
     QTest::newRow("an intensity in the window returns") << QStringLiteral("intensity in window")
-        << QStringLiteral("F=on@0.3/1/0") << QStringLiteral("F=on@1/1/0,G=on/2") << QStringLiteral("F=on@0.3/1/0");
+        << QStringLiteral("F=on@0.3/1/0") << QStringLiteral("F=on@1/1/0,G=on/1") << QStringLiteral("F=on@0.3/1/0");
     QTest::newRow("a forward jump keeps F running") << QStringLiteral("forward")
-        << QStringLiteral("F=on@1/1/0") << QStringLiteral("F=on@1/1/0,G=on/2") << QStringLiteral("F=on@1/1/0");
+        << QStringLiteral("F=on@1/1/0") << QStringLiteral("F=on@1/1/0,G=on/1") << QStringLiteral("F=on@1/1/0");
     QTest::newRow("Show Stop stops both") << QStringLiteral("stop")
         << QStringLiteral("F=on@1/1/0") << QStringLiteral("F=off/1/1,G=off/1") << QStringLiteral("F=off/1/1");
 }
@@ -4207,4 +4577,4 @@ void ShowRunner_Test::commandBackwardRollsBackOwnLegacyEffects()
     timer->timerTick();
 }
 
-QTEST_APPLESS_MAIN(ShowRunner_Test)
+QTEST_GUILESS_MAIN(ShowRunner_Test)

@@ -393,15 +393,14 @@ public:
 
     /** The one hold pair invariant. Per control and role, the SetButtonState
      *  edges sharing a pair id are one press and at most one release after it,
-     *  and pairs never overlap: a release comes before the next pair's press.
-     *  At most one pair is open (pressed, not released yet), with its press at
-     *  an earlier time than the next pair's, so it can still close before it.
-     *  The ids of the pairs that break it, each once, earliest kept. */
+     *  and pairs never overlap: a release comes before the next pair's press,
+     *  in stored order at an equal time. At most one pair is open (pressed,
+     *  not released yet), with its press at an earlier time than the next
+     *  pair's. The ids of the pairs that break it, each once, earliest kept. */
     QVector<quint32> malformedHoldPairs() const;
 
-    /** Release every open hold at time, clamped into its own span: never
-     *  before its press, before the next pair's press. Fails, unchanged,
-     *  when no event id is left. */
+    /** Release every open hold at time, never before its press. Fails,
+     *  unchanged, when no event id is left. */
     bool closeOpenHolds(quint32 time, QString *error = nullptr);
 
     /** A new command, after every command sharing its time. cmd.order is
@@ -609,6 +608,7 @@ struct ShowCommandTransition
     ShowCommandState state;
     QVector<ShowCommand> effects;  //!< ordered commands for the host to apply
     QVector<ShowCommand> authored; //!< commands the host must commit to the track
+    QVector<quint32> removed;      //!< ids the host must remove from it: what the input replaced
     /** Why an offered input authored nothing, empty when there is nothing to explain.
      *  Input the recorder is not meant to author is ignored without a reason. */
     QString error;
@@ -648,13 +648,21 @@ namespace ShowCommandFsm
      *  consumed, so the freshly authored command cannot echo back through
      *  advance() during this traversal while every other due command still
      *  executes. The host has already executed the input live, so this returns
-     *  no effects. A hold press authors nothing where the track would break the
-     *  hold pair invariant, e.g. inside a recorded hold of that control. A hold
-     *  release closes that control's open pair at the position, or just before
-     *  the next pair's press when that comes first, and authors nothing while
-     *  the open press is still ahead of the position. */
+     *  no effects. A hold edge authors nothing: liveHold() records the whole
+     *  hold once it ends. */
     ShowCommandTransition userInput(const ShowCommandTrack &track,
                                     const ShowCommandState &state, const ShowCommandInput &input);
+
+    /** The performer held hold's control from from to to (at least from):
+     *  what was recorded for that control in that time is replaced. A
+     *  recorded hold on at from ends there, its recorded edges inside go, one
+     *  still on at to starts again there, and the live hold is recorded
+     *  between them; nothing else changes and no hold of no time is cut off.
+     *  At equal times what ends at from comes first and what starts again at
+     *  to last. Refused with the reason when no event or hold pair id is
+     *  left. Authors without live marks: the host decides. */
+    ShowCommandTransition liveHold(const ShowCommandTrack &track, const ShowCommandInput &hold,
+                                   quint32 from, quint32 to);
 
     /** Whether input of this origin is a person operating a control, the only
      *  input that may author */

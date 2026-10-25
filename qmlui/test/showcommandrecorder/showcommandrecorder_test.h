@@ -285,8 +285,8 @@ private slots:
     void userRequest_keepsItsAcceptedDestination_data();
     void userRequest_keepsItsAcceptedDestination();
     void levelChannelSnapshot_sharesNoTimerStorage();
-    void recArmedUserInput_waitsBehindCoupledReplay_data();
-    void recArmedUserInput_waitsBehindCoupledReplay();
+    void recArmedUserInput_replacesTheReplayOfItsControl_data();
+    void recArmedUserInput_replacesTheReplayOfItsControl();
 
     // accepted input capture
     void acceptedSliderInput_recordsEachChangedPosition_data();
@@ -394,8 +394,8 @@ private slots:
     void replayStop_releasesOnlyReplayOwnedFlash();
     void replayStop_releasesOnlyReplayOwnedSliderFlash_data();
     void replayStop_releasesOnlyReplayOwnedSliderFlash();
-    void checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen_data();
-    void checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen();
+    void checkpoint_midHoldSavesTheHoldSoFar_data();
+    void checkpoint_midHoldSavesTheHoldSoFar();
     void replayStop_releasesOnlyReplayOwnedFreezeHold_data();
     void replayStop_releasesOnlyReplayOwnedFreezeHold();
     void replayStop_doesNotRollbackValues_butBackwardSeekDoes();
@@ -414,6 +414,9 @@ private slots:
     void holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem();
     void holdPairs_showSurvivesSaveAndReload_data();
     void holdPairs_showSurvivesSaveAndReload();
+    void liveInput_replacesWhileTouched_data();
+    void liveInput_replacesWhileTouched();
+    void liveInput_touchBelongsToItsPass();
     void replayedHold_survivesEditAtCursor_data();
     void replayedHold_survivesEditAtCursor();
     void replayedHold_historyEditReleasesIt_data();

@@ -49,6 +49,12 @@ private slots:
     void localSeekReusesActiveFunction();
     void localSeekPreservesOtherOwner();
     void localSeekDoesNotOverrideExternalControl();
+    void seekKeepsWhatIsActiveAtTheTarget_data();
+    void seekKeepsWhatIsActiveAtTheTarget();
+    void seekRestartsAudioAtTheTarget();
+    void seekRestartsWhatItDoesNotKeep_data();
+    void seekRestartsWhatItDoesNotKeep();
+    void seekJudgesBeatClipsOnTheClockThatPlaysThem();
 
     // The GUI never reaches the runner: the timer thread takes its settings once per tick
     void syncSourceChangeAppliesOnNextTick_data();
@@ -84,6 +90,8 @@ private slots:
     void commandStopRetiresSupersededClipDeadline();
     void commandForwardSeekPlaysCrossedCommands();
     void commandLiveInputDoesNotEchoButLoopReplays();
+    void commandLiveInputAfterAMoveBackDoesNotEcho_data();
+    void commandLiveInputAfterAMoveBackDoesNotEcho();
     void commandExtentAndRecordingKeepAlive_data();
     void commandExtentAndRecordingKeepAlive();
     void commandIntensityAfterNaturalCompletion();
