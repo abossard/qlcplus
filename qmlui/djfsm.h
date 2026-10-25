@@ -110,7 +110,8 @@ public:
      *  finds the master whichever way the count moves. */
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
 
-    /** The objects of one VDJ write are in: every deck settles its view. */
+    /** The objects of one VDJ write are in: every deck settles its view, then the
+     *  master, then the write's notifications go out, the master's first. */
     void onTickEnded();
 
     /** VDJ socket dropped: no active deck first, then every deck empty. */
@@ -163,7 +164,9 @@ private:
         bool     play = false;           //!< VDJ's "play"
         bool     master = false;         //!< VDJ's per-deck "masterdeck"
         bool     positionSeen = false;   //!< the write under way carried an elapsed sample
-        bool     loadedOnSeen = false;   //!< the write under way carried "loaded" on
+        /** the write under way carried "loaded" on: a per-write fact, since a VU write
+         *  between the two halves of a load would otherwise flush the held title onto the old filepath */
+        bool     loadedOnSeen = false;
         bool     perFileSeen = false;    //!< the write under way carried a per-file field other than title and bpm
         bool     wasPlaying = false;     //!< distinguishes Paused from Loaded
         int      posEmitSecond = -1;     //!< last elapsed second a positionChanged was emitted for
@@ -171,8 +174,8 @@ private:
     };
 
     static bool indexValid(int index0) { return index0 >= 0 && index0 < MaxDecks; }
-    bool deckTracked(int deck1) const { return deck1 >= 1 && deck1 <= m_deckCount; }
-    void settle(Slot &s, int deck1);
+    /** A deck's view of the write under way: the mirror, the song, transport */
+    void settle(Slot &s);
     void recomputeActiveDeck();
     void maybeEmitPosition(Slot &s, int deck1);
     void recomputeActiveSong();

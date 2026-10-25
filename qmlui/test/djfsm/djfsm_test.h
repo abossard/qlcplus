@@ -49,6 +49,7 @@ private slots:
     void ejectAndReload_data();
     void ejectAndReload();
     void artistAfterTitleChangesActiveSong();
+    void writeNotificationsFollowItsSettledState();
     void capture_trackChangeSameBpm();
     void capture_consecutiveLoads();
     void capture_eject();

@@ -868,6 +868,38 @@ void VdjBridge_Test::deletedShowBindsAgainWhenItComesBack()
     QCOMPARE(resolved.last().at(0).toUInt(), id);
 }
 
+void VdjBridge_Test::handoverInsideALoadWriteResolvesOnce()
+{
+    // one write: deck 1 loads C, its master flag goes off and deck 2's on;
+    // the recorder sees the handover from A to B alone, Perform never adopts C
+    PerformRig rig;
+    rig.addShow("A", "/m/a.mp3");
+    Show *b = rig.addShow("B", "/m/b.mp3");
+    Show *c = rig.addShow("C", "/m/c.mp3");
+    rig.load(0, "/m/a.mp3");
+    rig.load(1, "/m/b.mp3");
+    rig.master(0);
+    rig.bridge.setPerformMode(true);
+    QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
+
+    rig.send(0, "get_filepath", QVariant("/m/c.mp3"));
+    rig.send(0, "get_title", QVariant("C"));
+    rig.send(0, "masterdeck", QVariant("off"));
+    rig.send(1, "masterdeck", QVariant("on"));
+    rig.tickEnd();
+
+    QStringList sequence;
+    for (const QList<QVariant> &args : resolved)
+    {
+        const quint32 id = args[0].toUInt();
+        sequence << (id == PerformFsm::InvalidShowId ? QStringLiteral("-") : rig.doc.function(id)->name());
+    }
+    QCOMPARE(sequence, QStringList({ "-", "B" }));
+    QCOMPARE(rig.bridge.performFsm()->activeShowId(), b->id());
+    QCOMPARE(c->syncSource(), int(ShowRunner::Autonomous));
+    QVERIFY(c->stopped());
+}
+
 void VdjBridge_Test::capture_ejectReleasesPerform()
 {
     // VDJ's eject (measured): placeholder title, get_bpm 120, loaded off, no

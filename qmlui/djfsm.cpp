@@ -46,6 +46,12 @@ bool sameSong(const DjFsm::DeckSong &a, const DjFsm::DeckSong &b)
     return a.filepath == b.filepath && a.title == b.title && a.artist == b.artist && a.key == b.key
            && a.totalMs == b.totalMs && qRound(a.bpm) == qRound(b.bpm);
 }
+
+// announced: a song with a title, once per filepath it stays on the deck
+bool announced(const DjFsm::DeckSong &song)
+{
+    return song.isValid() && !song.title.isEmpty();
+}
 } // namespace
 
 
@@ -75,9 +81,10 @@ void DjFsm::setDeckCount(int count)
     {
         m_slots[d] = Slot();
         m_slots[d].deck.number = d + 1;
-        emit deckChanged(d + 1);
     }
     recomputeActiveDeck();
+    for (int d = clamped; d < prev; ++d)
+        emit deckChanged(d + 1);
     emit deckCountChanged(m_deckCount);
 }
 
@@ -95,7 +102,7 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         s.master = triggerIsOn(value);
         return;
     }
-    if (!deckTracked(deck))
+    if (deck > m_deckCount)
         return;
 
     Pending &p = s.pending;
@@ -183,22 +190,39 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
 
 void DjFsm::onTickEnded()
 {
-    for (int d = 1; d <= m_deckCount; ++d)
-        settle(m_slots[d - 1], d);
+    // every deck's view, then the master, then the write's notifications, the
+    // master's first: whoever hears one sees the whole write settled
+    std::array<Deck, MaxDecks> before;
+    for (int d = 0; d < m_deckCount; ++d)
+    {
+        before[d] = m_slots[d].deck;
+        settle(m_slots[d]);
+    }
     recomputeActiveDeck();
+    for (int d = 0; d < m_deckCount; ++d)
+    {
+        const Deck &was = before[d], &now = m_slots[d].deck;
+        const bool songMoved = !sameSong(was.song, now.song);
+        if (announced(now.song) && (!announced(was.song) || was.song.filepath != now.song.filepath))
+            emit songChanged(d + 1, now.song);
+        else if (announced(now.song) && songMoved)
+            emit songUpdated(d + 1, now.song);
+        if (songMoved || was.state != now.state || was.playing != now.playing)
+            emit deckChanged(d + 1);
+    }
 }
 
-void DjFsm::settle(Slot &s, int deck1)
+void DjFsm::settle(Slot &s)
 {
     Pending &p = s.pending;
-    const Deck before = s.deck;
+    const bool loaded = s.deck.song.isValid();
 
-    // held song fields are the file's whose filepath or first position sample
-    // the write carries; `loaded` on brings the ejected file back unless the
-    // write carries a per-file field, which VDJ resends for another file only;
-    // an empty deck's values are nobody's and mirror at once
+    // held song fields are the file's whose filepath the write carries, or a
+    // position sample of the loaded song; `loaded` on brings the ejected file
+    // back unless the write carries a per-file field, which VDJ resends for
+    // another file only; an empty deck's values are nobody's and mirror at once
     if (p.filepath || s.positionSeen || !s.loaded
-        || (s.loadedOnSeen && !before.song.isValid() && !s.perFileSeen))
+        || (s.loadedOnSeen && !loaded && !s.perFileSeen))
     {
         if (p.filepath && *p.filepath != s.last.filepath)
             s.deck.positionStale = !s.positionSeen;
@@ -233,17 +257,6 @@ void DjFsm::settle(Slot &s, int deck1)
                      : s.wasPlaying                ? DeckState::Paused
                                                    : DeckState::Loaded;
     }
-
-    // announced: a song with a title, once per filepath it stays on the deck
-    const auto announced = [](const DeckSong &song) { return song.isValid() && !song.title.isEmpty(); };
-    const bool songMoved = !sameSong(before.song, s.deck.song);
-    if (announced(s.deck.song) && (!announced(before.song) || before.song.filepath != s.deck.song.filepath))
-        emit songChanged(deck1, s.deck.song);
-    else if (announced(s.deck.song) && songMoved)
-        emit songUpdated(deck1, s.deck.song);
-    if (songMoved || before.state != s.deck.state || before.playing != s.deck.playing)
-        emit deckChanged(deck1);
-
     s.positionSeen = s.loadedOnSeen = s.perFileSeen = false;
 }
 

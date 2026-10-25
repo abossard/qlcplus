@@ -40,6 +40,7 @@ private slots:
     void ejectKeepsTheTempo();
     void activeDeckFollowsThePerDeckMasterdeck();
     void deletedShowBindsAgainWhenItComesBack();
+    void handoverInsideALoadWriteResolvesOnce();
     void capture_ejectReleasesPerform();
     void capture_ejectPerform_data();
     void capture_ejectPerform();

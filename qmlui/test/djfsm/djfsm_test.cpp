@@ -737,6 +737,32 @@ void DjFsm_Test::artistAfterTitleChangesActiveSong()
     QCOMPARE(artistAtNotify, QString("Artist A"));
 }
 
+void DjFsm_Test::writeNotificationsFollowItsSettledState()
+{
+    // one write loads C on deck 1 and hands the master to deck 2: whoever hears
+    // a notification sees the whole write settled, the master's notification first
+    DjFsm fsm;
+    loadSong(fsm, 1, "/a", "A", "X", 125.0);
+    loadSong(fsm, 2, "/b", "B", "Y", 128.0);
+    fsm.onDeckTrigger(1, "masterdeck", "on");
+    fsm.onTickEnded();
+    QStringList order;
+    connect(&fsm, &DjFsm::activeDeckChanged, &fsm, [&](int deck) { order << QStringLiteral("master %1").arg(deck); });
+    connect(&fsm, &DjFsm::songChanged, &fsm, [&](int deck, const DjFsm::DeckSong &) {
+        order << QStringLiteral("song %1 master %2").arg(deck).arg(fsm.activeDeck());
+    });
+    connect(&fsm, &DjFsm::deckChanged, &fsm, [&](int deck) {
+        order << QStringLiteral("deck %1 master %2").arg(deck).arg(fsm.activeDeck());
+    });
+
+    fsm.onDeckTrigger(1, "get_filepath", "/c");
+    fsm.onDeckTrigger(1, "get_title", "C");
+    fsm.onDeckTrigger(1, "masterdeck", "off");
+    fsm.onDeckTrigger(2, "masterdeck", "on");
+    fsm.onTickEnded();
+    QCOMPARE(order, QStringList({ "master 2", "song 1 master 2", "deck 1 master 2" }));
+}
+
 void DjFsm_Test::capture_trackChangeSameBpm()
 {
     // Automix replaces the track: get_bpm is not resent, the artist follows the title
