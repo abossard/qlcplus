@@ -154,7 +154,7 @@ private:
 
     QSet<Function *> m_seekRestartFunctions;
 
-    /** A Scene this Show still runs, whose clip is active at newTime, keeps
+    /** A Scene this Show still owns, whose clip is active at newTime, keeps
      *  running; every other clip stops and starts again there, judged on the
      *  clock that plays it. A forward request keeps the
      *  command traversal and plays the crossed interval; otherwise the
@@ -163,6 +163,9 @@ private:
     void seekTo(quint32 newTime, bool forward = false);
 
     void syncPerformAudioSuppression();
+    /** The BPM beat clips play at: the Show's under an external clock or
+     *  without a beat source, else the MasterTimer's */
+    int beatsBpm() const;
     bool isAudioFunction(const Function *function) const;
     void stopRunningAudioFunctions();
     bool isFunctionScheduled(Function *function, quint32 stopTime) const;

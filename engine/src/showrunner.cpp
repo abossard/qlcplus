@@ -87,9 +87,7 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
        keeps advancing in lockstep with the actual beat clock from there */
     if (startTime > 0)
     {
-        int bpm = m_doc->masterTimer()->beatSourceType() == MasterTimer::None
-                ? (m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120)
-                : m_doc->masterTimer()->bpmNumber();
+        const int bpm = beatsBpm();
         if (bpm > 0)
             m_elapsedBeats = qRound64(double(startTime) * bpm / 60.0);
     }
@@ -258,8 +256,7 @@ void ShowRunner::write(MasterTimer *timer)
         }
 
         m_elapsedTime = newTime;
-        const int songBpm = m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120;
-        m_elapsedBeats = qRound64(double(newTime) * songBpm / 60.0);
+        m_elapsedBeats = qRound64(double(newTime) * beatsBpm() / 60.0);
         beatSynced = true;
 
         // the earliest sample since Play, or where the clock went back to since
@@ -305,9 +302,7 @@ void ShowRunner::write(MasterTimer *timer)
     if (m_syncSource == Autonomous && timer->beatSourceType() == MasterTimer::None &&
         (!m_beatFunctions.isEmpty() || m_show->tempoType() == Function::Beats))
     {
-        int songBpm = m_show->timeDivisionBPM();
-        if (songBpm <= 0)
-            songBpm = 120;
+        const int songBpm = beatsBpm();
         beatSynced = true;
         m_internalBeatClockMs += double(MasterTimer::tick());
         m_elapsedBeats = quint32((m_internalBeatClockMs * songBpm * 1000.0) / 60000.0);
@@ -566,16 +561,12 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
 
     m_elapsedTime = newTime;
     m_internalBeatClockMs = newTime;
-    // the clock that plays the beats: an external one plays them at the Show's BPM
-    const MasterTimer *timer = m_doc->masterTimer();
-    const int bpm = m_syncSource == External || timer->beatSourceType() == MasterTimer::None
-            ? (m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120)
-            : timer->bpmNumber();
+    const int bpm = beatsBpm();
     if (bpm > 0)
         m_elapsedBeats = qRound64(double(newTime) * bpm / 60.0);
 
     // a Scene one of its clips makes active at newTime keeps running, while this
-    // Show still runs it: its output reads no elapsed time once its faders
+    // Show still owns it: its output reads no elapsed time once its faders
     // exist. Every other Function holds its position, so it starts again there.
     m_seekRestartFunctions.clear();
     for (int i = m_runningQueue.count() - 1; i >= 0; i--)
@@ -587,8 +578,7 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
         for (const ShowFunction *sf : time ? m_timeFunctions : m_beatFunctions)
             if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->startTime() + sf->duration(m_doc))
                 active = sf;
-        if (active != nullptr && f->type() == Function::SceneType && f->isRunning() && !f->stopped() &&
-            f->hasSource(functionParent()))
+        if (active != nullptr && f->type() == Function::SceneType && f->hasSource(functionParent()))
         {
             m_runningQueue[i].second = active->startTime() + active->duration(m_doc);
             continue;
@@ -1160,6 +1150,14 @@ void ShowRunner::syncPerformAudioSuppression()
     m_performAudioSuppressed = requested;
     if (m_performAudioSuppressed)
         stopRunningAudioFunctions();
+}
+
+int ShowRunner::beatsBpm() const
+{
+    const MasterTimer *timer = m_doc->masterTimer();
+    if (m_syncSource == External || timer->beatSourceType() == MasterTimer::None)
+        return m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120;
+    return timer->bpmNumber();
 }
 
 bool ShowRunner::isAudioFunction(const Function *function) const
