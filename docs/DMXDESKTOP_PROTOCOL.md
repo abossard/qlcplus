@@ -42,6 +42,12 @@ break at every `}{` boundary and parse each object. QLC+ does exactly this:
    (`…57522 → …8050`).
 5. On disconnect the server resets deck state and keeps listening; VDJ reconnects.
 
+Before the `subscribe` only beats arrive. A reconnecting VDJ first drains every
+beat it queued while disconnected (measured: 22,946 beats after 3 h, 11 minutes
+at 33/s), then sends the subscription snapshot. QLC+ forwards a connection's
+beats only after its first non-beat object; the ones before it are backlog
+(`plugins/vdjbridge/vdjtelemetryclient.cpp`).
+
 Message tally over a ~5-minute session: `subscribed` **193,367**, `beat` **587**,
 `subscribe` **1**, `unsubscribe` **1**.
 

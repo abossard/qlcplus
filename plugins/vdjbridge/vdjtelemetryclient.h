@@ -111,6 +111,9 @@ private:
     QTcpServer m_server;
     QTcpSocket *m_client = nullptr;
     QByteArray m_buffer;
+    /** The connection's first non-beat object (the subscription snapshot) is
+     *  in: its beats are live, the ones before it are VDJ's backlog */
+    bool m_snapshotSeen = false;
     Status m_status = Idle;
 };
 

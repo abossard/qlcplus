@@ -125,6 +125,7 @@ void VdjTelemetryClient_Test::parseBeatEvent()
     VdjTelemetryClient client;
     QSignalSpy spy(&client, &VdjTelemetryClient::beatReceived);
 
+    client.parseLine(R"({"evt":"subscribed","trigger":"deck 1 play","value":"on"})");
     client.parseLine(R"({"evt":"beat","pos":233,"bpm":123.94,"strength":0.9,"change":false})");
 
     QCOMPARE(spy.count(), 1);
@@ -519,6 +520,58 @@ void VdjTelemetryClient_Test::stopDropsTheClient()
     server.stop();
     QCOMPARE(discSpy.count(), 1);
     QCOMPARE(server.status(), VdjTelemetryClient::Idle);
+}
+
+void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot_data()
+{
+    // one list of writes per connection: "beat" or "snapshot"
+    QTest::addColumn<QList<QStringList>>("connections");
+    QTest::addColumn<int>("engineBeats");
+
+    // measured: a reconnecting VDJ drains every beat it queued, then the snapshot
+    QTest::newRow("backlog before the snapshot")
+        << QList<QStringList>{ { "beat", "beat", "snapshot", "beat" } } << 1;
+    QTest::newRow("no snapshot yet") << QList<QStringList>{ { "beat", "beat" } } << 0;
+    QTest::newRow("a reconnect drains again")
+        << QList<QStringList>{ { "snapshot", "beat" }, { "beat", "snapshot", "beat" } } << 2;
+}
+
+void VdjTelemetryClient_Test::beatsOfAConnectionStartAtItsSnapshot()
+{
+    QFETCH(QList<QStringList>, connections);
+    QFETCH(int, engineBeats);
+
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18059);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("bonjourEnabled"), false);
+    QVERIFY(plugin.openInput(0, 0));
+    QSignalSpy beatSpy(&plugin, &QLCIOPlugin::valueChanged);
+    QSignalSpy deckSpy(&plugin, &VdjBridgePlugin::deckTriggerReceived);
+    QSignalSpy discSpy(&plugin, &VdjBridgePlugin::clientDisconnected);
+
+    const QByteArray beat = R"({"evt":"beat","change":false,"pos":12,"bpm":126,"strength":1})";
+    const QByteArray snapshot = R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"A"})";
+    const QByteArray end = R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"end"})";
+    for (const QStringList &writes : connections)
+    {
+        QTcpSocket vdj;
+        vdj.connectToHost("127.0.0.1", 18059);
+        QVERIFY(vdj.waitForConnected(2000));
+        QTRY_VERIFY_WITH_TIMEOUT(vdj.bytesAvailable() > 0, 2000);
+        vdj.readAll();
+        for (const QString &write : writes)
+            vdj.write(write == QLatin1String("beat") ? beat : snapshot);
+        // in order on the socket: everything before it was parsed
+        const int triggers = deckSpy.count() + writes.count(QStringLiteral("snapshot")) + 1;
+        vdj.write(end);
+        vdj.flush();
+        QTRY_COMPARE_WITH_TIMEOUT(deckSpy.count(), triggers, 2000);
+        const int ends = discSpy.count() + 1;
+        vdj.disconnectFromHost();
+        QTRY_COMPARE_WITH_TIMEOUT(discSpy.count(), ends, 2000);
+    }
+    QCOMPARE(beatSpy.count(), engineBeats);
+    plugin.closeInput(0, 0);
 }
 
 QTEST_MAIN(VdjTelemetryClient_Test)
