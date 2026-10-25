@@ -15183,6 +15183,11 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
         << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;wrap;to:1500;flash:S;to:2900;"
                           "lag:3000;unflash:S;to:6000;track")
         << QStringList{ QStringLiteral("F:1500-3000") };
+    // a release REC does not take records the flash nowhere: what it covered stays
+    QTest::newRow("a script ends the slider flash under a lagging value")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;wrap;to:1500;flash:S;to:2900;"
+                          "lag:3000;scriptunflash:S;to:6000;track")
+        << QStringList{ QStringLiteral("S:2000,3000") };
     // a hold's time is its press-to-release span only: the values after it replay
     QTest::newRow("a slider's live flash leaves its later values alone")
         << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:5000;slide:125;to:5500;slide:10;"
@@ -15322,6 +15327,11 @@ void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
             slider->requestUserFlash(verb == QLatin1String("flash"));
             sample();
         }
+        else if (verb == QLatin1String("scriptunflash"))
+        {
+            slider->requestUserFlash(false, ShowCommandOrigin::Programmatic);
+            sample();
+        }
         else if (verb == QLatin1String("log"))
         {
             QStringList line;
@@ -15400,6 +15410,76 @@ void ShowCommandRecorder_Test::liveInput_releaseBeforeAMoveBackLands()
     tickAndDeliver(&doc, 3);
 
     QCOMPARE(spans, QStringLiteral("%1-%2").arg(press).arg(departure));
+}
+
+void ShowCommandRecorder_Test::liveInput_doubleTapBehindAReplay()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    show->setSyncSource(ShowRunner::External);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    auto *other = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 48), target->id(), QStringLiteral("G"), QStringLiteral("flash"))));
+    QVERIFY(flash && other);
+    QVERIFY(show->setCommandTrack(ShowCommandTrack()));
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master());
+    const auto to = [&](quint32 from, quint32 ms) {
+        for (quint32 t = from; t <= ms; t += 100)
+        {
+            show->setExternalElapsedTime(t);
+            tickAndDeliver(&doc, 3);
+        }
+    };
+    // the runner reached it, its replay not delivered yet
+    const auto lag = [&](quint32 ms) {
+        show->setExternalElapsedTime(ms);
+        doc.masterTimer()->timerTick();
+    };
+    // G, on the same Scene, held 2000-4000 in the first pass
+    to(0, 2000);
+    other->requestUserStateChange(true);
+    tickAndDeliver(&doc, 3);
+    to(2100, 4000);
+    other->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    to(4100, 6000);
+
+    // the next pass: F tapped twice while G's replay is owed, so F's input waits
+    to(0, 1900);
+    lag(2000);
+    flash->requestUserStateChange(true);
+    lag(2100);
+    flash->requestUserStateChange(false);
+    lag(2200);
+    flash->requestUserStateChange(true);
+    QVERIFY(recorder.pendingUserRequests().count() >= 2);
+    to(2300, 3000);
+    flash->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    to(3100, 6000);
+    QVERIFY(recorder.setRecording(false));
+    tickAndDeliver(&doc, 3);
+    ShowCommandTrack mine;
+    for (const ShowCommand &cmd : show->commandTrack().commands())
+    {
+        if (cmd.controlId == flash->recordingId())
+            QVERIFY(mine.insert(cmd));
+    }
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(holdSpans(mine), QStringLiteral("2000-2100 2200-3000"));
 }
 
 void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow_data()

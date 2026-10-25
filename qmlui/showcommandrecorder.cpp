@@ -689,6 +689,13 @@ void ShowCommandRecorder::requestUserControl(ShowControlRequest request)
         QScopedValueRollback<const ShowControlRequest *> traced(m_tracedRequest, &request);
         captureUserRequest(request);
     }
+    // a release ends its hold as it is accepted: REC recorded it, or nothing of it stays
+    if (request.input.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(request.input.role) &&
+        request.input.on == false)
+    {
+        m_liveHolds[request.control->recordingId()].removeIf(
+            [](const LiveSpan &span) { return span.to == ShowCommand::MaxTime; });
+    }
     m_userRequests.append(request);
     drainUserRequests();
     if (request.cause.trace != 0)
@@ -846,15 +853,6 @@ void ShowCommandRecorder::drainUserRequests()
             if (QSet<quint32> *holds = userHolds(input.role))
             {
                 setHeld(holds, request.control->id(), input.on);
-                // a release ends its hold whether REC took it or not
-                if (input.on == false)
-                {
-                    for (LiveSpan &span : m_liveHolds[request.control->recordingId()])
-                    {
-                        if (span.to == ShowCommand::MaxTime)
-                            span.to = request.acceptedTimeMs;
-                    }
-                }
             }
             else if (input.role == ShowControlRole::FreezeButton && intentShowId != ShowCommand::InvalidId)
                 m_userFreezeIntent.insert(intentShowId, input.on);
