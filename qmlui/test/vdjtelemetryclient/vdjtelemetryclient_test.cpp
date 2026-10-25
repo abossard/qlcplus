@@ -792,4 +792,25 @@ void VdjTelemetryClient_Test::aPortEditRebindsWhenFinished()
     plugin.closeInput(0, 3);
 }
 
+void VdjTelemetryClient_Test::aSavedPortRestartsAnInputOpenedOnABusyPort()
+{
+    // Universe::loadXML opens the input on the plugin's port first and sets
+    // the saved parameters after
+    QTcpServer other;
+    QVERIFY(other.listen(QHostAddress::Any, 18067));
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18067);
+    plugin.openInput(0, 3);
+    QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Idle));
+
+    plugin.setParameter(3, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), QStringLiteral("18068"));
+    QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Advertising));
+    QCOMPARE(plugin.getParameters(3, 0, QLCIOPlugin::Input).value("hostPort").toInt(), 18068);
+    QTcpSocket vdj;
+    vdj.connectToHost("127.0.0.1", 18068);
+    QVERIFY(vdj.waitForConnected(2000));
+    QTRY_COMPARE_WITH_TIMEOUT(plugin.connectionStatus(0), int(QLCIOPlugin::Connected), 2000);
+    plugin.closeInput(0, 3);
+}
+
 QTEST_MAIN(VdjTelemetryClient_Test)

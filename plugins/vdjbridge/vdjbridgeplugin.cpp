@@ -22,8 +22,6 @@
 #include "vdjtelemetryclient.h"
 #include "vdjbonjour.h"
 
-#include <QDebug>
-
 VdjBridgePlugin::~VdjBridgePlugin()
 {
     if (m_open)
@@ -95,14 +93,9 @@ bool VdjBridgePlugin::openInput(quint32 input, quint32 universe)
         emit connectionStatusChanged(universe, input);
     });
 
-    if (!m_telemetry->start(m_hostPort))
-    {
-        qWarning() << "[VdjBridge] failed to bind TCP port" << m_hostPort;
-        delete m_telemetry;
-        m_telemetry = nullptr;
-        return false;
-    }
-
+    // open and mapped on a busy port too: the workspace's saved port comes
+    // after the open and restarts the server (Universe::loadXML)
+    m_telemetry->start(m_hostPort);
     setBonjour(m_bonjourEnabled);
 
     addToMap(universe, input, Input);

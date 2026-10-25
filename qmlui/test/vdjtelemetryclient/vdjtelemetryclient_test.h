@@ -53,6 +53,7 @@ private slots:
     void parametersAreKeptWithTheInputsUniverse();
     void aPortEditRebindsWhenFinished_data();
     void aPortEditRebindsWhenFinished();
+    void aSavedPortRestartsAnInputOpenedOnABusyPort();
 };
 
 #endif
