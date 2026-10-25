@@ -36,6 +36,8 @@
 #include "track.h"
 #include "scene.h"
 #include "collection.h"
+#include "chaser.h"
+#include "chaserstep.h"
 #include "doc.h"
 #include "inputoutputmap.h"
 #include "showrunner_test.h"
@@ -353,19 +355,17 @@ void ShowRunner_Test::localSeekReusesActiveFunction_data()
 {
     QTest::addColumn<quint32>("startTime");
     QTest::addColumn<quint32>("destination");
-    QTest::addColumn<quint32>("cueStart");
 
-    QTest::newRow("same-cue-forward") << quint32(100) << quint32(700) << quint32(0);
-    QTest::newRow("same-cue-backward") << quint32(700) << quint32(100) << quint32(0);
-    QTest::newRow("reused-cue-forward") << quint32(500) << quint32(1500) << quint32(1000);
-    QTest::newRow("reused-cue-backward") << quint32(1500) << quint32(500) << quint32(0);
+    QTest::newRow("same-cue-forward") << quint32(100) << quint32(700);
+    QTest::newRow("same-cue-backward") << quint32(700) << quint32(100);
+    QTest::newRow("reused-cue-forward") << quint32(500) << quint32(1500);
+    QTest::newRow("reused-cue-backward") << quint32(1500) << quint32(500);
 }
 
 void ShowRunner_Test::localSeekReusesActiveFunction()
 {
     QFETCH(quint32, startTime);
     QFETCH(quint32, destination);
-    QFETCH(quint32, cueStart);
 
     Doc doc(nullptr);
     auto *timer = doc.masterTimer();
@@ -395,6 +395,7 @@ void ShowRunner_Test::localSeekReusesActiveFunction()
     show->adjustAttribute(0.4, 0);
     show->start(timer, FunctionParent::master(), startTime);
     timer->timerTick();
+    const quint32 elapsedBefore = scene->elapsed();
 
     QSignalSpy position(show, &Show::timeChanged);
     show->requestSeek(destination);
@@ -421,8 +422,8 @@ void ShowRunner_Test::localSeekReusesActiveFunction()
     const QString actual = QStringLiteral("elapsed=%1 position=%2 output=%3 faders=%4/%5")
             .arg(elapsed).arg(showPosition).arg(output)
             .arg(stoppingFaderCount).arg(restartedFaderCount);
-    // kept running at the target offset: no tick waits for a restart
-    QVERIFY2(elapsed == destination - cueStart + 2 * MasterTimer::tick()
+    // the Scene kept running on its own time: no tick waits for a restart
+    QVERIFY2(elapsed == elapsedBefore + 2 * MasterTimer::tick()
              && showPosition == destination + 2 * MasterTimer::tick()
              && output == uchar(80)
              && stoppingFaderCount == 1
@@ -1749,14 +1750,114 @@ void ShowRunner_Test::seekRestartsAudioAtTheTarget()
     // a stream plays from where it was started: it starts again at the target
     runner.setExternalElapsedTime(2000);
     runner.write(doc.masterTimer());
-
     QVERIFY(audio->stopped());
     QVERIFY(!scene->stopped());
-    QCOMPARE(scene->elapsed(), 2000u);
+    // the timer finished the stop: the next write starts it at the offset
+    audio->m_running = false;
+    runner.write(doc.masterTimer());
+
+    QVERIFY(!audio->stopped());
+    QCOMPARE(audio->elapsed(), 2000u);
+    QVERIFY(runner.isFunctionScheduled(audio, 10000));
+    // the Scene ran on, untouched
+    QCOMPARE(scene->elapsed(), 6000u);
     audio->stop(FunctionParent::master());
     if (audio->m_audio_out != nullptr)
         audio->m_audio_out->stop();
     runner.stop();
+}
+
+void ShowRunner_Test::seekRestartsWhatItDoesNotKeep_data()
+{
+    QTest::addColumn<QString>("rig");
+    QTest::addColumn<QString>("expected"); // channel 0 at 5.5 s, then 0.5 s after the move back
+
+    // a Chaser's steps are 1 s each, step n outputs 10 * (n + 1)
+    QTest::newRow("a Chaser starts again on step 0") << QStringLiteral("chaser") << QStringLiteral("60 10");
+    QTest::newRow("a Collection's Chaser starts again on step 0") << QStringLiteral("collection")
+                                                                  << QStringLiteral("60 10");
+    // the nested Show's own clip is 0-2 s
+    QTest::newRow("a nested Show starts again at the offset") << QStringLiteral("nested show")
+                                                              << QStringLiteral("0 200");
+    QTest::newRow("a Scene keeps running") << QStringLiteral("scene") << QStringLiteral("200 200");
+}
+
+void ShowRunner_Test::seekRestartsWhatItDoesNotKeep()
+{
+    QFETCH(QString, rig);
+    QFETCH(QString, expected);
+
+    Doc doc(nullptr);
+    auto *timer = doc.masterTimer();
+    auto *fixture = makeFixture(doc, 2);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    const auto clip = [&](Show *owner, Function *function, quint32 duration) {
+        auto *track = new Track(function->id());
+        auto *item = new ShowFunction(owner->getLatestShowFunctionId());
+        item->setFunctionID(function->id());
+        item->setStartTime(0);
+        item->setDuration(duration);
+        track->addShowFunction(item);
+        owner->addTrack(track);
+    };
+    const auto chaser = [&](int steps, Function::RunOrder order) {
+        auto *chase = new Chaser(&doc);
+        doc.addFunction(chase);
+        chase->setDuration(1000);
+        chase->setRunOrder(order);
+        for (int i = 0; i < steps; i++)
+            chase->addStep(ChaserStep(makeScene(doc, fixture->id(), 0, uchar(10 * (i + 1)))->id()));
+        return chase;
+    };
+    Scene *scene = makeScene(doc, fixture->id(), 0, 200);
+    if (rig == QStringLiteral("chaser"))
+        clip(show, chaser(6, Function::Loop), 8000);
+    else if (rig == QStringLiteral("finished chaser"))
+        clip(show, chaser(2, Function::SingleShot), 8000);
+    else if (rig == QStringLiteral("collection"))
+    {
+        auto *look = new Collection(&doc);
+        doc.addFunction(look);
+        look->addFunction(makeScene(doc, fixture->id(), 1, 200)->id());
+        look->addFunction(chaser(6, Function::Loop)->id());
+        clip(show, look, 8000);
+    }
+    else if (rig == QStringLiteral("nested show"))
+    {
+        auto *inner = new Show(&doc);
+        doc.addFunction(inner);
+        clip(inner, scene, 2000);
+        clip(show, inner, 8000);
+    }
+    else
+        clip(show, scene, 8000);
+    // another Function's clip keeps the Show playing
+    clip(show, makeScene(doc, fixture->id(), 1, 0), 9000);
+
+    show->setSyncSource(ShowRunner::External);
+    show->start(timer, FunctionParent::master());
+    // one tick per tick's worth of clock, so a nested Show's own clock keeps up
+    for (quint32 ms = 0; ms <= 5500; ms += MasterTimer::tick())
+    {
+        show->setExternalElapsedTime(ms);
+        timer->timerTick();
+        if (ms == 3000 && rig == QStringLiteral("master stop"))
+            scene->stop(FunctionParent::master());
+        if (ms == 3000 && rig == QStringLiteral("toggle stop"))
+            scene->stop(FunctionParent(FunctionParent::ManualVCWidget, 9));
+    }
+    const uchar before = sampleChannel(doc, 0);
+    show->setExternalElapsedTime(500);
+    for (int i = 0; i < 4; i++)
+        timer->timerTick();
+    const uchar after = sampleChannel(doc, 0);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+
+    QCOMPARE(QStringLiteral("%1 %2").arg(before).arg(after), expected);
 }
 
 void ShowRunner_Test::commandLiveInputAfterAMoveBackDoesNotEcho_data()
@@ -4413,4 +4514,4 @@ void ShowRunner_Test::commandBackwardRollsBackOwnLegacyEffects()
     timer->timerTick();
 }
 
-QTEST_APPLESS_MAIN(ShowRunner_Test)
+QTEST_GUILESS_MAIN(ShowRunner_Test)

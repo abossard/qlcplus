@@ -52,6 +52,8 @@ private slots:
     void seekKeepsWhatIsActiveAtTheTarget_data();
     void seekKeepsWhatIsActiveAtTheTarget();
     void seekRestartsAudioAtTheTarget();
+    void seekRestartsWhatItDoesNotKeep_data();
+    void seekRestartsWhatItDoesNotKeep();
 
     // The GUI never reaches the runner: the timer thread takes its settings once per tick
     void syncSourceChangeAppliesOnNextTick_data();

@@ -1380,15 +1380,6 @@ void Function::start(MasterTimer* timer, FunctionParent source, quint32 startTim
     timer->startFunction(this);
 }
 
-void Function::seek(FunctionParent source, quint32 startTime)
-{
-    QMutexLocker sourcesLocker(&m_sourcesMutex);
-    if (m_sources.count() != 1 || !(m_sources.first() == source))
-        return;
-    m_elapsed = startTime;
-    m_elapsedBeats = 0;
-}
-
 void Function::setPause(bool enable)
 {
     if (enable && isRunning() == false)

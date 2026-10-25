@@ -573,9 +573,9 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
     if (bpm > 0)
         m_elapsedBeats = qRound64(double(newTime) * bpm / 60.0);
 
-    // a Function one of its clips makes active at newTime keeps running there,
-    // at that clip's offset; the rest stop. A stream plays from where it was
-    // started, so Audio and Video start again instead.
+    // a Scene one of its clips makes active at newTime keeps running: its
+    // output reads no elapsed time once its faders exist. Every other Function
+    // holds its position, so it starts again there.
     m_seekRestartFunctions.clear();
     for (int i = m_runningQueue.count() - 1; i >= 0; i--)
     {
@@ -586,9 +586,8 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
         for (const ShowFunction *sf : time ? m_timeFunctions : m_beatFunctions)
             if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->startTime() + sf->duration(m_doc))
                 active = sf;
-        if (active != nullptr && f->type() != Function::AudioType && f->type() != Function::VideoType)
+        if (active != nullptr && f->type() == Function::SceneType)
         {
-            f->seek(functionParent(), at - active->startTime());
             m_runningQueue[i].second = active->startTime() + active->duration(m_doc);
             continue;
         }
