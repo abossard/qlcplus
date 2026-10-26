@@ -17,6 +17,33 @@
 #include <QLabel>
 #include <QSpinBox>
 #include <QTcpServer>
+#include <memory>
+
+#ifdef Q_OS_UNIX
+#include <arpa/inet.h>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <netinet/tcp.h>
+#include <poll.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+namespace {
+struct VdjPeer
+{
+    const int socket = ::socket(AF_INET, SOCK_STREAM, 0);
+    VdjPeer() = default;
+    VdjPeer(const VdjPeer &) = delete;
+    VdjPeer &operator=(const VdjPeer &) = delete;
+    ~VdjPeer()
+    {
+        if (socket >= 0)
+            ::close(socket);
+    }
+};
+}
+#endif
 
 // vdjbonjour_stub.cpp
 extern int vdjBonjourRegistrations;
@@ -346,6 +373,151 @@ void VdjTelemetryClient_Test::partialLineBuffering()
 
     fakeClient.disconnectFromHost();
     server.stop();
+}
+
+void VdjTelemetryClient_Test::closingAnInputLetsThePeerFinishItsTick_data()
+{
+    QTest::addColumn<QString>("closingPath");
+    for (const char *path : { "closeInput", "port change", "replacement", "plugin destruction" })
+        QTest::newRow(path) << QString::fromLatin1(path);
+    QTest::newRow("unfinished object cap") << QStringLiteral("cap");
+}
+
+void VdjTelemetryClient_Test::closingAnInputLetsThePeerFinishItsTick()
+{
+#ifndef Q_OS_UNIX
+    QSKIP("Observing TCP EOF and errno requires POSIX sockets");
+#else
+    QFETCH(QString, closingPath);
+
+    VdjPeer vdj;
+    QVERIFY2(vdj.socket >= 0, std::strerror(errno));
+    const int one = 1;
+#ifdef Q_OS_DARWIN
+    QVERIFY2(::setsockopt(vdj.socket, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one)) == 0,
+             std::strerror(errno));
+    const int sendFlags = 0;
+#elif defined(MSG_NOSIGNAL)
+    const int sendFlags = MSG_NOSIGNAL;
+#else
+    const int sendFlags = 0;
+    QSKIP("This platform has neither SO_NOSIGPIPE nor MSG_NOSIGNAL");
+#endif
+    QVERIFY2(::setsockopt(vdj.socket, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one)) == 0,
+             std::strerror(errno));
+    const int flags = ::fcntl(vdj.socket, F_GETFL);
+    QVERIFY(flags >= 0);
+    QVERIFY(::fcntl(vdj.socket, F_SETFL, flags | O_NONBLOCK) == 0);
+
+    auto plugin = std::make_unique<VdjBridgePlugin>();
+    plugin->setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18074);
+    plugin->setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("bonjourEnabled"), false);
+    QVERIFY(plugin->openInput(0, 0));
+    QSignalSpy connSpy(plugin.get(), &VdjBridgePlugin::clientConnected);
+    QSignalSpy discSpy(plugin.get(), &VdjBridgePlugin::clientDisconnected);
+    QSignalSpy deckSpy(plugin.get(), &VdjBridgePlugin::deckTriggerReceived);
+    QSignalSpy beatSpy(plugin.get(), &VdjBridgePlugin::telemetryBeatReceived);
+
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_port = htons(18074);
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    const int connected = ::connect(vdj.socket, reinterpret_cast<sockaddr *>(&address), sizeof(address));
+    QVERIFY2(connected == 0 || errno == EINPROGRESS, std::strerror(errno));
+    pollfd writable{vdj.socket, POLLOUT, 0};
+    QCOMPARE(::poll(&writable, 1, 2000), 1);
+    int connectError = 0;
+    socklen_t errorSize = sizeof(connectError);
+    QCOMPARE(::getsockopt(vdj.socket, SOL_SOCKET, SO_ERROR, &connectError, &errorSize), 0);
+    QCOMPARE(connectError, 0);
+    QTRY_COMPARE_WITH_TIMEOUT(connSpy.count(), 1, 2000);
+
+    QByteArray handshake;
+    auto readHandshake = [&]() {
+        char buffer[4096];
+        const ssize_t count = ::recv(vdj.socket, buffer, sizeof(buffer), 0);
+        if (count > 0)
+            handshake.append(buffer, count);
+        return handshake.endsWith('\n');
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(readHandshake(), 2000);
+    QCOMPARE(QJsonDocument::fromJson(handshake).object().value("evt").toString(), QStringLiteral("subscribe"));
+
+    auto sendAll = [&](const QByteArray &data) {
+        QElapsedTimer deadline;
+        deadline.start();
+        qsizetype sent = 0;
+        while (sent < data.size() && deadline.elapsed() < 2000)
+        {
+            const ssize_t count = ::send(vdj.socket, data.constData() + sent, data.size() - sent, sendFlags);
+            if (count > 0)
+                sent += count;
+            else if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+                QTest::qWait(1);
+            else
+                return false;
+        }
+        return sent == data.size();
+    };
+    QVERIFY(sendAll(R"({"evt":"subscribed","trigger":"deck 1 play","value":"on"})" "\n"));
+    QTRY_COMPARE_WITH_TIMEOUT(deckSpy.count(), 1, 2000);
+    const QByteArray beat = R"({"evt":"beat","pos":12,"bpm":126,"strength":1,"change":false})" "\n";
+    for (int tick = 1; tick <= 3; ++tick)
+    {
+        QVERIFY(sendAll(beat));
+        QTRY_COMPARE_WITH_TIMEOUT(beatSpy.count(), tick, 2000);
+        QTest::qWait(40);
+    }
+
+    const QByteArray tick = R"({"evt":"subscribed","trigger":"deck 1 get_time","value":1120})" "\n";
+    if (closingPath != QLatin1String("cap"))
+    {
+        QVERIFY(sendAll(tick));
+        // Unread inbound data can reset even a normal Qt close. Observe this
+        // tick before testing orderly close, rather than attributing that to abort.
+        QTRY_COMPARE_WITH_TIMEOUT(deckSpy.count(), 2, 2000);
+    }
+
+    QTcpSocket replacement;
+    if (closingPath == QLatin1String("closeInput"))
+        plugin->closeInput(0, 0);
+    else if (closingPath == QLatin1String("port change"))
+        plugin->setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18075);
+    else if (closingPath == QLatin1String("replacement"))
+    {
+        replacement.connectToHost(QHostAddress::LocalHost, 18074);
+        QVERIFY(replacement.waitForConnected(2000));
+        QTRY_COMPARE_WITH_TIMEOUT(connSpy.count(), 2, 2000);
+    }
+    else if (closingPath == QLatin1String("plugin destruction"))
+        plugin.reset();
+    else
+        QVERIFY(sendAll(QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":")")
+                        + QByteArray(1024 * 1024, 'x') + tick));
+    QTRY_COMPARE_WITH_TIMEOUT(discSpy.count(), 1, 5000);
+
+    ssize_t received = -1;
+    int receiveError = 0;
+    auto readClose = [&]() {
+        char buffer[4096];
+        received = ::recv(vdj.socket, buffer, sizeof(buffer), 0);
+        receiveError = received < 0 ? errno : 0;
+        return received == 0 || (received < 0 && receiveError != EAGAIN
+                                && receiveError != EWOULDBLOCK && receiveError != EINTR);
+    };
+    QTRY_VERIFY_WITH_TIMEOUT(readClose(), 2000);
+    // Exactly one write after observing the close. A later write may fail even
+    // after a normal FIN, so retrying here would manufacture a reset regression.
+    const ssize_t written = ::send(vdj.socket, tick.constData(), tick.size(), sendFlags);
+    const int writeError = written < 0 ? errno : 0;
+    const QString result = QStringLiteral("recv=%1 errno=%2 (%3); first subsequent send=%4 errno=%5 (%6)")
+        .arg(received).arg(receiveError).arg(QString::fromLocal8Bit(std::strerror(receiveError)))
+        .arg(written).arg(writeError).arg(QString::fromLocal8Bit(std::strerror(writeError)));
+    qInfo().noquote() << result;
+    QVERIFY2(received == 0, qPrintable(result));
+    QVERIFY2(writeError != ECONNRESET && writeError != EPIPE, qPrintable(result));
+    QCOMPARE(written, ssize_t(tick.size()));
+#endif
 }
 
 // ========================================================================

@@ -32,6 +32,8 @@ private slots:
     void clientConnectAndHandshake();
     void clientReconnectReplacesOld();
     void partialLineBuffering();
+    void closingAnInputLetsThePeerFinishItsTick_data();
+    void closingAnInputLetsThePeerFinishItsTick();
 
     // VdjBridge integration
     void bridgeTelemetryStatusProperty();

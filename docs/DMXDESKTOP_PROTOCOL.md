@@ -44,6 +44,13 @@ depth outside strings (`VdjTelemetryClient::feed`). An object still open after
    close VDJ did not reconnect for 212 s, and reconnected ~0.3 s after the
    service was registered again.
 
+QLC+ initiates every client close with `disconnectFromHost()`, allowing pending
+outbound data to drain, and waits at most 250 ms before scheduling socket deletion.
+This also applies when the input closes, its port changes, a client is replaced,
+the unfinished-object cap is exceeded, or the application exits. This is not a
+guarantee against TCP resets: on macOS, closing with unread incoming data can
+produce a reset with either `disconnectFromHost()` or `abort()`.
+
 Before the `subscribe` only beats arrive. A reconnecting VDJ first drains every
 beat it queued while disconnected (measured: 22,946 beats after 3 h, 11 minutes
 at 33/s), then sends the subscription snapshot. QLC+ forwards a connection's

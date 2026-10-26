@@ -103,7 +103,10 @@ void VdjTelemetryClient::closeClient()
     if (m_client)
     {
         m_client->disconnect(this);
-        m_client->abort();
+        m_client->disconnectFromHost();
+        if (m_client->state() != QAbstractSocket::UnconnectedState &&
+            !m_client->waitForDisconnected(250))
+            qWarning() << kLogTag << "Could not finish closing the client:" << m_client->errorString();
         m_client->deleteLater();
         m_client = nullptr;
         m_buffer.clear();
