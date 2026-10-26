@@ -23,6 +23,14 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
+#include <QDeadlineTimer>
+
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#include <cerrno>
+#endif
 
 static const char *kLogTag = "[VdjTelemetry]";
 static const int kMaxOpenObjectBytes = 1024 * 1024;
@@ -103,9 +111,44 @@ void VdjTelemetryClient::closeClient()
     if (m_client)
     {
         m_client->disconnect(this);
+        QDeadlineTimer deadline(250);
+        while (m_client->bytesToWrite() > 0 && !deadline.hasExpired())
+        {
+            if (!m_client->waitForBytesWritten(int(deadline.remainingTime())))
+                break;
+        }
+        if (m_client->bytesToWrite() > 0)
+            qWarning() << kLogTag << "Could not flush the closing client:" << m_client->errorString();
+
+        if (m_client->state() == QAbstractSocket::ConnectedState)
+        {
+            // Closing a descriptor with unread telemetry can send RST. Send FIN
+            // first, then drain until the peer closes or the deadline expires.
+#ifdef Q_OS_WIN
+            const int result = ::shutdown(static_cast<SOCKET>(m_client->socketDescriptor()), SD_SEND);
+            const int error = result == 0 ? 0 : WSAGetLastError();
+#else
+            const int result = ::shutdown(static_cast<int>(m_client->socketDescriptor()), SHUT_WR);
+            const int error = result == 0 ? 0 : errno;
+#endif
+            if (result != 0)
+                qWarning() << kLogTag << "Could not half-close the client:" << error;
+            else
+            {
+                while (m_client->state() == QAbstractSocket::ConnectedState && !deadline.hasExpired())
+                {
+                    m_client->readAll();
+                    if (!m_client->waitForReadyRead(int(deadline.remainingTime())))
+                        break;
+                }
+                m_client->readAll();
+                if (m_client->state() == QAbstractSocket::ConnectedState)
+                    qWarning() << kLogTag << "Client did not finish closing within 250 ms";
+            }
+        }
         m_client->disconnectFromHost();
         if (m_client->state() != QAbstractSocket::UnconnectedState &&
-            !m_client->waitForDisconnected(250))
+            !m_client->waitForDisconnected(int(deadline.remainingTime())))
             qWarning() << kLogTag << "Could not finish closing the client:" << m_client->errorString();
         m_client->deleteLater();
         m_client = nullptr;

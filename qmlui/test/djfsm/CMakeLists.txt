@@ -24,6 +24,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Network
     Qt${QT_MAJOR_VERSION}::Test
+    $<$<PLATFORM_ID:Windows>:ws2_32>
 )
 
 add_test(NAME ${PROJECT_NAME} COMMAND ${PROJECT_NAME})

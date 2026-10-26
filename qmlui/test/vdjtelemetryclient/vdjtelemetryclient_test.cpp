@@ -378,9 +378,14 @@ void VdjTelemetryClient_Test::partialLineBuffering()
 void VdjTelemetryClient_Test::closingAnInputLetsThePeerFinishItsTick_data()
 {
     QTest::addColumn<QString>("closingPath");
+    QTest::addColumn<bool>("tickInFlight");
     for (const char *path : { "closeInput", "port change", "replacement", "plugin destruction" })
-        QTest::newRow(path) << QString::fromLatin1(path);
-    QTest::newRow("unfinished object cap") << QStringLiteral("cap");
+    {
+        QTest::newRow(path) << QString::fromLatin1(path) << false;
+        QTest::newRow(qPrintable(QStringLiteral("%1 with an incoming tick").arg(QLatin1String(path))))
+            << QString::fromLatin1(path) << true;
+    }
+    QTest::newRow("unfinished object cap") << QStringLiteral("cap") << false;
 }
 
 void VdjTelemetryClient_Test::closingAnInputLetsThePeerFinishItsTick()
@@ -389,6 +394,7 @@ void VdjTelemetryClient_Test::closingAnInputLetsThePeerFinishItsTick()
     QSKIP("Observing TCP EOF and errno requires POSIX sockets");
 #else
     QFETCH(QString, closingPath);
+    QFETCH(bool, tickInFlight);
 
     VdjPeer vdj;
     QVERIFY2(vdj.socket >= 0, std::strerror(errno));
@@ -473,12 +479,19 @@ void VdjTelemetryClient_Test::closingAnInputLetsThePeerFinishItsTick()
     if (closingPath != QLatin1String("cap"))
     {
         QVERIFY(sendAll(tick));
-        // Unread inbound data can reset even a normal Qt close. Observe this
-        // tick before testing orderly close, rather than attributing that to abort.
-        QTRY_COMPARE_WITH_TIMEOUT(deckSpy.count(), 2, 2000);
+        if (tickInFlight)
+        {
+            // Deliver the next tick without letting Qt read it before close.
+            QTest::qSleep(20);
+            QCOMPARE(deckSpy.count(), 1);
+        }
+        else
+            QTRY_COMPARE_WITH_TIMEOUT(deckSpy.count(), 2, 2000);
     }
 
     QTcpSocket replacement;
+    QElapsedTimer closeTimer;
+    closeTimer.start();
     if (closingPath == QLatin1String("closeInput"))
         plugin->closeInput(0, 0);
     else if (closingPath == QLatin1String("port change"))
@@ -495,6 +508,9 @@ void VdjTelemetryClient_Test::closingAnInputLetsThePeerFinishItsTick()
         QVERIFY(sendAll(QByteArray(R"({"evt":"subscribed","trigger":"deck 1 get_title","value":")")
                         + QByteArray(1024 * 1024, 'x') + tick));
     QTRY_COMPARE_WITH_TIMEOUT(discSpy.count(), 1, 5000);
+    const qint64 closeElapsedMs = closeTimer.elapsed();
+    qInfo() << "Close duration:" << closeElapsedMs << "ms";
+    QVERIFY2(closeElapsedMs < 1000, qPrintable(QStringLiteral("Close took %1 ms").arg(closeElapsedMs)));
 
     ssize_t received = -1;
     int receiveError = 0;

@@ -28,4 +28,5 @@ target_link_libraries(${module_name} PRIVATE
     Qt${QT_MAJOR_VERSION}::Widgets
     Qt${QT_MAJOR_VERSION}::Test
     qlcplusengine
+    $<$<PLATFORM_ID:Windows>:ws2_32>
 )
