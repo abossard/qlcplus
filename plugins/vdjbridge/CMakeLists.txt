@@ -19,6 +19,7 @@ target_link_libraries(${module_name} PRIVATE
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Network
     Qt${QT_MAJOR_VERSION}::Widgets
+    $<$<PLATFORM_ID:Windows>:ws2_32>
 )
 
 # macOS: CoreServices provides dns_sd APIs used by VdjBonjour.

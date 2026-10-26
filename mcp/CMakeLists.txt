@@ -54,6 +54,7 @@ set(MCP_SOURCES
     tools/stage_tools.cpp
     tools/input_profile_tools.cpp
     tools/live_tools.cpp
+    tools/live_control_tools.cpp
     tools/show_tools.cpp
     tools/profiling_tools.cpp
 )

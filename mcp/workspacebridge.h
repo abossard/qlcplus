@@ -50,6 +50,9 @@ public:
     /** Command recording is armed. Saving keeps it armed; replacing the
      *  project ends it and discards what it has not saved. */
     virtual bool isRecording() const = 0;
+
+    /** Queue the application's normal exit path, optionally discarding unsaved work. */
+    virtual bool quitApp(bool) { return false; }
 };
 
 #endif // WORKSPACEBRIDGE_H

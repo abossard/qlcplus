@@ -35,7 +35,7 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
     : QDialog(parent)
     , m_plugin(plugin)
 {
-    setWindowTitle(tr("VDJ Bridge Configuration"));
+    setWindowTitle(tr("%1 Configuration").arg(plugin->name()));
     setMinimumSize(480, 400);
 
     auto *mainLayout = new QVBoxLayout(this);
@@ -57,6 +57,7 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
     formLayout->addRow(tr("Service name:"), m_serviceNameEdit);
 
     m_statusLabel = new QLabel(this);
+    m_statusLabel->setObjectName(QStringLiteral("statusLabel"));
     formLayout->addRow(tr("Status:"), m_statusLabel);
 
     mainLayout->addLayout(formLayout);
@@ -98,7 +99,8 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
     mainLayout->addLayout(buttonLayout);
 
     // --- Connections: UI controls ---
-    connect(m_portSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+    // a port typed digit by digit is bound once, when finished
+    connect(m_portSpin, &QSpinBox::editingFinished,
             this, &ConfigureVdjBridge::slotPortChanged);
     connect(m_bonjourCheck, &QCheckBox::toggled,
             this, &ConfigureVdjBridge::slotBonjourToggled);
@@ -119,6 +121,8 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
             this, &ConfigureVdjBridge::slotClientConnected);
     connect(m_plugin, &VdjBridgePlugin::clientDisconnected,
             this, &ConfigureVdjBridge::slotClientDisconnected);
+    connect(m_plugin, &QLCIOPlugin::connectionStatusChanged,
+            this, &ConfigureVdjBridge::updateStatusLabel);
 
     // Initialize status
     updateStatusLabel();
@@ -128,26 +132,22 @@ ConfigureVdjBridge::ConfigureVdjBridge(VdjBridgePlugin *plugin, QWidget *parent)
 // UI control slots
 // ──────────────────────────────────────────────────────────────────
 
-void ConfigureVdjBridge::slotPortChanged(int value)
+void ConfigureVdjBridge::slotPortChanged()
 {
-    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
-                           QStringLiteral(VDJ_HOST_PORT),
-                           QVariant(static_cast<quint16>(value)));
-    updateStatusLabel();
+    m_plugin->setParameter(m_plugin->inputUniverse(), 0, QLCIOPlugin::Input,
+                           QStringLiteral(VDJ_HOST_PORT), m_portSpin->value());
 }
 
 void ConfigureVdjBridge::slotBonjourToggled(bool checked)
 {
-    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
-                           QStringLiteral(VDJ_BONJOUR_ENABLED),
-                           QVariant(checked));
+    m_plugin->setParameter(m_plugin->inputUniverse(), 0, QLCIOPlugin::Input,
+                           QStringLiteral(VDJ_BONJOUR_ENABLED), checked);
 }
 
 void ConfigureVdjBridge::slotServiceNameChanged(const QString &text)
 {
-    m_plugin->setParameter(0, 0, QLCIOPlugin::Input,
-                           QStringLiteral(VDJ_SERVICE_NAME),
-                           QVariant(text));
+    m_plugin->setParameter(m_plugin->inputUniverse(), 0, QLCIOPlugin::Input,
+                           QStringLiteral(VDJ_SERVICE_NAME), text);
 }
 
 void ConfigureVdjBridge::slotClearLog()
@@ -193,13 +193,11 @@ void ConfigureVdjBridge::slotClientConnected()
         upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Connected"));
     else
         upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Connected from %1").arg(addr));
-    updateStatusLabel();
 }
 
 void ConfigureVdjBridge::slotClientDisconnected()
 {
     upsertDebugEntry(tr("Connection"), QStringLiteral("state"), tr("Disconnected"));
-    updateStatusLabel();
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -236,7 +234,7 @@ void ConfigureVdjBridge::upsertDebugEntry(const QString &source, const QString &
 void ConfigureVdjBridge::updateStatusLabel()
 {
     int status = m_plugin->connectionStatus(0);
-    quint16 port = static_cast<quint16>(m_portSpin->value());
+    quint16 port = m_plugin->hostPort();
 
     switch (status)
     {
@@ -253,9 +251,11 @@ void ConfigureVdjBridge::updateStatusLabel()
         m_statusLabel->setText(tr("Listening (port %1)").arg(port));
         break;
     default:
-        m_statusLabel->setText(tr("Idle"));
+        m_statusLabel->setText(m_plugin->portInUse() ? tr("Port %1 in use").arg(port) : tr("Idle"));
         break;
     }
+    if (!m_plugin->bonjourError().isEmpty())
+        m_statusLabel->setText(tr("%1, Bonjour not registered: %2").arg(m_statusLabel->text(), m_plugin->bonjourError()));
 }
 
 QString ConfigureVdjBridge::normalizeText(const QString &text)

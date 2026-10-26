@@ -9,26 +9,27 @@
 #define SHOWFACTORY_TEST_H
 
 #include <QObject>
-
-class Doc;
+#include <QtTest>
 
 class ShowFactory_Test : public QObject
 {
     Q_OBJECT
 
 private slots:
-    void initTestCase();
-    void cleanupTestCase();
-
-    void createShowForSong_data();
-    void createShowForSong();
-    void dedupByName();
-    void showIdForFilepath();
-    void signalEmitted();
-    void emptyFilepathRejected();
-
-private:
-    Doc *m_doc = nullptr;
+    void showNameForSong_data();
+    void showNameForSong();
+    void buildShow_data();
+    void buildShow();
+    void indexFollowsTheDoc();
+    void choicesWinUntilTheDocIsCleared();
+    void overrideGoesWithItsShow();
+    void choicesSurviveSaveAndLoad_data();
+    void choicesSurviveSaveAndLoad();
+    void choicesFollowTheWorkspaceFolder();
+    void malformedChoiceIsDropped();
+    void clipChangesReachTheIndex();
+    void normalizePath_data();
+    void normalizePath();
 };
 
 #endif // SHOWFACTORY_TEST_H

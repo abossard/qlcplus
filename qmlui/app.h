@@ -67,6 +67,8 @@ class App final : public QQuickView
     Q_DISABLE_COPY(App)
     Q_PROPERTY(bool docLoaded READ docLoaded NOTIFY docLoadedChanged)
     Q_PROPERTY(bool docModified READ docModified NOTIFY docModifiedChanged)
+    Q_PROPERTY(QString saveError READ saveError NOTIFY saveErrorChanged)
+    Q_PROPERTY(bool saveErrorAutosave READ saveErrorAutosave NOTIFY saveErrorChanged)
     Q_PROPERTY(QStringList recentFiles READ recentFiles NOTIFY recentFilesChanged)
     Q_PROPERTY(QString workingPath READ workingPath WRITE setWorkingPath NOTIFY workingPathChanged)
     Q_PROPERTY(int accessMask READ accessMask WRITE setAccessMask NOTIFY accessMaskChanged)
@@ -340,11 +342,16 @@ private:
 signals:
     void docLoadedChanged();
     void docModifiedChanged();
+    void saveErrorChanged();
     void runningFunctionsCountChanged();
 
 private:
+    void setSaveError(const QString &error, bool autosave);
+
     Doc *m_doc;
     bool m_docLoaded;
+    QString m_saveError;
+    bool m_saveErrorAutosave = false;
 
     /*********************************************************************
      * Printer
@@ -395,6 +402,14 @@ public:
     /** Save the current workspace with the given $fileName */
     Q_INVOKABLE bool saveWorkspace(const QString& fileName);
 
+    /** Why the last workspace save, autosave or save for a client failed;
+     *  empty once one went through */
+    QString saveError() const;
+
+    /** The last save error is the timed autosave's: nobody waits on it, so
+     *  it opens no dialog */
+    bool saveErrorAutosave() const;
+
     /**
      * Load workspace contents from a XML file with the given name.
      *
@@ -410,6 +425,15 @@ public:
      */
     bool loadXML(QXmlStreamReader &doc, bool goToConsole = false, bool fromMemory = false);
 
+    /** Who a save is for. A copy (autosave or client) keeps the file name,
+     *  the modified state and the recording as they are */
+    enum SaveOrigin
+    {
+        WorkspaceSave,  // menu, shortcut, MCP, autostart
+        ClientCopy,     // the project served to a network client
+        Autosave        // the timed autosave
+    };
+
     /**
      * Save workspace contents to a file with the given name. Changes the
      * current workspace file name to the given fileName.
@@ -417,7 +441,7 @@ public:
      * @param fileName The name of the file to save to.
      * @return QFile::NoError if successful.
      */
-    QFile::FileError saveXML(const QString& fileName, bool autosave = false);
+    QFile::FileError saveXML(const QString& fileName, SaveOrigin origin = WorkspaceSave);
 
 private:
     /**

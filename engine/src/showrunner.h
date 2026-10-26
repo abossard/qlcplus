@@ -154,13 +154,18 @@ private:
 
     QSet<Function *> m_seekRestartFunctions;
 
-    /** requested: consuming Show::requestSeek, not an external clock jump.
-     *  Ordinary clips stop and are rescheduled either way. A forward request
-     *  keeps the command traversal and plays the crossed interval; otherwise
-     *  the traversal restarts at newTime and rolls back its own effects. */
-    void seekTo(quint32 newTime, bool requested, bool forward = false);
+    /** A Scene this Show still owns, whose clip is active at newTime, keeps
+     *  running; every other clip stops and starts again there, judged on the
+     *  clock that plays it. A forward request keeps the
+     *  command traversal and plays the crossed interval; otherwise the
+     *  traversal restarts at newTime, unless the Show restarted it already
+     *  for this move, and rolls back its own effects. */
+    void seekTo(quint32 newTime, bool forward = false);
 
     void syncPerformAudioSuppression();
+    /** The BPM beat clips play at: the Show's under an external clock or
+     *  without a beat source, else the MasterTimer's */
+    int beatsBpm() const;
     bool isAudioFunction(const Function *function) const;
     void stopRunningAudioFunctions();
     bool isFunctionScheduled(Function *function, quint32 stopTime) const;
@@ -274,6 +279,8 @@ private:
     quint64 m_heldControlBatch = 0;
     /** This traversal still dispatches the crossed interval of a requested forward jump */
     bool m_commandCatchUp = false;
+    /** REC held this run past its end: only a stop ends it now */
+    bool m_keptByRecording = false;
     /** The target of the last jump Start or Stop, whose native effect
      *  everything after it waits for; InvalidId when nothing waits */
     quint32 m_settlingFunction = ShowCommand::InvalidId;

@@ -17,14 +17,12 @@ class PerformFsm_Test : public QObject
 
 private slots:
     void initialStateIsIdle();
-    void enableWithoutShowArms();
-    void showResolutionMovesArmedToSuspendedOrLive();
-    void playPauseTogglesLiveSuspended();
-    void deckSwitchEmitsActiveShowChangedKeepingState();
-    void disableReturnsToIdleFromAnyState();
-    void resetKeepsToggleAndReArms();
-    void readOnlyDerivation();
-    void inputsWhileDisabledDoNotChangeState();
+    void stateTable_data();
+    void stateTable();
+    void inputChangeEmitsOnce_data();
+    void inputChangeEmitsOnce();
+    void planTable_data();
+    void planTable();
     void stateToStringCoversAll();
 };
 

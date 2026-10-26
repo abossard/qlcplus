@@ -30,6 +30,7 @@
 #undef private
 
 #include <QtTest>
+#include <QMetaProperty>
 #include <QAccessible>
 #include <QStyleHints>
 #include <QBuffer>
@@ -58,6 +59,7 @@
 #undef private
 
 #include "app.h"
+#include "audio.h"
 #include "collection.h"
 #include "efx.h"
 #include "contextmanager.h"
@@ -733,18 +735,30 @@ void playExternalFromZero(Show *show, Doc *doc)
     doc->masterTimer()->timerTick();
 }
 
+/** The cases place controls from y 10, where a frame header would sit, and
+ *  VC creation refuses a control outside its frame's content */
+int addFrame(VCBridgeV5 &bridge, int pageIndex, const QRect &geometry, const QString &caption, bool solo)
+{
+    const int id = bridge.addFrame(pageIndex, geometry, caption, solo);
+    VCBridge::FrameConfig headerless;
+    headerless.headerVisible = false;
+    if (id >= 0)
+        bridge.configureFrame(id, headerless);
+    return id;
+}
+
 VCButton *addToggle(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, quint32 functionId,
                     int x, const QString &caption)
 {
     return qobject_cast<VCButton *>(vc->widget(
-            bridge.addButton(frameID, QRect(x, 10, 80, 40), functionId, caption,
+            bridge.addButton(frameID, QRect(x, 10, 80, 48), functionId, caption,
                              QStringLiteral("toggle"))));
 }
 
-VCSlider *addAdjustSlider(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, quint32 functionId)
+VCSlider *addAdjustSlider(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, quint32 functionId, int x = 200)
 {
     VCSlider *slider = qobject_cast<VCSlider *>(vc->widget(
-            bridge.addSlider(frameID, QRect(200, 10, 60, 200), QStringLiteral("level"),
+            bridge.addSlider(frameID, QRect(x, 10, 60, 200), QStringLiteral("level"),
                              QStringLiteral("Fader"), Function::invalidId(), {})));
     if (slider == nullptr)
         return nullptr;
@@ -759,10 +773,11 @@ VCXYPad *addXYPad(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID)
             bridge.addXYPad(frameID, QRect(300, 10, 200, 200), QList<quint32>())));
 }
 
-VCAnimation *addAnimation(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, quint32 functionId)
+VCAnimation *addAnimation(VCBridgeV5 &bridge, VirtualConsole *vc, int frameID, quint32 functionId,
+                          const QPoint &at = QPoint(520, 10))
 {
     return qobject_cast<VCAnimation *>(vc->widget(
-            bridge.addMatrix(frameID, QRect(520, 10, 120, 220), functionId, QStringLiteral("Matrix"))));
+            bridge.addMatrix(frameID, QRect(at, QSize(120, 220)), functionId, QStringLiteral("Matrix"))));
 }
 
 /** A Collection of the recorded target and a sibling that keeps it alive */
@@ -791,7 +806,7 @@ LookRig addLookRig(Doc *doc, VCBridgeV5 &bridge, VirtualConsole *vc)
     rig.collection->addFunction(rig.child->id());
     rig.collection->addFunction(rig.sibling->id());
 
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     rig.lookButton = addToggle(bridge, vc, frameID, rig.collection->id(), 10, QStringLiteral("Look"));
     rig.childButton = addToggle(bridge, vc, frameID, rig.child->id(), 100, QStringLiteral("Child"));
     return rig;
@@ -839,9 +854,9 @@ void ShowCommandRecorder_Test::externalInput_authorsOnlyThroughMidiPatch()
     VCBridgeV5 bridge(&doc, ui.vc());
     VCPage *page = ui.vc()->page(0);
     QVERIFY(page);
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     QVERIFY(frameID >= 0);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     QVERIFY(buttonID >= 0);
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
@@ -928,7 +943,7 @@ void ShowCommandRecorder_Test::onlyUserInputAuthors()
     VCBridgeV5 bridge(&doc, ui.vc());
     VCPage *page = ui.vc()->page(0);
     QVERIFY(page);
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     QVERIFY(frameID >= 0);
 
     const bool slider = route.startsWith(QStringLiteral("slider"));
@@ -972,7 +987,7 @@ void ShowCommandRecorder_Test::onlyUserInputAuthors()
     }
     else
     {
-        const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+        const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                               QStringLiteral("Target"), QStringLiteral("toggle"));
         QVERIFY(buttonID >= 0);
         button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
@@ -1076,7 +1091,7 @@ void ShowCommandRecorder_Test::sliderUserValue_survivesLaterAudioValue()
     QVERIFY(recorder.isAuthoring());
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     QVERIFY(frameID >= 0);
     const int sliderID = bridge.addSlider(frameID, QRect(10, 10, 60, 200),
                                           QStringLiteral("level"), QStringLiteral("Intensity"),
@@ -1149,9 +1164,9 @@ void ShowCommandRecorder_Test::monitoringToggle_firstUserClickAcquires()
     VCBridgeV5 bridge(&doc, ui.vc());
     VCPage *page = ui.vc()->page(0);
     QVERIFY(page);
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     QVERIFY(frameID >= 0);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     QVERIFY(buttonID >= 0);
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
@@ -1218,8 +1233,8 @@ void ShowCommandRecorder_Test::recordedTarget_survivesWidgetRetarget()
     recorder.setRecording(true);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
@@ -1266,15 +1281,14 @@ void ShowCommandRecorder_Test::armedRecorder_bindsFirstShowAndAuthorsWhileFrozen
     QCOMPARE(recorder.targetName(), show->name());
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
 
-    // A paused transport keeps reporting the same time; recording stays live
-    // and stamps both commands at that frozen position.
-    recorder.setPlaying(false);
+    // A Show that does not run keeps reporting the same time; recording
+    // stays live and stamps both commands at that frozen position.
     button->requestUserStateChange(true);
     button->requestUserStateChange(false);
 
@@ -1287,12 +1301,12 @@ void ShowCommandRecorder_Test::armedRecorder_bindsFirstShowAndAuthorsWhileFrozen
     QVERIFY(stored.at(0).on);
     QVERIFY(!stored.at(1).on);
 
-    // Another Show resolving now is an automatic handover: the take on the
-    // first Show closes and recording rearms on the second.
+    // Perform resolving another Show is an automatic handover: the take on
+    // the first Show closes and recording rearms on the second.
     Show *second = new Show(&doc);
     second->setName(QStringLiteral("Other show"));
     QVERIFY(doc.addFunction(second));
-    recorder.setResolvedShow(second->id());
+    QVERIFY(recorder.setResolvedShow(second->id(), ShowRecordSource::Perform));
     QCOMPARE(recorder.phaseValue(), int(ShowRecordPhase::Bound));
     QCOMPARE(recorder.boundShowId(), second->id());
     QCOMPARE(second->commandTrack().count(), 0);
@@ -1318,8 +1332,8 @@ void ShowCommandRecorder_Test::recordingExtent_outlivesLastCommand()
     QVERIFY(show->commandRecording());
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
@@ -1365,7 +1379,8 @@ void ShowCommandRecorder_Test::editor_retimeValueDeleteAndExtent()
     ShowCommandInput value = start;
     value.action = ShowCommandAction::SetIntensity;
     value.intensity = 128.0 / 255.0;
-    QVERIFY(recorder.submitUserInput(QVector<ShowCommandInput>{start, value}));
+    QVERIFY(recorder.submitUserInput(start));
+    QVERIFY(recorder.submitUserInput(value));
 
     const QVector<ShowCommand> &stored = recorder.track().commands();
     QCOMPARE(stored.count(), qsizetype(2));
@@ -1420,8 +1435,8 @@ void ShowCommandRecorder_Test::recordStop_finalizesExtentAtLastItem()
     recorder.setRecording(true);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
@@ -1459,8 +1474,8 @@ void ShowCommandRecorder_Test::recordRebind_finalizesPreviousShowAtLastItem()
     recorder.setRecording(true);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
@@ -1470,7 +1485,7 @@ void ShowCommandRecorder_Test::recordRebind_finalizesPreviousShowAtLastItem()
     // The song changes while Record is still on: the take on the old Show is
     // closed at its last retained item, not where its clock had reached.
     first->setExternalElapsedTime(21000);
-    recorder.setResolvedShow(second->id());
+    QVERIFY(recorder.setResolvedShow(second->id(), ShowRecordSource::Perform));
 
     QCOMPARE(first->commandTrack().extent(), quint32(5000));
     QCOMPARE(second->commandTrack().count(), 0);
@@ -1498,7 +1513,7 @@ void ShowCommandRecorder_Test::pendingSliderGesture_settlesIntoItsOwnShow()
     recorder.setRecording(true);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     const int sliderID = bridge.addSlider(frameID, QRect(10, 10, 60, 200),
                                           QStringLiteral("level"), QStringLiteral("Intensity"),
                                           Function::invalidId(), {});
@@ -1540,7 +1555,7 @@ void ShowCommandRecorder_Test::sliderPosition_capturesAcceptedRangeAtInput()
     recorder.setRecording(true);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     const int sliderID = bridge.addSlider(frameID, QRect(10, 10, 60, 200),
                                           QStringLiteral("level"), QStringLiteral("Intensity"),
                                           Function::invalidId(), {});
@@ -1602,8 +1617,8 @@ void ShowCommandRecorder_Test::relativeInput_keepsItsProvenance()
     VCBridgeV5 bridge(&doc, ui.vc());
     VCPage *page = ui.vc()->page(0);
     QVERIFY(page);
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
@@ -1652,8 +1667,8 @@ void ShowCommandRecorder_Test::rewoundTake_replaysItsOwnRecordedCommand()
     recorder.setRecording(true);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
@@ -1685,7 +1700,7 @@ void ShowCommandRecorder_Test::rewoundTake_replaysItsOwnRecordedCommand()
     Scene *other = new Scene(&doc);
     other->setName(QStringLiteral("Second target"));
     QVERIFY(doc.addFunction(other));
-    const int secondID = bridge.addButton(frameID, QRect(100, 10, 80, 40), other->id(),
+    const int secondID = bridge.addButton(frameID, QRect(100, 10, 80, 48), other->id(),
                                           QStringLiteral("Second"), QStringLiteral("toggle"));
     VCButton *secondButton = qobject_cast<VCButton *>(ui.vc()->widget(secondID));
     QVERIFY(secondButton);
@@ -1703,57 +1718,6 @@ void ShowCommandRecorder_Test::rewoundTake_replaysItsOwnRecordedCommand()
     show->stopAndWait();
 }
 
-void ShowCommandRecorder_Test::editor_typedActionAndTargetEdits()
-{
-    Doc doc(nullptr, 1);
-    UiFixture ui(&doc);
-
-    Scene *scene = addTarget(&doc);
-    QVERIFY(scene);
-    Scene *other = new Scene(&doc);
-    other->setName(QStringLiteral("Other target"));
-    QVERIFY(doc.addFunction(other));
-    Show *show = addRecordingShow(&doc, kRecordPosition);
-    QVERIFY(show);
-
-    ShowCommandRecorder recorder(&doc);
-    recorder.setResolvedShow(show->id());
-    recorder.setRecording(true);
-
-    // a legacy function command, which VC input no longer authors
-    ShowCommandInput start;
-    start.origin = ShowCommandOrigin::Pointer;
-    start.action = ShowCommandAction::Start;
-    start.functionId = scene->id();
-    QVERIFY(recorder.submitUserInput(start));
-    QCOMPARE(recorder.track().count(), 1);
-    recorder.setRecording(false);
-
-    const quint32 id = recorder.track().commands().at(0).id;
-
-    // An editor that shows action and target has to let the user change them.
-    QVERIFY(recorder.setCommandAction(show->id(), id, QStringLiteral("Stop")));
-    QCOMPARE(int(recorder.track().commands().at(0).action), int(ShowCommandAction::Stop));
-    QCOMPARE(int(show->commandTrack().commands().at(0).action), int(ShowCommandAction::Stop));
-
-    QVERIFY(recorder.setCommandTarget(show->id(), id, other->id()));
-    QCOMPARE(recorder.track().commands().at(0).functionId, other->id());
-    QCOMPARE(show->commandTrack().commands().at(0).functionId, other->id());
-
-    // Rejected edits leave the take alone and say why.
-    QVERIFY(!recorder.setCommandAction(show->id(), id, QStringLiteral("Explode")));
-    QVERIFY(!recorder.lastError().isEmpty());
-    QCOMPARE(int(recorder.track().commands().at(0).action), int(ShowCommandAction::Stop));
-
-    QVERIFY(!recorder.setCommandTarget(show->id(), id, 12345));
-    QCOMPARE(recorder.track().commands().at(0).functionId, other->id());
-
-    // A Show that starts itself is not a target.
-    QVERIFY(!recorder.setCommandTarget(show->id(), id, show->id()));
-    QCOMPARE(recorder.track().commands().at(0).functionId, other->id());
-    QCOMPARE(show->commandTrack().commands().at(0).functionId, other->id());
-}
-
 namespace
 {
 /** A bound recorder with a slider and a button on the current Show */
@@ -1764,8 +1728,8 @@ struct RecordingRig
     {
         recorder->setResolvedShow(show->id());
         recorder->setRecording(true);
-        frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-        const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), target->id(),
+        frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+        const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), target->id(),
                                               QStringLiteral("Target"), QStringLiteral("toggle"));
         button = qobject_cast<VCButton *>(ui->vc()->widget(buttonID));
         const int sliderID = bridge.addSlider(frameID, QRect(100, 10, 60, 200),
@@ -1893,11 +1857,9 @@ void ShowCommandRecorder_Test::loopSegment_keepsDepartureEnd()
 
     rig.button->requestUserStateChange(true);
     QTRY_COMPARE(recorder.track().count(), 1);
-    const quint64 takeBeforeLoop = recorder.takeId();
 
     // The song loops. Nobody touches a control afterwards.
     show->setExternalElapsedTime(5000);
-    QVERIFY(recorder.takeId() != takeBeforeLoop);
 
     show->setExternalElapsedTime(8000);
     recorder.setRecording(false);
@@ -2000,10 +1962,11 @@ void ShowCommandRecorder_Test::failedFinalization_keepsRecording()
     QVERIFY(recorder.submitUserInput(start));
     QCOMPARE(recorder.track().count(), 1);
 
-    // The recorded target disappears, so the take can no longer be published:
-    // accepted input waits unpublished.
+    // Input accepted for a target that is gone cannot be published: it waits
+    // unpublished, and so does everything after it
     QVERIFY(doc.deleteFunction(scene->id()));
     show->setExternalElapsedTime(15000);
+    QVERIFY(!recorder.submitUserInput(start));
     rig.fader->setSliderMode(VCSlider::Level);
     rig.fader->requestUserValue(90);
     QCOMPARE(show->commandTrack().count(), 1);
@@ -2037,8 +2000,8 @@ void ShowCommandRecorder_Test::replayedButtonOn_startsItsSceneThroughShowPlaybac
     recorder.setVirtualConsole(ui.vc());
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), scene->id(),
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 48), scene->id(),
                                           QStringLiteral("Target"), QStringLiteral("toggle"));
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));
     QVERIFY(button);
@@ -2187,12 +2150,12 @@ void ShowCommandRecorder_Test::replayedCollectionOn_thenChildOff_stopsTheChild()
     recorder.setVirtualConsole(ui.vc());
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *lookButton = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frameID, QRect(10, 10, 80, 40), collection->id(),
+            bridge.addButton(frameID, QRect(10, 10, 80, 48), collection->id(),
                              QStringLiteral("Look"), QStringLiteral("toggle"))));
     VCButton *childButton = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frameID, QRect(100, 10, 80, 40), child->id(),
+            bridge.addButton(frameID, QRect(100, 10, 80, 48), child->id(),
                              QStringLiteral("Child"), QStringLiteral("toggle"))));
     QVERIFY(lookButton);
     QVERIFY(childButton);
@@ -2241,7 +2204,7 @@ void ShowCommandRecorder_Test::replay_survivesSelectionChange()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
 
@@ -2299,7 +2262,7 @@ void ShowCommandRecorder_Test::guiCancel_dropsWorkQueuedBeforeIt()
     VCButton *showButton = nullptr;
     if (cancel == QStringLiteral("toggle stop"))
     {
-        const int frameID = bridge.addFrame(0, QRect(0, 310, 400, 100), QStringLiteral("Shows"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 310, 400, 100), QStringLiteral("Shows"), false);
         showButton = addToggle(bridge, ui.vc(), frameID, show->id(), 10, QStringLiteral("Show"));
         QVERIFY(showButton);
     }
@@ -2391,7 +2354,7 @@ void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
 
@@ -2445,7 +2408,7 @@ void ShowCommandRecorder_Test::replayedButtonOn_atContentEnd_runsBeforeShowEnds(
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
 
@@ -2468,7 +2431,7 @@ void ShowCommandRecorder_Test::replayedButtonOn_atContentEnd_runsBeforeShowEnds(
     QTRY_VERIFY(log.indexOf(show->id(), false) >= 0);
     QVERIFY(log.indexOf(scene->id(), true) >= 0);
     QVERIFY(log.indexOf(scene->id(), true) < log.indexOf(show->id(), false));
-    QCOMPARE(button->state(), VCButton::Inactive);
+    QTRY_COMPARE(button->state(), VCButton::Inactive);
 }
 
 void ShowCommandRecorder_Test::replayedPlayingPair_waitsForItsCoupledPredecessor_data()
@@ -2511,7 +2474,7 @@ void ShowCommandRecorder_Test::replayedPlayingPair_waitsForItsCoupledPredecessor
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), solo);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), solo);
     VCButton *firstButton = addToggle(bridge, ui.vc(), frameID, first->id(), 10, QStringLiteral("First"));
     VCButton *secondButton = addToggle(bridge, ui.vc(), frameID, second->id(), 100, QStringLiteral("Second"));
     QVERIFY(firstButton);
@@ -2554,7 +2517,7 @@ void ShowCommandRecorder_Test::replayedSliderPosition_thenLegacyIntensity_endsAt
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
 
@@ -2618,7 +2581,7 @@ void ShowCommandRecorder_Test::replayedSliderPosition_supersededByNewerInput_doe
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
     slider->setValue(100);
@@ -2702,7 +2665,7 @@ void ShowCommandRecorder_Test::replayedSliderPosition_cancelledByReconfiguration
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
 
@@ -2774,7 +2737,7 @@ void ShowCommandRecorder_Test::replayedSliderPosition_functionDeleted_showStillE
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
 
@@ -2818,7 +2781,7 @@ void ShowCommandRecorder_Test::cancelledSliderReplay_neverWritesLate()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
     slider->setValue(100);
@@ -2896,7 +2859,7 @@ void ShowCommandRecorder_Test::cancelledSliderReplay_laterSameValueStillWrites()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
     slider->setValue(100);
@@ -2962,7 +2925,7 @@ void ShowCommandRecorder_Test::cancelledLevelReplay_restoresPriorControlState()
     QVERIFY(doc.inputOutputMap()->setOutputPatch(kSourceUniverse, QStringLiteral("Test feedback"),
                                                  QString(), QStringLiteral("Feedback line"), 0, true));
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
     QVERIFY(slider);
     slider->setSliderMode(VCSlider::Level);
@@ -2994,7 +2957,7 @@ void ShowCommandRecorder_Test::replayedSliderStart_isLiveBeforeLegacyIntensity()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
 
@@ -3068,7 +3031,7 @@ void ShowCommandRecorder_Test::replayedSliderStart_racingOwnWrite_isLiveBeforeLe
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
 
@@ -3149,7 +3112,7 @@ void ShowCommandRecorder_Test::replayedMatchingSliderPosition_takesNoAction()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
     slider->setValue(value);
@@ -3314,8 +3277,8 @@ void ShowCommandRecorder_Test::replayedSoloSiblingOn_afterCollectionStart_winsLi
     QVERIFY(collection->addFunction(a->id()));
 
     // B shares a Solo Frame with A's button, or with the Collection's own one
-    const int soloID = bridge.addFrame(0, QRect(0, 0, 400, 200), QStringLiteral("Solo"), true);
-    const int frameID = bridge.addFrame(0, QRect(0, 210, 400, 100), QStringLiteral("Looks"), false);
+    const int soloID = addFrame(bridge, 0, QRect(0, 0, 400, 200), QStringLiteral("Solo"), true);
+    const int frameID = addFrame(bridge, 0, QRect(0, 210, 400, 100), QStringLiteral("Looks"), false);
     VCButton *aButton = addToggle(bridge, ui.vc(), collectionInFrame ? frameID : soloID, a->id(), 10,
                                   QStringLiteral("A"));
     VCButton *bButton = addToggle(bridge, ui.vc(), soloID, b->id(), 100, QStringLiteral("B"));
@@ -3398,7 +3361,7 @@ void ShowCommandRecorder_Test::replayedButtonOn_afterLegacyStop_endsActive()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
     Scene *other = new Scene(&doc);
@@ -3495,10 +3458,10 @@ void ShowCommandRecorder_Test::replayedSubmaster_thenLegacyIntensity_endsAtLegac
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
     // the Submaster scales the fader beside it, which plays the Scene
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(fader);
-    VCSlider *submaster = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
+    VCSlider *submaster = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId(), 280);
     QVERIFY(submaster);
     submaster->setSliderMode(VCSlider::Submaster);
     fader->setValue(200);
@@ -3554,10 +3517,10 @@ void ShowCommandRecorder_Test::replayedSubmaster_retiresPendingChildWriteBeforeL
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(fader);
-    VCSlider *submaster = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
+    VCSlider *submaster = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId(), 280);
     QVERIFY(submaster);
     submaster->setSliderMode(VCSlider::Submaster);
     fader->setValue(200);
@@ -3613,10 +3576,10 @@ void ShowCommandRecorder_Test::replayedSubmaster_childStartIsLiveBeforeLegacy()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(fader);
-    VCSlider *submaster = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
+    VCSlider *submaster = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId(), 280);
     QVERIFY(submaster);
     submaster->setSliderMode(VCSlider::Submaster);
 
@@ -3679,7 +3642,7 @@ void ShowCommandRecorder_Test::replayedSliderZero_thenOnSameFunction_endsActive(
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(slider);
@@ -3770,7 +3733,7 @@ void ShowCommandRecorder_Test::replayedSlider_reconfiguredInWriteWindow_neverRet
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
 
@@ -3867,7 +3830,7 @@ void ShowCommandRecorder_Test::replayedLevelSlider_channelsReplacedInWriteWindow
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
     QVERIFY(slider);
     slider->setSliderMode(VCSlider::Level);
@@ -3936,7 +3899,7 @@ void ShowCommandRecorder_Test::replayedGrandMasterPosition_completesOnReturn()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
     QVERIFY(slider);
     slider->setSliderMode(VCSlider::GrandMaster);
@@ -3983,7 +3946,7 @@ void ShowCommandRecorder_Test::levelSliderValue_outputOnlyWhenMeantForDmx()
     Scene *scene = addTarget(&doc);
     QVERIFY(scene);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
     QVERIFY(slider);
     slider->setSliderMode(VCSlider::Level);
@@ -4034,7 +3997,7 @@ void ShowCommandRecorder_Test::adjustFaderFeedback_isShownNotWrittenBack()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), solo);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), solo);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(fader);
     fader->requestUserValue(204);
@@ -4093,7 +4056,7 @@ void ShowCommandRecorder_Test::adjustFaderStopFeedback_leavesTheAttributeReset()
     Scene *scene = addTarget(&doc);
     QVERIFY(scene);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(fader);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Button"));
@@ -4130,7 +4093,7 @@ void ShowCommandRecorder_Test::adjustFaderFeedback_isWhatACancelRestores()
     Scene *scene = addTarget(&doc);
     QVERIFY(scene);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(fader);
     fader->requestUserValue(204);
@@ -4180,8 +4143,8 @@ void ShowCommandRecorder_Test::adjustFaderOnFunctionStart_stillWritesItsValue()
     sibling->setValue(SceneValue(scene->values().first().fxi, 1, 123));
     QVERIFY(doc.addFunction(sibling));
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int soloID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
-    const int outsideID = bridge.addFrame(0, QRect(0, 310, 400, 100), QStringLiteral("Outside"), false);
+    const int soloID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
+    const int outsideID = addFrame(bridge, 0, QRect(0, 310, 400, 100), QStringLiteral("Outside"), false);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), soloID, scene->id());
     QVERIFY(fader);
     VCButton *siblingButton = addToggle(bridge, ui.vc(), soloID, sibling->id(), 100, QStringLiteral("Sibling"));
@@ -4227,7 +4190,7 @@ void ShowCommandRecorder_Test::adjustFaderOutputRequest_stillWrites()
     Scene *scene = addTarget(&doc);
     QVERIFY(scene);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(fader);
 
@@ -4257,7 +4220,7 @@ void ShowCommandRecorder_Test::seek_forwardPlaysRecordedButtonOn()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
 
@@ -4308,7 +4271,7 @@ void ShowCommandRecorder_Test::seek_forwardPlaysMixedHistoryInAuthoredOrder()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
     QCOMPARE(slider->value(), 0);
@@ -4370,7 +4333,7 @@ void ShowCommandRecorder_Test::play_fromStoppedCursor_runsOnlyFromTheCursor()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *before = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Before"));
     VCButton *atCursor = addToggle(bridge, ui.vc(), frameID, other->id(), 100, QStringLiteral("At cursor"));
     QVERIFY(before);
@@ -4493,7 +4456,7 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     if (rig == QStringLiteral("solo") || rig == QStringLiteral("alias"))
     {
         const bool solo = rig == QStringLiteral("solo");
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), solo);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), solo);
         const QUuid first = button(frameID, a, 10, QStringLiteral("A"));
         const QUuid second = button(frameID, solo ? b : a, 100, QStringLiteral("B"));
         functions.append(qMakePair(QStringLiteral("a"), a));
@@ -4505,7 +4468,7 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     }
     else if (rig == QStringLiteral("collection"))
     {
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
         const QUuid lookButton = button(frameID, look, 10, QStringLiteral("Look"));
         const QUuid child = button(frameID, a, 100, QStringLiteral("X"));
         functions = { qMakePair(QStringLiteral("look"), static_cast<Function *>(look)),
@@ -4518,7 +4481,7 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     else if (rig == QStringLiteral("zero"))
     {
         // S and A share a's intensity; S's zero stops a, A starts it again
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
         VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, a->id());
         QVERIFY(slider);
         const QUuid fullButton = button(frameID, a, 10, QStringLiteral("A"));
@@ -4540,10 +4503,10 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
         outer->setName(QStringLiteral("outer"));
         QVERIFY(doc.addFunction(outer));
         outer->addFunction(look->id());
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), false);
         const QUuid outerButton = button(frameID, outer, 10, QStringLiteral("Outer"));
         const QUuid innerButton = button(frameID, look, 100, QStringLiteral("Inner"));
-        const int soloID = bridge.addFrame(0, QRect(0, 110, 400, 100), QStringLiteral("Solo"), true);
+        const int soloID = addFrame(bridge, 0, QRect(0, 110, 400, 100), QStringLiteral("Solo"), true);
         const QUuid child = button(soloID, a, 10, QStringLiteral("X"));
         const QUuid other = button(soloID, b, 100, QStringLiteral("B"));
         functions = { qMakePair(QStringLiteral("outer"), static_cast<Function *>(outer)),
@@ -4559,11 +4522,11 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     else if (rig == QStringLiteral("fed back"))
     {
         // S shares B's Solo Frame; A plays S's function from outside it
-        const int soloID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
+        const int soloID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
         VCSlider *slider = addAdjustSlider(bridge, ui.vc(), soloID, a->id());
         QVERIFY(slider);
         controls.append(qMakePair(QStringLiteral("S"), static_cast<VCWidget *>(slider)));
-        const int frameID = bridge.addFrame(0, QRect(0, 310, 400, 100), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 310, 400, 100), QStringLiteral("Frame"), false);
         const QUuid outside = button(frameID, a, 10, QStringLiteral("A"));
         const QUuid other = button(soloID, b, 10, QStringLiteral("B"));
         functions = { qMakePair(QStringLiteral("a"), static_cast<Function *>(a)),
@@ -4581,9 +4544,9 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     else if (rig == QStringLiteral("member"))
     {
         // B plays, then the Collection starts X in B's Solo Frame, then stops
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), false);
         const QUuid lookButton = button(frameID, look, 10, QStringLiteral("Look"));
-        const int soloID = bridge.addFrame(0, QRect(0, 110, 400, 100), QStringLiteral("Solo"), true);
+        const int soloID = addFrame(bridge, 0, QRect(0, 110, 400, 100), QStringLiteral("Solo"), true);
         button(soloID, a, 10, QStringLiteral("X"));
         const QUuid other = button(soloID, b, 100, QStringLiteral("B"));
         functions = { qMakePair(QStringLiteral("look"), static_cast<Function *>(look)),
@@ -4597,7 +4560,7 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     else if (rig == QStringLiteral("shared"))
     {
         // two faders of one intensity: each write moves the other one's feedback
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
         functions = { qMakePair(QStringLiteral("a"), static_cast<Function *>(a)) };
         quint32 id = 0;
         for (const auto &record : { qMakePair(QStringLiteral("S"), qreal(0.8)), qMakePair(QStringLiteral("T"), qreal(0.2)),
@@ -4606,7 +4569,7 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
             if (controls.count() < 2 && std::none_of(controls.cbegin(), controls.cend(),
                                                      [&record](const auto &c) { return c.first == record.first; }))
             {
-                VCSlider *added = addAdjustSlider(bridge, ui.vc(), frameID, a->id());
+                VCSlider *added = addAdjustSlider(bridge, ui.vc(), frameID, a->id(), 200 + 80 * controls.count());
                 QVERIFY(added);
                 controls.append(qMakePair(record.first, static_cast<VCWidget *>(added)));
             }
@@ -4621,7 +4584,7 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     }
     else if (rig == QStringLiteral("intensity"))
     {
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), true);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), true);
         VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, a->id());
         QVERIFY(slider);
         controls.append(qMakePair(QStringLiteral("S"), static_cast<VCWidget *>(slider)));
@@ -4640,9 +4603,9 @@ void ShowCommandRecorder_Test::playThrough_reachesLiteralNativeState()
     else
     {
         // the Collection makes X monitor its member; B starts in X's Solo Frame
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), false);
         const QUuid lookButton = button(frameID, look, 10, QStringLiteral("Look"));
-        const int soloID = bridge.addFrame(0, QRect(0, 110, 400, 100), QStringLiteral("Solo"), true);
+        const int soloID = addFrame(bridge, 0, QRect(0, 110, 400, 100), QStringLiteral("Solo"), true);
         const QUuid child = button(soloID, a, 10, QStringLiteral("X"));
         const QUuid other = button(soloID, b, 100, QStringLiteral("B"));
         Q_UNUSED(child)
@@ -4731,10 +4694,10 @@ void ShowCommandRecorder_Test::timelineRollback_data()
         { "g, m: Solo A 4, B 12: B Off before A On", "solo", "A+@4000,B+@12000",
           "playext;ext:0;ext:4000;ext:14000;see:AB;mark;ext:8000;see:AB;changes;ext:14000;see:AB",
           { "A0B1", "A1B0", "B0,A1", "A0B1" } },
-        { "h: first take, a REC capture at 12 repeats every pass", "plain", "",
+        { "h: first take, a REC capture at 12 stays through the wraps and replays at 12", "plain", "",
           "playext;rec;ext:0;ext:8000;see:A;ext:12000;click:A;see:A;fns:A;ext:14000;ext:8000;see:A;fns:A;"
           "ext:12000;see:A;fns:A;ext:14000;ext:8000;see:A;fns:A;ext:12000;see:A;fns:A;track",
-          { "A0", "A1", "A1", "A0", "A0", "A1", "A1", "A0", "A0", "A1", "A1", "A+@12000" } },
+          { "A0", "A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1", "A1", "A+@12000" } },
         { "i: a REC-off change on another control survives", "plain", "A+@12000",
           "playext;ext:0;ext:12000;ext:13000;click:C;see:AC;ext:14000;ext:8000;see:AC",
           { "A1C1", "A0C1" } },
@@ -4744,9 +4707,9 @@ void ShowCommandRecorder_Test::timelineRollback_data()
         { "k: a live uncaptured Solo member wins its frame", "solo", "A+@4000,B+@12000",
           "playext;ext:0;ext:4000;ext:12000;ext:13000;click:C;see:ABC;ext:14000;ext:8000;see:ABC",
           { "A0B0C1", "A0B0C1" } },
-        { "k2: a captured Solo member rolls back", "solo", "A+@4000,B+@12000",
+        { "k2: a captured Solo member wins its frame like a live one", "solo", "A+@4000,B+@12000",
           "playext;rec;ext:0;ext:4000;ext:12000;ext:13000;click:C;see:ABC;ext:14000;ext:8000;see:ABC",
-          { "A0B0C1", "A1B0C0" } },
+          { "A0B0C1", "A0B0C1" } },
         { "n: a Collection stops only what it started, restarts nothing", "collection", "K+@12000",
           "mark;playext;ext:0;ext:12000;see:K;fns:XY;ext:14000;ext:8000;see:K;fns:XY;ops:XY",
           { "K1", "X1Y1", "K0", "X0Y1", "X+1-1,Y+0-0" } },
@@ -4824,7 +4787,7 @@ void ShowCommandRecorder_Test::timelineRollback()
     };
     const bool soloFrame = rig == QLatin1String("solo") || rig == QLatin1String("same solo") ||
                            rig == QLatin1String("monitored");
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), soloFrame);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 100), QStringLiteral("Frame"), soloFrame);
     if (rig == QLatin1String("plain"))
     {
         button(frameID, a, 10, QLatin1Char('A'));
@@ -4847,7 +4810,7 @@ void ShowCommandRecorder_Test::timelineRollback()
         QVERIFY(doc.addFunction(look));
         look->addFunction(a->id());
         button(frameID, look, 10, QLatin1Char('K'));
-        const int soloID = bridge.addFrame(0, QRect(0, 340, 400, 100), QStringLiteral("Solo"), true);
+        const int soloID = addFrame(bridge, 0, QRect(0, 340, 400, 100), QStringLiteral("Solo"), true);
         button(soloID, a, 10, QLatin1Char('X'));
         button(soloID, c, 100, QLatin1Char('C'));
     }
@@ -4878,7 +4841,7 @@ void ShowCommandRecorder_Test::timelineRollback()
         b->start(doc.masterTimer(), FunctionParent::master());
         tickAndDeliver(&doc, 2);
     }
-    const int sliderFrameID = bridge.addFrame(0, QRect(0, 110, 400, 220), QStringLiteral("Faders"), false);
+    const int sliderFrameID = addFrame(bridge, 0, QRect(0, 110, 400, 220), QStringLiteral("Faders"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), sliderFrameID, d->id());
     QVERIFY(slider);
     controls.insert(QLatin1Char('S'), slider);
@@ -5093,7 +5056,7 @@ void ShowCommandRecorder_Test::timelineRollback_sliderZeroReleaseKeepsLiveButton
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(slider);
@@ -5167,7 +5130,7 @@ void ShowCommandRecorder_Test::timelineRollback_sliderZeroRollbackReappliesAcros
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
 
@@ -5274,6 +5237,7 @@ void ShowCommandRecorder_Test::vdjAdoption_firstFreshSampleBeginsTheTraversal()
     const auto deck = [&](const char *trigger, const QVariant &value) {
         QVERIFY(QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, 0),
                                           Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+        QVERIFY(QMetaObject::invokeMethod(&bridge, "onTickEnded"));
     };
     const auto performOff = qScopeGuard([&]() {
         bridge.setPerformMode(false);
@@ -5284,8 +5248,8 @@ void ShowCommandRecorder_Test::vdjAdoption_firstFreshSampleBeginsTheTraversal()
     });
     bridge.showFactory()->registerMapping(QStringLiteral("/music/adopted.mp3"), show->id());
     deck("get_filepath", QStringLiteral("/music/adopted.mp3"));
-    QVERIFY(QMetaObject::invokeMethod(&bridge, "onGlobalTrigger", Q_ARG(QString, QStringLiteral("masterdeck")),
-                                      Q_ARG(QVariant, QVariant(QStringLiteral("on")))));
+    deck("loaded", QStringLiteral("on"));
+    deck("masterdeck", QStringLiteral("on"));
     deck("get_time elapsed absolute", double(elapsedAtPlay));
     bridge.setPerformMode(true);
     // Live: the bridge adopts the Show and starts it at the deck's position
@@ -5320,7 +5284,7 @@ void ShowCommandRecorder_Test::jump_soloIntervalRunsSerially()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int soloID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
+    const int soloID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
     VCButton *buttonA = addToggle(bridge, ui.vc(), soloID, a->id(), 10, QStringLiteral("A"));
     VCButton *buttonB = addToggle(bridge, ui.vc(), soloID, b->id(), 100, QStringLiteral("B"));
     QVERIFY(buttonA);
@@ -5379,7 +5343,7 @@ void ShowCommandRecorder_Test::seek_backwardRollsBackOnlyItsWindow()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *buttonA = addToggle(bridge, ui.vc(), frameID, a->id(), 10, QStringLiteral("A"));
     VCButton *buttonB = addToggle(bridge, ui.vc(), frameID, b->id(), 100, QStringLiteral("B"));
     VCButton *buttonC = addToggle(bridge, ui.vc(), frameID, c->id(), 190, QStringLiteral("C"));
@@ -5469,7 +5433,7 @@ void ShowCommandRecorder_Test::jump_mixedTieAtDestinationRunsOnceInOrder()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(slider);
     const auto position = [slider](quint32 id, quint32 time, qreal value) {
@@ -5527,7 +5491,7 @@ void ShowCommandRecorder_Test::jump_soloSliderHistoryEndsLikeNative()
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
     // S shares B's Solo Frame
-    const int soloID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
+    const int soloID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), soloID, a->id());
     VCButton *buttonB = addToggle(bridge, ui.vc(), soloID, b->id(), 10, QStringLiteral("B"));
     QVERIFY(slider);
@@ -5597,7 +5561,7 @@ void ShowCommandRecorder_Test::jump_intervalLag()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *buttonA = addToggle(bridge, ui.vc(), frameID, a->id(), 10, QStringLiteral("A"));
     VCButton *lastButton = addToggle(bridge, ui.vc(), frameID, last->id(), 100, QStringLiteral("Last"));
     QVERIFY(buttonA && lastButton);
@@ -5671,7 +5635,7 @@ void ShowCommandRecorder_Test::play_stoppedCaptureAtCursorReplays()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     Scene *other = new Scene(&doc);
     other->setValue(SceneValue(scene->values().first().fxi, 1, 120));
@@ -5727,7 +5691,7 @@ void ShowCommandRecorder_Test::play_liveInputAfterColdPlayDoesNotEcho()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *later = addToggle(bridge, ui.vc(), frameID, scene->id(), 100, QStringLiteral("Later"));
     QVERIFY(later);
 
@@ -5793,7 +5757,7 @@ void ShowCommandRecorder_Test::play_liveInputAfterRunningRestartDoesNotEcho()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *later = addToggle(bridge, ui.vc(), frameID, scene->id(), 100, QStringLiteral("Later"));
     Scene *target = new Scene(&doc);
     target->setValue(SceneValue(scene->values().first().fxi, 1, 120));
@@ -5911,7 +5875,7 @@ void ShowCommandRecorder_Test::seek_liveInputAfterRequestedSeekDoesNotEcho()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *later = addToggle(bridge, ui.vc(), frameID, scene->id(), 190, QStringLiteral("Later"));
     const auto addScene = [&](int channel) {
         Scene *function = new Scene(&doc);
@@ -6015,8 +5979,8 @@ void ShowCommandRecorder_Test::retiredRunner_endsAtItsClaimedOperation()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int solo = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
-    const int frameID = bridge.addFrame(0, QRect(0, 310, 400, 300), QStringLiteral("Frame"), false);
+    const int solo = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
+    const int frameID = addFrame(bridge, 0, QRect(0, 310, 400, 300), QStringLiteral("Frame"), false);
     VCButton *liveButton = addToggle(bridge, ui.vc(), solo, live->id(), 10, QStringLiteral("Live"));
     VCButton *oldButton = addToggle(bridge, ui.vc(), solo, old->id(), 100, QStringLiteral("Old"));
     VCButton *later = addToggle(bridge, ui.vc(), frameID, claimed->id(), 10, QStringLiteral("Later"));
@@ -6112,8 +6076,8 @@ void ShowCommandRecorder_Test::retiredRunner_guiRestartDuringClaimedOperation_re
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int solo = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
-    const int frameID = bridge.addFrame(0, QRect(0, 310, 400, 300), QStringLiteral("Frame"), false);
+    const int solo = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Solo"), true);
+    const int frameID = addFrame(bridge, 0, QRect(0, 310, 400, 300), QStringLiteral("Frame"), false);
     VCButton *liveButton = addToggle(bridge, ui.vc(), solo, live->id(), 10, QStringLiteral("Live"));
     VCButton *oldButton = addToggle(bridge, ui.vc(), solo, old->id(), 100, QStringLiteral("Old"));
     VCButton *later = addToggle(bridge, ui.vc(), frameID, adjusted->id(), 10, QStringLiteral("Later"));
@@ -6249,7 +6213,7 @@ void ShowCommandRecorder_Test::play_armedAcrossPlayReplaysCursorCaptures()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("A"));
     VCButton *later = addToggle(bridge, ui.vc(), frameID, target->id(), 100, QStringLiteral("Later"));
     QVERIFY(button && later);
@@ -6321,7 +6285,7 @@ void ShowCommandRecorder_Test::pause_keepsVcStartedFunctions_resumeRunsNoHistory
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
 
@@ -6397,7 +6361,7 @@ void ShowCommandRecorder_Test::resume_afterPausedMove_jumpsWithoutStopping()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *buttonA = addToggle(bridge, ui.vc(), frameID, a->id(), 10, QStringLiteral("A"));
     VCButton *buttonB = addToggle(bridge, ui.vc(), frameID, b->id(), 100, QStringLiteral("B"));
     QVERIFY(buttonA && buttonB);
@@ -6517,7 +6481,7 @@ void ShowCommandRecorder_Test::userRequest_waitsBehindCrossedReplayOnItsControl(
     recorder.setVirtualConsole(ui.vc());
     recorder.setResolvedShow(show->id());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *replayed = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Replayed"));
     VCButton *other = addToggle(bridge, ui.vc(), frameID, unrelated->id(), 100, QStringLiteral("Other"));
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
@@ -6597,10 +6561,10 @@ void ShowCommandRecorder_Test::userRequest_independentSliderRespondsAtOnce()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *replayed = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Replayed"));
     VCSlider *first = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
-    VCSlider *second = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
+    VCSlider *second = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId(), 280);
     QVERIFY(replayed && first && second);
     first->setSliderMode(VCSlider::Level);
     first->addLevelChannel(fixtureID, 1);
@@ -6784,7 +6748,7 @@ void ShowCommandRecorder_Test::userRequest_survivesReplayCancelNotWorkspaceReset
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
     QVERIFY(slider);
     slider->setSliderMode(VCSlider::Level);
@@ -6828,19 +6792,17 @@ void ShowCommandRecorder_Test::userRequest_survivesReplayCancelNotWorkspaceReset
     }
 }
 
-void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay_data()
+void ShowCommandRecorder_Test::recArmedUserInput_replacesTheReplayOfItsControl_data()
 {
     QTest::addColumn<bool>("button");
-    QTest::addColumn<bool>("waits");
 
-    QTest::newRow("adjust slider") << false << true;
-    QTest::newRow("toggle button") << true << true;
+    QTest::newRow("adjust slider") << false;
+    QTest::newRow("toggle button") << true;
 }
 
-void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay()
+void ShowCommandRecorder_Test::recArmedUserInput_replacesTheReplayOfItsControl()
 {
     QFETCH(bool, button);
-    QFETCH(bool, waits);
 
     Doc doc(nullptr, 1);
     UiFixture ui(&doc);
@@ -6852,7 +6814,7 @@ void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *toggle = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, scene->id());
     QVERIFY(toggle && slider);
@@ -6875,12 +6837,13 @@ void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay()
         timer->timerTick();
     QCOMPARE(batches.count(), 1);
 
-    // recorded at acceptance, then ordered behind the crossed replay like any request
+    // recorded and executed at acceptance: the crossed replay of the control it
+    // touches is replaced, never waited for
     if (button)
         toggle->requestUserStateChange(true);
     else
         slider->requestUserValue(140);
-    QCOMPARE(recorder.pendingUserRequests().count(), waits ? 1 : 0);
+    QCOMPARE(recorder.pendingUserRequests().count(), 0);
     QCOMPARE(show->commandTrack().count(), 2);
 
     tickAndDeliver(&doc, 8);
@@ -6889,7 +6852,8 @@ void ShowCommandRecorder_Test::recArmedUserInput_waitsBehindCoupledReplay()
         QCOMPARE(toggle->state(), VCButton::Active);
     else
         QCOMPARE(slider->value(), 140);
-    QCOMPARE(show->commandTrack().count(), 2);
+    QCOMPARE(show->commandTrack().count(), 1);
+    QVERIFY(show->commandTrack().commands().first().id != 0);
 
     QVERIFY(recorder.setRecording(false));
     show->stop(FunctionParent::master());
@@ -6912,7 +6876,7 @@ void ShowCommandRecorder_Test::resume_externalShowAfterPausedMove_keepsItsTraver
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
 
@@ -6986,7 +6950,7 @@ void ShowCommandRecorder_Test::pausing_showsOwedCrossedWorkUntilDrained()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     QVERIFY(button);
 
@@ -7084,7 +7048,7 @@ void ShowCommandRecorder_Test::ignoredExternalSeek_keepsCrossedWork()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Target"));
     VCButton *laterButton = addToggle(bridge, ui.vc(), frameID, later->id(), 100, QStringLiteral("Later"));
     QVERIFY(button && laterButton);
@@ -7196,7 +7160,7 @@ struct RequestRig
         doc.addFunction(show);
         recorder.setVirtualConsole(ui.vc());
         recorder.setResolvedShow(show->id());
-        frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Requests"), false);
+        frame = addFrame(bridge, 0, QRect(0, 0, 660, 300), QStringLiteral("Requests"), false);
         ba = addToggle(bridge, ui.vc(), frame, a->id(), 10, QStringLiteral("A"));
         bb = addToggle(bridge, ui.vc(), frame, b->id(), 100, QStringLiteral("B"));
         slider = addAdjustSlider(bridge, ui.vc(), frame, a->id());
@@ -7260,8 +7224,9 @@ void ShowCommandRecorder_Test::claimedOperation_sourceSwitchRunsNoStaleWork()
         r.show->requestSeek(0);
         if (boundary == QLatin1String("switch"))
         {
+            // the runner ends this tick on the clock it began with, one tick past the jump
             r.show->setSyncSource(ShowRunner::External);
-            r.show->setExternalElapsedTime(200);
+            r.show->setExternalElapsedTime(200 + MasterTimer::tick());
         }
     }, Qt::DirectConnection);
     r.show->start(r.doc.masterTimer(), FunctionParent::master());
@@ -7639,7 +7604,7 @@ void ShowCommandRecorder_Test::acceptedButtonInput_recordsDesiredState()
     VCButton *b = r.bb;
     if (rig == QLatin1String("solo"))
     {
-        const int soloID = r.bridge.addFrame(0, QRect(0, 310, 400, 100), QStringLiteral("Solo"), true);
+        const int soloID = addFrame(r.bridge, 0, QRect(0, 310, 400, 100), QStringLiteral("Solo"), true);
         a = addToggle(r.bridge, r.ui.vc(), soloID, r.a->id(), 10, QStringLiteral("Solo A"));
         b = addToggle(r.bridge, r.ui.vc(), soloID, r.b->id(), 100, QStringLiteral("Solo B"));
         QVERIFY(a && b);
@@ -8924,7 +8889,7 @@ void ShowCommandRecorder_Test::typedDraft_nativeMetadataRefusesWholeCandidate()
     VCAnimation *secondControl = animation;
     if (edge.startsWith("second"))
     {
-        secondControl = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+        secondControl = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id(), QPoint(10, 70));
         QVERIFY(secondControl);
         color.controlId = secondControl->ensureRecordingId();
     }
@@ -8955,7 +8920,7 @@ void ShowCommandRecorder_Test::typedDraft_nativeMetadataRefusesWholeCandidate()
         secondControl->setFunctionID(Function::invalidId());
     if (edge == "second ambiguous")
     {
-        auto *duplicate = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id());
+        auto *duplicate = addAnimation(r.bridge, r.ui.vc(), r.frame, matrix->id(), QPoint(270, 10));
         QVERIFY(duplicate);
         QVERIFY(loadRecordingId(duplicate, secondControl->recordingId()));
     }
@@ -10918,7 +10883,7 @@ void ShowCommandRecorder_Test::xyPadPosition_replayMatchesDirectNativeOutputFrac
         ShowCommandRecorder recorder(&doc);
         recorder.setVirtualConsole(ui.vc());
         VCBridgeV5 bridge(&doc, ui.vc());
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
         VCXYPad *pad = addXYPad(bridge, ui.vc(), frameID);
         QVERIFY(pad);
 
@@ -10958,7 +10923,7 @@ void ShowCommandRecorder_Test::xyPadPosition_replayMatchesDirectNativeOutputFrac
         ShowCommandRecorder recorder(&doc);
         recorder.setVirtualConsole(ui.vc());
         VCBridgeV5 bridge(&doc, ui.vc());
-        const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
+        const int frameID = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
         VCXYPad *pad = addXYPad(bridge, ui.vc(), frameID);
         QVERIFY(pad);
 
@@ -12757,7 +12722,7 @@ void ShowCommandRecorder_Test::replayedXYPosition_deleteWhileTimerThreadWriting_
     Scene *a = addTarget(&doc);
     QVERIFY(a);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Threaded delete"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Threaded delete"), false);
     VCXYPad *pad = addXYPad(bridge, ui.vc(), frame);
     QVERIFY(pad);
 
@@ -13014,7 +12979,7 @@ void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
     {
         const ShowCommandOrigin route = ShowCommandOrigin(origin);
         VCButton *flash = qobject_cast<VCButton *>(r.ui.vc()->widget(
-            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), r.a->id(), QStringLiteral("Flash"),
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 48), r.a->id(), QStringLiteral("Flash"),
                                QStringLiteral("flash"))));
         QVERIFY(flash);
         flash->requestUserStateChange(true, route);
@@ -13024,7 +12989,7 @@ void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
     else if (input == QLatin1String("blackout button"))
     {
         VCButton *blackout = qobject_cast<VCButton *>(r.ui.vc()->widget(
-            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), Function::invalidId(),
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 48), Function::invalidId(),
                                QStringLiteral("Blackout"), QStringLiteral("blackout"))));
         QVERIFY(blackout);
         blackout->requestUserStateChange(true);
@@ -13035,7 +13000,7 @@ void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
     else if (input == QLatin1String("freeze button"))
     {
         VCButton *freeze = qobject_cast<VCButton *>(r.ui.vc()->widget(
-            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), Function::invalidId(),
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 48), Function::invalidId(),
                                QStringLiteral("Freeze"), QStringLiteral("freeze"))));
         QVERIFY(freeze);
         freeze->requestUserStateChange(true);
@@ -13046,7 +13011,7 @@ void ShowCommandRecorder_Test::unsupportedInput_reportsAndStaysLive()
     else if (input == QLatin1String("freeze hold button"))
     {
         VCButton *freezeHold = qobject_cast<VCButton *>(r.ui.vc()->widget(
-            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), Function::invalidId(),
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 48), Function::invalidId(),
                                QStringLiteral("Freeze hold"), QStringLiteral("freezehold"))));
         QVERIFY(freezeHold);
         freezeHold->requestUserStateChange(true);
@@ -13102,12 +13067,12 @@ void ShowCommandRecorder_Test::flashMixedIngressOverlap_recordsExactTimesAndOrde
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Mixed ingress overlap"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Mixed ingress overlap"), false);
     auto *flashA = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash A"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash A"),
                          QStringLiteral("flash"))));
     auto *flashB = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(100, 10, 80, 40), target->id(), QStringLiteral("Flash B"),
+        bridge.addButton(frame, QRect(100, 10, 80, 48), target->id(), QStringLiteral("Flash B"),
                          QStringLiteral("flash"))));
     QVERIFY(flashA && flashB);
 
@@ -13145,9 +13110,10 @@ void ShowCommandRecorder_Test::flashMixedIngressOverlap_recordsExactTimesAndOrde
     QVERIFY(pairA != pairB);
     QCOMPARE(commands.at(2).pairId, pairA);
     QCOMPARE(commands.at(3).pairId, pairB);
-    QVERIFY(commands.at(0).id < commands.at(1).id);
-    QVERIFY(commands.at(1).id < commands.at(2).id);
-    QVERIFY(commands.at(2).id < commands.at(3).id);
+    // a hold takes its ids when it ends: A's edges before B's
+    QVERIFY(commands.at(0).id < commands.at(2).id);
+    QVERIFY(commands.at(2).id < commands.at(1).id);
+    QVERIFY(commands.at(1).id < commands.at(3).id);
 }
 
 void ShowCommandRecorder_Test::sliderFlashReplay_restoresRuntimePreFlashValue()
@@ -13233,9 +13199,9 @@ void ShowCommandRecorder_Test::holdCapture_assignsPairAndPersistsXml()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Pair hold"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Pair hold"), false);
     auto *button = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold"), action)));
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Hold"), action)));
     QVERIFY(button);
 
     QVERIFY(recorder.setRecording(true));
@@ -13303,19 +13269,19 @@ void ShowCommandRecorder_Test::seekInsideHold_appliesOnlyCurrentHoldState()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Seek hold"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Seek hold"), false);
     VCButton *button = nullptr;
     VCSlider *slider = nullptr;
     qreal sliderBaseline = 0;
     if (control == QLatin1String("flash"))
     {
         button = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
+            bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
     }
     else if (control == QLatin1String("freezehold"))
     {
         button = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+            bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze hold"),
                              QStringLiteral("freezehold"))));
     }
     else
@@ -13415,7 +13381,7 @@ void ShowCommandRecorder_Test::freshStartInsideHold_sliderFlashRestoresRuntimeBa
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Fresh start slider flash"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Fresh start slider flash"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
     QVERIFY(slider != nullptr);
     slider->setAdjustFlashEnabled(true);
@@ -13479,18 +13445,18 @@ void ShowCommandRecorder_Test::replayedGlobalButtons_applyDesiredStatesAndFreeze
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Globals"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Globals"), false);
     auto *blackout = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Blackout"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Blackout"),
                          QStringLiteral("blackout"))));
     auto *freeze = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(100, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze"),
+        bridge.addButton(frame, QRect(100, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze"),
                          QStringLiteral("freeze"))));
     auto *holdA = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(190, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold A"),
+        bridge.addButton(frame, QRect(190, 10, 80, 48), Function::invalidId(), QStringLiteral("Hold A"),
                          QStringLiteral("freezehold"))));
     auto *holdB = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(280, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold B"),
+        bridge.addButton(frame, QRect(280, 10, 80, 48), Function::invalidId(), QStringLiteral("Hold B"),
                          QStringLiteral("freezehold"))));
     QVERIFY(blackout && freeze && holdA && holdB);
 
@@ -13562,9 +13528,9 @@ void ShowCommandRecorder_Test::recOff_closesFreezeHoldWithoutCapturingLaterRelea
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("REC off hold"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("REC off hold"), false);
     auto *hold = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze hold"),
                          QStringLiteral("freezehold"))));
     QVERIFY(hold);
 
@@ -13618,19 +13584,19 @@ void ShowCommandRecorder_Test::pause_replayFlashHoldStaysActiveUntilResumeReleas
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Pause hold"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Pause hold"), false);
     VCButton *button = nullptr;
     VCSlider *slider = nullptr;
     qreal sliderBaseline = 0;
     if (control == QLatin1String("flash"))
     {
         button = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
+            bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
     }
     else if (control == QLatin1String("freezehold"))
     {
         button = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+            bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze hold"),
                              QStringLiteral("freezehold"))));
     }
     else
@@ -13729,11 +13695,11 @@ void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFlash()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop flash ownership"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Stop flash ownership"), false);
     auto *replayFlash = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Replay flash"), QStringLiteral("flash"))));
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Replay flash"), QStringLiteral("flash"))));
     auto *manualFlash = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(100, 10, 80, 40), target->id(), QStringLiteral("Manual flash"), QStringLiteral("flash"))));
+        bridge.addButton(frame, QRect(100, 10, 80, 48), target->id(), QStringLiteral("Manual flash"), QStringLiteral("flash"))));
     QVERIFY(replayFlash && manualFlash);
 
     QVERIFY(recorder.setRecording(true));
@@ -13795,9 +13761,9 @@ void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedSliderFlash()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop slider flash ownership"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Stop slider flash ownership"), false);
     VCSlider *replaySlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
-    VCSlider *manualSlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+    VCSlider *manualSlider = addAdjustSlider(bridge, ui.vc(), frame, target->id(), 280);
     QVERIFY(replaySlider != nullptr);
     QVERIFY(manualSlider != nullptr);
     replaySlider->setAdjustFlashEnabled(true);
@@ -13854,7 +13820,7 @@ void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedSliderFlash()
     }
 }
 
-void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen_data()
+void ShowCommandRecorder_Test::checkpoint_midHoldSavesTheHoldSoFar_data()
 {
     QTest::addColumn<QString>("control");
     QTest::newRow("freezehold") << QStringLiteral("freezehold");
@@ -13862,7 +13828,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLi
     QTest::newRow("sliderflash") << QStringLiteral("sliderflash");
 }
 
-void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen()
+void ShowCommandRecorder_Test::checkpoint_midHoldSavesTheHoldSoFar()
 {
     QFETCH(QString, control);
 
@@ -13878,19 +13844,19 @@ void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLi
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Save mid hold"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Save mid hold"), false);
     VCButton *hold = nullptr;
     VCSlider *slider = nullptr;
     if (control == QLatin1String("freezehold"))
     {
         hold = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+            bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze hold"),
                              QStringLiteral("freezehold"))));
     }
     else if (control == QLatin1String("flash"))
     {
         hold = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"),
+            bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"),
                              QStringLiteral("flash"))));
     }
     else
@@ -13912,19 +13878,13 @@ void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLi
         slider->requestUserFlash(true);
     tickAndDeliver(&doc, 2);
 
-    const QVector<ShowCommand> beforeCheckpoint = show->commandTrack().commands();
-    QCOMPARE(beforeCheckpoint.count(), 1);
-    QVERIFY(beforeCheckpoint.at(0).on);
-    QVERIFY(beforeCheckpoint.at(0).pairId != ShowCommand::InvalidId);
-    const quint32 pairId = beforeCheckpoint.at(0).pairId;
+    // a hold is in the track once it ends
+    QVERIFY(show->commandTrack().commands().isEmpty());
 
     show->setExternalElapsedTime(12000);
     QVERIFY(recorder.checkpoint());
     tickAndDeliver(&doc, 2);
-
-    const QVector<ShowCommand> liveDuringHold = show->commandTrack().commands();
-    QCOMPARE(liveDuringHold.count(), 1);
-    QCOMPARE(liveDuringHold.at(0).pairId, pairId);
+    QVERIFY(show->commandTrack().commands().isEmpty());
 
     QBuffer buffer;
     QVERIFY(buffer.open(QIODevice::WriteOnly));
@@ -13937,13 +13897,15 @@ void ShowCommandRecorder_Test::checkpoint_midHoldSavesTemporaryClosureAndKeepsLi
     QVERIFY(reader.readNextStartElement());
     Show loaded(&doc);
     QVERIFY(loaded.loadXML(reader));
+    // the save writes the hold up to the save
     const QVector<ShowCommand> checkpointCommands = loaded.commandTrack().commands();
     QCOMPARE(checkpointCommands.count(), 2);
     QVERIFY(checkpointCommands.at(0).on);
     QVERIFY(!checkpointCommands.at(1).on);
     QCOMPARE(checkpointCommands.at(0).time, 10000u);
     QCOMPARE(checkpointCommands.at(1).time, 12000u);
-    QCOMPARE(checkpointCommands.at(0).pairId, pairId);
+    const quint32 pairId = checkpointCommands.at(0).pairId;
+    QVERIFY(pairId != ShowCommand::InvalidId);
     QCOMPARE(checkpointCommands.at(1).pairId, pairId);
 
     show->setExternalElapsedTime(20000);
@@ -13998,7 +13960,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
     if (control == QLatin1String("freezehold"))
     {
         hold = qobject_cast<VCButton *>(r.ui.vc()->widget(
-            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze hold"),
                                QStringLiteral("freezehold"))));
     }
     else if (control == QLatin1String("flash"))
@@ -14096,25 +14058,30 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
     start.origin = ShowCommandOrigin::Pointer;
     start.action = ShowCommandAction::Start;
     start.functionId = goneId;
-    QVERIFY(r.recorder.submitUserInput(start));
+    // accepted for a target that is gone: it and what follows wait unpublished
     QVERIFY(r.doc.deleteFunction(goneId));
+    QVERIFY(!r.recorder.submitUserInput(start));
     r.show->setExternalElapsedTime(11500);
     r.slider->requestUserValue(77);
     const QVector<ShowCommand> beforeFailure = r.show->commandTrack().commands();
-    int holdOnIndex = -1;
-    bool sawMissingStart = false;
-    for (int i = 0; i < beforeFailure.count(); i++)
-    {
-        const ShowCommand &cmd = beforeFailure.at(i);
-        if (cmd.action == ShowCommandAction::SetButtonState && cmd.on && cmd.time == 10000u &&
-            cmd.pairId != ShowCommand::InvalidId)
-            holdOnIndex = i;
-        if (cmd.action == ShowCommandAction::Start && cmd.functionId == goneId && cmd.time == 11000u)
-            sawMissingStart = true;
-    }
-    QVERIFY(holdOnIndex >= 0);
-    QVERIFY(sawMissingStart);
-    const quint32 pairId = beforeFailure.at(holdOnIndex).pairId;
+    const QUuid holdControl = hold != nullptr ? hold->recordingId() : slider->recordingId();
+    // the edges of the held control in commands, as "on@time" and "off@time", one pair id between them
+    const auto holdEdges = [&holdControl](const QVector<ShowCommand> &commands) {
+        QStringList edges;
+        QSet<quint32> pairs;
+        for (const ShowCommand &cmd : commands)
+        {
+            if (cmd.action != ShowCommandAction::SetButtonState || cmd.controlId != holdControl)
+                continue;
+            edges.append(QStringLiteral("%1@%2").arg(cmd.on ? "on" : "off").arg(cmd.time));
+            pairs.insert(cmd.pairId);
+        }
+        return pairs.count() <= 1 ? edges.join(QLatin1Char(' ')) : QStringLiteral("pairs differ");
+    };
+    // a hold is in the track once it ends
+    QCOMPARE(holdEdges(beforeFailure), QString());
+    for (const ShowCommand &cmd : beforeFailure)
+        QVERIFY(cmd.action != ShowCommandAction::Start || cmd.functionId != goneId);
 
     r.show->setExternalElapsedTime(12000);
     QVERIFY(!r.recorder.checkpoint());
@@ -14126,7 +14093,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
     QVERIFY(r.recorder.checkpoint());
     const QVector<ShowCommand> liveAfterRetry = r.show->commandTrack().commands();
     QVERIFY(!liveAfterRetry.isEmpty());
-    QCOMPARE(liveAfterRetry.count(), beforeFailure.count() + 1);
+    QCOMPARE(liveAfterRetry.count(), beforeFailure.count() + 2);
     for (int i = 0; i < beforeFailure.count(); ++i)
     {
         QCOMPARE(liveAfterRetry[i], beforeFailure[i]);
@@ -14157,29 +14124,17 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
         QCOMPARE(found->order, accepted.order);
         QCOMPARE(found->pairId, accepted.pairId);
     }
-    bool sawProjectedClosure = false;
     bool sawStart = false;
-    bool sawLiveProjectedClosure = false;
     for (const ShowCommand &cmd : saved.commands())
     {
-        if (cmd.action == ShowCommandAction::SetButtonState &&
-            cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
-            cmd.pairId == pairId && !cmd.on && cmd.time == 12000u)
-            sawProjectedClosure = true;
         if (cmd.action == ShowCommandAction::Start && cmd.functionId == goneId &&
             cmd.time == 11000u)
             sawStart = true;
     }
-    for (const ShowCommand &cmd : liveAfterRetry)
-    {
-        if (cmd.action == ShowCommandAction::SetButtonState &&
-            cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
-            cmd.pairId == pairId && !cmd.on && cmd.time == 12000u)
-            sawLiveProjectedClosure = true;
-    }
-    QVERIFY(sawProjectedClosure);
+    // saved up to the save, still held live
+    QCOMPARE(holdEdges(saved.commands()), QStringLiteral("on@10000 off@12000"));
     QVERIFY(sawStart);
-    QVERIFY(!sawLiveProjectedClosure);
+    QCOMPARE(holdEdges(liveAfterRetry), QString());
 
     r.show->setExternalElapsedTime(20000);
     if (hold != nullptr)
@@ -14197,14 +14152,7 @@ void ShowCommandRecorder_Test::checkpoint_midHoldFailedSaveRetry_keepsOpenState(
         QCOMPARE(*found, accepted);
         QCOMPARE(found->order, accepted.order);
     }
-    bool sawLiveRelease = false;
-    for (const ShowCommand &cmd : liveAfterRelease)
-    {
-        if (cmd.action == ShowCommandAction::SetButtonState && cmd.controlId == beforeFailure.at(holdOnIndex).controlId &&
-            cmd.pairId == pairId && !cmd.on && cmd.time == 20000u)
-            sawLiveRelease = true;
-    }
-    QVERIFY(sawLiveRelease);
+    QCOMPARE(holdEdges(liveAfterRelease), QStringLiteral("on@10000 off@20000"));
 }
 
 void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFreezeHold_data()
@@ -14229,12 +14177,12 @@ void ShowCommandRecorder_Test::replayStop_releasesOnlyReplayOwnedFreezeHold()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop ownership"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Stop ownership"), false);
     auto *replayHold = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Replay hold"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Replay hold"),
                          QStringLiteral("freezehold"))));
     auto *manualHold = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(100, 10, 80, 40), Function::invalidId(), QStringLiteral("Manual hold"),
+        bridge.addButton(frame, QRect(100, 10, 80, 48), Function::invalidId(), QStringLiteral("Manual hold"),
                          QStringLiteral("freezehold"))));
     QVERIFY(replayHold && manualHold);
 
@@ -14290,9 +14238,9 @@ void ShowCommandRecorder_Test::replayStop_doesNotRollbackValues_butBackwardSeekD
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop value ownership"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Stop value ownership"), false);
     VCSlider *replaySlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
-    VCSlider *manualSlider = addAdjustSlider(bridge, ui.vc(), frame, target->id());
+    VCSlider *manualSlider = addAdjustSlider(bridge, ui.vc(), frame, target->id(), 280);
     QVERIFY(replaySlider != nullptr);
     QVERIFY(manualSlider != nullptr);
 
@@ -14360,9 +14308,9 @@ void ShowCommandRecorder_Test::replayStop_releasesShowOwnedButtonStart_keepsManu
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop ownership"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Stop ownership"), false);
     auto *button = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), scene->id(), QStringLiteral("Replay toggle"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), scene->id(), QStringLiteral("Replay toggle"),
                          QStringLiteral("toggle"))));
     QVERIFY(button);
 
@@ -14433,9 +14381,9 @@ void ShowCommandRecorder_Test::replayStop_preservesUnownedGlobalLatches()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Stop global ownership"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Stop global ownership"), false);
     auto *hold = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Hold"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Hold"),
                          QStringLiteral("freezehold"))));
     QVERIFY(hold);
 
@@ -14484,9 +14432,9 @@ void ShowCommandRecorder_Test::liveFreezeSameValueIntent_survivesReplayStop()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Freeze override"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Freeze override"), false);
     auto *freeze = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze"),
                          QStringLiteral("freeze"))));
     QVERIFY(freeze);
 
@@ -14546,9 +14494,9 @@ void ShowCommandRecorder_Test::editingActiveReplayFreezeHold_releasesImmediately
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Edit active hold"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Edit active hold"), false);
     auto *hold = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze hold"),
                          QStringLiteral("freezehold"))));
     QVERIFY(hold);
 
@@ -14618,7 +14566,7 @@ void ShowCommandRecorder_Test::editingActiveReplayHoldEdits_releaseImmediately()
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Edit active hold"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Edit active hold"), false);
     VCButton *holdButton = nullptr;
     VCButton *flashButton = nullptr;
     VCSlider *flashSlider = nullptr;
@@ -14628,7 +14576,7 @@ void ShowCommandRecorder_Test::editingActiveReplayHoldEdits_releaseImmediately()
     if (control == QLatin1String("freezehold"))
     {
         holdButton = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(), QStringLiteral("Freeze hold"),
+            bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(), QStringLiteral("Freeze hold"),
                              QStringLiteral("freezehold"))));
         QVERIFY(holdButton);
     }
@@ -14636,7 +14584,7 @@ void ShowCommandRecorder_Test::editingActiveReplayHoldEdits_releaseImmediately()
     {
         target = addTarget(&doc);
         flashButton = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(10, 10, 80, 40), target->id(), QStringLiteral("Flash"),
+            bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"),
                              QStringLiteral("flash"))));
         QVERIFY(flashButton);
     }
@@ -14776,9 +14724,9 @@ void ShowCommandRecorder_Test::editingPlayedGlobalLatchEvents_areDataOnlyUntilBo
     show->setSyncSource(ShowRunner::External);
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Edit global latch"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Edit global latch"), false);
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(
-        bridge.addButton(frame, QRect(10, 10, 80, 40), Function::invalidId(),
+        bridge.addButton(frame, QRect(10, 10, 80, 48), Function::invalidId(),
                          control == QLatin1String("blackout") ? QStringLiteral("Blackout")
                                                                : QStringLiteral("Freeze"),
                          control)));
@@ -14862,9 +14810,9 @@ void ShowCommandRecorder_Test::holdPairSelection_requiresWholePair()
     RequestRig r;
     r.show->setSyncSource(ShowRunner::External);
     r.show->setExternalElapsedTime(0);
-    const int frame = r.bridge.addFrame(0, QRect(0, 0, 500, 200), QStringLiteral("Pair edits"), false);
+    const int frame = addFrame(r.bridge, 0, QRect(0, 310, 500, 200), QStringLiteral("Pair edits"), false);
     auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
-        r.bridge.addButton(frame, QRect(10, 10, 90, 40), r.a->id(), QStringLiteral("Flash"),
+        r.bridge.addButton(frame, QRect(10, 10, 90, 48), r.a->id(), QStringLiteral("Flash"),
                            QStringLiteral("flash"))));
     QVERIFY(button);
 
@@ -14912,42 +14860,14 @@ void ShowCommandRecorder_Test::holdPairSelection_requiresWholePair()
     }
 }
 
-void ShowCommandRecorder_Test::holdPairSelection_refusesMalformedPair()
-{
-    RequestRig r;
-    r.show->setSyncSource(ShowRunner::External);
-    const int frame = r.bridge.addFrame(0, QRect(0, 0, 500, 200), QStringLiteral("Malformed hold"), false);
-    auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
-        r.bridge.addButton(frame, QRect(10, 10, 90, 40), r.a->id(), QStringLiteral("Flash"),
-                           QStringLiteral("flash"))));
-    QVERIFY(button);
-
-    ShowCommandTrack malformed;
-    ShowCommand on = ShowCommand::setButtonState(10, 1000, button->ensureRecordingId(), true);
-    on.role = ShowControlRole::FlashButton;
-    on.pairId = 77;
-    QVERIFY(malformed.insert(on));
-    QVERIFY(malformed.setExtent(1000));
-    QVERIFY(r.show->setCommandTrack(malformed));
-
-    QVERIFY(!r.recorder.removeCommands(r.show->id(), {10u}));
-    QVERIFY(!r.recorder.lastError().isEmpty());
-    QVERIFY(!r.recorder.copyCommands(r.show->id(), {10u}));
-    QVERIFY(!r.recorder.lastError().isEmpty());
-    QVERIFY(!r.recorder.beginEditSession(r.show->id(), {10u}));
-    QVERIFY(!r.recorder.lastError().isEmpty());
-    QCOMPARE(r.show->commandTrack().count(), 1);
-    QCOMPARE(r.show->commandTrack().commands().at(0).pairId, 77u);
-}
-
 void ShowCommandRecorder_Test::holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem()
 {
     RequestRig r;
     r.show->setSyncSource(ShowRunner::External);
     r.show->setExternalElapsedTime(0);
-    const int frame = r.bridge.addFrame(0, QRect(0, 0, 500, 200), QStringLiteral("Pair paste"), false);
+    const int frame = addFrame(r.bridge, 0, QRect(0, 310, 500, 200), QStringLiteral("Pair paste"), false);
     auto *button = qobject_cast<VCButton *>(r.ui.vc()->widget(
-        r.bridge.addButton(frame, QRect(10, 10, 90, 40), r.a->id(), QStringLiteral("Flash"),
+        r.bridge.addButton(frame, QRect(10, 10, 90, 48), r.a->id(), QStringLiteral("Flash"),
                            QStringLiteral("flash"))));
     QVERIFY(button);
 
@@ -14982,6 +14902,1216 @@ void ShowCommandRecorder_Test::holdPairPaste_assignsFreshPairIdsAndUndoRedoKeeps
 
     QCOMPARE(pasted.at(2).id, pastedOnId);
     QCOMPARE(pasted.at(3).id, pastedOffId);
+}
+
+/** The hold pairs in track order as "press-release", an open one as "press-" */
+static QString holdSpans(const ShowCommandTrack &track)
+{
+    QStringList spans;
+    QHash<quint32, int> at;
+    for (const ShowCommand &cmd : track.commands())
+    {
+        if (cmd.action != ShowCommandAction::SetButtonState || cmd.pairId == ShowCommand::InvalidId)
+            continue;
+        if (cmd.on)
+        {
+            at.insert(cmd.pairId, spans.count());
+            spans.append(QString::number(cmd.time) + QLatin1Char('-'));
+        }
+        else
+        {
+            spans[at.value(cmd.pairId)] += QString::number(cmd.time);
+        }
+    }
+    return spans.join(QLatin1Char(' '));
+}
+
+void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload_data()
+{
+    QTest::addColumn<QString>("steps");
+    QTest::addColumn<QString>("live");
+    QTest::addColumn<QString>("saved");
+    QTest::addColumn<bool>("checkpoint"); // the workspace save checkpoints first; an autosave does not
+
+    const QString take = QStringLiteral("rec on, at 10000, press, at 12000, release, at 5000, ");
+    const QString both = QStringLiteral("6000-7000 10000-12000");
+    QTest::newRow("record pair") << QStringLiteral("rec on, at 1000, press, at 2000, release, rec off")
+                                 << QStringLiteral("1000-2000") << QStringLiteral("1000-2000") << true;
+    QTest::newRow("seek back, earlier pair") << take + QStringLiteral("at 6000, press, at 7000, release, rec off")
+                                             << both << both << true;
+    // a hold replaces what was recorded inside it; a recorded hold still on at its release resumes there
+    QTest::newRow("seek back, held into a later pair")
+        << take + QStringLiteral("at 6000, press, at 11000, release, rec off")
+        << QStringLiteral("6000-11000 11000-12000") << QStringLiteral("6000-11000 11000-12000") << true;
+    QTest::newRow("seek back, a tap inside a recorded hold")
+        << take + QStringLiteral("at 10500, press, at 11000, release, rec off")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000") << true;
+    QTest::newRow("seek back, REC off inside a recorded hold")
+        << take + QStringLiteral("at 10500, press, at 11000, rec off")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000")
+        << QStringLiteral("10000-10500 10500-11000 11000-12000") << true;
+    // a press cuts the recorded hold it lands in and starts its own
+    QTest::newRow("seek back, press inside a recorded hold")
+        << take + QStringLiteral("at 11000, press, at 13000, release, rec off")
+        << QStringLiteral("10000-11000 11000-13000") << QStringLiteral("10000-11000 11000-13000") << true;
+    QTest::newRow("seek back, REC off while held") << take + QStringLiteral("at 6000, press, at 8000, rec off")
+                                                   << QStringLiteral("6000-8000 10000-12000")
+                                                   << QStringLiteral("6000-8000 10000-12000") << true;
+    // a hold is in the track once it ends; the workspace save writes it up to the save
+    QTest::newRow("seek back, save while held") << take + QStringLiteral("at 6000, press, at 8000")
+                                                << QStringLiteral("10000-12000")
+                                                << QStringLiteral("6000-8000 10000-12000") << true;
+    // an autosave writes the recording as it is: only the hold in progress is missing
+    QTest::newRow("seek back, autosave while held inside a recorded hold")
+        << take + QStringLiteral("at 10500, press, at 11000") << QStringLiteral("10000-12000")
+        << QStringLiteral("10000-12000") << false;
+    QTest::newRow("covering two holds")
+        << QStringLiteral("rec on, at 2000, press, at 3000, release, at 4000, press, at 5000, release, at 0, at 1000, "
+                          "press, at 6000, release, rec off")
+        << QStringLiteral("1000-6000") << QStringLiteral("1000-6000") << true;
+    QTest::newRow("starting before a hold, ending inside it")
+        << QStringLiteral("rec on, at 2000, press, at 4000, release, at 0, at 1000, press, at 3000, release, rec off")
+        << QStringLiteral("1000-3000 3000-4000") << QStringLiteral("1000-3000 3000-4000") << true;
+    QTest::newRow("second press while held")
+        << QStringLiteral("rec on, at 1000, press, at 1500, press, at 2000, release, rec off")
+        << QStringLiteral("1000-2000") << QStringLiteral("1000-2000") << true;
+    QTest::newRow("two wraps while held")
+        << QStringLiteral("rec on, at 5000, press, at 6000, at 0, at 6000, at 0, at 1000, release, rec off")
+        << QStringLiteral("0-1000 1000-6000") << QStringLiteral("0-1000 1000-6000") << true;
+    QTest::newRow("REC off and on while held")
+        << QStringLiteral("rec on, at 1000, press, at 2000, rec off, at 3000, rec on, at 4000, release, rec off")
+        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
+    // another take on the same Show goes on with the hold
+    QTest::newRow("Perform engages on the Show while held")
+        << QStringLiteral("rec on, at 1000, press, at 2000, perform, at 3000, release, rec off")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
+    QTest::newRow("Perform engages on the Show while held, then REC off")
+        << QStringLiteral("rec on, at 1000, press, at 2000, perform, at 3000, rec off, at 4000, release")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
+    QTest::newRow("Perform ends onto the Show while held")
+        << QStringLiteral("perform, rec on, at 1000, press, at 2000, perform off, at 3000, release, rec off")
+        << QStringLiteral("1000-3000") << QStringLiteral("1000-3000") << true;
+    // held across a move back: it ends at the departure and starts again at the arrival
+    QTest::newRow("loop back while held, REC off")
+        << QStringLiteral("rec on, at 10000, press, at 5000, at 6000, release, rec off")
+        << QStringLiteral("5000-6000 10000-10000") << QStringLiteral("5000-6000 10000-10000") << true;
+    const QString deleted = QStringLiteral("rec on, at 1000, press, at 2000, release, rec off, delete, ");
+    const QString again = QStringLiteral("rec on, at 3000, press, at 4000, release, rec off, ");
+    QTest::newRow("undo a deletion after a new hold") << deleted + again + QStringLiteral("undo")
+                                                      << QStringLiteral("1000-2000 3000-4000")
+                                                      << QStringLiteral("1000-2000 3000-4000") << true;
+    QTest::newRow("redo the deletion") << deleted + again + QStringLiteral("undo, redo")
+                                       << QStringLiteral("3000-4000") << QStringLiteral("3000-4000") << true;
+    QTest::newRow("undo a deletion after the Show was restored")
+        << deleted + QStringLiteral("restore, ") + again + QStringLiteral("undo")
+        << QStringLiteral("1000-2000 3000-4000") << QStringLiteral("1000-2000 3000-4000") << true;
+    // saved without a checkpoint, the hold in progress is not in the file
+    QTest::newRow("save while held, no checkpoint") << QStringLiteral("rec on, at 6000, press, at 8000")
+                                                    << QString() << QString() << false;
+}
+
+void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
+{
+    QFETCH(QString, steps);
+    QFETCH(QString, live);
+    QFETCH(QString, saved);
+    QFETCH(bool, checkpoint);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    Scene *target = addTarget(&doc);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    const quint32 showId = show->id();
+    show->setSyncSource(ShowRunner::External);
+    recorder.setResolvedShow(showId);
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Hold pairs"), false);
+    auto *button = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"), QStringLiteral("flash"))));
+    QVERIFY(button);
+
+    const auto saveShow = [](const Show *saving) {
+        QBuffer buffer;
+        buffer.open(QIODevice::WriteOnly);
+        QXmlStreamWriter writer(&buffer);
+        saving->saveXML(&writer);
+        return buffer.data();
+    };
+    const auto loadShow = [](const QByteArray &xml, Doc *into) {
+        QXmlStreamReader reader(xml);
+        reader.readNextStartElement();
+        return Function::loader(reader, into);
+    };
+    ShowCommandEdit deletion;
+    deletion.showId = showId;
+    for (const QString &step : steps.split(QStringLiteral(", ")))
+    {
+        if (step.startsWith(QLatin1String("at ")))
+            show->setExternalElapsedTime(step.mid(3).toUInt());
+        else if (step == QLatin1String("press") || step == QLatin1String("release"))
+            button->requestUserStateChange(step == QLatin1String("press"));
+        else if (step.startsWith(QLatin1String("rec ")))
+            QVERIFY2(recorder.setRecording(step == QLatin1String("rec on")), qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("delete"))
+        {
+            // the first hold, as one editor step
+            QVariantList ids;
+            for (const ShowCommand &cmd : show->commandTrack().commands())
+            {
+                if (cmd.pairId != show->commandTrack().commands().first().pairId)
+                    continue;
+                ids.append(cmd.id);
+                ShowCommandEditEntry entry;
+                entry.id = cmd.id;
+                entry.hasBefore = true;
+                entry.before = cmd;
+                deletion.entries.append(entry);
+            }
+            QVERIFY2(recorder.removeCommands(showId, ids), qPrintable(recorder.lastError()));
+        }
+        else if (step == QLatin1String("undo") || step == QLatin1String("redo"))
+            QVERIFY2(recorder.applyHistoryEdit(QVariant::fromValue(deletion), step == QLatin1String("undo")),
+                     qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("perform"))
+            QVERIFY(recorder.setResolvedShow(showId, ShowRecordSource::Perform));
+        else if (step == QLatin1String("perform off"))
+            recorder.releasePerform();
+        else
+        {
+            // native undo of its deletion brings the Show back from its XML
+            const QByteArray xml = saveShow(show);
+            QVERIFY(doc.deleteFunction(showId));
+            QVERIFY(loadShow(xml, &doc));
+            show = qobject_cast<Show *>(doc.function(showId));
+            QVERIFY(show);
+            show->setSyncSource(ShowRunner::External);
+            // the Show Manager shows it again
+            QVERIFY(recorder.setResolvedShow(showId));
+        }
+        tickAndDeliver(&doc);
+    }
+    QCOMPARE(holdSpans(show->commandTrack()), live);
+    QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
+
+    // the workspace save: a hold still held is recorded in the saved snapshot only
+    if (checkpoint)
+        QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+    Doc reloaded(nullptr, 1);
+    QVERIFY(loadShow(saveShow(show), &reloaded));
+    auto *copy = qobject_cast<Show *>(reloaded.function(showId));
+    QVERIFY(copy);
+    QCOMPARE(holdSpans(copy->commandTrack()), saved);
+    QVERIFY(copy->commandTrack().malformedHoldPairs().isEmpty());
+    QCOMPARE(holdSpans(show->commandTrack()), live);
+}
+
+void ShowCommandRecorder_Test::liveInput_replacesWhileTouched_data()
+{
+    QTest::addColumn<QString>("script");
+    QTest::addColumn<QStringList>("seen");
+
+    // A VirtualDJ-like loop 0-6 s, its clock in 100 ms samples: to plays on,
+    // wrap jumps back to 0; REC armed first keeps the empty Show playing.
+    // F a Flash button, T a Toggle, S an Adjust slider. A log lists what
+    // changed since the last one as time=value: F its DMX, T its state, S its
+    // value. The track lists F's holds, T's states and S's sample times.
+    const QString holdTake = QStringLiteral("rec;playext;to:1500;click:T;to:2000;press:F;to:4000;release:F;"
+                                            "to:4500;click:T;to:6000;log;wrap;");
+    const QString slideTake = QStringLiteral("rec;playext;to:1000;slide:25;to:2000;slide:50;to:3000;slide:75;"
+                                             "to:4000;slide:100;to:5000;slide:125;to:6000;log;wrap;");
+    const QStringList take{ QStringLiteral("F:2000=200,4000=0 T:1500=1,4500=0") };
+    QTest::newRow("a hold over a recorded hold replaces it, the toggle replays")
+        << holdTake + QStringLiteral("to:1000;press:F;to:5000;release:F;to:6000;log;wrap;to:6000;log;track")
+        << take + QStringList{ QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000-5000 T:1500=1,4500=0") };
+    // a live value replaces the recorded ones the playhead reaches after it,
+    // until one comes with no live value since the previous
+    QTest::newRow("a slider moved over recorded samples replaces them")
+        << slideTake + QStringLiteral("to:1500;slide:200;to:2500;slide:190;to:3500;slide:180;to:6000;log;"
+                                      "wrap;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:1000=25,2000=50,3000=75,4000=100,5000=125"),
+                        QStringLiteral("S:1000=25,1500=200,2500=190,3500=180,5000=125"),
+                        QStringLiteral("S:1000=25,1500=200,2500=190,3500=180,5000=125"),
+                        QStringLiteral("S:1000,1500,2500,3500,5000") };
+    QTest::newRow("REC off: the next pass replays as before")
+        << holdTake + QStringLiteral("recoff;to:6000;log;wrap;to:6000;log;track")
+        << take + QStringList{ take.first(), take.first(), QStringLiteral("F:2000-4000 T:1500=1,4500=0") };
+    // REC off, the recorded release wins over the performer's hold; REC on, the hold replaces it
+    QTest::newRow("REC off then on across passes")
+        << holdTake + QStringLiteral("recoff;to:1000;press:F;to:5000;release:F;to:6000;log;track;wrap;rec;"
+                                     "to:1000;press:F;to:5000;release:F;to:6000;log;track")
+        << take + QStringList{ QStringLiteral("F:1000=200,4000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:2000-4000 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000=200,5000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:1000-5000 T:1500=1,4500=0") };
+    // outside the live hold the recording stays: cut at the press, resumed at the release
+    QTest::newRow("a tap inside a recorded hold keeps the rest of it")
+        << holdTake + QStringLiteral("to:2500;press:F;to:3000;release:F;to:6000;log;wrap;to:6000;log;track")
+        << take + QStringList{ QStringLiteral("F:2000=200,3000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:2000=200,4000=0 T:1500=1,4500=0"),
+                               QStringLiteral("F:2000-2500,2500-3000,3000-4000 T:1500=1,4500=0") };
+    QTest::newRow("a hold across the wrap onto a recorded hold keeps its rest")
+        << QStringLiteral("rec;playext;press:F;to:1000;release:F;to:6000;log;wrap;to:5500;press:F;to:6000;wrap;"
+                          "to:500;release:F;to:6000;log;track")
+        << QStringList{ QStringLiteral("F:0=200,1000=0"),
+                        QStringLiteral("F:0=200,1000=0,5500=200,500=0,5500=200,6000=0"),
+                        QStringLiteral("F:0-500,500-1000,5500-6000") };
+    // REC records from when it turns on, also a hold held then
+    QTest::newRow("a flash held when REC turns on is recorded from then")
+        << QStringLiteral("rec;playext;recoff;to:1000;press:F;to:2000;rec;to:3000;release:F;to:6000;log;track")
+        << QStringList{ QStringLiteral("F:1000=200,3000=0"), QStringLiteral("F:2000-3000") };
+    // a touch is the control's, whatever action it records: the flash holds full
+    QTest::newRow("a slider's live flash replaces its recorded values")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;log;wrap;to:1500;flash:S;"
+                          "to:3500;unflash:S;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:1500=255,3500=75"),
+                        QStringLiteral("F:1500-3500") };
+    // until the flash is recorded, what it covers only goes unplayed: a save keeps it
+    QTest::newRow("a save during a slider's live flash keeps what it covers")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;log;wrap;to:1500;flash:S;"
+                          "to:3500;save;checkpoint;unflash:S;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:2000=25,3000=75"), QStringLiteral("S:2000,3000"),
+                        QStringLiteral("F:1500-3500"), QStringLiteral("S:1500=255,3500=75"),
+                        QStringLiteral("F:1500-3500") };
+    // lag: the value at the release replays after it, and goes as the flash covered it
+    QTest::newRow("a value the flash covered replayed after its release")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;wrap;to:1500;flash:S;to:2900;"
+                          "lag:3000;unflash:S;to:6000;track")
+        << QStringList{ QStringLiteral("F:1500-3000") };
+    // a release REC does not take records the flash nowhere: what it covered stays
+    QTest::newRow("a script ends the slider flash under a lagging value")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:6000;wrap;to:1500;flash:S;to:2900;"
+                          "lag:3000;scriptunflash:S;to:6000;track")
+        << QStringList{ QStringLiteral("S:2000,3000") };
+    // a hold's time is its press-to-release span only: the values after it replay
+    QTest::newRow("a slider's live flash leaves its later values alone")
+        << QStringLiteral("rec;playext;to:2000;slide:25;to:3000;slide:75;to:5000;slide:125;to:5500;slide:10;"
+                          "to:6000;log;wrap;to:1500;flash:S;to:3500;unflash:S;to:6000;log;track")
+        << QStringList{ QStringLiteral("S:2000=25,3000=75,5000=125,5500=10"),
+                        QStringLiteral("S:1500=255,3500=10,5000=125,5500=10"),
+                        QStringLiteral("F:1500-3500 S:5000,5500") };
+    // the hold goes on through the wrap: two pairs, the native hold untouched
+    QTest::newRow("a flash held across the wrap stays on through it")
+        << QStringLiteral("rec;playext;to:5000;press:F;to:6000;log;wrap;to:1000;release:F;log;track;"
+                          "to:6000;wrap;to:6000;log")
+        << QStringList{ QStringLiteral("F:5000=200"), QStringLiteral("F:1000=0"),
+                        QStringLiteral("F:0-1000,5000-6000"),
+                        QStringLiteral("F:5000=200,6000=0,0=200,1000=0,5000=200,6000=0") };
+}
+
+void ShowCommandRecorder_Test::liveInput_replacesWhileTouched()
+{
+    QFETCH(QString, script);
+    QFETCH(QStringList, seen);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *flashed = addTarget(&doc);
+    QVERIFY(flashed);
+    const quint32 fixture = flashed->values().first().fxi;
+    Scene *toggled = new Scene(&doc);
+    toggled->setValue(SceneValue(fixture, 1, 120));
+    QVERIFY(doc.addFunction(toggled));
+    Scene *faded = new Scene(&doc);
+    faded->setValue(SceneValue(fixture, 2, 200));
+    QVERIFY(doc.addFunction(faded));
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), flashed->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    VCButton *toggle = addToggle(bridge, ui.vc(), frame, toggled->id(), 100, QStringLiteral("T"));
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, faded->id());
+    QVERIFY(flash && toggle && slider);
+    QVERIFY(show->setCommandTrack(ShowCommandTrack()));
+
+    quint32 clock = 0;
+    QMap<QChar, int> was;
+    QMap<QChar, QStringList> changes;
+    const auto sample = [&]() {
+        // the replay and the live input took effect: the next tick wrote them
+        tickAndDeliver(&doc, 3);
+        tickAndRenderUniverses(&doc);
+        QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+        const int dmx = uchar(universes.first()->preGMValues().at(0));
+        doc.inputOutputMap()->releaseUniverses(false);
+        const QMap<QChar, int> now{ { QLatin1Char('F'), dmx },
+                                    { QLatin1Char('T'), toggle->state() == VCButton::Active ? 1 : 0 },
+                                    { QLatin1Char('S'), slider->value() } };
+        for (auto it = now.cbegin(); it != now.cend(); ++it)
+        {
+            if (was.contains(it.key()) && was.value(it.key()) != it.value())
+                changes[it.key()].append(QStringLiteral("%1=%2").arg(clock).arg(it.value()));
+            was.insert(it.key(), it.value());
+        }
+    };
+    const auto at = [&](quint32 ms) {
+        clock = ms;
+        show->setExternalElapsedTime(ms);
+        sample();
+    };
+    const auto trackLine = [&](const ShowCommandTrack &track) {
+        QStringList toggles, samples;
+        for (const ShowCommand &cmd : track.commands())
+        {
+            if (cmd.controlId == toggle->recordingId())
+                toggles.append(QStringLiteral("%1=%2").arg(cmd.time).arg(int(cmd.on)));
+            else if (cmd.controlId == slider->recordingId() && cmd.action == ShowCommandAction::SetSliderPosition)
+                samples.append(QString::number(cmd.time));
+        }
+        QStringList line;
+        if (!holdSpans(track).isEmpty())
+            line.append(QStringLiteral("F:") + holdSpans(track).replace(QLatin1Char(' '), QLatin1Char(',')));
+        if (!toggles.isEmpty())
+            line.append(QStringLiteral("T:") + toggles.join(QLatin1Char(',')));
+        if (!samples.isEmpty())
+            line.append(QStringLiteral("S:") + samples.join(QLatin1Char(',')));
+        return line.join(QLatin1Char(' '));
+    };
+
+    QStringList saw;
+    for (const QString &step : script.split(QLatin1Char(';')))
+    {
+        const QString verb = step.section(QLatin1Char(':'), 0, 0);
+        const QString arg = step.section(QLatin1Char(':'), 1);
+        if (verb == QLatin1String("playext"))
+        {
+            show->setSyncSource(ShowRunner::External);
+            show->start(doc.masterTimer(), FunctionParent::master());
+            at(0);
+        }
+        else if (verb == QLatin1String("rec") || verb == QLatin1String("recoff"))
+        {
+            QVERIFY(recorder.setResolvedShow(show->id()));
+            QVERIFY2(recorder.setRecording(verb == QLatin1String("rec")), qPrintable(recorder.lastError()));
+        }
+        else if (verb == QLatin1String("to"))
+        {
+            while (clock < arg.toUInt())
+                at(clock + 100);
+        }
+        else if (verb == QLatin1String("wrap"))
+            at(0);
+        else if (verb == QLatin1String("lag"))
+        {
+            // the runner reached it, its replay not delivered yet
+            clock = arg.toUInt();
+            show->setExternalElapsedTime(clock);
+            doc.masterTimer()->timerTick();
+        }
+        else if (verb == QLatin1String("press") || verb == QLatin1String("release"))
+        {
+            flash->requestUserStateChange(verb == QLatin1String("press"));
+            sample();
+        }
+        else if (verb == QLatin1String("click"))
+        {
+            toggle->requestUserStateChange(true);
+            sample();
+        }
+        else if (verb == QLatin1String("slide"))
+        {
+            slider->requestUserValue(arg.toInt());
+            sample();
+        }
+        else if (verb == QLatin1String("flash") || verb == QLatin1String("unflash"))
+        {
+            slider->requestUserFlash(verb == QLatin1String("flash"));
+            sample();
+        }
+        else if (verb == QLatin1String("scriptunflash"))
+        {
+            slider->requestUserFlash(false, ShowCommandOrigin::Programmatic);
+            sample();
+        }
+        else if (verb == QLatin1String("log"))
+        {
+            QStringList line;
+            for (auto it = changes.cbegin(); it != changes.cend(); ++it)
+                if (!it.value().isEmpty())
+                    line.append(QString(it.key()) + QLatin1Char(':') + it.value().join(QLatin1Char(',')));
+            saw.append(line.join(QLatin1Char(' ')));
+            changes.clear();
+        }
+        else if (verb == QLatin1String("track"))
+        {
+            QVERIFY(show->commandTrack().malformedHoldPairs().isEmpty());
+            saw.append(trackLine(show->commandTrack()));
+        }
+        else if (verb == QLatin1String("save") || verb == QLatin1String("checkpoint"))
+        {
+            // an autosave writes the track as it is, a workspace save checkpoints first
+            if (verb == QLatin1String("checkpoint"))
+                QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+            QBuffer buffer;
+            buffer.open(QIODevice::WriteOnly);
+            QXmlStreamWriter writer(&buffer);
+            QVERIFY(show->saveXML(&writer));
+            Doc reloaded(nullptr, 1);
+            QXmlStreamReader reader(buffer.data());
+            reader.readNextStartElement();
+            QVERIFY(Function::loader(reader, &reloaded));
+            auto *copy = qobject_cast<Show *>(reloaded.function(show->id()));
+            QVERIFY(copy);
+            saw.append(trackLine(copy->commandTrack()));
+        }
+        else
+            QFAIL(qPrintable(QStringLiteral("unknown step ") + step));
+    }
+
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QCOMPARE(saw, seen);
+}
+
+void ShowCommandRecorder_Test::liveInput_releaseBeforeAMoveBackLands()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    QVERIFY(flash);
+    ShowCommandTrack track;
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master(), 6000);
+    tickAndDeliver(&doc, 3);
+
+    const quint32 press = show->commandPosition();
+    flash->requestUserStateChange(true);
+    tickAndDeliver(&doc, 10);
+    // released after the move back was asked for, before the runner took it
+    show->requestSeek(1000);
+    const quint32 departure = show->commandPosition();
+    flash->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    const QString spans = holdSpans(show->commandTrack());
+
+    QVERIFY(recorder.setRecording(false));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(spans, QStringLiteral("%1-%2").arg(press).arg(departure));
+}
+
+void ShowCommandRecorder_Test::liveInput_doubleTapBehindAReplay()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    show->setSyncSource(ShowRunner::External);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    auto *other = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 48), target->id(), QStringLiteral("G"), QStringLiteral("flash"))));
+    QVERIFY(flash && other);
+    QVERIFY(show->setCommandTrack(ShowCommandTrack()));
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master());
+    const auto to = [&](quint32 from, quint32 ms) {
+        for (quint32 t = from; t <= ms; t += 100)
+        {
+            show->setExternalElapsedTime(t);
+            tickAndDeliver(&doc, 3);
+        }
+    };
+    // the runner reached it, its replay not delivered yet
+    const auto lag = [&](quint32 ms) {
+        show->setExternalElapsedTime(ms);
+        doc.masterTimer()->timerTick();
+    };
+    // G, on the same Scene, held 2000-4000 in the first pass
+    to(0, 2000);
+    other->requestUserStateChange(true);
+    tickAndDeliver(&doc, 3);
+    to(2100, 4000);
+    other->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    to(4100, 6000);
+
+    // the next pass: F tapped twice while G's replay is owed, so F's input waits
+    to(0, 1900);
+    lag(2000);
+    flash->requestUserStateChange(true);
+    lag(2100);
+    flash->requestUserStateChange(false);
+    lag(2200);
+    flash->requestUserStateChange(true);
+    QVERIFY(recorder.pendingUserRequests().count() >= 2);
+    to(2300, 3000);
+    flash->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    to(3100, 6000);
+    QVERIFY(recorder.setRecording(false));
+    tickAndDeliver(&doc, 3);
+    ShowCommandTrack mine;
+    for (const ShowCommand &cmd : show->commandTrack().commands())
+    {
+        if (cmd.controlId == flash->recordingId())
+            QVERIFY(mine.insert(cmd));
+    }
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(holdSpans(mine), QStringLiteral("2000-2100 2200-3000"));
+}
+
+void ShowCommandRecorder_Test::liveInput_takeChangesWhileAReleaseWaits_data()
+{
+    QTest::addColumn<QString>("transition");
+    QTest::addColumn<bool>("queuedPress");
+    QTest::newRow("same take") << QStringLiteral("none") << false;
+    QTest::newRow("REC off and on before queued release executes") << QStringLiteral("rec") << false;
+    QTest::newRow("Perform engages before queued release executes") << QStringLiteral("perform") << false;
+    QTest::newRow("Perform ends before queued release executes") << QStringLiteral("perform off") << false;
+    QTest::newRow("Perform engages before queued press executes") << QStringLiteral("perform") << true;
+}
+
+void ShowCommandRecorder_Test::liveInput_takeChangesWhileAReleaseWaits()
+{
+    QFETCH(QString, transition);
+    QFETCH(bool, queuedPress);
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    show->setSyncSource(ShowRunner::External);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    auto *other = qobject_cast<VCButton *>(ui.vc()->widget(
+        bridge.addButton(frame, QRect(100, 10, 80, 48), target->id(), QStringLiteral("G"), QStringLiteral("flash"))));
+    QVERIFY(flash && other);
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    if (transition == QLatin1String("perform off"))
+        QVERIFY(recorder.setResolvedShow(show->id(), ShowRecordSource::Perform));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master());
+    const auto to = [&](quint32 from, quint32 ms) {
+        for (quint32 t = from; t <= ms; t += 100)
+        {
+            show->setExternalElapsedTime(t);
+            tickAndDeliver(&doc, 3);
+        }
+    };
+    to(0, 2000);
+    other->requestUserStateChange(true);
+    tickAndDeliver(&doc, 3);
+    to(2100, 4000);
+    other->requestUserStateChange(false);
+    tickAndDeliver(&doc, 3);
+    to(4100, 6000);
+    to(0, 1000);
+    if (!queuedPress)
+    {
+        flash->requestUserStateChange(true);
+        tickAndDeliver(&doc, 3);
+    }
+    to(1100, 1900);
+    show->setExternalElapsedTime(2000);
+    doc.masterTimer()->timerTick();
+    flash->requestUserStateChange(queuedPress);
+    QVERIFY(!recorder.pendingUserRequests().isEmpty());
+    if (transition == QLatin1String("rec"))
+    {
+        QVERIFY(recorder.setRecording(false));
+        QVERIFY(recorder.setRecording(true));
+    }
+    else if (transition == QLatin1String("perform"))
+        QVERIFY(recorder.setResolvedShow(show->id(), ShowRecordSource::Perform));
+    else if (transition == QLatin1String("perform off"))
+        recorder.releasePerform();
+    to(2100, 3000);
+    QVERIFY(recorder.pendingUserRequests().isEmpty());
+    if (queuedPress)
+    {
+        flash->requestUserStateChange(false);
+        tickAndDeliver(&doc, 3);
+    }
+    QVERIFY(recorder.setRecording(false));
+    ShowCommandTrack mine;
+    for (const ShowCommand &cmd : show->commandTrack().commands())
+        if (cmd.controlId == flash->recordingId())
+            QVERIFY(mine.insert(cmd));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+    QCOMPARE(holdSpans(mine), queuedPress ? QStringLiteral("2000-3000") : QStringLiteral("1000-2000"));
+}
+
+void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow_data()
+{
+    QTest::addColumn<QString>("steps");
+    QTest::addColumn<QString>("recorded"); // the holds of the Show bound last, as a save writes them
+
+    // a release REC does not take still ends the hold, and a hold stays with its take and Show
+    QTest::newRow("A deleted while held, then a hold in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, release, bind B, at 3000, press, at 4000, "
+                          "release, rec off")
+        << QStringLiteral("3000-4000");
+    QTest::newRow("A deleted while held, then REC off in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, release, bind B, at 5000, rec off")
+        << QString();
+    QTest::newRow("discarded while held, then a take in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, discard, release, bind B, rec on, at 5000, rec off")
+        << QString();
+    QTest::newRow("workspace replaced while held, then a take in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, clear, bind B, rec on, at 5000, rec off")
+        << QString();
+    // still held as the next take begins: recorded from then
+    QTest::newRow("A deleted while held, B bound while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, delete A, at 2000, bind B, at 5000, rec off, release")
+        << QStringLiteral("2000-5000");
+    QTest::newRow("discarded while held, REC on again while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, discard, at 2000, bind A, rec on, at 3000, release, rec off")
+        << QStringLiteral("2000-3000");
+    QTest::newRow("Perform moves REC to B while held")
+        << QStringLiteral("bind A, rec on, at 1000, press, at 2000, perform B, at 3000, release, rec off")
+        << QStringLiteral("2000-3000");
+    QTest::newRow("released by a script")
+        << QStringLiteral("bind A, rec on, at 1000, press, at 2000, script release, at 5000, rec off")
+        << QString();
+    // a hold whose control is gone never ends: no other take or Show takes it
+    QTest::newRow("the held button removed, then REC off in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, at 5000, rec off")
+        << QString();
+    QTest::newRow("the held button removed, then another take on A")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, discard, at 2000, bind A, rec on, at 5000, rec off")
+        << QString();
+    // back with its identity (undo, cut and paste): a hold of an earlier take is no hold
+    QTest::newRow("the held button removed, A deleted, back in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, readd F, at 3000, press, "
+                          "at 4000, release, rec off")
+        << QStringLiteral("3000-4000");
+    QTest::newRow("the held button removed, Perform on A, back")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, perform A, readd F, at 3000, press, "
+                          "at 4000, release, rec off")
+        << QStringLiteral("3000-4000");
+    // known limit: back in the same take, its hold goes on from the first press
+    QTest::newRow("the held button removed, back in the same take")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, readd F, at 3000, press, "
+                          "at 4000, release, rec off")
+        << QStringLiteral("1000-4000");
+    QTest::newRow("the held button removed, then a save in B")
+        << QStringLiteral("bind A, rec on, at 1000, press, remove F, delete A, bind B, at 5000")
+        << QString();
+}
+
+namespace { bool loadRecordingId(VCWidget *widget, const QUuid &id); }
+
+void ShowCommandRecorder_Test::liveInput_holdBelongsToItsTakeAndShow()
+{
+    QFETCH(QString, steps);
+    QFETCH(QString, recorded);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    Scene *target = addTarget(&doc);
+    QVERIFY(target);
+    QHash<QChar, Show *> shows;
+    const auto addShow = [&](QChar name) {
+        Show *show = new Show(&doc);
+        QVERIFY(doc.addFunction(show));
+        show->setSyncSource(ShowRunner::External);
+        shows.insert(name, show);
+    };
+    addShow(QLatin1Char('A'));
+    addShow(QLatin1Char('B'));
+    Show *bound = nullptr;
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Holds"), false);
+    const int flashId =
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"));
+    auto *flash = qobject_cast<VCButton *>(ui.vc()->widget(flashId));
+    QVERIFY(flash);
+    const QUuid recordingId = flash->ensureRecordingId();
+
+    for (const QString &step : steps.split(QStringLiteral(", ")))
+    {
+        if (step.startsWith(QLatin1String("at ")))
+        {
+            for (Show *show : std::as_const(shows))
+                show->setExternalElapsedTime(step.mid(3).toUInt());
+        }
+        else if (step.startsWith(QLatin1String("bind ")))
+        {
+            bound = shows.value(step.at(5));
+            QVERIFY(recorder.setResolvedShow(bound->id()));
+        }
+        else if (step.startsWith(QLatin1String("perform ")))
+        {
+            bound = shows.value(step.at(8));
+            QVERIFY(recorder.setResolvedShow(bound->id(), ShowRecordSource::Perform));
+        }
+        else if (step.startsWith(QLatin1String("rec ")))
+            QVERIFY2(recorder.setRecording(step == QLatin1String("rec on")), qPrintable(recorder.lastError()));
+        else if (step == QLatin1String("press") || step == QLatin1String("release"))
+            flash->requestUserStateChange(step == QLatin1String("press"));
+        else if (step == QLatin1String("script release"))
+            flash->requestUserStateChange(false, ShowCommandOrigin::Programmatic);
+        else if (step == QLatin1String("remove F"))
+        {
+            QVERIFY(bridge.removeWidget(flashId));
+            flash = nullptr;
+        }
+        else if (step == QLatin1String("readd F"))
+        {
+            flash = qobject_cast<VCButton *>(ui.vc()->widget(bridge.addButton(
+                frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+            QVERIFY(flash && loadRecordingId(flash, recordingId));
+        }
+        else if (step == QLatin1String("delete A"))
+            QVERIFY(doc.deleteFunction(shows.take(QLatin1Char('A'))->id()));
+        else if (step == QLatin1String("discard"))
+            recorder.discardRecording();
+        else if (step == QLatin1String("clear"))
+        {
+            // as a New or Open: the recording goes, then the console, then the rest
+            recorder.discardRecording();
+            ui.vc()->resetContents();
+            flash = nullptr;
+            // the timer lets go of the flash before its Scene is deleted
+            target->unFlash(doc.masterTimer());
+            tickAndDeliver(&doc);
+            doc.clearContents();
+            shows.clear();
+            addShow(QLatin1Char('B'));
+        }
+        else
+            QFAIL(qPrintable(QStringLiteral("unknown step ") + step));
+        tickAndDeliver(&doc);
+    }
+
+    QVERIFY2(recorder.checkpoint(), qPrintable(recorder.lastError()));
+    QBuffer buffer;
+    buffer.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&buffer);
+    bound->saveXML(&writer);
+    Doc reloaded(nullptr, 1);
+    QXmlStreamReader reader(buffer.data());
+    reader.readNextStartElement();
+    QVERIFY(Function::loader(reader, &reloaded));
+    auto *copy = qobject_cast<Show *>(reloaded.function(bound->id()));
+    QVERIFY(copy);
+    QCOMPARE(holdSpans(copy->commandTrack()), recorded);
+}
+
+void ShowCommandRecorder_Test::liveInput_touchBelongsToItsPass()
+{
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+    Scene *faded = addTarget(&doc);
+    QVERIFY(faded);
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandRecorder recorder(&doc);
+    recorder.setVirtualConsole(ui.vc());
+    VCBridgeV5 bridge(&doc, ui.vc());
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, faded->id());
+    QVERIFY(slider);
+    ShowCommandTrack track;
+    for (const auto &[time, position] : { std::pair<quint32, qreal>{ 1100, 0.1 }, { 1500, 0.2 } })
+        QVERIFY(track.insert(ShowCommand::setSliderPosition(track.nextEventId(), time, slider->ensureRecordingId(),
+                                                            ShowControlRole::AdjustSlider, QStringLiteral("Intensity"),
+                                                            position)));
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(show->setCommandTrack(track));
+    QVERIFY(recorder.setResolvedShow(show->id()));
+    QVERIFY(recorder.setRecording(true));
+    show->start(doc.masterTimer(), FunctionParent::master(), 6000);
+    tickAndDeliver(&doc, 3);
+
+    // moved after the seek was asked for, before the runner took it: a touch of the next pass
+    show->requestSeek(1000);
+    slider->requestUserValue(200);
+    for (int i = 0; i < 100 && show->commandPosition() < 1300; i++)
+        tickAndDeliver(&doc);
+    tickAndDeliver(&doc, 3);
+    const int touched = slider->value();
+    for (int i = 0; i < 100 && show->commandPosition() < 1600; i++)
+        tickAndDeliver(&doc);
+    tickAndDeliver(&doc, 3);
+    const int after = slider->value();
+    QStringList times;
+    for (const ShowCommand &cmd : show->commandTrack().commands())
+        times.append(QString::number(cmd.time));
+
+    QVERIFY(recorder.setRecording(false));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(&doc, 3);
+
+    QCOMPARE(QStringLiteral("%1 %2 %3").arg(touched).arg(after).arg(times.join(QLatin1Char(','))),
+             QStringLiteral("200 51 1000,1500"));
+}
+
+namespace
+{
+/** A flash button whose recorded hold [1000, 5000] the Show replays at 2000 */
+struct ReplayedHoldRig
+{
+    Doc doc{nullptr, 1};
+    UiFixture ui{&doc};
+    ShowCommandRecorder recorder{&doc};
+    Scene *target = addTarget(&doc);
+    Scene *other = new Scene(&doc);
+    Show *show = new Show(&doc);
+    quint32 showId = ShowCommand::InvalidId;
+    VCButton *button = nullptr;
+    QVector<ShowCommand> hold;
+
+    bool setUp(bool external)
+    {
+        recorder.setVirtualConsole(ui.vc());
+        if (!doc.addFunction(other) || !doc.addFunction(show))
+            return false;
+        showId = show->id();
+        VCBridgeV5 bridge(&doc, ui.vc());
+        const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Replayed hold"), false);
+        button = qobject_cast<VCButton *>(ui.vc()->widget(
+            bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("Flash"),
+                             QStringLiteral("flash"))));
+        if (button == nullptr)
+            return false;
+        ShowCommand on = ShowCommand::setButtonState(1, 1000, button->ensureRecordingId(), true);
+        on.role = ShowControlRole::FlashButton;
+        on.pairId = 1;
+        ShowCommand off = on;
+        off.id = 2;
+        off.time = 5000;
+        off.on = false;
+        ShowCommandTrack track;
+        if (!track.insert(on) || !track.insert(off) || !track.insert(ShowCommand::start(3, 8000, other->id())) ||
+            !track.setExtent(60000) || !show->setCommandTrack(track))
+            return false;
+        hold = { show->commandTrack().commands().at(0), show->commandTrack().commands().at(1) };
+        recorder.setResolvedShow(show->id());
+        if (external)
+        {
+            show->setSyncSource(ShowRunner::External);
+            playExternalFromZero(show, &doc);
+            show->setExternalElapsedTime(2000);
+        }
+        else
+        {
+            show->start(doc.masterTimer(), FunctionParent::master());
+        }
+        for (int i = 0; i < 200 && (show->commandPosition() < 2000 || button->state() != VCButton::Active); i++)
+            tickAndDeliver(&doc);
+        return button->state() == VCButton::Active && show->elapsed() == 0;
+    }
+
+    ~ReplayedHoldRig()
+    {
+        // the timer still lists a Show deleted while playing: it must not tick again
+        if (doc.function(showId) == nullptr)
+            return;
+        show->stop(FunctionParent::master());
+        for (Scene *f : {target, other})
+            f->stop(FunctionParent::master());
+        tickAndDeliver(&doc, 5);
+    }
+};
+}
+
+void ShowCommandRecorder_Test::replayedHold_survivesEditAtCursor_data()
+{
+    QTest::addColumn<bool>("external");
+
+    QTest::newRow("external clock") << true;
+    QTest::newRow("autonomous clock") << false;
+}
+
+void ShowCommandRecorder_Test::replayedHold_survivesEditAtCursor()
+{
+    QFETCH(bool, external);
+
+    ReplayedHoldRig r;
+    QVERIFY(r.setUp(external));
+
+    // an edit elsewhere keeps the hold the cursor is inside
+    QVERIFY2(r.recorder.retimeCommand(r.show->id(), 3, 8500), qPrintable(r.recorder.lastError()));
+    tickAndDeliver(&r.doc, 2);
+    QCOMPARE(r.button->state(), VCButton::Active);
+}
+
+void ShowCommandRecorder_Test::replayedHold_historyEditReleasesIt_data()
+{
+    QTest::addColumn<bool>("undo");
+
+    QTest::newRow("redo its deletion") << false;
+    QTest::newRow("undo its recording") << true;
+}
+
+void ShowCommandRecorder_Test::replayedHold_historyEditReleasesIt()
+{
+    QFETCH(bool, undo);
+
+    ReplayedHoldRig r;
+    QVERIFY(r.setUp(true));
+
+    // either way the step takes the hold out of the track
+    ShowCommandEdit edit;
+    edit.showId = r.show->id();
+    for (const ShowCommand &edge : std::as_const(r.hold))
+    {
+        ShowCommandEditEntry entry;
+        entry.id = edge.id;
+        entry.hasBefore = !undo;
+        entry.hasAfter = undo;
+        (undo ? entry.after : entry.before) = edge;
+        edit.entries.append(entry);
+    }
+    QVERIFY2(r.recorder.applyHistoryEdit(QVariant::fromValue(edit), undo), qPrintable(r.recorder.lastError()));
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    QCoreApplication::processEvents();
+    QCOMPARE(r.button->state(), VCButton::Inactive);
+}
+
+void ShowCommandRecorder_Test::replayedHold_releasedWhenAShowIsDeleted_data()
+{
+    QTest::addColumn<bool>("itsOwn");
+
+    QTest::newRow("its own Show") << true;
+    QTest::newRow("another Show") << false;
+}
+
+void ShowCommandRecorder_Test::replayedHold_releasedWhenAShowIsDeleted()
+{
+    QFETCH(bool, itsOwn);
+
+    ReplayedHoldRig r;
+    Show *other = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(other));
+    QVERIFY(r.setUp(true));
+
+    if (itsOwn)
+    {
+        // like the Function Manager: a stop request, then the deletion before the timer ran it
+        r.show->stop(FunctionParent::master());
+        QVERIFY(r.doc.deleteFunction(r.show->id()));
+        QCoreApplication::processEvents();
+    }
+    else
+    {
+        // deleting an unrelated Show leaves the playing one able to release its hold
+        QVERIFY(r.doc.deleteFunction(other->id()));
+        QCOMPARE(r.button->state(), VCButton::Active);
+        r.show->stop(FunctionParent::master());
+        tickAndDeliver(&r.doc, 3);
+    }
+    QCOMPARE(r.button->state(), VCButton::Inactive);
+}
+
+namespace
+{
+/** Shows A and B each replay a hold [1000, 5000] on their own control of
+ *  one kind, A1 and B2: flash buttons or Adjust sliders on one Scene, or
+ *  two FreezeHold buttons. One shared effect, two owners. */
+struct SharedHoldRig
+{
+    Doc doc{nullptr, 1};
+    UiFixture ui{&doc};
+    VCBridgeV5 bridge{&doc, ui.vc()};
+    ShowCommandRecorder recorder{&doc};
+    Scene *target = addTarget(&doc);
+    Show *a = new Show(&doc);
+    Show *b = new Show(&doc);
+    QString role;
+    int frame = -1;
+    VCWidget *a1 = nullptr;
+    VCWidget *b2 = nullptr;
+    qreal baseline = 1.0;
+    bool aDeleted = false;
+    bool userHeld = false;
+
+    bool setUp(const QString &kind)
+    {
+        role = kind;
+        recorder.setVirtualConsole(ui.vc());
+        if (!doc.addFunction(a) || !doc.addFunction(b))
+            return false;
+        frame = addFrame(bridge, 0, QRect(0, 0, 660, 300), QStringLiteral("Shared hold"), false);
+        a1 = control(10);
+        b2 = control(300);
+        if (a1 == nullptr || b2 == nullptr)
+            return false;
+        // A1's own level, which its flash raises to full and its release restores
+        if (auto *slider = qobject_cast<VCSlider *>(a1))
+        {
+            slider->setValue(76);
+            tickAndDeliver(&doc, 2);
+        }
+        baseline = target->getAttributeValue(Function::Intensity);
+        return true;
+    }
+
+    VCWidget *control(int x)
+    {
+        if (role == QLatin1String("slider flash"))
+            return addAdjustSlider(bridge, ui.vc(), frame, target->id(), x);
+        const bool flash = role == QLatin1String("flash");
+        return ui.vc()->widget(bridge.addButton(frame, QRect(x, 10, 80, 48),
+                                                flash ? target->id() : quint32(Function::invalidId()),
+                                                QStringLiteral("Hold"),
+                                                flash ? QStringLiteral("flash") : QStringLiteral("freezehold")));
+    }
+
+    /** show replays a hold [1000, 5000] of control; true once it took effect at 2000 */
+    bool replay(Show *show, VCWidget *control)
+    {
+        ShowCommand on = ShowCommand::setButtonState(1, 1000, control->ensureRecordingId(), true);
+        on.role = role == QLatin1String("flash") ? ShowControlRole::FlashButton
+                : role == QLatin1String("freeze hold") ? ShowControlRole::FreezeHoldButton
+                                                       : ShowControlRole::AdjustSlider;
+        on.pairId = 1;
+        ShowCommand off = on;
+        off.id = 2;
+        off.time = 5000;
+        off.on = false;
+        ShowCommandTrack track;
+        if (!track.insert(on) || !track.insert(off) || !track.setExtent(60000) || !show->setCommandTrack(track))
+            return false;
+        show->setSyncSource(ShowRunner::External);
+        playExternalFromZero(show, &doc);
+        show->setExternalElapsedTime(2000);
+        // the effect may be on already: wait for this Show's own batch instead
+        for (int i = 0; i < 200 && show->commandPosition() < 2000; i++)
+            tickAndDeliver(&doc);
+        for (int i = 0; i < 50 && (show->commandWorkPending() || recorder.pendingControlRuns() > 0); i++)
+            tickAndDeliver(&doc);
+        tickAndDeliver(&doc, 2);
+        return effect();
+    }
+
+    /** The user holds B2 */
+    void userHolds(bool on)
+    {
+        userHeld = on;
+        if (auto *slider = qobject_cast<VCSlider *>(b2))
+            slider->requestUserFlash(on);
+        else
+            qobject_cast<VCButton *>(b2)->requestUserStateChange(on);
+        tickAndDeliver(&doc, 2);
+    }
+
+    /** The shared effect: the Scene flashing, the output frozen, or the level at full */
+    bool effect() const
+    {
+        if (role == QLatin1String("flash"))
+            return target->flashing();
+        if (role == QLatin1String("freeze hold"))
+            return doc.inputOutputMap()->frozenMomentary();
+        return qFuzzyCompare(target->getAttributeValue(Function::Intensity), qreal(1.0));
+    }
+
+    ~SharedHoldRig()
+    {
+        // the timer still lists a Show deleted while playing: it must not tick again
+        if (aDeleted)
+            return;
+        if (userHeld)
+            userHolds(false);
+        for (Function *f : std::initializer_list<Function *>{a, b, target})
+            f->stop(FunctionParent::master());
+        tickAndDeliver(&doc, 5);
+    }
+};
+}
+
+void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold_data()
+{
+    QTest::addColumn<QString>("role");
+    QTest::addColumn<QString>("other");
+    QTest::addColumn<QString>("end"); // what ends A's hold: a stop, a deletion, or an edit removing it
+
+    for (const char *role : {"flash", "freeze hold", "slider flash"})
+        for (const char *other : {"replay", "user", "none"})
+            for (const char *end : {"stopped", "deleted", "edited"})
+            {
+                // FreezeHold's momentary flag is one shared flag: an edit releasing it releases it
+                if (qstrcmp(end, "edited") == 0 && qstrcmp(role, "freeze hold") == 0)
+                    continue;
+                QTest::newRow(qPrintable(QStringLiteral("%1, %2 holds too, A %3").arg(role, other, end)))
+                    << QString::fromLatin1(role) << QString::fromLatin1(other) << QString::fromLatin1(end);
+            }
+}
+
+void ShowCommandRecorder_Test::replayedHold_endSparesWhatOthersHold()
+{
+    QFETCH(QString, role);
+    QFETCH(QString, other);
+    QFETCH(QString, end);
+
+    SharedHoldRig r;
+    QVERIFY(r.setUp(role));
+    QVERIFY(r.replay(r.a, r.a1));
+    if (other == QLatin1String("replay"))
+        QVERIFY(r.replay(r.b, r.b2));
+    else if (other == QLatin1String("user"))
+        r.userHolds(true);
+    QVERIFY(r.effect());
+
+    if (end == QLatin1String("deleted"))
+    {
+        // like the Function Manager: a stop request, then the deletion before the timer ran it
+        r.a->stop(FunctionParent::master());
+        QVERIFY(r.doc.deleteFunction(r.a->id()));
+        r.aDeleted = true;
+        QCoreApplication::processEvents();
+    }
+    else if (end == QLatin1String("edited"))
+    {
+        // the editor removes A's hold behind the playhead: the replay release follows at once
+        QVERIFY(r.recorder.setResolvedShow(r.a->id()));
+        QVERIFY2(r.recorder.removeCommands(r.a->id(), {1, 2}), qPrintable(r.recorder.lastError()));
+        tickAndDeliver(&r.doc, 1);
+    }
+    else
+    {
+        r.a->stop(FunctionParent::master());
+        tickAndDeliver(&r.doc, 3);
+    }
+
+    // A's end releases only what nobody else holds
+    const bool kept = other != QLatin1String("none");
+    QCOMPARE(r.effect(), kept);
+    if (role == QLatin1String("slider flash"))
+        QCOMPARE(r.target->getAttributeValue(Function::Intensity), kept ? qreal(1.0) : r.baseline);
+    else if (!kept)
+        QCOMPARE(qobject_cast<VCButton *>(r.a1)->state(), VCButton::Inactive);
 }
 
 void ShowCommandRecorder_Test::patchedInput_recordsOnlyUserRoutes_data()
@@ -15265,13 +16395,13 @@ void ShowCommandRecorder_Test::nonUserChanges_recordNothing()
     }
     else
     {
-        // the replayed ON is owed, so A's click waits behind it
+        // the replayed ON is owed, so the slider on A's Function waits behind it
         QSignalSpy batches(r.show, &Show::controlBatchesReady);
         playExternalFromZero(r.show, &r.doc);
         r.show->setExternalElapsedTime(2600);
         for (int i = 0; i < 20 && batches.isEmpty(); i++)
             r.doc.masterTimer()->timerTick();
-        r.ba->requestUserStateChange(true);
+        r.slider->requestUserValue(51);
         QCOMPARE(r.recorder.pendingUserRequests().count(), 1);
         QVERIFY(r.recorder.setRecording(false));
         tickAndDeliver(&r.doc, 8);
@@ -15331,7 +16461,7 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd_data()
     QTest::newRow("disarm") << QStringLiteral("disarm") << 2 << 40000u;
     QTest::newRow("shorter loop pass") << QStringLiteral("loop") << 2 << 40000u;
     QTest::newRow("retry after failure") << QStringLiteral("retry") << 3 << 40000u;
-    QTest::newRow("discard after failure") << QStringLiteral("discard") << 1 << 5000u;
+    QTest::newRow("discard after failure") << QStringLiteral("discard") << 0 << 0u;
     // accepted capture is not native execution: nothing waits for the queued request
     QTest::newRow("queued request") << QStringLiteral("queued") << 3 << 40000u;
 }
@@ -15374,14 +16504,14 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
     const quint32 goneId = gone->id();
     if (failing)
     {
-        // a function command whose target then disappears makes every publication fail
+        // a function command accepted for a target that is gone makes every publication fail
         r.show->setExternalElapsedTime(5000);
         ShowCommandInput start;
         start.origin = ShowCommandOrigin::Pointer;
         start.action = ShowCommandAction::Start;
         start.functionId = goneId;
-        QVERIFY(r.recorder.submitUserInput(start));
         QVERIFY(r.doc.deleteFunction(goneId));
+        QVERIFY(!r.recorder.submitUserInput(start));
     }
 
     r.show->setExternalElapsedTime(12000);
@@ -15394,8 +16524,9 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
     if (scenario == QLatin1String("checkpoint") || scenario == QLatin1String("queued"))
     {
         QVERIFY(r.recorder.checkpoint());
-        // both requests on A wait behind its crossed replay
-        QCOMPARE(r.recorder.pendingUserRequests().count(), scenario == QLatin1String("queued") ? 2 : 0);
+        // A waits behind the crossed replay of the slider on its Function; the
+        // slider's own request does not
+        QCOMPARE(r.recorder.pendingUserRequests().count(), scenario == QLatin1String("queued") ? 1 : 0);
     }
     else if (scenario == QLatin1String("disarm"))
     {
@@ -15409,7 +16540,7 @@ void ShowCommandRecorder_Test::checkpoint_savesAcceptedContentEnd()
     }
     else
     {
-        QCOMPARE(r.show->commandTrack().count(), 1);
+        QCOMPARE(r.show->commandTrack().count(), 0);
         QVERIFY(!r.recorder.checkpoint());
         QVERIFY(!r.recorder.lastError().isEmpty());
         QVERIFY(r.recorder.isAuthoring());
@@ -15521,7 +16652,7 @@ void ShowCommandRecorder_Test::takeBoundary_savesContentEndWithoutNewInput()
     else if (boundary == QLatin1String("disarm"))
         QVERIFY(r.recorder.setRecording(false));
     else
-        QVERIFY(r.recorder.setResolvedShow(next->id()));
+        QVERIFY(r.recorder.setResolvedShow(next->id(), ShowRecordSource::Perform));
 
     // the workspace Save and Load of the Show
     QBuffer buffer;
@@ -15605,15 +16736,15 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
         QVERIFY(r.recorder.checkpoint());
     if (setup == QLatin1String("failing"))
     {
-        // a published command whose target then disappears: later input stays pending
+        // a command accepted for a target that is gone: it and later input stay pending
         Scene *gone = new Scene(&r.doc);
         QVERIFY(r.doc.addFunction(gone));
         ShowCommandInput start;
         start.origin = ShowCommandOrigin::Pointer;
         start.action = ShowCommandAction::Start;
         start.functionId = gone->id();
-        QVERIFY(r.recorder.submitUserInput(start));
         QVERIFY(r.doc.deleteFunction(gone->id()));
+        QVERIFY(!r.recorder.submitUserInput(start));
         r.slider->requestUserValue(51);
         QVERIFY(!r.recorder.checkpoint());
     }
@@ -15630,7 +16761,7 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
     else if (boundary == QLatin1String("disarm"))
         ok = r.recorder.setRecording(false);
     else
-        ok = r.recorder.setResolvedShow(next->id());
+        ok = r.recorder.setResolvedShow(next->id(), ShowRecordSource::Perform);
     QCoreApplication::processEvents();
 
     const QByteArray after = savedShowXml(r.show);
@@ -15638,7 +16769,6 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
     QCOMPARE(after != before, changed);
     QCOMPARE(savedCommandTrack(&r.doc, r.show).extent(),
              changed || setup == QLatin1String("normalized") || setup == QLatin1String("repeat") ? 40000u
-             : setup == QLatin1String("failing")                                               ? 55000u
                                                                                                : 60000u);
     QCOMPARE(r.doc.isModified(), dirtyBefore || changed);
     QCOMPARE(dirtied.count(), changed ? 1 : 0);
@@ -15653,6 +16783,26 @@ void ShowCommandRecorder_Test::takeBoundary_marksPersistedChangeModified()
         QVERIFY(r.recorder.isRecording());
         QCOMPARE(r.show->commandTrack().count(), 2);
     }
+}
+
+void ShowCommandRecorder_Test::editGate_followsPerformEngagement()
+{
+    RequestRig r;
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId()));
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("No Show to edit"));
+
+    // Perform engaged on nothing tracks nothing new, yet the reason changes: QML must hear it
+    const QMetaObject *meta = r.recorder.metaObject();
+    const QMetaProperty reason = meta->property(meta->indexOfProperty("editBlockedReason"));
+    QVERIFY(reason.hasNotifySignal());
+    QSignalSpy gate(&r.recorder, reason.notifySignal());
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId(), ShowRecordSource::Perform));
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
+    QVERIFY(gate.count() >= 1);
+    const int engaged = gate.count();
+    r.recorder.releasePerform();
+    QCOMPARE(r.recorder.editBlockedReason(), ShowCommandRecorder::tr("No Show to edit"));
+    QVERIFY(gate.count() > engaged);
 }
 
 void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver_data()
@@ -15693,13 +16843,13 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
     const bool failing = change.startsWith(QLatin1String("previous cannot finalize"));
     if (failing)
     {
-        // a function command whose target then disappears makes A's publication fail
+        // a function command accepted for a target that is gone makes A's publication fail
         ShowCommandInput start;
         start.origin = ShowCommandOrigin::Pointer;
         start.action = ShowCommandAction::Start;
         start.functionId = goneId;
-        QVERIFY(r.recorder.submitUserInput(start));
         QVERIFY(r.doc.deleteFunction(goneId));
+        QVERIFY(!r.recorder.submitUserInput(start));
         // B has a minute to play
         ShowCommandTrack minute;
         QVERIFY(minute.setExtent(60000));
@@ -15710,14 +16860,15 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
     }
     a->setExternalElapsedTime(4700);
     r.slider->requestUserValue(51);
-    // failing: the function command alone, the slider input waits unpublished
-    QCOMPARE(a->commandTrack().count(), 1);
+    // failing: the function command and the slider input wait unpublished
+    QCOMPARE(a->commandTrack().count(), failing ? 0 : 1);
     if (change.endsWith(QLatin1String("after another report")))
         r.recorder.reportUnsupported(QStringLiteral("flash button"), ShowCommandOrigin::Pointer);
 
     QSignalSpy reported(&r.recorder, &ShowCommandRecorder::lastErrorChanged);
     const bool handed = r.recorder.setResolvedShow(change == QLatin1String("through a gap") ? Function::invalidId()
-                                                                                           : b->id());
+                                                                                           : b->id(),
+                                                   ShowRecordSource::Perform);
     QCOMPARE(handed, !failing);
     QVERIFY(!a->commandRecording());
 
@@ -15739,7 +16890,7 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
         QVERIFY(r.recorder.isRecording());
         r.slider->requestUserValue(153);
         QCOMPARE(a->commandTrack().count(), 1);
-        QVERIFY(r.recorder.setResolvedShow(c->id()));
+        QVERIFY(r.recorder.setResolvedShow(c->id(), ShowRecordSource::Perform));
         QVERIFY(r.recorder.isAuthoring());
         QCOMPARE(r.recorder.boundShowId(), c->id());
         r.slider->requestUserValue(204);
@@ -15760,7 +16911,7 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
         QVERIFY(b->isRunning());
         QCOMPARE(b->commandTrack().count(), 0);
         // a later automatic change reports nothing more
-        QVERIFY(r.recorder.setResolvedShow(c->id()));
+        QVERIFY(r.recorder.setResolvedShow(c->id(), ShowRecordSource::Perform));
         QCOMPARE(reported.count(), 1);
         // A's accepted input is all still there
         Scene *back = new Scene(&r.doc);
@@ -15772,6 +16923,130 @@ void ShowCommandRecorder_Test::automaticShowChange_handsRecordingOver()
         b->stop(FunctionParent::master());
     }
     tickAndDeliver(&r.doc, 3);
+}
+
+void ShowCommandRecorder_Test::failedHandover_reasonOutlivesLaterInput()
+{
+    RequestRig r;
+    Show *a = r.show;
+    a->setName(QStringLiteral("Take A"));
+    a->setSyncSource(ShowRunner::External);
+    a->setExternalElapsedTime(4000);
+    Show *b = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(b));
+    b->setSyncSource(ShowRunner::External);
+    b->setExternalElapsedTime(900);
+    QVERIFY(r.recorder.setRecording(true));
+    // a command for a target that is gone keeps A from closing
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    QVERIFY(r.doc.deleteFunction(goneId));
+    ShowCommandInput start;
+    start.origin = ShowCommandOrigin::Pointer;
+    start.action = ShowCommandAction::Start;
+    start.functionId = goneId;
+    QVERIFY(!r.recorder.submitUserInput(start));
+    QVERIFY(!r.recorder.setResolvedShow(b->id(), ShowRecordSource::Perform));
+    const QString reason = r.recorder.lastError();
+    QVERIFY2(reason.contains(QStringLiteral("Take A")), qPrintable(reason));
+
+    // armed again on B, recording works and the reason stays until another replaces it
+    QVERIFY(r.recorder.setRecording(true));
+    r.slider->requestUserValue(153);
+    QCOMPARE(b->commandTrack().count(), 1);
+    QCOMPARE(r.recorder.lastError(), reason);
+    // A's input is saved once its target is back
+    Scene *back = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(back, goneId));
+    QVERIFY2(r.recorder.setRecording(false), qPrintable(r.recorder.lastError()));
+}
+
+void ShowCommandRecorder_Test::staleTarget_blocksOnlyItsOwnCommand_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("record unrelated input") << QStringLiteral("record") << true;
+    QTest::newRow("edit the unrelated command") << QStringLiteral("edit other") << true;
+    QTest::newRow("checkpoint") << QStringLiteral("checkpoint") << true;
+    QTest::newRow("retime the stale command") << QStringLiteral("edit stale") << false;
+    QTest::newRow("record a Start on the missing target") << QStringLiteral("record stale") << false;
+}
+
+void ShowCommandRecorder_Test::staleTarget_blocksOnlyItsOwnCommand()
+{
+    QFETCH(QString, action);
+    QFETCH(bool, accepted);
+
+    RequestRig r;
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(3000);
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 1000, r.a->id())));
+    QVERIFY(track.insert(ShowCommand::start(1, 2000, goneId)));
+    QVERIFY(r.show->setCommandTrack(track));
+    // the target of a published command goes: the command stays and blocks only itself
+    QVERIFY(r.doc.deleteFunction(goneId));
+    const ShowCommand stale = r.show->commandTrack().commands().at(1);
+    QVERIFY(r.recorder.setRecording(true));
+
+    bool ok = false;
+    if (action == QLatin1String("record"))
+    {
+        r.slider->requestUserValue(51);
+        ok = r.show->commandTrack().count() == 3;
+    }
+    else if (action == QLatin1String("edit other"))
+        ok = r.recorder.retimeCommand(r.show->id(), 0, 1500);
+    else if (action == QLatin1String("checkpoint"))
+        ok = r.recorder.checkpoint();
+    else if (action == QLatin1String("edit stale"))
+        ok = r.recorder.retimeCommand(r.show->id(), 1, 2500);
+    else
+    {
+        ShowCommandInput start;
+        start.origin = ShowCommandOrigin::Pointer;
+        start.action = ShowCommandAction::Start;
+        start.functionId = goneId;
+        ok = r.recorder.submitUserInput(start);
+    }
+    QCOMPARE(ok, accepted);
+    if (!accepted)
+        QVERIFY2(r.recorder.lastError().contains(QStringLiteral("Unknown command target")),
+                 qPrintable(r.recorder.lastError()));
+    const int index = r.show->commandTrack().indexOfId(1);
+    QVERIFY(index >= 0);
+    QVERIFY(r.show->commandTrack().commands().at(index) == stale);
+    r.recorder.discardUnpublished();
+    QVERIFY(r.recorder.setRecording(false));
+}
+
+void ShowCommandRecorder_Test::lifecycleEventRaisedByAnEffect_runsAfterIt()
+{
+    RequestRig r;
+    Show *b = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(b));
+    QVERIFY(r.recorder.setResolvedShow(Function::invalidId()));
+    QVERIFY(r.recorder.setRecording(true));
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+
+    // a rows subscriber turns REC off while the recorder binds B
+    bool disarmed = false;
+    QObject::connect(&r.recorder, &ShowCommandRecorder::commandsChanged, &r.recorder, [&]() {
+        if (disarmed)
+            return;
+        disarmed = true;
+        r.recorder.setRecording(false);
+    });
+    r.recorder.setResolvedShow(b->id());
+    QVERIFY(disarmed);
+    QVERIFY(!r.recorder.isRecording());
+    QVERIFY(!b->commandRecording());
+    QCOMPARE(r.recorder.targetName(), b->name());
 }
 
 void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed_data()
@@ -15806,7 +17081,7 @@ void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed()
         manager.setCurrentShowID(int(r.show->id()));
     QVERIFY(r.recorder.setRecording(state != QLatin1String("off")));
     if (state == QLatin1String("handed over"))
-        QVERIFY(r.recorder.setResolvedShow(b->id()));
+        QVERIFY(r.recorder.setResolvedShow(b->id(), ShowRecordSource::Perform));
     const int before = manager.currentShowID();
 
     QSignalSpy selected(&manager, &ShowManager::currentShowIDChanged);
@@ -15819,55 +17094,88 @@ void ShowCommandRecorder_Test::manualShowSelection_lockedWhileArmed()
         QCOMPARE(r.recorder.boundShowId(), accepted ? b->id() : r.show->id());
 }
 
-void ShowCommandRecorder_Test::performFollow_handsOverOnlyWhileEngaged_data()
+void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds_data()
 {
-    QTest::addColumn<bool>("enabledFirst");
+    QTest::addColumn<bool>("undo");
 
-    QTest::newRow("deck change while engaged") << true;
-    // the deck resolved B while Perform was off; enabling it changes only its state
-    QTest::newRow("enabled with the deck already on B") << false;
+    QTest::newRow("deleted") << false;
+    // native undo brings the Show back under its id, as another object
+    QTest::newRow("deletion undone") << true;
 }
 
-void ShowCommandRecorder_Test::performFollow_handsOverOnlyWhileEngaged()
+void ShowCommandRecorder_Test::boundShowDeletion_armsAndUndoRebinds()
 {
-    QFETCH(bool, enabledFirst);
+    QFETCH(bool, undo);
 
     RequestRig r;
-    Show *b = new Show(&r.doc);
-    QVERIFY(r.doc.addFunction(b));
-    ShowManager manager(r.ui.view(), &r.doc);
-    manager.m_detached = true;
-    // the application's wiring, in its order
-    QObject::connect(&manager, &ShowManager::currentShowIDChanged, &r.recorder,
-                     [&r](int showID) { r.recorder.setResolvedShow(quint32(showID)); });
-    VdjBridge bridge;
-    bridge.setDoc(&r.doc);
-    r.recorder.followPerform(bridge.performFsm());
-    DjManager dj(r.ui.view(), &r.doc, &bridge, bridge.showFactory());
-    QObject::connect(&dj, &DjManager::showLoadRequested, &manager, &ShowManager::setCurrentShowID);
-    manager.setCurrentShowID(int(r.show->id()));
+    r.show->setName(QStringLiteral("Take"));
+    r.show->setSyncSource(ShowRunner::External);
+    r.show->setExternalElapsedTime(1000);
+    const quint32 showId = r.show->id();
     QVERIFY(r.recorder.setRecording(true));
-    QCOMPARE(r.recorder.boundShowId(), r.show->id());
-    PerformFsm *fsm = bridge.performFsm();
+    r.slider->requestUserValue(51);
+    QCOMPARE(r.show->commandTrack().count(), 1);
+    // accepted for a target that is gone: the Show cannot take it
+    Scene *gone = new Scene(&r.doc);
+    QVERIFY(r.doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    QVERIFY(r.doc.deleteFunction(goneId));
+    ShowCommandInput start;
+    start.origin = ShowCommandOrigin::Pointer;
+    start.action = ShowCommandAction::Start;
+    start.functionId = goneId;
+    QVERIFY(!r.recorder.submitUserInput(start));
+    // a host cursor on the Show goes with it
+    r.recorder.setHostCursor(showId, 5000);
 
-    if (enabledFirst)
+    QBuffer xml;
+    xml.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(r.show->saveXML(&writer));
+    QVERIFY(r.doc.deleteFunction(showId));
+    // the rig stops its Show when it goes
+    r.show = new Show(&r.doc);
+    QVERIFY(r.doc.addFunction(r.show));
+
+    // REC waits for a Show, says why, and its unsaved input went with the Show
+    QVERIFY(r.recorder.isRecording());
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+    QCOMPARE(r.recorder.boundShowId(), quint32(Function::invalidId()));
+    QVERIFY2(r.recorder.lastError().contains(QStringLiteral("Take")), qPrintable(r.recorder.lastError()));
+    QVERIFY(r.recorder.commands().isEmpty());
+    QVERIFY2(r.recorder.checkpoint(), qPrintable(r.recorder.lastError()));
+
+    if (undo == false)
     {
-        fsm->setPerformEnabled(true);
-        fsm->setActiveShow(b->id());
-    }
-    else
-    {
-        // Perform off is not an automatic source: the take stays where it is
-        fsm->setActiveShow(b->id());
-        QCOMPARE(r.recorder.boundShowId(), r.show->id());
-        QCOMPARE(manager.currentShowID(), int(r.show->id()));
-        fsm->setPerformEnabled(true);
+        QVERIFY(r.recorder.setRecording(false));
+        QVERIFY(!r.recorder.isRecording());
+        return;
     }
 
+    QXmlStreamReader reader(xml.data());
+    reader.readNextStartElement();
+    QVERIFY(Function::loader(reader, &r.doc));
+    auto *restored = qobject_cast<Show *>(r.doc.function(showId));
+    QVERIFY(restored);
+    // the restored Show binds once the Show Manager shows it again
+    QCOMPARE(r.recorder.phaseValue(), int(ShowRecordPhase::Armed));
+    QVERIFY(r.recorder.setResolvedShow(showId));
+    // bound again, to the restored object and its signals
     QVERIFY(r.recorder.isAuthoring());
-    QCOMPARE(r.recorder.boundShowId(), b->id());
-    QCOMPARE(manager.currentShowID(), int(b->id()));
-    fsm->setPerformEnabled(false);
+    QCOMPARE(r.recorder.boundShowId(), showId);
+    QVERIFY(restored->commandRecording());
+    QCOMPARE(r.recorder.commands().count(), 1);
+    QSignalSpy renamed(&r.recorder, &ShowCommandRecorder::targetNameChanged);
+    restored->setName(QStringLiteral("Take again"));
+    QCOMPARE(renamed.count(), 1);
+    QCOMPARE(r.recorder.targetName(), QStringLiteral("Take again"));
+    // input is stamped at the restored Show's own clock, not the deleted Show's cursor
+    r.slider->requestUserValue(153);
+    QCOMPARE(restored->commandTrack().count(), 2);
+    QCOMPARE(restored->commandTrack().commands().first().time, 0u);
+    QCOMPARE(restored->commandTrack().commands().last().time, 1000u);
+    QVERIFY2(r.recorder.setRecording(false), qPrintable(r.recorder.lastError()));
+    QVERIFY(!restored->commandRecording());
 }
 
 void ShowCommandRecorder_Test::appPerform_handsRecordingOver_data()
@@ -15949,19 +17257,16 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     const bool failing = change == QLatin1String("previous cannot finalize");
     if (failing)
     {
-        // a published command whose target then disappears: A's later input
-        // stays unpublished, and so A cannot close
-        QVERIFY(start(goneId));
+        // a command accepted for a target that is gone: it and A's later input
+        // stay unpublished, and so A cannot close
         QVERIFY(doc->deleteFunction(goneId));
+        QVERIFY(!start(goneId));
         a->setExternalElapsedTime(4700);
         QVERIFY(!start(target->id()));
-        QCOMPARE(a->commandTrack().count(), 1);
+        QCOMPARE(a->commandTrack().count(), 0);
         ShowCommandTrack minute;
         QVERIFY(minute.setExtent(60000));
         QVERIFY(b->setCommandTrack(minute));
-        b->start(doc->masterTimer(), FunctionParent::master());
-        tickAndDeliver(doc, 2);
-        QVERIFY(b->isRunning());
     }
     else
     {
@@ -15969,30 +17274,31 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
         QVERIFY(start(target->id()));
     }
 
+    // the failing row is a live handover: Perform starts the next Show itself
     if (change == QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setActiveShow(b->id());
+        fsm->setInputs({ b->id() });
         QCOMPARE(recorder->boundShowId(), a->id());
         QCOMPARE(manager->currentShowID(), int(a->id()));
     }
     else
     {
-        fsm->setActiveShow(a->id());
+        fsm->setInputs({ a->id(), failing });
     }
     QSignalSpy reported(recorder, &ShowCommandRecorder::lastErrorChanged);
     fsm->setPerformEnabled(true);
     QCOMPARE(recorder->boundShowId(), change == QLatin1String("engaged on an unchanged deck") ? b->id() : a->id());
     if (change == QLatin1String("through a gap"))
     {
-        fsm->setActiveShow(PerformFsm::InvalidShowId);
+        fsm->setInputs({});
         QCOMPARE(recorder->phaseValue(), int(ShowRecordPhase::Armed));
         QVERIFY(recorder->isRecording());
         QVERIFY(!a->commandRecording());
-        fsm->setActiveShow(c->id());
+        fsm->setInputs({ c->id() });
     }
     else if (change != QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setActiveShow(b->id());
+        fsm->setInputs({ b->id(), failing });
     }
     Show *next = change == QLatin1String("through a gap") ? c : b;
 
@@ -16001,12 +17307,15 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     QVERIFY(!a->commandRecording());
     if (failing)
     {
-        // disarmed and reported once; B plays unrecorded; A keeps all it accepted
+        // disarmed and reported once; B plays unrecorded, started by the
+        // handover; A keeps all it accepted
         QVERIFY(!recorder->isRecording());
         QCOMPARE(reported.count(), 1);
         QVERIFY(!b->commandRecording());
+        QVERIFY(a->stopped());
         tickAndDeliver(doc, 3);
-        QVERIFY(b->isRunning());
+        QVERIFY(b->isRunning() && !b->isPaused());
+        QCOMPARE(b->syncSource(), int(ShowRunner::External));
         QCOMPARE(b->commandTrack().count(), 0);
         Scene *back = new Scene(doc);
         QVERIFY(doc->addFunction(back, goneId));
@@ -16195,8 +17504,9 @@ SavedTake recordPendingTake(AppRig &rig, const QString &transport)
         }
     }
     take.show->setExternalElapsedTime(20000);
-    rig.start(take.goneId);
+    // accepted for a target that is gone: it and what follows stay pending
     rig.doc->deleteFunction(take.goneId);
+    rig.start(take.goneId);
     take.show->setExternalElapsedTime(30000);
     rig.start(take.target->id());
     take.show->setExternalElapsedTime(55000);
@@ -16246,7 +17556,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
     const QByteArray originalBytes = fileBytes(original);
     const QString workspacePath = rig.doc->workspacePath();
     const SavedTake take = recordPendingTake(rig, transport);
-    QVERIFY(take.show->commandTrack().count() == 2);
+    QVERIFY(take.show->commandTrack().count() == 1);
     QVERIFY(rig.doc->isModified());
     if (failure != QLatin1String("checkpoint"))
     {
@@ -16258,7 +17568,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
     QCOMPARE(running, transport != QLatin1String("stopped"));
     QCOMPARE(paused, transport == QLatin1String("paused"));
     QVERIFY(rig.recorder->isAuthoring());
-    QCOMPARE(rig.recorder->position(), 55000);
+    QCOMPARE(take.show->commandPosition(), 55000u);
 
     const QString destination = failure.isEmpty() ? saveAs : failure == QLatin1String("checkpoint") ? original : locked;
     const bool saved = rig.app->saveWorkspace(destination);
@@ -16269,7 +17579,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
     QVERIFY(take.show->commandRecording());
     QCOMPARE(take.show->isRunning(), running);
     QCOMPARE(take.show->isPaused(), paused);
-    QCOMPARE(rig.recorder->position(), 55000);
+    QCOMPARE(take.show->commandPosition(), 55000u);
 
     if (failure.isEmpty() == false)
     {
@@ -16283,7 +17593,7 @@ void ShowCommandRecorder_Test::appSave_checkpointsRecording()
         if (failure == QLatin1String("checkpoint"))
         {
             QVERIFY(!rig.recorder->lastError().isEmpty());
-            QCOMPARE(take.show->commandTrack().count(), 2);
+            QCOMPARE(take.show->commandTrack().count(), 1);
             Scene *back = new Scene(rig.doc);
             QVERIFY(rig.doc->addFunction(back, take.goneId));
         }
@@ -16348,6 +17658,142 @@ bool clickDialogButton(QQuickView *window, QObject *dialog, int button)
     return clicked.count() == 1;
 }
 } // namespace
+
+void ShowCommandRecorder_Test::appSave_unwritableFile_reportedByOrigin_data()
+{
+    QTest::addColumn<QString>("origin");
+    QTest::addColumn<bool>("dialog");
+
+    QTest::newRow("save") << QStringLiteral("save") << true;
+    // in the middle of a set nobody waits on the timed autosave: no modal dialog over the console
+    QTest::newRow("autosave") << QStringLiteral("autosave") << false;
+    QTest::newRow("copy for a network client") << QStringLiteral("client") << true;
+}
+
+void ShowCommandRecorder_Test::appSave_unwritableFile_reportedByOrigin()
+{
+    QFETCH(QString, origin);
+    QFETCH(bool, dialog);
+
+    // every row writes into a folder it may not write to: the workspace, its autosave, the client's temp copy
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString readOnlyDir = files.filePath(QStringLiteral("locked"));
+    const QString path = readOnlyDir + QStringLiteral("/refused.qxw");
+    QVERIFY(QDir().mkpath(readOnlyDir));
+    QVERIFY(QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+    const auto unlock = qScopeGuard([&readOnlyDir]() {
+        QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    });
+    QFile probe(path);
+    QVERIFY(!probe.open(QIODevice::WriteOnly));
+    const QByteArray tempDir = qgetenv("TMPDIR");
+    const bool hadTempDir = qEnvironmentVariableIsSet("TMPDIR");
+    const auto restoreTempDir = qScopeGuard([&tempDir, hadTempDir]() {
+        if (hadTempDir)
+            qputenv("TMPDIR", tempDir);
+        else
+            qunsetenv("TMPDIR");
+    });
+
+    AppRig rig;
+    const QMetaObject *meta = rig.app->metaObject();
+    const QMetaProperty saveError = meta->property(meta->indexOfProperty("saveError"));
+    QVERIFY(saveError.isValid() && saveError.hasNotifySignal());
+    QSignalSpy reported(rig.app.get(), saveError.notifySignal());
+    QVERIFY(QMetaObject::invokeMethod(rig.app->rootObject(), "switchToContext", Q_ARG(QVariant, QStringLiteral("VC")),
+                                      Q_ARG(QVariant, QStringLiteral("qrc:/VirtualConsole.qml"))));
+    QCoreApplication::processEvents();
+    QObject *popup = rig.qml(QStringLiteral("actionsMenu"))->findChild<QObject *>(QStringLiteral("saveErrorPopup"));
+    QObject *messageBar = rig.app->rootObject()->findChild<QObject *>(QStringLiteral("vcLayoutError"));
+    QVERIFY(popup && messageBar);
+    const auto save = [&]() {
+        if (origin == QLatin1String("save"))
+            QVERIFY(!rig.app->saveWorkspace(path));
+        else if (origin == QLatin1String("autosave"))
+        {
+            rig.app->setFileName(path);
+            emit rig.doc->needAutosave();
+        }
+        else
+        {
+            QVERIFY(qputenv("TMPDIR", readOnlyDir.toLocal8Bit()));
+            QVERIFY(QMetaObject::invokeMethod(rig.app.get(), "slotClientProjectRequest",
+                                              Q_ARG(QString, QStringLiteral("client"))));
+        }
+    };
+    save();
+    // the same failure again: a save someone asked for says it again, the autosave once
+    const int once = reported.count();
+    save();
+    QCOMPARE(reported.count() > once, dialog);
+
+    // no file, and the reason is the file system's
+    QCOMPARE(QDir(readOnlyDir).entryList(QDir::Files), QStringList());
+    QVERIFY(reported.count() >= 1);
+    const QString reason = saveError.read(rig.app.get()).toString();
+    QVERIFY(!reason.isEmpty());
+    QCOMPARE(reason, probe.errorString());
+    QCOMPARE(popup->property("visible").toBool(), dialog);
+    // the autosave says it at the bottom of the console instead
+    QCOMPARE(messageBar->property("visible").toBool(), !dialog);
+    if (!dialog)
+        QVERIFY(messageBar->property("message").toString().contains(reason));
+}
+
+void ShowCommandRecorder_Test::appSave_failedSaveLeavesNoSnapshot()
+{
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString readOnlyDir = files.filePath(QStringLiteral("locked"));
+    QVERIFY(QDir().mkpath(readOnlyDir));
+    QVERIFY(QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::ExeOwner));
+    const auto unlock = qScopeGuard([&readOnlyDir]() {
+        QFile::setPermissions(readOnlyDir, QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner);
+    });
+
+    AppRig rig;
+    QVERIFY(rig.recorder);
+    auto *vc = qobject_cast<VirtualConsole *>(rig.context("virtualConsole"));
+    QVERIFY(vc);
+    Scene *target = addTarget(rig.doc);
+    QVERIFY(target);
+    VCBridgeV5 bridge(rig.doc, vc);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Live"), false);
+    auto *flash = qobject_cast<VCButton *>(vc->widget(
+        bridge.addButton(frame, QRect(10, 10, 80, 48), target->id(), QStringLiteral("F"), QStringLiteral("flash"))));
+    QVERIFY(flash);
+    Show *show = rig.addShow(0);
+    QVERIFY(rig.recorder->setResolvedShow(show->id()));
+    QVERIFY(rig.recorder->setRecording(true));
+    show->start(rig.doc->masterTimer(), FunctionParent::master());
+    for (int i = 0; i < 20 && !show->isRunning(); i++)
+        tickAndDeliver(rig.doc, 1);
+    show->setExternalElapsedTime(1000);
+    flash->requestUserStateChange(true);
+    tickAndDeliver(rig.doc, 2);
+    show->setExternalElapsedTime(2000);
+    tickAndDeliver(rig.doc, 2);
+
+    // the save checkpoints, then cannot open its file
+    QVERIFY(!rig.app->saveWorkspace(readOnlyDir + QStringLiteral("/refused.qxw")));
+    // the next copy (an autosave, a client's) writes the Show as it is: the hold still held is in no track
+    QBuffer buffer;
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(show->saveXML(&writer));
+    QXmlStreamReader reader(buffer.data());
+    QVERIFY(reader.readNextStartElement());
+    Show copy(rig.doc);
+    QVERIFY(copy.loadXML(reader));
+
+    flash->requestUserStateChange(false);
+    QVERIFY(rig.recorder->setRecording(false));
+    show->stop(FunctionParent::master());
+    tickAndDeliver(rig.doc, 3);
+
+    QCOMPARE(holdSpans(copy.commandTrack()), QString());
+}
 
 void ShowCommandRecorder_Test::appReplacement_confirmsRecording_data()
 {
@@ -16511,7 +17957,7 @@ void ShowCommandRecorder_Test::appReplacement_confirmsRecording()
         QVERIFY(take.show->commandRecording());
         QVERIFY(rig.manager->isPlaying());
         QVERIFY(rig.doc->masterTimer()->runningFunctions() > 0);
-        QCOMPARE(rig.recorder->position(), 55000);
+        QCOMPARE(take.show->commandPosition(), 55000u);
     };
 
     if (choice == QLatin1String("cancel"))
@@ -16855,23 +18301,57 @@ void ShowCommandRecorder_Test::appRecordControls_followTargetRename()
     QVERIFY(rig.recorder->setRecording(false));
 }
 
-void ShowCommandRecorder_Test::appPerformGap_firstSelectionBinds_data()
+void ShowCommandRecorder_Test::appPerform_selectionOfTheResolvedShowPassesTheGate()
 {
-    QTest::addColumn<QString>("selection");
+    // a bound take refuses another selection, whoever resolved it; the
+    // executor binds Perform's Show before the Show Manager selects it, so
+    // that selection is the bound Show's own
+    AppRig rig;
+    QVERIFY(rig.recorder && rig.manager);
+    auto *bridge = qobject_cast<VdjBridge *>(rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    PerformFsm *fsm = bridge->performFsm();
+    Show *a = rig.addShow(3000);
+    Show *b = rig.addShow(0);
 
-    // after Perform resolved nothing, the Show Manager still displays A
-    QTest::newRow("still displayed A") << QStringLiteral("A");
-    QTest::newRow("different B") << QStringLiteral("B");
-    // a bound take keeps its Show; selecting it again changes nothing
-    QTest::newRow("bound, select B") << QStringLiteral("bound B");
-    QTest::newRow("bound, select A again") << QStringLiteral("bound A");
-    // not recording: selecting the displayed Show stays a no-op
-    QTest::newRow("REC off, A again") << QStringLiteral("off A");
+    rig.manager->setCurrentShowID(int(a->id()));
+    QVERIFY(rig.recorder->setRecording(true));
+    QCOMPARE(rig.recorder->boundShowId(), a->id());
+    // a bound take: a manual selection of another Show is refused
+    rig.manager->setCurrentShowID(int(b->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(a->id()));
+
+    QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
+    fsm->setInputs({ b->id() });
+    fsm->setPerformEnabled(true);
+    QCOMPARE(rig.recorder->boundShowId(), b->id());
+    QCOMPARE(rig.manager->currentShowID(), int(b->id()));
+    QVERIFY(rig.recorder->selectionAllowed(b->id()));
+    QVERIFY(!rig.recorder->selectionAllowed(a->id()));
+
+    fsm->setPerformEnabled(false);
+    rig.recorder->setRecording(false);
 }
 
-void ShowCommandRecorder_Test::appPerformGap_firstSelectionBinds()
+void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain_data()
 {
-    QFETCH(QString, selection);
+    QTest::addColumn<bool>("gap");      // Perform resolved nothing last
+    QTest::addColumn<QString>("chosen"); // the Show Manager selection while Perform is engaged
+    QTest::addColumn<bool>("rec");
+
+    QTest::newRow("after a gap, A still displayed") << true << QStringLiteral("A") << true;
+    QTest::newRow("after a gap, B selected meanwhile") << true << QStringLiteral("B") << true;
+    QTest::newRow("on the take the Show Manager displays") << false << QStringLiteral("A") << true;
+    // a bound take keeps its Show selected, whoever resolved it
+    QTest::newRow("B asked for while the take is on A") << false << QStringLiteral("B") << true;
+    QTest::newRow("REC off") << true << QStringLiteral("B") << false;
+}
+
+void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
+{
+    QFETCH(bool, gap);
+    QFETCH(QString, chosen);
+    QFETCH(bool, rec);
 
     AppRig rig;
     QVERIFY(rig.recorder && rig.manager);
@@ -16880,56 +18360,182 @@ void ShowCommandRecorder_Test::appPerformGap_firstSelectionBinds()
     PerformFsm *fsm = bridge->performFsm();
     Show *a = rig.addShow(3000);
     Show *b = rig.addShow(6000);
+    Show *selected = chosen == QLatin1String("B") ? b : a;
 
     rig.manager->setCurrentShowID(int(a->id()));
-    if (selection.startsWith(QLatin1String("off")) == false)
+    QVERIFY(rig.recorder->setRecording(rec));
+    fsm->setInputs({ a->id() });
+    fsm->setPerformEnabled(true);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? a->id() : quint32(Function::invalidId()));
+    if (gap)
     {
-        QVERIFY(rig.recorder->setRecording(true));
-        fsm->setActiveShow(a->id());
-        fsm->setPerformEnabled(true);
-        QCOMPARE(rig.recorder->boundShowId(), a->id());
-        if (selection.startsWith(QLatin1String("bound")) == false)
-        {
-            // an automatic gap: the take on A closes, REC waits armed
-            fsm->setActiveShow(PerformFsm::InvalidShowId);
-            QCOMPARE(rig.recorder->phaseValue(), int(ShowRecordPhase::Armed));
-        }
-        fsm->setPerformEnabled(false);
-        QVERIFY(!rig.manager->readOnly());
+        // the take on A closes, REC waits for Perform's next Show
+        fsm->setInputs({});
+        QCOMPARE(rig.recorder->phaseValue(), int(rec ? ShowRecordPhase::Armed : ShowRecordPhase::Off));
+        QCOMPARE(rig.recorder->editBlockedReason(), ShowCommandRecorder::tr("Perform resolves no Show yet"));
     }
-    QCOMPARE(rig.manager->currentShowID(), int(a->id()));
-    const quint32 boundBefore = rig.recorder->boundShowId();
+    // while Perform is engaged a selection resolves nothing, and a bound take refuses another Show
+    const bool refused = rec && !gap && selected != a;
+    Show *shown = refused ? a : selected;
+    rig.manager->setCurrentShowID(int(selected->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(shown->id()));
+    QCOMPARE(rig.recorder->boundShowId(), rec && !gap ? a->id() : quint32(Function::invalidId()));
+
+    fsm->setPerformEnabled(false);
+    QVERIFY(!rig.manager->readOnly());
+    // the selection resolves again, and a take on it keeps it
+    QCOMPARE(rig.recorder->targetName(), shown->name());
+    QCOMPARE(rig.recorder->isAuthoring(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? shown->id() : quint32(Function::invalidId()));
+    QCOMPARE(shown->commandRecording(), rec);
     QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
-    QSignalSpy selected(rig.manager, &ShowManager::currentShowIDChanged);
-
-    Show *chosen = selection.endsWith(QLatin1String("B")) ? b : a;
-    // the public setter the function list and Show editor select through
-    rig.manager->setCurrentShowID(int(chosen->id()));
-
-    if (selection == QLatin1String("A") || selection == QLatin1String("B"))
+    Show *other = shown == a ? b : a;
+    rig.manager->setCurrentShowID(int(other->id()));
+    QCOMPARE(rig.manager->currentShowID(), int(rec ? shown->id() : other->id()));
+    if (rec)
     {
-        // the first manual selection binds, then locks
-        QCOMPARE(rig.manager->currentShowID(), int(chosen->id()));
-        QVERIFY(rig.recorder->isAuthoring());
-        QCOMPARE(rig.recorder->boundShowId(), chosen->id());
-        QVERIFY(chosen->commandRecording());
-        rig.manager->setCurrentShowID(int((chosen == a ? b : a)->id()));
-        QCOMPARE(rig.manager->currentShowID(), int(chosen->id()));
-        const int transitions = states.count();
-        rig.manager->setCurrentShowID(int(chosen->id()));
-        QCOMPARE(states.count(), transitions);
-    }
-    else
-    {
-        // nothing moves: no selection, target or transport change
-        QCOMPARE(rig.manager->currentShowID(), int(a->id()));
-        QCOMPARE(rig.recorder->boundShowId(), boundBefore);
+        rig.manager->setCurrentShowID(int(shown->id()));
         QCOMPARE(states.count(), 0);
-        QCOMPARE(selected.count(), 0);
-        QCOMPARE(rig.recorder->isRecording(), selection.startsWith(QLatin1String("bound")));
     }
     QCOMPARE(rig.doc->masterTimer()->runningFunctions(), 0);
     rig.recorder->setRecording(false);
+}
+
+void ShowCommandRecorder_Test::appShowDeletion_undoneShowBindsWhenShownAgain_data()
+{
+    QTest::addColumn<bool>("rec");
+
+    QTest::newRow("REC off") << false;
+    QTest::newRow("REC bound to it") << true;
+}
+
+void ShowCommandRecorder_Test::appShowDeletion_undoneShowBindsWhenShownAgain()
+{
+    QFETCH(bool, rec);
+
+    AppRig rig;
+    QVERIFY(rig.recorder && rig.manager);
+    auto *functions = qobject_cast<FunctionManager *>(rig.context("functionManager"));
+    auto *tardis = qobject_cast<Tardis *>(rig.context("tardis"));
+    QVERIFY(functions && tardis);
+    Show *a = rig.addShow(3000);
+    a->setName(QStringLiteral("Take A"));
+    const quint32 aId = a->id();
+    rig.manager->setCurrentShowID(int(aId));
+    QVERIFY(rig.recorder->setRecording(rec));
+    QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));
+
+    // the Function Manager deletes the shown Show: nothing is shown or recorded into
+    functions->deleteFunction(aId);
+    QVERIFY(rig.doc->function(aId) == nullptr);
+    QCOMPARE(rig.manager->currentShowID(), int(Function::invalidId()));
+    QVERIFY(!rig.manager->isEditing());
+    QCOMPARE(rig.recorder->isRecording(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), quint32(Function::invalidId()));
+    QCOMPARE(rig.recorder->targetName(), QString());
+    if (rec)
+        QVERIFY2(rig.recorder->lastError().contains(QStringLiteral("Take A")), qPrintable(rig.recorder->lastError()));
+
+    // native undo brings it back under its id: no selection by itself; shown
+    // again by the user, the take goes on in it
+    QTest::qWait(200);
+    tardis->undoAction();
+    auto *restored = qobject_cast<Show *>(rig.doc->function(aId));
+    QVERIFY(restored);
+    QCOMPARE(rig.manager->currentShowID(), int(Function::invalidId()));
+    QCOMPARE(rig.recorder->boundShowId(), quint32(Function::invalidId()));
+    rig.manager->setCurrentShowID(int(aId));
+    QCOMPARE(rig.manager->currentShow(), restored);
+    QCOMPARE(rig.recorder->targetName(), QStringLiteral("Take A"));
+    QCOMPARE(rig.recorder->isAuthoring(), rec);
+    QCOMPARE(rig.recorder->boundShowId(), rec ? aId : quint32(Function::invalidId()));
+    QCOMPARE(restored->commandRecording(), rec);
+    QCOMPARE(rig.doc->masterTimer()->runningFunctions(), 0);
+    rig.recorder->setRecording(false);
+}
+
+void ShowCommandRecorder_Test::appSongShows_choiceSurvivesSaveAndLoad()
+{
+    // a song's Show choice is saved with the workspace and read back after its Shows
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString path = files.filePath(QStringLiteral("choice.qxw"));
+    AppRig rig;
+    auto *bridge = qobject_cast<VdjBridge *>(rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    Show *chosen = rig.addShow(0);
+    chosen->setName(QStringLiteral("Chosen"));
+    const quint32 chosenId = chosen->id();
+    bridge->showFactory()->registerMapping(QStringLiteral("/music/choice.mp3"), chosenId);
+    QVERIFY(rig.app->saveWorkspace(path));
+
+    QVERIFY(rig.app->loadWorkspace(path));
+    QCOMPARE(rig.doc->function(chosenId)->name(), QStringLiteral("Chosen"));
+    QCOMPARE(bridge->showFactory()->showIdForFilepath(QStringLiteral("/music/choice.mp3")), chosenId);
+}
+
+void ShowCommandRecorder_Test::appSongShows_loadResolvesPerformOnce_data()
+{
+    QTest::addColumn<bool>("choice");
+    QTest::addColumn<QStringList>("resolved");  // performShowResolved in order, "-" = released
+
+    QTest::newRow("a saved choice: the built Show is never driven") << true << QStringList({"-", "Chosen"});
+    QTest::newRow("no choice: the built Show, once the load ended") << false << QStringList({"-", "S1"});
+}
+
+void ShowCommandRecorder_Test::appSongShows_loadResolvesPerformOnce()
+{
+    // the playing deck's song has a built Show: a reload resolves Perform once,
+    // against the whole workspace
+    QFETCH(bool, choice);
+    QFETCH(QStringList, resolved);
+
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString path = files.filePath(QStringLiteral("perform.qxw"));
+    const QString song = QStringLiteral("/music/perform.mp3");
+    AppRig rig;
+    auto *bridge = qobject_cast<VdjBridge *>(rig.context("vdjBridge"));
+    QVERIFY(bridge);
+    Show *built = rig.addShow(0);
+    built->setName(QStringLiteral("S1"));
+    Audio *audio = new Audio(rig.doc);
+    audio->setSourceFileName(song);
+    QVERIFY(rig.doc->addFunction(audio));
+    auto *track = new Track(Function::invalidId(), built);
+    built->addTrack(track);
+    track->createShowFunction(audio->id())->setDuration(300000);
+    Show *chosen = rig.addShow(0);
+    chosen->setName(QStringLiteral("Chosen"));
+    if (choice)
+        bridge->showFactory()->registerMapping(song, chosen->id());
+    QVERIFY(rig.app->saveWorkspace(path));
+
+    const auto deck = [&](const char *trigger, const QVariant &value) {
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, 0),
+                                          Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    };
+    const auto performOff = qScopeGuard([&]() { bridge->setPerformMode(false); });
+    deck("get_filepath", song);
+    deck("loaded", QStringLiteral("on"));
+    deck("masterdeck", QStringLiteral("on"));
+    bridge->setPerformMode(true);
+    deck("play", QStringLiteral("on"));
+    QCOMPARE(bridge->performShowName(), resolved.last());
+
+    QSignalSpy resolvedSpy(bridge, &VdjBridge::performShowResolved);
+    QVERIFY(rig.app->loadWorkspace(path));
+    // replacing the workspace restarted the application's timer
+    rig.realTimer = true;
+    QCoreApplication::processEvents();
+    QStringList sequence;
+    for (const QList<QVariant> &args : std::as_const(resolvedSpy))
+    {
+        const quint32 id = args.at(0).toUInt();
+        sequence << (id == PerformFsm::InvalidShowId ? QStringLiteral("-") : rig.doc->function(id)->name());
+    }
+    QVERIFY2(sequence == resolved, qPrintable(sequence.join(QLatin1Char(' '))));
 }
 
 void ShowCommandRecorder_Test::appMcpReplacement_needsDiscardWhileRecording_data()
@@ -17152,7 +18758,7 @@ struct EditorRig
         if (vc == nullptr)
             return false;
         VCBridgeV5 bridge(rig.doc, vc);
-        const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
+        const int frame = addFrame(bridge, 0, QRect(0, 0, 600, 300), QStringLiteral("Frame"), false);
         button = addToggle(bridge, vc, frame, scene->id(), 10, QStringLiteral("Blue button"));
         fader = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(100, 10, 60, 200),
             QStringLiteral("level"), QStringLiteral("Fader"), Function::invalidId(), {})));
@@ -17327,7 +18933,9 @@ VCWidget *bindEditorCommand(EditorRig &ed, ShowCommand *command, QList<QLCFixtur
 {
     auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Typed history"), false);
+    // each binding gets a frame of its own, below the ones already on the page
+    const int frame = addFrame(bridge, 0, QRect(0, 310 * vc->page(0)->children(false).count(), 700, 300),
+                               QStringLiteral("Typed history"), false);
     VCWidget *control = nullptr;
     if (command->role == ShowControlRole::AdjustSlider)
         control = ed.fader;
@@ -17565,7 +19173,7 @@ void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive()
         QVERIFY(collection->addFunction(showId));
         collection->start(timer, FunctionParent::master());
         tickAndDeliver(ed.rig.doc, 1);
-        QVERIFY(!ed.show->commandPlaybackStopped());
+        QVERIFY(ed.show->isRunning() || timer->isStartQueued(ed.show));
         // adding the Collection is a project change of its own
         ed.rig.doc->resetModified();
     }
@@ -17583,7 +19191,7 @@ void ShowCommandRecorder_Test::recordingsEditor_editsWhileLive()
             QVERIFY(!ed.rig.manager->isPlaying());
         }
         if (state != QLatin1String("during edit"))
-            QVERIFY(!ed.show->commandPlaybackStopped());
+            QVERIFY(ed.show->isRunning() || timer->isStartQueued(ed.show));
     }
 
     // nothing says the recordings cannot be edited
@@ -17876,7 +19484,7 @@ void ShowCommandRecorder_Test::recordingsEdit_liveStretchSavesAndReloads()
     // two events share 1700: their saved tie order must come back
     ed.rig.manager->playShow();
     tickAndDeliver(ed.rig.doc, 2);
-    QVERIFY(!ed.show->commandPlaybackStopped());
+    QVERIFY(ed.show->isRunning());
     QVERIFY(ed.rig.recorder->beginEditSession(ed.show->id(), {0, 2, 3, 6}));
     QVERIFY2(ed.rig.recorder->commitRetime(int(ShowRetimeKind::StretchEnd), 1400), qPrintable(ed.rig.recorder->lastError()));
     const ShowCommandTrack edited = ed.show->commandTrack();
@@ -19254,11 +20862,11 @@ FlowRun runFlow(bool open)
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frameID, a->id(), 10, QStringLiteral("Button A"));
     VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, b->id());
     VCButton *flash = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frameID, QRect(300, 10, 80, 40), a->id(), QStringLiteral("Flash"),
+            bridge.addButton(frameID, QRect(300, 10, 80, 48), a->id(), QStringLiteral("Flash"),
                              QStringLiteral("flash"))));
 
     // REC off: live only
@@ -19402,7 +21010,8 @@ void ShowCommandRecorder_Test::debugPanel_tracesFlowDecisionsAndOutcomes()
     QCOMPARE(rows.at(later).origin, int(ShowCommandOrigin::Keyboard));
     QCOMPARE(rows.at(rewound).showTimeMs, qint64(3000));
     QCOMPARE(rows.at(rewound).origin, int(ShowCommandOrigin::Osc));
-    QVERIFY(rows.at(rewound).take != rows.at(later).take);
+    // a take is one binding: a rewind of its Show does not start another
+    QCOMPARE(rows.at(rewound).take, rows.at(later).take);
 
     // a refused edit changes nothing
     const int refused = findRow(rows, P::Commit, O::Rejected, QString(), rewound);
@@ -19512,7 +21121,7 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeStaysInItsObservation()
     ShowCommandRecorder recorder(&doc);
     recorder.setVirtualConsole(ui.vc());
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *replayed = addToggle(bridge, ui.vc(), frameID, scene->id(), 10, QStringLiteral("Replayed"));
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
     slider->setSliderMode(VCSlider::Level);
@@ -19632,7 +21241,7 @@ void ShowCommandRecorder_Test::debugPanel_referencedControlsUseReplayResolution(
     recorder.setResolvedShow(show->id());
 
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frameID = bridge.addFrame(0, QRect(0, 0, 800, 300), QStringLiteral("Frame"), false);
+    const int frameID = addFrame(bridge, 0, QRect(0, 0, 800, 300), QStringLiteral("Frame"), false);
     VCButton *a = addToggle(bridge, ui.vc(), frameID, s1->id(), 10, QStringLiteral("Button A"));
     // the same caption, another identity
     VCButton *a2 = addToggle(bridge, ui.vc(), frameID, s2->id(), 100, QStringLiteral("Button A"));
@@ -19642,14 +21251,14 @@ void ShowCommandRecorder_Test::debugPanel_referencedControlsUseReplayResolution(
     VCButton *twin2 = addToggle(bridge, ui.vc(), frameID, s2->id(), 370, QStringLiteral("Twin 2"));
     const QUuid twin = QUuid::createUuid();
     QVERIFY(loadRecordingId(twin1, twin) && loadRecordingId(twin2, twin));
-    VCSlider *level = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
+    VCSlider *level = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId(), 460);
     level->setSliderMode(VCSlider::Level);
     level->addLevelChannel(fixtureID, 3);
     level->setCaption(QStringLiteral("Level"));
-    VCSlider *gm = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId());
+    VCSlider *gm = addAdjustSlider(bridge, ui.vc(), frameID, Function::invalidId(), 530);
     gm->setSliderMode(VCSlider::GrandMaster);
     gm->setCaption(QStringLiteral("GM"));
-    VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, s2->id());
+    VCSlider *fader = addAdjustSlider(bridge, ui.vc(), frameID, s2->id(), 600);
     fader->setCaption(QStringLiteral("Fader"));
     const QUuid missing = QUuid::createUuid();
 
@@ -19903,8 +21512,8 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
     QVERIFY(events && vc);
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(0, 320, 300, 100), QStringLiteral("Flash frame"), false);
-    auto *flash = qobject_cast<VCButton *>(vc->widget(bridge.addButton(frame, QRect(10, 10, 80, 40), ed.scene->id(),
+    const int frame = addFrame(bridge, 0, QRect(0, 320, 300, 100), QStringLiteral("Flash frame"), false);
+    auto *flash = qobject_cast<VCButton *>(vc->widget(bridge.addButton(frame, QRect(10, 10, 80, 48), ed.scene->id(),
                                                                        QStringLiteral("Flash"), QStringLiteral("flash"))));
     QVERIFY(flash);
     QVERIFY(ed.rig.recorder->setRecording(true));
@@ -19973,7 +21582,8 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
         }
     };
     assertFlashCommands(authoredBeforePress, 2);
-    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 2);
+    // a hold is published once, at its release
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 1);
 
     // open the panel from its control; details begin now
     ed.click(ed.item(QStringLiteral("recordDebugButton")));
@@ -19993,7 +21603,7 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     press(40);
     assertFlashCommands(afterClosedTrack, 40);
     QCOMPARE(ed.show->commandTrack().count(), baselineCommands + 40);
-    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 42);
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 21);
     QQuickItem *panel = ed.item(QStringLiteral("showDebugPanel"));
     QQuickItem *list = ed.item(QStringLiteral("eventsList"));
     QVERIFY(panel && list);
@@ -20031,7 +21641,7 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     press(40);
     assertFlashCommands(afterFirstPhase, 40);
     QCOMPARE(ed.show->commandTrack().count(), baselineCommands + 80);
-    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 82);
+    QCOMPARE(ed.show->commandTrackRevision(), revisionBeforePress + 41);
     const quint64 revisionBeforeUiInspection = ed.show->commandTrackRevision();
     const QVector<ShowCommand> commandsBeforeUiInspection = ed.show->commandTrack().commands();
     QCOMPARE(list->property("contentY").toReal(), contentY);
@@ -20104,7 +21714,7 @@ void ShowCommandRecorder_Test::debugPanel_appReadingPositionAndProblems()
     // only presentation changed after UI inspection interactions above
     QCOMPARE(ed.show->commandTrackRevision(), revisionBeforeUiInspection);
     QCOMPARE(ed.show->commandTrack().commands(), commandsBeforeUiInspection);
-    QCOMPARE(revisionBeforeUiInspection, revisionBeforePress + 82);
+    QCOMPARE(revisionBeforeUiInspection, revisionBeforePress + 41);
     QCOMPARE(commandsBeforeUiInspection.count(), authoredBeforePress.count() + 82);
     QVERIFY(ed.rig.recorder->isAuthoring());
 
@@ -20151,7 +21761,7 @@ void ShowCommandRecorder_Test::debugPanel_appResetStartsFromTheNewWorkspace()
     Scene *scene = new Scene(ed.rig.doc);
     scene->setName(QStringLiteral("New scene"));
     ed.rig.doc->addFunction(scene);
-    const int frame = bridge.addFrame(0, QRect(0, 0, 300, 200), QStringLiteral("Frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 300, 200), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, vc, frame, scene->id(), 10, QStringLiteral("New button"));
     Show *reused = new Show(ed.rig.doc);
     ed.rig.doc->addFunction(reused, oldShowId);
@@ -20202,16 +21812,13 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
     recorder.setVirtualConsole(ui.vc());
     ShowEventModel model(&doc, &recorder);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frame, scene->id(), 10, QStringLiteral("Replayed"));
-    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, Function::invalidId());
-    slider->setSliderMode(VCSlider::Level);
-    slider->addLevelChannel(scene->values().first().fxi, 3);
+    // on the replayed button's Function: its request waits behind that replay
+    VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, scene->id());
     slider->setCaption(QStringLiteral("Accepted caption"));
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::setButtonState(0, 100, button->ensureRecordingId(), true)));
-    QVERIFY(track.insert(ShowCommand::setSliderPosition(1, 110, slider->ensureRecordingId(),
-                                                        ShowControlRole::LevelSlider, QString(), 0.3)));
     QVERIFY(track.setExtent(60000));
     QVERIFY(show->setCommandTrack(track));
     QSignalSpy batches(show, &Show::controlBatchesReady);
@@ -20228,8 +21835,7 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
     slider->requestUserValue(140);
     QCOMPARE(recorder.pendingUserRequests().count(), 1);
     const quint64 trace = recorder.pendingUserRequests().first().cause.trace;
-    const quint64 acceptedTake = recorder.takeId();
-    QVERIFY(recorder.setResolvedShow(next->id()));
+    QVERIFY(recorder.setResolvedShow(next->id(), ShowRecordSource::Perform));
     slider->setCaption(QStringLiteral("Renamed after acceptance"));
     for (int i = 0; i < 30 && (!recorder.pendingUserRequests().isEmpty() || recorder.pendingControlRuns() > 0 ||
                                show->commandWorkPending()); i++)
@@ -20244,6 +21850,8 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
             caused.append(e);
     }
     QVERIFY(caused.count() >= 2);
+    // the first is the acceptance: every later one names its take
+    const quint64 acceptedTake = caused.first().take;
     for (const ShowEventLog::Entry &e : caused)
     {
         QCOMPARE(e.showId, show->id());
@@ -20266,7 +21874,8 @@ void ShowCommandRecorder_Test::debugPanel_deferredOutcomeKeepsAcceptedIdentity()
 namespace
 {
 /** A take whose accepted slider input is kept unpublished: its Show refused
- *  it while a legacy target was missing, then the target came back */
+ *  a Start accepted for a missing target, and so the input behind it, then
+ *  the target came back */
 struct PendingTake
 {
     Show *show = nullptr;
@@ -20287,12 +21896,17 @@ PendingTake pendingTake(Doc *doc, UiFixture *ui, ShowCommandRecorder *recorder, 
     track.setExtent(1000);
     take.show->setCommandTrack(track);
     VCBridgeV5 bridge(doc, ui->vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     take.slider = addAdjustSlider(bridge, ui->vc(), frame, scene->id());
     recorder->setResolvedShow(take.show->id());
     recorder->setRecording(true);
     doc->deleteFunction(goneId);
     model->setOpen(openAtAcceptance);
+    ShowCommandInput start;
+    start.origin = ShowCommandOrigin::Pointer;
+    start.action = ShowCommandAction::Start;
+    start.functionId = goneId;
+    recorder->submitUserInput(start);
     take.slider->requestUserValue(133);
     Scene *restored = new Scene(doc);
     doc->addFunction(restored, goneId);
@@ -20340,7 +21954,7 @@ void ShowCommandRecorder_Test::recordingsEditor_editKeepsPendingCapture()
     QVERIFY(recorder.checkpoint());
     QCoreApplication::processEvents();
     const ShowCommandTrack published = take.show->commandTrack();
-    QCOMPARE(published.count(), edited.count() + 1);
+    QCOMPARE(published.count(), edited.count() + 2);
     QSet<quint32> ids;
     int sliderSamples = 0;
     for (const ShowCommand &cmd : published.commands())
@@ -20384,7 +21998,7 @@ void ShowCommandRecorder_Test::debugPanel_closedPendingOutcomeIsNotBackfilled()
     model.setOpen(true);
     QVERIFY(recorder.checkpoint());
     QCoreApplication::processEvents();
-    QCOMPARE(take.show->commandTrack().count(), 2);
+    QCOMPARE(take.show->commandTrack().count(), 3);
     QCOMPARE(take.show->commandTrack().extent(), quint32(3000));
 
     // owner decision: no row of the old input, nor the extent it derives;
@@ -20626,7 +22240,7 @@ void ShowCommandRecorder_Test::debugPanel_rejectedKeyboardInputIsObserved()
     recorder.setVirtualConsole(ui.vc());
     ShowEventModel model(&doc, &recorder);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frame, scene->id(), 10, QStringLiteral("Keyboard button"));
     VCPage *page = ui.vc()->page(0);
     page->setVisible(true);
@@ -20694,12 +22308,12 @@ void ShowCommandRecorder_Test::debugPanel_directProgrammaticRequestsAreObservedO
     recorder.setVirtualConsole(ui.vc());
     ShowEventModel model(&doc, &recorder);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frame, scene->id(), 10, QStringLiteral("Code button"));
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, other->id());
     slider->setCaption(QStringLiteral("Code fader"));
     VCButton *flash = qobject_cast<VCButton *>(ui.vc()->widget(
-            bridge.addButton(frame, QRect(300, 10, 80, 40), other->id(), QStringLiteral("Flash"),
+            bridge.addButton(frame, QRect(300, 10, 80, 48), other->id(), QStringLiteral("Flash"),
                              QStringLiteral("flash"))));
     QVERIFY(recorder.setResolvedShow(show->id()));
     QVERIFY(recorder.setRecording(true));
@@ -20877,9 +22491,9 @@ void ShowCommandRecorder_Test::debugPanel_firstRecordedIdentityIsConsistent()
     recorder.setVirtualConsole(ui.vc());
     ShowEventModel model(&doc, &recorder);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCSlider *slider = addAdjustSlider(bridge, ui.vc(), frame, scene->id());
-    VCSlider *idle = addAdjustSlider(bridge, ui.vc(), frame, scene->id());
+    VCSlider *idle = addAdjustSlider(bridge, ui.vc(), frame, scene->id(), 280);
     QVERIFY(slider->recordingId().isNull() && idle->recordingId().isNull());
     model.setOpen(true);
 
@@ -20946,15 +22560,16 @@ void ShowCommandRecorder_Test::debugPanel_commandDeltaKeepsChangedFacts()
     model.setOpen(true);
 
     QVector<quint32> expected;
-    if (change == QLatin1String("target"))
-    {
-        QVERIFY(recorder.setCommandTarget(show->id(), 0, other->id()));
-        expected = {0};
-    }
-    else
     {
         ShowCommandTrack changed;
-        if (change == QLatin1String("order"))
+        if (change == QLatin1String("target"))
+        {
+            QVERIFY(changed.insert(ShowCommand::start(0, 1000, other->id())));
+            QVERIFY(changed.insert(track.commands().at(1)));
+            QVERIFY(changed.insert(track.commands().at(2)));
+            expected = {0};
+        }
+        else if (change == QLatin1String("order"))
         {
             QVERIFY(changed.insert(ShowCommand::stop(1, 1000, scene->id())));
             QVERIFY(changed.insert(ShowCommand::start(0, 1000, scene->id())));
@@ -21025,7 +22640,7 @@ void ShowCommandRecorder_Test::debugPanel_directRequestClaimsNoExecution()
     recorder.setVirtualConsole(ui.vc());
     ShowEventModel model(&doc, &recorder);
     VCBridgeV5 bridge(&doc, ui.vc());
-    const int frame = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     VCButton *button = addToggle(bridge, ui.vc(), frame, bound ? scene->id() : Function::invalidId(), 10,
                                  QStringLiteral("Direct button"));
     model.setOpen(true);
@@ -21072,11 +22687,6 @@ void ShowCommandRecorder_Test::debugPanel_transportUsesTheAcceptanceClock()
     ShowManager manager(r.ui.view(), &r.doc);
     manager.m_detached = true;
     manager.setCurrentShowID(int(r.show->id()));
-    // the application's transport wiring
-    QObject::connect(&manager, &ShowManager::isPlayingChanged, &r.recorder,
-                     [&](bool playing) { r.recorder.setPlaying(playing && !manager.isPaused()); });
-    QObject::connect(&manager, &ShowManager::isPausedChanged, &r.recorder,
-                     [&](bool paused) { r.recorder.setPlaying(manager.isPlaying() && !paused); });
     ShowEventModel model(&r.doc, &r.recorder);
     model.setOpen(true);
     const auto playFor = [&](int ticks) {
@@ -21150,7 +22760,13 @@ void ShowCommandRecorder_Test::debugPanel_transportUsesTheAcceptanceClock()
     if (route != QLatin1String("external"))
         QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Cursor moved")), qint64(expected));
     if (route == QLatin1String("rewound"))
+    {
+        // the first write: the Show runs, and its own clock moves back to the cursor
+        tickAndDeliver(&r.doc, 1);
         QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Playing")), qint64(expected));
+        QCOMPARE(showTimeOf(ShowEventLog::Phase::Transport, QStringLiteral("Show clock moved back")),
+                 qint64(expected));
+    }
     QVERIFY(r.recorder.setRecording(false));
     model.setOpen(false);
 }
@@ -21292,7 +22908,7 @@ void ShowCommandRecorder_Test::accessibleVcControls_actAsUserInput()
     if (control == QLatin1String("flash"))
     {
         button = qobject_cast<VCButton *>(r.ui.vc()->widget(
-            r.bridge.addButton(r.frame, QRect(300, 10, 80, 40), r.a->id(), QStringLiteral("Flash"),
+            r.bridge.addButton(r.frame, QRect(300, 10, 80, 48), r.a->id(), QStringLiteral("Flash"),
                                QStringLiteral("flash"))));
         QVERIFY(button);
     }
@@ -24823,7 +26439,7 @@ void ShowCommandRecorder_Test::recordingsEditor_floorNativeBounds()
     QVERIFY(ed.setUp());
     auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Floor proof"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 310, 600, 300), QStringLiteral("Floor proof"), false);
     auto *pad = addXYPad(bridge, vc, frame);
     QVERIFY(pad);
     ed.rig.doc->monitorProperties()->setGridUnits(MonitorProperties::Meters);
@@ -24929,7 +26545,7 @@ void ShowCommandRecorder_Test::recordingsEditor_colorCanvasReopens()
     QVERIFY(ed.setUp());
     auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Canvas proof"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 310, 700, 300), QStringLiteral("Canvas proof"), false);
     auto *matrix = new RGBMatrix(ed.rig.doc);
     QVERIFY(ed.rig.doc->addFunction(matrix));
     auto *animation = addAnimation(bridge, vc, frame, matrix->id());
@@ -25018,7 +26634,7 @@ void ShowCommandRecorder_Test::recordingsEditor_boundContent()
     QVERIFY(loadEditorProperties(ed.rig.doc, ed.propertyScripts.path()));
     auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Content proof"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 310, 700, 300), QStringLiteral("Content proof"), false);
     QList<QLCFixtureDef *> definitions;
     const auto cleanup = qScopeGuard([&]() { qDeleteAll(definitions); });
     auto *matrix = new RGBMatrix(ed.rig.doc);
@@ -25483,7 +27099,7 @@ void ShowCommandRecorder_Test::recordingsEditor_boundFields()
     });
     auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(0, 0, 600, 300), QStringLiteral("Bound fields"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 310, 700, 300), QStringLiteral("Bound fields"), false);
     VCWidget *control = nullptr;
     ShowCommand command;
     command.id = 40;
@@ -26012,7 +27628,7 @@ void ShowCommandRecorder_Test::recordingsEditor_typedHistoryKeepsPayload()
     {
         auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
         VCBridgeV5 bridge(ed.rig.doc, vc);
-        auto *flash = qobject_cast<VCButton *>(vc->widget(bridge.addButton(0, QRect(10, 10, 80, 40),
+        auto *flash = qobject_cast<VCButton *>(vc->widget(bridge.addButton(0, QRect(1300, 10, 80, 48),
             ed.scene->id(), QStringLiteral("History hold"), QStringLiteral("flash"))));
         QVERIFY(flash);
         on.controlId = flash->ensureRecordingId();
@@ -27861,8 +29477,8 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
     }
     else if (source == QLatin1String("unpublished"))
     {
-        // a Function deleted under its Start leaves the take unpublishable:
-        // the next input waits unpublished with id 42 when the take closes
+        // a Start accepted for a Function deleted under it leaves the take
+        // unpublishable: it waits with id 42, the next input with 43
         later = new Scene(ed.rig.doc);
         QVERIFY(ed.rig.doc->addFunction(later));
         const quint32 laterId = later->id();
@@ -27874,12 +29490,18 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
         QVERIFY(ed.show->setCommandTrack(with));
         QVERIFY(ed.rig.doc->deleteFunction(laterId));
         QVERIFY(ed.rig.recorder->setRecording(true));
+        ShowCommandInput start;
+        start.origin = ShowCommandOrigin::Pointer;
+        start.action = ShowCommandAction::Start;
+        start.functionId = laterId;
+        QVERIFY(!ed.rig.recorder->submitUserInput(start));
         ed.rig.manager->setCurrentTime(3000);
         ed.fader->requestUserValue(128);
         QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20}));
-        QVERIFY(!ed.rig.recorder->setResolvedShow(other->id()));
+        QVERIFY(!ed.rig.recorder->setResolvedShow(other->id(), ShowRecordSource::Perform));
         QVERIFY(!ed.rig.recorder->isRecording());
-        QVERIFY(ed.rig.recorder->setResolvedShow(a));
+        // the Show Manager selection resolves again
+        ed.rig.recorder->releasePerform();
         // the Function comes back under its id, so the take can be published again
         later = new Scene(ed.rig.doc);
         QVERIFY(ed.rig.doc->addFunction(later, laterId));
@@ -27893,11 +29515,12 @@ void ShowCommandRecorder_Test::recordingsEditor_pasteIdsStayAboveEveryIssuedId()
 
     if (source == QLatin1String("unpublished"))
     {
-        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20, 43, 44, 45}));
-        // the waiting input keeps its id, which nothing else took
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 20, 44, 45, 46}));
+        // the waiting input keeps its ids, which nothing else took
         QVERIFY(ed.rig.recorder->checkpoint());
-        QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 40, 31, 7, 41, 42, 20, 43, 44, 45}));
-        QCOMPARE(ed.command(42).action, ShowCommandAction::SetSliderPosition);
+        QCOMPARE(ed.trackIds(), (QVector<quint32>{42, 12, 40, 31, 7, 41, 43, 20, 44, 45, 46}));
+        QCOMPARE(ed.command(42).action, ShowCommandAction::Start);
+        QCOMPARE(ed.command(43).action, ShowCommandAction::SetSliderPosition);
         return;
     }
     QCOMPARE(ed.trackIds(), (QVector<quint32>{12, 31, 7, 20, 41, 42, 43}));
@@ -28110,7 +29733,7 @@ void ShowCommandRecorder_Test::recordingLanes_rowsFollowGlobalGroups()
     else if (fixture == QLatin1String("ambiguous"))
     {
         VCBridgeV5 bridge(ed.rig.doc, vc);
-        const int frame = bridge.addFrame(0, QRect(300, 0, 200, 250), QStringLiteral("Second frame"), false);
+        const int frame = addFrame(bridge, 0, QRect(300, 310, 200, 250), QStringLiteral("Second frame"), false);
         VCButton *twin = addToggle(bridge, vc, frame, ed.scene->id(), 10, QStringLiteral("Twin button"));
         QVERIFY(twin && loadRecordingId(twin, ed.button->recordingId()));
     }
@@ -28283,7 +29906,7 @@ void ShowCommandRecorder_Test::recordingLanes_rowsFollowControlChanges()
 
     // a newly recorded control adds its row at the end
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(300, 0, 200, 250), QStringLiteral("Second frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(300, 310, 200, 250), QStringLiteral("Second frame"), false);
     auto *wash = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(10, 10, 60, 200),
         QStringLiteral("level"), QStringLiteral("Wash"), Function::invalidId(), {})));
     QVERIFY(wash);
@@ -29266,7 +30889,7 @@ GraphControls addGraphSliders(EditorRig &ed)
     if (vc == nullptr)
         return controls;
     VCBridgeV5 bridge(ed.rig.doc, vc);
-    const int frame = bridge.addFrame(0, QRect(0, 320, 400, 250), QStringLiteral("Graph frame"), false);
+    const int frame = addFrame(bridge, 0, QRect(0, 320, 400, 250), QStringLiteral("Graph frame"), false);
     controls.a = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(10, 10, 60, 200),
         QStringLiteral("level"), QStringLiteral("Level A"), Function::invalidId(), {})));
     controls.b = qobject_cast<VCSlider *>(vc->widget(bridge.addSlider(frame, QRect(100, 10, 60, 200),
@@ -32449,7 +34072,7 @@ void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal()
     QVERIFY(bridge);
     PerformFsm *fsm = bridge->performFsm();
     const auto performOff = qScopeGuard([&]() {
-        fsm->setDeckPlaying(false);
+        fsm->setInputs({});
         fsm->setPerformEnabled(false);
         // the manually ticked timer retires what Live started before the rig goes
         if (ed.show->isRunning())
@@ -32463,9 +34086,7 @@ void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal()
     QVERIFY(navEnabled(ed, false));
     fsm->setPerformEnabled(true);
     if (perform != QLatin1String("armed"))
-        fsm->setActiveShow(ed.show->id());
-    if (perform == QLatin1String("live"))
-        fsm->setDeckPlaying(true);
+        fsm->setInputs({ ed.show->id(), perform == QLatin1String("live") });
     if (perform == QLatin1String("off-again"))
         fsm->setPerformEnabled(false);
     QCoreApplication::processEvents();
@@ -32571,7 +34192,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary()
         auto *bridge = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"));
         PerformFsm *fsm = bridge->performFsm();
         const auto performOff = qScopeGuard([&]() {
-            fsm->setDeckPlaying(false);
+            fsm->setInputs({});
             fsm->setPerformEnabled(false);
             // the manually ticked timer retires what Live started before the rig goes
             if (ed.show->isRunning())
@@ -32579,8 +34200,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary()
             tickAndDeliver(ed.rig.doc, 4);
         });
         fsm->setPerformEnabled(true);
-        fsm->setActiveShow(ed.show->id());
-        fsm->setDeckPlaying(true);
+        fsm->setInputs({ ed.show->id(), true });
         QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
         fsm->setPerformEnabled(false);
         QCoreApplication::processEvents();
@@ -32638,7 +34258,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationKeyboard()
         {
             auto *fsm = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"))->performFsm();
             fsm->setPerformEnabled(true);
-            fsm->setActiveShow(ed.show->id());
+            fsm->setInputs({ ed.show->id() });
             QCoreApplication::processEvents();
             selectRecorded(ed, {6});
         }
@@ -34528,6 +36148,7 @@ void ShowCommandRecorder_Test::recordingsPerform_editsWhileVdjDrives()
     const auto deck = [&](const char *trigger, const QVariant &value) {
         QVERIFY(QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, 0),
                                           Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value)));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
     };
     const auto performOff = qScopeGuard([&]() {
         bridge->setPerformMode(false);
@@ -34537,8 +36158,8 @@ void ShowCommandRecorder_Test::recordingsPerform_editsWhileVdjDrives()
     });
     bridge->showFactory()->registerMapping(QStringLiteral("/music/live-edit.mp3"), showId);
     deck("get_filepath", QStringLiteral("/music/live-edit.mp3"));
-    QVERIFY(QMetaObject::invokeMethod(bridge, "onGlobalTrigger", Q_ARG(QString, QStringLiteral("masterdeck")),
-                                      Q_ARG(QVariant, QVariant(QStringLiteral("on")))));
+    deck("loaded", QStringLiteral("on"));
+    deck("masterdeck", QStringLiteral("on"));
     bridge->setPerformMode(true);
     deck("play", QStringLiteral("on"));
     tickAndDeliver(ed.rig.doc, 2);

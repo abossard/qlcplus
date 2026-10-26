@@ -19,45 +19,94 @@
 #define PERFORMFSM_H
 
 #include <QObject>
+#include <QList>
 
 /**
  * Finite state machine for VDJ Perform mode (control plane).
  *
- * Follows the DjFsm house style: typed inputs in, synchronous
- * recomputeState(), typed signals out. Pure QObject — no Doc/engine/UI
- * dependencies — so the full transition table is unit-testable.
+ * Two inputs: the user's Perform toggle and the active deck, taken as one
+ * fact (its Show, its transport, whether that Show's runner ended where the
+ * deck still is). Every input change recomputes once and emits stateChanged()
+ * at most once, so consumers never see a half-applied deck.
  *
- * Unidirectional flow: VdjBridge is the single producer of events; the
- * consumers (VdjBridge engine effects, DjManager show-follow, ShowManager
- * read-only, QML status) only read state and never write back.
+ * plan() is the pure planner: the effects that take the engine, the
+ * recorder and the Show Manager from one state to the next, in handover
+ * order. VdjBridge is the executor.
  *
  * The 25 Hz playback-position stream is deliberately NOT routed through
- * this FSM — that is the data plane; only control decisions live here.
+ * this FSM: that is the data plane; only control decisions live here.
  */
 class PerformFsm final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(PerformFsm::PerformState state READ state NOTIFY stateChanged)
-    Q_PROPERTY(quint32 activeShowId READ activeShowId NOTIFY activeShowChanged)
+    Q_PROPERTY(quint32 activeShowId READ activeShowId NOTIFY stateChanged)
     Q_PROPERTY(bool readOnly READ readOnly NOTIFY stateChanged)
 
 public:
     enum class PerformState
     {
-        Idle,      //!< Perform off — the Show Manager is editable
-        Armed,     //!< Perform on, no show resolved for the active deck yet
-        Live,      //!< Show resolved and the VDJ deck is playing
-        Suspended, //!< Show resolved, VDJ paused/stopped — playhead frozen
+        Idle,      //!< Perform off: the Show Manager is editable
+        Armed,     //!< Perform on, no Show resolved for the active deck
+        Live,      //!< Show resolved, the deck plays
+        Suspended, //!< Show resolved, the deck is paused: playhead frozen
+        Ended,     //!< Show resolved, the deck plays on past where its runner ended: dark
     };
     Q_ENUM(PerformState)
 
     /** Matches Function::invalidId() without depending on the engine */
     static constexpr quint32 InvalidShowId = 0xFFFFFFFFU;
 
+    /** The active deck as one fact. No deck: the defaults. */
+    struct Inputs
+    {
+        quint32 showId = InvalidShowId; //!< the Show resolved for the deck's song
+        bool playing = false;
+        bool ended = false;             //!< the Show's runner ended and the deck has not moved back since
+
+        bool operator==(const Inputs &o) const
+        {
+            return showId == o.showId && playing == o.playing && ended == o.ended;
+        }
+    };
+
+    /** What the executor does on a transition, in this order */
+    enum class Effect
+    {
+        ResolveRecorder, //!< the recorder follows Perform to showId (InvalidShowId: armed under Perform)
+        ReleaseRecorder, //!< Perform disengaged: the recorder's selection resolves again
+        StopShow,        //!< Function stop, adoption kept (a start not run yet, or a Show past its content)
+        ReleaseShow,     //!< Autonomous sync, Audio audible again, no longer adopted
+        AdoptShow,       //!< External sync, Audio suppressed, the deck position pushed
+        StartShow,       //!< start at the deck position
+        ResumeShow,      //!< a paused run goes on
+        PauseShow,
+        SelectShow,      //!< the Show Manager displays showId and re-reads its transport
+    };
+    Q_ENUM(Effect)
+
+    struct Step
+    {
+        Effect effect;
+        quint32 showId = InvalidShowId;
+
+        bool operator==(const Step &o) const { return effect == o.effect && showId == o.showId; }
+    };
+
+    /** Runtime facts of the next state's Show, as the engine reports them */
+    struct ShowFacts
+    {
+        bool running = false;
+        bool paused = false;
+        bool startQueued = false; //!< started and not cancelled, its first tick still ahead
+    };
+
     explicit PerformFsm(QObject *parent = nullptr);
 
     PerformState state() const { return m_state; }
-    quint32 activeShowId() const { return m_activeShowId; }
+
+    /** The Show Perform drives: InvalidShowId while Idle or Armed */
+    quint32 activeShowId() const;
     bool enabled() const { return m_enabled; }
 
     /** The Show Manager is read-only whenever Perform is engaged */
@@ -65,31 +114,27 @@ public:
 
     static QString stateToString(PerformState state);
 
+    /** The ordered effects from (prevState, prevShow) to (state, show), the
+     *  latter's Show having facts. Pure: a table, tested as one. */
+    static QList<Step> plan(PerformState prevState, quint32 prevShow,
+                            PerformState state, quint32 show, const ShowFacts &facts);
+
 public slots:
     /** The user's Perform toggle */
     void setPerformEnabled(bool on);
 
-    /** The show resolved for the active deck's song (InvalidShowId = none).
-     *  Emits activeShowChanged on every change, including handovers that
-     *  keep the state (Live -> Live deck switch). */
-    void setActiveShow(quint32 showId);
-
-    /** Play/pause state of the active deck */
-    void setDeckPlaying(bool playing);
-
-    /** VDJ disconnected: drop show + playing, keep the user's toggle */
-    void reset();
+    /** The active deck changed in any way: one recompute */
+    void setInputs(const PerformFsm::Inputs &inputs);
 
 signals:
-    void stateChanged(PerformFsm::PerformState state);
-    void activeShowChanged(quint32 showId);
+    /** state() or activeShowId() changed, once per real change */
+    void stateChanged();
 
 private:
-    void recomputeState();
+    void recomputeState(PerformState prevState, quint32 prevShow);
 
     bool m_enabled = false;
-    bool m_deckPlaying = false;
-    quint32 m_activeShowId = InvalidShowId;
+    Inputs m_inputs;
     PerformState m_state = PerformState::Idle;
 };
 

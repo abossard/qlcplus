@@ -21,8 +21,9 @@ import QtQuick
 
 import "."
 
-/* Why an edit was refused, shown at the bottom of the console for a few
-   seconds. Unlike a dialog it blocks nothing; a click hides it earlier */
+/* Why an edit was refused, or why the autosave failed, shown at the bottom
+   of the console for a few seconds. Unlike a dialog it blocks nothing; a
+   click hides it earlier */
 Rectangle
 {
     id: messageBar
@@ -72,6 +73,19 @@ Rectangle
         {
             messageBar.message = text
             messageBar.open()
+        }
+    }
+
+    Connections
+    {
+        target: qlcplus
+        function onSaveErrorChanged()
+        {
+            if (qlcplus.saveError.length && qlcplus.saveErrorAutosave)
+            {
+                messageBar.message = qsTr("The autosave failed: %1").arg(qlcplus.saveError)
+                messageBar.open()
+            }
         }
     }
 

@@ -79,7 +79,8 @@ private slots:
     void allSelectedValuesRoundTrip();
     void loadLeavesReaderUsableAfterFailure();
     void loadRecoversFromNestedTrackNames();
-    void eventIdsRunOutExplicitly();
+    void idsRunOutExplicitly_data();
+    void idsRunOutExplicitly();
 
     // playback transitions
     void advanceAppliesDueCommandsOnce();
@@ -92,17 +93,25 @@ private slots:
     void extentNeverSynthesizesEffects();
 
     // recording transitions
-    void armingBindsTheFirstResolvedShow();
-    void bindingSurvivesPauseSeekAndLoop();
+    void recordTransitions_data();
+    void recordTransitions();
     void recordsOnlyAcceptedUserInput_data();
     void recordsOnlyAcceptedUserInput();
-    void recordingIsGatedByPhaseAndTransport_data();
-    void recordingIsGatedByPhaseAndTransport();
+    void userInputAuthorsAtTheFrozenPosition_data();
+    void userInputAuthorsAtTheFrozenPosition();
     void liveCommandDoesNotEchoUntilTheNextTraversal();
     void liveInputMarksOnlyItsOwnEvent();
     void liveOccurrence_data();
     void liveOccurrence();
     void controlStateInputAuthorsVcRecord();
+
+    // hold pairs: one invariant for recording, closing, publishing and loading
+    void holdRecordingKeepsPairsValid_data();
+    void holdRecordingKeepsPairsValid();
+    void malformedHoldPairs_data();
+    void malformedHoldPairs();
+    void pairIdsAreNeverReissued_data();
+    void pairIdsAreNeverReissued();
 
     // VC state calculations
     void buttonOpReachesDesiredState_data();

@@ -121,18 +121,22 @@ void McpFunctionAuthoring_Test::cleanup()
 
 void McpFunctionAuthoring_Test::deleteFunctions_admission_data()
 {
+    QTest::addColumn<QString>("live");
     QTest::addColumn<QString>("otherState");
     QTest::addColumn<QString>("status");
     QTest::addColumn<QString>("code");
     QTest::addColumn<bool>("deleted");
 
-    QTest::newRow("all idle") << "idle" << "ok" << "" << true;
-    QTest::newRow("unrelated function queued") << "queued" << "error" << "functions_running" << false;
-    QTest::newRow("unrelated function running") << "running" << "error" << "functions_running" << false;
+    QTest::newRow("all idle") << "other" << "idle" << "ok" << "" << true;
+    QTest::newRow("unrelated function queued") << "other" << "queued" << "error" << "functions_running" << false;
+    QTest::newRow("unrelated function running") << "other" << "running" << "error" << "functions_running" << false;
+    // a deleted running function would stay in MasterTimer's list and crash its next tick
+    QTest::newRow("target running") << "target" << "running" << "error" << "functions_running" << false;
 }
 
 void McpFunctionAuthoring_Test::deleteFunctions_admission()
 {
+    QFETCH(QString, live);
     QFETCH(QString, otherState);
     QFETCH(QString, status);
     QFETCH(QString, code);
@@ -142,16 +146,17 @@ void McpFunctionAuthoring_Test::deleteFunctions_admission()
     QVERIFY(m_doc->addFunction(target));
     const quint32 targetId = target->id();
     Scene *other = new Scene(m_doc);
-    other->setValue(SceneValue(patchDimmers(m_doc, 0, 1)->id(), 0, 200));
     QVERIFY(m_doc->addFunction(other));
+    Scene *runner = live == "target" ? target : other;
+    runner->setValue(SceneValue(patchDimmers(m_doc, 0, 1)->id(), 0, 200));
     if (otherState != "idle")
-        other->start(m_doc->masterTimer(), FunctionParent::master());
+        runner->start(m_doc->masterTimer(), FunctionParent::master());
     if (otherState == "running")
     {
         // Universes must run or the MasterTimer thread blocks on its first tick
         m_doc->inputOutputMap()->startUniverses();
         m_doc->masterTimer()->start();
-        QTRY_VERIFY(other->isRunning());
+        QTRY_VERIFY(runner->isRunning());
     }
 
     Json res = call("delete_functions", {{"ids", {targetId}}});

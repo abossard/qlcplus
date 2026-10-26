@@ -351,6 +351,14 @@ OutlineRoutePlugin *installOutlineRoutePlugin(Doc *doc, const QString &name)
 }
 }
 
+/** A refused save opens the modal save error popup; a test that refuses one on purpose closes it */
+static void closeSaveErrorPopup(QQuickItem *root)
+{
+    QObject *popup = root ? root->findChild<QObject *>(QStringLiteral("saveErrorPopup")) : nullptr;
+    if (popup)
+        QMetaObject::invokeMethod(popup, "close");
+}
+
 void UpstreamIntegration_Test::vcCanonicalGeometry_data()
 {
     QTest::addColumn<qreal>("scale");
@@ -3722,6 +3730,7 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
     m_app->doc()->setModified();
     const QJsonObject beforeFailedSave = receipt();
     QVERIFY(!m_app->saveWorkspace(QDir(artifactDirectory).filePath("missing-parent/failed.qxw")));
+    closeSaveErrorPopup(m_app->rootObject());
     QVERIFY(m_app->doc()->isModified());
     QCOMPARE(canonical(receipt()), persisted);
     const QJsonObject afterFailedSave = receipt();
@@ -4182,6 +4191,7 @@ void UpstreamIntegration_Test::vcWorkspacePersistence()
         QCOMPARE(vc->widget(vc->page(index)->id()), vc->page(index));
     m_app->doc()->setModified();
     QVERIFY(m_app->saveXML(files.filePath("missing-parent/failed.qxw")) != QFile::NoError);
+    closeSaveErrorPopup(m_app->rootObject());
     QVERIFY(m_app->doc()->isModified());
 }
 
@@ -6419,24 +6429,21 @@ void UpstreamIntegration_Test::showPlayheadVisibilityAndFollow()
     manager->setCurrentTime(7000);
 
     const auto deckTrigger = [bridge](const QString &trigger, const QVariant &value) {
-        return QMetaObject::invokeMethod(bridge, "onDeckTrigger",
-                                         Q_ARG(int, 0),
-                                         Q_ARG(QString, trigger),
-                                         Q_ARG(QVariant, value));
-    };
-    const auto globalTrigger = [bridge](const QString &trigger, const QVariant &value) {
-        return QMetaObject::invokeMethod(bridge, "onGlobalTrigger",
-                                         Q_ARG(QString, trigger),
-                                         Q_ARG(QVariant, value));
+        const bool sent = QMetaObject::invokeMethod(bridge, "onDeckTrigger",
+                                                    Q_ARG(int, 0),
+                                                    Q_ARG(QString, trigger),
+                                                    Q_ARG(QVariant, value));
+        return sent && QMetaObject::invokeMethod(bridge, "onTickEnded");
     };
 
     bridge->showFactory()->registerMapping(filepath, show->id());
     QVERIFY(deckTrigger("get_filepath", filepath));
+    QVERIFY(deckTrigger("loaded", "on"));
     QVERIFY(deckTrigger("get_title", "Playhead test"));
     QVERIFY(deckTrigger("get_artist", "QLC+"));
     QVERIFY(deckTrigger("get_bpm", 120.0));
     djManager->assignShow(filepath, int(show->id()));
-    QVERIFY(globalTrigger("masterdeck", 1));
+    QVERIFY(deckTrigger("masterdeck", "on"));
     QVERIFY(deckTrigger("get_time elapsed absolute", double(pausedPosition)));
     QVERIFY(deckTrigger("play", "off"));
 

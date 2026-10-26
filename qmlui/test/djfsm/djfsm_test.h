@@ -20,7 +20,7 @@ private slots:
     void loadSequenceAnnouncesOnceAndReachesLoaded();
     void repeatedMetadataDoesNotReannounce();
     void newFilepathOnSameDeckReannounces();
-    void placeholderTitleIsIgnored();
+    void placeholderTitleEmptiesDeck();
     void playPauseTransitions();
     void masterDeckDrivesActiveDeckAndSong();
     void emptyFilepathResetsDeck();
@@ -29,12 +29,35 @@ private slots:
     void emptyDeckIsNeverPlaying();
     void setDeckCountResetsDroppedDecks();
     void metadataFirstOrderAnnouncesCorrectSong();
-    void filepathFirstAfterPreviousSongIsNotStale();
-    void splitFieldOrderDoesNotAnnounceStale();
+    void loadWrites_data();
+    void loadWrites();
+    void twoDecksLoadInInterleavedWrites();
+    void onChangeSemantics_data();
+    void onChangeSemantics();
     void volumeIsTracked();
     void positionIsTrackedAndThrottled();
     void playBeforeFilepathIsRecovered();
     void playAcceptsBoolAndNumericForms();
+    void perDeckMasterdeckDrivesActiveDeck_data();
+    void perDeckMasterdeckDrivesActiveDeck();
+    void loadedOffEmptiesDeck();
+    void disconnectDropsActiveDeckFirst();
+    void titleAfterFilepathChangesActiveSong();
+    void masterFlagSurvivesTheDeckCount_data();
+    void masterFlagSurvivesTheDeckCount();
+    void ejectKeepsTheFaderAndTheLastValues();
+    void ejectAndReload_data();
+    void ejectAndReload();
+    void artistAfterTitleChangesActiveSong();
+    void writeNotificationsFollowItsSettledState();
+    void capture_trackChangeSameBpm();
+    void capture_consecutiveLoads();
+    void capture_eject();
+    void capture_playPauseLoad();
+    void capture_masterHandover();
+    void capture_connectSnapshot();
+    void capture_ejectReload_data();
+    void capture_ejectReload();
 };
 
 #endif // DJFSM_TEST_H

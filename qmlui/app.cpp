@@ -40,6 +40,7 @@
 #include <QFileInfo>
 #include <QFileOpenEvent>
 #include <QSaveFile>
+#include <QScopeGuard>
 #include <QDir>
 #include <algorithm>
 #include <unistd.h>
@@ -69,6 +70,7 @@
 #include "networkmanager.h"
 #include "flowconsole.h"
 #include "vdjbridge.h"
+#include "showfactory.h"
 #include "djmanager.h"
 #include "stagewizard.h"
 
@@ -252,20 +254,12 @@ void App::startup()
     rootContext()->setContextProperty("showCommandRecorder", m_showCommandRecorder);
     m_showEvents = new ShowEventModel(m_doc, m_showCommandRecorder, this);
     rootContext()->setContextProperty("showEvents", m_showEvents);
+    // the Show Manager's selection, also the Show its addItems() creates and
+    // shows without setCurrentShowID()
     connect(m_showManager, &ShowManager::currentShowIDChanged,
             m_showCommandRecorder, [this](int showID)
     {
         m_showCommandRecorder->setResolvedShow(quint32(showID));
-    });
-    connect(m_showManager, &ShowManager::isPlayingChanged,
-            m_showCommandRecorder, [this](bool playing)
-    {
-        m_showCommandRecorder->setPlaying(playing && !m_showManager->isPaused());
-    });
-    connect(m_showManager, &ShowManager::isPausedChanged,
-            m_showCommandRecorder, [this](bool paused)
-    {
-        m_showCommandRecorder->setPlaying(m_showManager->isPlaying() && !paused);
     });
 
     m_networkManager = new NetworkManager(this, m_doc, m_virtualConsole, m_simpleDesk);
@@ -306,30 +300,23 @@ void App::startup()
         if (vdj != nullptr)
         {
             QSettings settings;
-            quint16 telemetryPort = static_cast<quint16>(
-                settings.value("vdj/telemetryPort", 8050).toUInt());
-            bool autoOpenVdjInput = settings.value("vdj/autoOpenInput", false).toBool();
-            if (telemetryPort > 0 && telemetryPort != 8050)
-            {
+            if (settings.contains("vdj/telemetryPort"))
                 vdj->setParameter(0, 0, QLCIOPlugin::Input,
-                                  QStringLiteral("hostPort"), telemetryPort);
-            }
+                                  QStringLiteral("hostPort"), settings.value("vdj/telemetryPort"));
             m_vdjBridge->attachVdjPlugin(vdj);
-            if (autoOpenVdjInput && telemetryPort > 0)
+            if (settings.value("vdj/autoOpenInput", false).toBool())
                 vdj->openInput(0, 0);
         }
-
-        QLCIOPlugin *os2l = m_doc->ioPluginCache()->plugin("OS2L");
-        if (os2l != nullptr)
-            m_vdjBridge->attachOS2LPlugin(os2l);
     }
 
-    // Perform resolves a Show for the playing deck without the Show Manager
-    // being open, so Record follows the same target. Connected before the DJ
-    // Manager's own follower: the recorder hands a bound take over first, and
-    // the Show Manager's selection lock then lets the displayed Show follow.
-    if (m_showCommandRecorder != nullptr)
-        m_showCommandRecorder->followPerform(m_vdjBridge->performFsm());
+    // Perform's executor orders these itself: the recorder leaves a Show
+    // before it stops and binds the next one before the Show Manager shows it
+    connect(m_vdjBridge, &VdjBridge::performShowResolved, m_showCommandRecorder,
+            [this](quint32 showId) { m_showCommandRecorder->setResolvedShow(showId, ShowRecordSource::Perform); });
+    connect(m_vdjBridge, &VdjBridge::performReleased,
+            m_showCommandRecorder, &ShowCommandRecorder::releasePerform);
+    connect(m_vdjBridge, &VdjBridge::performShowSelected,
+            m_showManager, &ShowManager::setCurrentShowID);
 
     // DJ Manager — standalone view for VDJ status + auto-created Shows.
     m_djManager = new DjManager(this, m_doc, m_vdjBridge,
@@ -943,7 +930,7 @@ void App::slotClientProjectRequest(QString sessionId)
     if (fileName.isEmpty() || m_doc->isModified())
     {
         fileName = QString("%1/%2").arg(QDir::tempPath()).arg("qlcplus_netproject.qxw");
-        if (saveXML(fileName, true) != QFile::NoError)
+        if (saveXML(fileName, ClientCopy) != QFile::NoError)
         {
             qWarning() << Q_FUNC_INFO << "Unable to serve the project to" << sessionId;
             return;
@@ -1015,7 +1002,8 @@ bool App::docModified() const
 
 void App::slotDocAutosave()
 {
-    saveXML(autoSaveFileName(), true);
+    if (saveXML(autoSaveFileName(), Autosave) != QFile::NoError)
+        qWarning() << Q_FUNC_INFO << "Autosave failed:" << m_saveError;
 }
 
 void App::initDoc()
@@ -1600,6 +1588,10 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         {
             m_flowConsole->loadXML(doc);
         }
+        else if (doc.name() == QStringLiteral("SongShows") && m_vdjBridge)
+        {
+            m_vdjBridge->showFactory()->loadXML(doc);
+        }
 #if 0
         else if (doc.name() == KXMLQLCSimpleDesk)
         {
@@ -1643,23 +1635,39 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
     return true;
 }
 
-QFile::FileError App::saveXML(const QString& fileName, bool autosave)
+QFile::FileError App::saveXML(const QString& fileName, SaveOrigin origin)
 {
+    const bool autosave = origin == Autosave;
+
     /* A save stores the recording's accepted input and ends its Shows at their
        content; recording and playback go on. The Doc is marked unmodified
        below, so nothing accepted may be left unpublished. */
-    if (autosave == false && m_showCommandRecorder != nullptr && m_showCommandRecorder->checkpoint() == false)
+    if (origin == WorkspaceSave && m_showCommandRecorder != nullptr && m_showCommandRecorder->checkpoint() == false)
+    {
+        setSaveError(m_showCommandRecorder->lastError(), autosave);
         return QFile::AbortError;
+    }
+    // the snapshot the checkpoint armed is for this save only, written or not
+    const auto endCheckpoint = qScopeGuard([this, origin]() {
+        if (origin == WorkspaceSave && m_showCommandRecorder != nullptr)
+            m_showCommandRecorder->endCheckpoint();
+    });
 
 #if defined(Q_OS_ANDROID)
     QFile file(fileName);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate) == false)
+    {
+        setSaveError(file.errorString(), autosave);
         return file.error();
+    }
 #else
     /* The existing file is replaced only once the new one is complete */
     QSaveFile file(fileName);
     if (file.open(QIODevice::WriteOnly) == false)
+    {
+        setSaveError(file.errorString(), autosave);
         return file.error();
+    }
 #endif
 
     QXmlStreamWriter doc(&file);
@@ -1691,6 +1699,10 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     /* Write Flow Console to the XML document */
     m_flowConsole->saveXML(&doc);
 
+    /* Write the songs' Show choices to the XML document */
+    if (m_vdjBridge)
+        m_vdjBridge->showFactory()->saveXML(&doc);
+
     /* Write Simple Desk to the XML document */
     //SimpleDesk::instance()->saveXML(&doc);
 
@@ -1702,6 +1714,7 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
     if (doc.hasError())
     {
         qWarning() << Q_FUNC_INFO << "Error writing XML to" << fileName;
+        setSaveError(tr("%1 could not be written").arg(fileName), autosave);
 #if defined(Q_OS_ANDROID)
         file.close();
 #else
@@ -1713,16 +1726,20 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
 #if defined(Q_OS_ANDROID)
     file.close();
     if (file.error() != QFile::NoError)
+    {
+        setSaveError(file.errorString(), autosave);
         return file.error();
+    }
 #else
     if (file.commit() == false)
     {
         qWarning() << Q_FUNC_INFO << "Could not save" << fileName;
+        setSaveError(file.errorString(), autosave);
         return file.error();
     }
 #endif
 
-    if (!autosave)
+    if (origin == WorkspaceSave)
     {
         /* Set the file name for the current Doc instance and
            set it also in an unmodified state. */
@@ -1730,7 +1747,28 @@ QFile::FileError App::saveXML(const QString& fileName, bool autosave)
         m_doc->resetModified();
     }
 
+    setSaveError(QString(), autosave);
     return QFile::NoError;
+}
+
+QString App::saveError() const
+{
+    return m_saveError;
+}
+
+bool App::saveErrorAutosave() const
+{
+    return m_saveErrorAutosave;
+}
+
+void App::setSaveError(const QString &error, bool autosave)
+{
+    // every failed save someone asked for says so; the autosave says the same failure once
+    if (m_saveError == error && m_saveErrorAutosave == autosave && (autosave || error.isEmpty()))
+        return;
+    m_saveError = error;
+    m_saveErrorAutosave = autosave;
+    emit saveErrorChanged();
 }
 
 /*********************************************************************

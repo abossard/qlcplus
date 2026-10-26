@@ -24,7 +24,6 @@
 #define private public
 #include "mastertimer.h"
 #undef private
-#include "collection.h"
 #include "showcommandtrack.h"
 #include "show_test.h"
 #include "show.h"
@@ -494,7 +493,8 @@ void Show_Test::commandTrackInvalidLoad()
     valid.setExtent(3000);
     QVERIFY(show.setCommandTrack(valid));
 
-    QVERIFY(loadShow(show, showXML(commandTrack)) == false);
+    // an unreadable command track never costs the Show
+    QVERIFY(loadShow(show, showXML(commandTrack)));
 
     // the previously valid track must be untouched
     QCOMPARE(show.commandTrack().count(), 1);
@@ -547,6 +547,100 @@ void Show_Test::commandTrackRejectedEdit()
     QVERIFY(error.isEmpty() == false);
     QCOMPARE(changed.count(), 0);
     QCOMPARE(show.commandTrack().commands().first().functionId, target->id());
+}
+
+/** Flash hold edges "<pair> <on|off> <ms>, ..." on one control */
+static ShowCommandTrack holdTrack(const QString &edges)
+{
+    const QUuid flash(QStringLiteral("{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}"));
+    ShowCommandTrack track;
+    quint32 id = 0;
+    for (const QString &edge : edges.split(QStringLiteral(", ")))
+    {
+        ShowCommand cmd = ShowCommand::setButtonState(id++, edge.section(' ', 2).toUInt(), flash,
+                                                      edge.section(' ', 1, 1) == QLatin1String("on"));
+        cmd.role = ShowControlRole::FlashButton;
+        cmd.pairId = edge.section(' ', 0, 0).toUInt();
+        track.insert(cmd);
+    }
+    return track;
+}
+
+void Show_Test::commandTrackPublishKeepsHoldPairsValid_data()
+{
+    QTest::addColumn<QString>("edges");
+    QTest::addColumn<bool>("published");
+
+    QTest::newRow("closed pair") << QStringLiteral("1 on 1000, 1 off 2000") << true;
+    QTest::newRow("unclosed pair") << QStringLiteral("1 on 1000") << false;
+    QTest::newRow("overlapping pairs") << QStringLiteral("1 on 1000, 2 on 1500, 1 off 2000, 2 off 2500") << false;
+    QTest::newRow("release before press") << QStringLiteral("1 off 1000, 1 on 2000") << false;
+}
+
+void Show_Test::commandTrackPublishKeepsHoldPairsValid()
+{
+    QFETCH(QString, edges);
+    QFETCH(bool, published);
+
+    const ShowCommandTrack track = holdTrack(edges);
+    QCOMPARE(track.count(), int(edges.count(QLatin1Char(',')) + 1));
+
+    // the validator a load repairs with refuses to publish a broken pair
+    Show show(m_doc);
+    show.setID(700);
+    QString error;
+    QCOMPARE(show.setCommandTrack(track, {}, &error), published);
+    QCOMPARE(error.isEmpty(), published);
+    QCOMPARE(show.commandTrack().count(), published ? track.count() : 0);
+}
+
+void Show_Test::commandTrackMissingTargetBlocksOnlyItself_data()
+{
+    QTest::addColumn<QString>("edit");
+    QTest::addColumn<bool>("published");
+
+    QTest::newRow("add an unrelated command") << QStringLiteral("add") << true;
+    QTest::newRow("remove the stale command") << QStringLiteral("remove") << true;
+    QTest::newRow("retarget the stale command") << QStringLiteral("retarget") << true;
+    QTest::newRow("move the stale command") << QStringLiteral("move") << false;
+    QTest::newRow("add a command on the missing target") << QStringLiteral("add missing") << false;
+}
+
+void Show_Test::commandTrackMissingTargetBlocksOnlyItself()
+{
+    QFETCH(QString, edit);
+    QFETCH(bool, published);
+
+    Doc doc(this);
+    Scene *kept = new Scene(&doc);
+    QVERIFY(doc.addFunction(kept));
+    Scene *gone = new Scene(&doc);
+    QVERIFY(doc.addFunction(gone));
+    const quint32 goneId = gone->id();
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(0, 1000, kept->id())));
+    QVERIFY(track.insert(ShowCommand::start(1, 2000, goneId)));
+    QVERIFY(show->setCommandTrack(track));
+    QVERIFY(doc.deleteFunction(goneId));
+
+    ShowCommandTrack edited = show->commandTrack();
+    if (edit == QLatin1String("add"))
+        QVERIFY(edited.insert(ShowCommand::stop(2, 3000, kept->id())));
+    else if (edit == QLatin1String("remove"))
+        QVERIFY(edited.remove(1));
+    else if (edit == QLatin1String("retarget"))
+        QVERIFY(edited.replace(ShowCommand::start(1, 2000, kept->id())));
+    else if (edit == QLatin1String("move"))
+        QVERIFY(edited.retime(1, 2500));
+    else
+        QVERIFY(edited.insert(ShowCommand::stop(2, 3000, goneId)));
+
+    QString error;
+    QCOMPARE(show->setCommandTrack(edited, {}, &error), published);
+    QCOMPARE(error.isEmpty(), published);
+    QCOMPARE(show->commandTrack().commands(), published ? edited.commands() : track.commands());
 }
 
 void Show_Test::commandTrackControlStatesNeedNoFunction()
@@ -751,86 +845,6 @@ void Show_Test::commandTrackCopyReusesOneClonePerTarget()
     QVERIFY(m_doc->function(commandTarget) != NULL);
     // an uncommanded target keeps its existing per-clip copy behaviour
     QVERIFY(plainClones.at(0) != plainClones.at(1));
-}
-
-void Show_Test::commandTrackEditWaitsForStoppedPlayback_data()
-{
-    QTest::addColumn<QString>("state");
-    QTest::addColumn<bool>("stopped");
-
-    QTest::newRow("never started") << QStringLiteral("idle") << true;
-    QTest::newRow("start accepted, not run yet") << QStringLiteral("queued") << false;
-    QTest::newRow("running") << QStringLiteral("running") << false;
-    QTest::newRow("paused") << QStringLiteral("paused") << false;
-    QTest::newRow("stop requested, not run yet") << QStringLiteral("stopping") << false;
-    QTest::newRow("started again before the stop ran") << QStringLiteral("restarted") << false;
-    QTest::newRow("started by a Collection on the timer") << QStringLiteral("collection") << false;
-    QTest::newRow("stopped and ended") << QStringLiteral("ended") << true;
-    QTest::newRow("restart ended too") << QStringLiteral("restart ended") << true;
-}
-
-void Show_Test::commandTrackEditWaitsForStoppedPlayback()
-{
-    QFETCH(QString, state);
-    QFETCH(bool, stopped);
-
-    Doc doc(this);
-    MasterTimer *timer = doc.masterTimer();
-    Show *show = new Show(&doc);
-    QVERIFY(doc.addFunction(show));
-    ShowCommandTrack track;
-    QVERIFY(track.setExtent(60000));
-    QVERIFY(show->setCommandTrack(track));
-    Collection *collection = new Collection(&doc);
-    QVERIFY(doc.addFunction(collection));
-    QVERIFY(collection->addFunction(show->id()));
-
-    const auto start = [&]() { show->start(timer, FunctionParent::master()); };
-    const auto stop = [&]() { show->stop(FunctionParent::master()); };
-    if (state == QLatin1String("collection"))
-    {
-        collection->start(timer, FunctionParent::master());
-        timer->timerTick();
-        QVERIFY(!show->stopped());
-    }
-    else if (state != QLatin1String("idle"))
-    {
-        start();
-        if (state != QLatin1String("queued"))
-            timer->timerTick();
-        if (state == QLatin1String("paused"))
-            show->setPause(true);
-        if (state == QLatin1String("stopping") || state == QLatin1String("restarted") ||
-            state.contains(QLatin1String("ended")))
-            stop();
-        if (state == QLatin1String("restarted") || state == QLatin1String("restart ended"))
-        {
-            start();
-            timer->timerTick();
-        }
-        if (state == QLatin1String("restart ended"))
-            stop();
-        if (state.contains(QLatin1String("ended")))
-            timer->timerTick();
-    }
-
-    // the edit and a start are decided under one lock: while any accepted
-    // start has not ended, the Show refuses the edit and keeps its track
-    QCOMPARE(show->commandPlaybackStopped(), stopped);
-    ShowCommandTrack edited = show->commandTrack();
-    QVERIFY(edited.insert(ShowCommand::start(0, 1000, collection->id())));
-    QSignalSpy published(show, &Show::commandTrackChanged);
-    QString error;
-    QCOMPARE(show->setStoppedCommandTrack(edited, &error), stopped);
-    QCOMPARE(error.isEmpty(), stopped);
-    QCOMPARE(show->commandTrack().count(), stopped ? 1 : 0);
-    QCOMPARE(published.count(), stopped ? 1 : 0);
-
-    collection->stop(FunctionParent::master());
-    stop();
-    for (int i = 0; i < 3; i++)
-        timer->timerTick();
-    QVERIFY(show->commandPlaybackStopped());
 }
 
 void Show_Test::commandRecordingAndPosition()

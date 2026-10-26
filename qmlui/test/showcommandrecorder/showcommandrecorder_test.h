@@ -165,7 +165,6 @@ private slots:
     void timeline_dragCommitsOnceOrCancels_data();
     void timeline_dragCommitsOnceOrCancels();
 
-    void editor_typedActionAndTargetEdits();
 
     void replayedButtonOn_startsItsSceneThroughShowPlayback();
     void nativeFunctionReceipt_settlesQueuedOperation_data();
@@ -286,8 +285,8 @@ private slots:
     void userRequest_keepsItsAcceptedDestination_data();
     void userRequest_keepsItsAcceptedDestination();
     void levelChannelSnapshot_sharesNoTimerStorage();
-    void recArmedUserInput_waitsBehindCoupledReplay_data();
-    void recArmedUserInput_waitsBehindCoupledReplay();
+    void recArmedUserInput_replacesTheReplayOfItsControl_data();
+    void recArmedUserInput_replacesTheReplayOfItsControl();
 
     // accepted input capture
     void acceptedSliderInput_recordsEachChangedPosition_data();
@@ -395,8 +394,8 @@ private slots:
     void replayStop_releasesOnlyReplayOwnedFlash();
     void replayStop_releasesOnlyReplayOwnedSliderFlash_data();
     void replayStop_releasesOnlyReplayOwnedSliderFlash();
-    void checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen_data();
-    void checkpoint_midHoldSavesTemporaryClosureAndKeepsLiveOpen();
+    void checkpoint_midHoldSavesTheHoldSoFar_data();
+    void checkpoint_midHoldSavesTheHoldSoFar();
     void replayStop_releasesOnlyReplayOwnedFreezeHold_data();
     void replayStop_releasesOnlyReplayOwnedFreezeHold();
     void replayStop_doesNotRollbackValues_butBackwardSeekDoes();
@@ -411,8 +410,26 @@ private slots:
     void editingPlayedGlobalLatchEvents_areDataOnlyUntilBoundary();
     void holdPairSelection_requiresWholePair_data();
     void holdPairSelection_requiresWholePair();
-    void holdPairSelection_refusesMalformedPair();
     void holdPairPaste_assignsFreshPairIdsAndUndoRedoKeepsThem();
+    void holdPairs_showSurvivesSaveAndReload_data();
+    void holdPairs_showSurvivesSaveAndReload();
+    void liveInput_replacesWhileTouched_data();
+    void liveInput_replacesWhileTouched();
+    void liveInput_touchBelongsToItsPass();
+    void liveInput_releaseBeforeAMoveBackLands();
+    void liveInput_doubleTapBehindAReplay();
+    void liveInput_takeChangesWhileAReleaseWaits_data();
+    void liveInput_takeChangesWhileAReleaseWaits();
+    void liveInput_holdBelongsToItsTakeAndShow_data();
+    void liveInput_holdBelongsToItsTakeAndShow();
+    void replayedHold_survivesEditAtCursor_data();
+    void replayedHold_survivesEditAtCursor();
+    void replayedHold_historyEditReleasesIt_data();
+    void replayedHold_historyEditReleasesIt();
+    void replayedHold_releasedWhenAShowIsDeleted_data();
+    void replayedHold_releasedWhenAShowIsDeleted();
+    void replayedHold_endSparesWhatOthersHold_data();
+    void replayedHold_endSparesWhatOthersHold();
     void recordingsEditor_holdPairPasteUndoRedoKeepsFreshPairIds();
     void patchedInput_recordsOnlyUserRoutes_data();
     void patchedInput_recordsOnlyUserRoutes();
@@ -428,14 +445,21 @@ private slots:
     void takeBoundary_marksPersistedChangeModified();
     void automaticShowChange_handsRecordingOver_data();
     void automaticShowChange_handsRecordingOver();
+    void failedHandover_reasonOutlivesLaterInput();
+    void staleTarget_blocksOnlyItsOwnCommand_data();
+    void staleTarget_blocksOnlyItsOwnCommand();
+    void lifecycleEventRaisedByAnEffect_runsAfterIt();
     void manualShowSelection_lockedWhileArmed_data();
     void manualShowSelection_lockedWhileArmed();
-    void performFollow_handsOverOnlyWhileEngaged_data();
-    void performFollow_handsOverOnlyWhileEngaged();
+    void boundShowDeletion_armsAndUndoRebinds_data();
+    void boundShowDeletion_armsAndUndoRebinds();
     void appPerform_handsRecordingOver_data();
     void appPerform_handsRecordingOver();
     void appSave_checkpointsRecording_data();
     void appSave_checkpointsRecording();
+    void appSave_unwritableFile_reportedByOrigin_data();
+    void appSave_unwritableFile_reportedByOrigin();
+    void appSave_failedSaveLeavesNoSnapshot();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState_data();
     void checkpoint_midHoldFailedSaveRetry_keepsOpenState();
     void appReplacement_confirmsRecording_data();
@@ -444,8 +468,15 @@ private slots:
     void appRecordControls_shareOneRecorder();
     void appRecordControls_followTargetRename_data();
     void appRecordControls_followTargetRename();
-    void appPerformGap_firstSelectionBinds_data();
-    void appPerformGap_firstSelectionBinds();
+    void appPerform_selectionOfTheResolvedShowPassesTheGate();
+    void appPerformEnd_selectionResolvesAgain_data();
+    void appPerformEnd_selectionResolvesAgain();
+    void editGate_followsPerformEngagement();
+    void appShowDeletion_undoneShowBindsWhenShownAgain_data();
+    void appShowDeletion_undoneShowBindsWhenShownAgain();
+    void appSongShows_choiceSurvivesSaveAndLoad();
+    void appSongShows_loadResolvesPerformOnce_data();
+    void appSongShows_loadResolvesPerformOnce();
     void appMcpReplacement_needsDiscardWhileRecording_data();
     void appMcpReplacement_needsDiscardWhileRecording();
     // Recordings editor in the Show editor

@@ -86,7 +86,7 @@ Rectangle
                     font.pixelSize: 13
                 }
 
-                // Perform FSM state: Live (green) / Suspended / Armed (amber).
+                // Perform FSM state: Live (green) / Suspended / Ended / Armed (amber).
                 // Hidden when Idle. Makes silent resolution failures visible.
                 Text {
                     visible: vdjBridge && vdjBridge.performState !== PerformFsm.Idle
@@ -98,6 +98,8 @@ Rectangle
                             return "PERFORM: Live — " + vdjBridge.performShowName
                         case PerformFsm.Suspended:
                             return "PERFORM: Suspended — " + vdjBridge.performShowName
+                        case PerformFsm.Ended:
+                            return "PERFORM: Ended — " + vdjBridge.performShowName
                         case PerformFsm.Armed:
                             return "PERFORM: Armed — no show for active deck yet"
                         default:
@@ -478,12 +480,6 @@ Rectangle
                         text: model.hasShow ? "New" : "Create"
                         implicitHeight: 26
                         onClicked: djManager.createShow(model.filepath)
-                    }
-                    Button {
-                        text: "Clear"
-                        enabled: model.hasShow
-                        implicitHeight: 26
-                        onClicked: djManager.clearShow(model.filepath)
                     }
                 }
             }

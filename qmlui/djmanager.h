@@ -38,6 +38,8 @@ class ShowFactory;
 //  DjSongModel — songs seen on the decks, keyed by filepath identity
 // ────────────────────────────────────────────────────────────────
 
+class ShowFactory;
+
 class DjSongModel final : public QAbstractListModel
 {
     Q_OBJECT
@@ -49,7 +51,6 @@ public:
         TitleRole,
         ArtistRole,
         BpmRole,
-        KeyRole,
         DurationRole,
         ShowIdRole,
         HasShowRole,
@@ -64,15 +65,14 @@ public:
         QString filepath;       //!< identity
         QString title;
         QString artist;
-        QString key;
         double  bpm = 0.0;
         int     durationMs = 0;
-        quint32 showId = 0;     //!< Function::invalidId() when unassigned
         bool    isPlaying = false;
         bool    isActive = false;
     };
 
-    explicit DjSongModel(Doc *doc, QObject *parent = nullptr);
+    /** The Show of a row is read from the index, never stored here */
+    DjSongModel(Doc *doc, ShowFactory *index, QObject *parent = nullptr);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -87,20 +87,11 @@ public:
     /** True if a row with this filepath already exists. */
     bool hasFilepath(const QString &filepath) const;
 
-    /** Assign (or clear with Function::invalidId()) the show for a filepath. */
-    void setShow(const QString &filepath, quint32 showId);
-
-    /** Unassign the show from whichever row currently references it. */
-    void clearShowById(quint32 showId);
-
-    /** Show ID currently assigned to a filepath, or Function::invalidId(). */
-    quint32 showIdForFilepath(const QString &filepath) const;
+    /** The index changed for a filepath (empty: for any): the Show columns re-read it */
+    void refreshShow(const QString &filepath);
 
     /** Build a DeckSong snapshot from a row (used to create a fresh show). */
     DjFsm::DeckSong songForFilepath(const QString &filepath) const;
-
-    /** All filepath -> showId assignments (for factory mapping restore). */
-    QList<QPair<QString, quint32>> showMappings() const;
 
     /** Mark the currently-playing filepaths (diff against the last set). */
     void setPlayingFilepaths(const QSet<QString> &playing);
@@ -118,10 +109,11 @@ public:
 
 private:
     int rowForFilepath(const QString &fp) const;
-    int rowForShowId(quint32 id) const;
+    quint32 showFor(const QString &filepath) const;
     void emitRow(int idx, const QList<int> &roles);
 
     Doc *m_doc;
+    ShowFactory *m_index;
     QList<Row> m_rows;
     QString m_activeFilepath;
 };
@@ -219,13 +211,11 @@ class DjManager final : public PreviewContext
     Q_PROPERTY(int sortMode READ sortMode WRITE setSortMode NOTIFY sortModeChanged)
     Q_PROPERTY(bool sortAscending READ sortAscending WRITE setSortAscending NOTIFY sortAscendingChanged)
     Q_PROPERTY(QString searchFilter READ searchFilter WRITE setSearchFilter NOTIFY searchFilterChanged)
-    Q_PROPERTY(int songCount READ songCount NOTIFY songCountChanged)
     Q_PROPERTY(bool performMode READ performMode WRITE setPerformMode NOTIFY performModeChanged)
     Q_PROPERTY(int activeDeck READ activeDeck NOTIFY activeChanged)
     Q_PROPERTY(QString activeTitle READ activeTitle NOTIFY activeChanged)
     Q_PROPERTY(QString activeArtist READ activeArtist NOTIFY activeChanged)
     Q_PROPERTY(int activeElapsedMs READ activeElapsedMs NOTIFY activePositionChanged)
-    Q_PROPERTY(int activeRemainingMs READ activeRemainingMs NOTIFY activePositionChanged)
     Q_PROPERTY(double activeBeatPos READ activeBeatPos NOTIFY activePositionChanged)
     Q_PROPERTY(int deckCount READ deckCount WRITE setDeckCount NOTIFY deckCountChanged)
     Q_PROPERTY(QString vdjDatabasePath READ vdjDatabasePath NOTIFY vdjDatabasePathChanged)
@@ -247,8 +237,6 @@ public:
     QString searchFilter() const;
     void setSearchFilter(const QString &text);
 
-    int songCount() const;
-
     bool performMode() const;
     void setPerformMode(bool on);
 
@@ -256,7 +244,6 @@ public:
     QString activeTitle() const;
     QString activeArtist() const;
     int activeElapsedMs() const;
-    int activeRemainingMs() const;
     double activeBeatPos() const;
 
     int deckCount() const;
@@ -278,27 +265,16 @@ public:
     /** Assign an existing show to a song. */
     Q_INVOKABLE void assignShow(const QString &filepath, int showId);
 
-    /** Remove the show assignment from a song. */
-    Q_INVOKABLE void clearShow(const QString &filepath);
-
     /** Create a brand-new show for a song and assign it. */
     Q_INVOKABLE void createShow(const QString &filepath);
 
     /** List of existing Shows as [{ id, name }] for the assign picker. */
     Q_INVOKABLE QVariantList availableShows() const;
 
-public slots:
-    /** Perform mode: keep the Show Manager on the active deck's show, so the
-     *  playing show (and its VDJ-driven playhead) is always the one shown.
-     *  Called on perform-enable, active-song changes and deferred show
-     *  creation; a no-op when Perform is off or no show exists yet. */
-    void syncPerformShowToManager();
-
 signals:
     void sortModeChanged();
     void sortAscendingChanged();
     void searchFilterChanged();
-    void songCountChanged();
     void performModeChanged();
     void activeChanged();
     void activePositionChanged();
@@ -313,16 +289,13 @@ private slots:
     void onActiveDeckChanged(int deck);
     void onActiveSongChanged();
     void onDeckCountChanged();
-    void onShowCreatedForSong(const QString &filepath, quint32 showId);
     void onDocCleared();
+    void onDocLoaded();
     void onFunctionAdded(quint32 fid);
-    void onFunctionRemoved(quint32 fid);
     void onFunctionChanged(quint32 fid);
 
 private:
-    void ensureShowForSong(const DjFsm::DeckSong &song);
     void recomputePlayingSongs();
-    void mergeShowFromDoc(quint32 showId);
 
     VdjBridge *m_bridge;
     ShowFactory *m_factory;

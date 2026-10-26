@@ -23,31 +23,36 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDebug>
+#include <QDeadlineTimer>
+
+#ifdef Q_OS_WIN
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#include <cerrno>
+#endif
 
 static const char *kLogTag = "[VdjTelemetry]";
+static const int kMaxOpenObjectBytes = 1024 * 1024;
 
-// --- Per-deck triggers ---
-// These are subscribed for each of 4 decks as "deck N <trigger>".
+// Only what DjFsm, VdjBridge and the DJ Manager read: VDJ sends a trigger on
+// every change, so each one more is traffic (a VU meter streams at the tick rate).
 
+// Per deck, as "deck N <trigger>". VDJ sends a tick's changed triggers in this
+// order: the song's identity first, so a track change reaches consumers before
+// its new position does
 static const QStringList kDeckTriggers = {
+    "get_filepath", "loaded",
     // Continuous
-    "get_position", "get_time", "get_time elapsed absolute",
-    "get_beatpos", "get_vu_meter", "level",
-    // On-load metadata
-    "get_filepath", "get_title", "get_artist", "get_title_artist",
+    "get_time", "get_time elapsed absolute", "get_beatpos",
+    // On-load metadata; title_artist, album, genre and firstbeat mark a new file's fields
+    "get_title", "get_artist", "get_title_artist",
     "get_album", "get_genre", "get_bpm", "get_key", "get_firstbeat",
-    "get_time total", "loaded", "play", "volume",
-    // EQ
-    "eq_high", "eq_med", "eq_low", "gain",
-    // Loop
-    "loop", "get_loop",
+    "get_time total", "play", "volume", "masterdeck",
 };
 
-// --- Global triggers ---
-static const QStringList kGlobalTriggers = {
-    "master_volume", "get_decks", "crossfader", "headphone_volume",
-    "masterdeck", "get_crossfader_result full", "mixer_order", "get_vu_meter",
-};
+// the real deck count; decks above it mirror VDJ's default deck
+static const QStringList kGlobalTriggers = { "get_decks" };
 
 VdjTelemetryClient::VdjTelemetryClient(QObject *parent)
     : QObject(parent)
@@ -70,24 +75,28 @@ bool VdjTelemetryClient::start(quint16 port)
     {
         qWarning() << kLogTag << "Failed to bind port" << port
                     << ":" << m_server.errorString();
-        setStatus(PortInUse);
+        m_status = PortInUse;
         return false;
     }
 
     qDebug() << kLogTag << "Listening on port" << port;
-    setStatus(Listening);
+    m_status = Listening;
     return true;
 }
 
 void VdjTelemetryClient::stop()
 {
+    const bool hadClient = m_client != nullptr;
     closeClient();
     if (m_server.isListening())
     {
         m_server.close();
         qDebug() << kLogTag << "Server stopped";
     }
-    setStatus(Idle);
+    m_status = Idle;
+    // closing the input is a disconnect to its consumers, like VDJ going away
+    if (hadClient)
+        emit clientDisconnected();
 }
 
 QString VdjTelemetryClient::clientAddress() const
@@ -97,24 +106,54 @@ QString VdjTelemetryClient::clientAddress() const
     return QString();
 }
 
-void VdjTelemetryClient::setStatus(Status s)
-{
-    if (m_status != s)
-    {
-        m_status = s;
-        emit statusChanged(s);
-    }
-}
-
 void VdjTelemetryClient::closeClient()
 {
     if (m_client)
     {
         m_client->disconnect(this);
-        m_client->abort();
+        QDeadlineTimer deadline(250);
+        while (m_client->bytesToWrite() > 0 && !deadline.hasExpired())
+        {
+            if (!m_client->waitForBytesWritten(int(deadline.remainingTime())))
+                break;
+        }
+        if (m_client->bytesToWrite() > 0)
+            qWarning() << kLogTag << "Could not flush the closing client:" << m_client->errorString();
+
+        if (m_client->state() == QAbstractSocket::ConnectedState)
+        {
+            // Closing a descriptor with unread telemetry can send RST. Send FIN
+            // first, then drain until the peer closes or the deadline expires.
+#ifdef Q_OS_WIN
+            const int result = ::shutdown(static_cast<SOCKET>(m_client->socketDescriptor()), SD_SEND);
+            const int error = result == 0 ? 0 : WSAGetLastError();
+#else
+            const int result = ::shutdown(static_cast<int>(m_client->socketDescriptor()), SHUT_WR);
+            const int error = result == 0 ? 0 : errno;
+#endif
+            if (result != 0)
+                qWarning() << kLogTag << "Could not half-close the client:" << error;
+            else
+            {
+                while (m_client->state() == QAbstractSocket::ConnectedState && !deadline.hasExpired())
+                {
+                    m_client->readAll();
+                    if (!m_client->waitForReadyRead(int(deadline.remainingTime())))
+                        break;
+                }
+                m_client->readAll();
+                if (m_client->state() == QAbstractSocket::ConnectedState)
+                    qWarning() << kLogTag << "Client did not finish closing within 250 ms";
+            }
+        }
+        m_client->disconnectFromHost();
+        if (m_client->state() != QAbstractSocket::UnconnectedState &&
+            !m_client->waitForDisconnected(int(deadline.remainingTime())))
+            qWarning() << kLogTag << "Could not finish closing the client:" << m_client->errorString();
         m_client->deleteLater();
         m_client = nullptr;
-        m_lineBuffer.clear();
+        m_buffer.clear();
+        m_subscriptionAnswered = false;
     }
 }
 
@@ -147,41 +186,90 @@ void VdjTelemetryClient::onNewConnection()
     m_client->write(sub);
     m_client->flush();
 
-    setStatus(ClientConnected);
+    m_status = ClientConnected;
     emit clientConnected();
 }
 
 void VdjTelemetryClient::onReadyRead()
 {
-    if (!m_client)
-        return;
+    if (m_client)
+        feed(m_client->readAll());
+}
 
-    m_lineBuffer.append(m_client->readAll());
-
-    // VDJ sends JSON objects concatenated without separators: {...}{...}{...}
-    // Also sometimes newline-delimited. Split on both patterns.
-    // Strategy: replace }{ with }\n{ then split on \n.
-    m_lineBuffer.replace("}{", "}\n{");
-
-    int newlinePos;
-    while ((newlinePos = m_lineBuffer.indexOf('\n')) >= 0)
+void VdjTelemetryClient::feed(const QByteArray &chunk)
+{
+    m_buffer.append(chunk);
+    int pos = 0;
+    bool writeOpen = false; // objects dispatched since the last boundary
+    while (pos < m_buffer.size())
     {
-        QByteArray line = m_lineBuffer.left(newlinePos).trimmed();
-        m_lineBuffer.remove(0, newlinePos + 1);
-
-        if (!line.isEmpty())
-            parseLine(line);
+        const char c = m_buffer.at(pos);
+        if (c == '\n' || c == '\r' || c == ' ' || c == '\t')
+        {
+            pos++;
+            continue;
+        }
+        if (c != '{')
+        {
+            // not JSON: drop up to the next object
+            const int next = m_buffer.indexOf('{', pos);
+            qWarning() << kLogTag << "Discarding non-JSON bytes:" << m_buffer.mid(pos, next < 0 ? -1 : next - pos).left(120);
+            pos = next < 0 ? m_buffer.size() : next;
+            continue;
+        }
+        // the object ends at its closing brace, braces and quotes inside strings aside
+        int end = -1, depth = 0;
+        bool inString = false;
+        for (int i = pos; i < m_buffer.size() && end < 0; i++)
+        {
+            const char b = m_buffer.at(i);
+            if (inString)
+            {
+                if (b == '\\')
+                    i++;
+                else if (b == '"')
+                    inString = false;
+            }
+            else if (b == '"')
+                inString = true;
+            else if (b == '{')
+                depth++;
+            else if (b == '}' && --depth == 0)
+                end = i + 1;
+        }
+        if (end < 0)
+            break; // the object goes on in the next chunk
+        parseLine(m_buffer.mid(pos, end - pos));
+        pos = end;
+        writeOpen = true;
+        // a write ends where the next one starts, adjacent
+        if (pos < m_buffer.size() && m_buffer.at(pos) == '{')
+        {
+            writeOpen = false;
+            emit tickEnded();
+        }
     }
-
-    // Whatever remains in the buffer is a partial JSON object — keep it
-    // for the next readyRead call.
+    m_buffer.remove(0, pos);
+    // or where the data ends after its last complete object
+    // shortcut: a write split across two reads ends here too (seen on no
+    // loopback capture), upgrade to a settle timeout when VDJ runs over the LAN
+    if (writeOpen && m_buffer.isEmpty())
+        emit tickEnded();
+    // an object still open past the cap is not VDJ's (a snapshot is ~7 KB)
+    if (m_buffer.size() > kMaxOpenObjectBytes)
+    {
+        qWarning() << kLogTag << "Dropping the client: an object open for" << m_buffer.size() << "bytes";
+        m_buffer.clear();
+        if (m_client)
+            onClientDisconnected();
+    }
 }
 
 void VdjTelemetryClient::onClientDisconnected()
 {
     qDebug() << kLogTag << "Client disconnected";
     closeClient();
-    setStatus(Listening);
+    m_status = Listening;
     emit clientDisconnected();
 }
 
@@ -189,14 +277,12 @@ QByteArray VdjTelemetryClient::buildSubscriptionMessage(int frequency)
 {
     QJsonArray triggers;
 
-    // Per-deck triggers for decks 1–4
     for (int deck = 1; deck <= kDeckCount; ++deck)
     {
         for (const QString &t : kDeckTriggers)
             triggers.append(QString("deck %1 %2").arg(deck).arg(t));
     }
 
-    // Global triggers
     for (const QString &t : kGlobalTriggers)
         triggers.append(t);
 
@@ -208,28 +294,6 @@ QByteArray VdjTelemetryClient::buildSubscriptionMessage(int frequency)
     QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     json.append('\n');
     return json;
-}
-
-// Helper: coerce a QJsonValue to a QVariant defensively
-static QVariant coerceValue(const QJsonValue &v)
-{
-    if (v.isDouble())
-        return v.toDouble();
-    if (v.isBool())
-        return v.toBool();
-    if (v.isString())
-    {
-        const QString s = v.toString();
-        // Try numeric coercion
-        bool ok = false;
-        double d = s.toDouble(&ok);
-        if (ok) return d;
-        // Try bool coercion
-        if (s.compare("true", Qt::CaseInsensitive) == 0) return true;
-        if (s.compare("false", Qt::CaseInsensitive) == 0) return false;
-        return s;
-    }
-    return QVariant();
 }
 
 void VdjTelemetryClient::parseLine(const QByteArray &line)
@@ -248,6 +312,10 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
 
     if (evt == "beat")
     {
+        // a reconnecting VDJ first drains every beat it queued while
+        // disconnected (measured: 22,946 after 3 h), then sends the snapshot
+        if (!m_subscriptionAnswered)
+            return;
         int pos = obj.value("pos").toInt();
         qreal bpm = obj.value("bpm").toDouble();
         qreal strength = obj.value("strength").toDouble();
@@ -255,11 +323,12 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
         emit beatReceived(pos, bpm, strength, change);
         return;
     }
-
     if (evt == "subscribed")
     {
+        m_subscriptionAnswered = true;
         QString trigger = obj.value("trigger").toString();
-        QVariant value = coerceValue(obj.value("value"));
+        // as JSON typed it: each consumer reads the trigger's own type
+        const QVariant value = obj.value("value").toVariant();
 
         if (trigger.isEmpty())
             return;
@@ -276,7 +345,8 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
                 // Log song metadata triggers (infrequent, useful for debugging)
                 if (deckTrigger.startsWith("get_title") || deckTrigger.startsWith("get_artist") ||
                     deckTrigger.startsWith("get_filepath") || deckTrigger == "get_bpm" ||
-                    deckTrigger == "get_key" || deckTrigger == "loaded" || deckTrigger == "play")
+                    deckTrigger == "get_key" || deckTrigger == "loaded" || deckTrigger == "play" ||
+                    deckTrigger == "masterdeck")
                     qDebug() << kLogTag << "Deck" << deckNum << deckTrigger << "=" << value;
                 emit deckTriggerReceived(deckNum - 1, deckTrigger, value);
                 return;

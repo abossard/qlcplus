@@ -49,6 +49,19 @@ static ShowCommandTrack fixtureTrack()
     return track;
 }
 
+/** A track value holding nothing but these high water marks */
+static ShowCommandTrack highWaterMarks(quint32 nextEventId, quint32 nextOrder, quint32 nextPairId)
+{
+    ShowCommandTrack marks;
+    ShowCommand edge = ShowCommand::setButtonState(nextEventId - 1, 0, kControlA, true);
+    edge.role = ShowControlRole::FlashButton;
+    edge.pairId = nextPairId - 1;
+    edge.order = nextOrder - 1;
+    marks.restore(edge);
+    marks.remove(edge.id);
+    return marks;
+}
+
 static QVector<quint32> idsOf(const ShowCommandTrack &track)
 {
     QVector<quint32> ids;
@@ -113,7 +126,7 @@ void ShowCommandTrack_Test::incompatiblePairIsTransactional()
     QFETCH(QString, pair);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     QString reason;
@@ -157,7 +170,7 @@ void ShowCommandTrack_Test::explicitButtonPairIsTransactional()
     QFETCH(QString, pair);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     const QString xml = QStringLiteral(
@@ -419,7 +432,7 @@ void ShowCommandTrack_Test::typedPayloadRejection()
     QFETCH(QString, reasonPart);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     for (const bool replace : {false, true})
@@ -507,7 +520,7 @@ void ShowCommandTrack_Test::nativeSchemaRejection()
     QFETCH(int, version);
     ShowCommandTrack track = fixtureTrack();
     QVERIFY(track.retime(7, 1500));
-    track.reserve(100, 200);
+    track.reserve(highWaterMarks(100, 200, 1));
     const ShowCommandTrack before = track;
     const QString xmlBefore = toXml(track);
     QString xml;
@@ -1557,25 +1570,43 @@ void ShowCommandTrack_Test::loadIsTransactional_data()
                "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"Off\" Pair=\"7\"/>"))
         << true << 2;
+    // a bad hold pair costs only its own edges, never the track
     QTest::newRow("v3 orphan hold pair")
-        << track("Version=\"3\"", QStringLiteral(
+        << track("Version=\"3\"", start + QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"))
-        << false << 5;
+        << true << 1;
     QTest::newRow("v3 pair with same edge state")
-        << track("Version=\"3\"", QStringLiteral(
+        << track("Version=\"3\"", start + QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"
                "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"))
-        << false << 5;
+        << true << 1;
     QTest::newRow("v3 pair with mixed controls")
-        << track("Version=\"3\"", QStringLiteral(
+        << track("Version=\"3\"", start + QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetButtonState\" "
                "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" State=\"On\" Pair=\"7\"/>"
                "<Command ID=\"11\" Time=\"1800\" Action=\"SetButtonState\" "
                "Control=\"{0a9b8c7d-6e5f-4a3b-9c1d-5566778899aa}\" Role=\"FlashButton\" State=\"Off\" Pair=\"7\"/>"))
-        << false << 5;
+        << true << 1;
+    const auto flash = [](int id, int time, bool on, int pair)
+    {
+        return QStringLiteral("<Command ID=\"%1\" Time=\"%2\" Action=\"SetButtonState\" "
+                              "Control=\"{6f1c2d3e-4a5b-4c6d-8e7f-001122334455}\" Role=\"FlashButton\" "
+                              "State=\"%3\" Pair=\"%4\"/>").arg(id).arg(time).arg(on ? "On" : "Off").arg(pair);
+    };
+    QTest::newRow("v3 release before its press")
+        << track("Version=\"3\"", start + flash(10, 1200, false, 7) + flash(11, 1800, true, 7)) << true << 1;
+    QTest::newRow("v3 dangling press at a pair's press keeps the pair")
+        << track("Version=\"3\"", start + flash(10, 1000, true, 7) + flash(11, 1000, true, 8) +
+                                    flash(12, 2000, false, 8)) << true << 3;
+    QTest::newRow("v3 unclosed press before a later pair keeps the later pair")
+        << track("Version=\"3\"", start + flash(10, 1000, true, 7) + flash(11, 3000, true, 8) +
+                                    flash(12, 4000, false, 8)) << true << 3;
+    QTest::newRow("v3 overlapping pairs keep the earlier")
+        << track("Version=\"3\"", start + flash(10, 1200, true, 7) + flash(11, 1500, true, 8) +
+                                    flash(12, 1800, false, 7) + flash(13, 2400, false, 8)) << true << 3;
     QTest::newRow("v4 slider reset")
         << track("Version=\"4\"", QStringLiteral(
                "<Command ID=\"10\" Time=\"1200\" Action=\"SetSliderReset\" "
@@ -1936,30 +1967,6 @@ void ShowCommandTrack_Test::loadRecoversFromNestedTrackNames()
     }
 }
 
-void ShowCommandTrack_Test::eventIdsRunOutExplicitly(){
-    ShowCommandTrack track;
-    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime - 1, 500, 12)));
-    QCOMPARE(track.nextEventId(), ShowCommand::MaxTime);
-
-    QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 900, 12)));
-    QCOMPARE(track.nextEventId(), ShowCommand::InvalidId);
-
-    // the recorder explains the exhaustion instead of dropping the input silently
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
-    state = ShowCommandFsm::setPlaying(state, true);
-
-    ShowCommandInput input;
-    input.origin = ShowCommandOrigin::Pointer;
-    input.action = ShowCommandAction::Start;
-    input.functionId = 12;
-
-    const ShowCommandTransition step = ShowCommandFsm::userInput(track, state, input);
-    QVERIFY(step.authored.isEmpty());
-    QVERIFY(!step.error.isEmpty());
-    QVERIFY(step.state == state);
-}
-
 void ShowCommandTrack_Test::advanceAppliesDueCommandsOnce()
 {
     const ShowCommandTrack track = playbackTrack();
@@ -2048,9 +2055,6 @@ void ShowCommandTrack_Test::seekRepositionsOnly()
     // a legacy-only track: Start, Stop and SetIntensity
     const ShowCommandTrack track = playbackTrack();
     ShowCommandState state = playingState();
-    state.recording = true;
-    state.boundShowId = 55;
-    state.resolvedShowId = 55;
     if (from >= 0)
         state = ShowCommandFsm::advance(track, state, quint32(from)).state;
     // a live mark of the previous pass at 3000
@@ -2063,8 +2067,6 @@ void ShowCommandTrack_Test::seekRepositionsOnly()
     QCOMPARE(sought.position, destination);
     QCOMPARE(sought.consumedThrough, destination);
     QVERIFY(sought.consumedLiveEventIds.isEmpty());
-    QVERIFY(sought.recording);
-    QCOMPARE(sought.boundShowId, 55u);
     QVERIFY(sought.playing);
 
     const ShowCommandTransition step = ShowCommandFsm::advance(track, sought, next);
@@ -2150,57 +2152,195 @@ void ShowCommandTrack_Test::extentNeverSynthesizesEffects()
     QCOMPARE(idsOf(longer.effects), QStringLiteral("1,2"));
 }
 
-void ShowCommandTrack_Test::armingBindsTheFirstResolvedShow()
+namespace
 {
-    ShowCommandState state;
-    QVERIFY(state.phase() == ShowRecordPhase::Off);
-
-    // armed before any show resolves: the recorder waits
-    state = ShowCommandFsm::setRecording(state, true);
-    QVERIFY(state.phase() == ShowRecordPhase::Armed);
-    QCOMPARE(state.boundShowId, ShowCommand::InvalidId);
-
-    state = ShowCommandFsm::setResolvedShow(state, 55);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QCOMPARE(state.boundShowId, 55u);
-
-    // another song/editor selection suspends instead of retargeting
-    state = ShowCommandFsm::setResolvedShow(state, 77);
-    QVERIFY(state.phase() == ShowRecordPhase::Suspended);
-    QCOMPARE(state.boundShowId, 55u);
-
-    state = ShowCommandFsm::setResolvedShow(state, 55);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-
-    state = ShowCommandFsm::setRecording(state, false);
-    QVERIFY(state.phase() == ShowRecordPhase::Off);
-    QCOMPARE(state.boundShowId, ShowCommand::InvalidId);
-    QCOMPARE(state.resolvedShowId, 55u);
-
-    // arming with a show already resolved binds at once
-    state = ShowCommandFsm::setRecording(state, true);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QCOMPARE(state.boundShowId, 55u);
+quint32 recordId(const QString &text)
+{
+    return text == QLatin1String("-") ? ShowCommand::InvalidId : text.toUInt();
 }
 
-void ShowCommandTrack_Test::bindingSurvivesPauseSeekAndLoop()
+QString recordIdText(quint32 id)
 {
-    const ShowCommandTrack track = playbackTrack();
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
-    state = ShowCommandFsm::setPlaying(state, true);
+    return id == ShowCommand::InvalidId ? QStringLiteral("-") : QString::number(id);
+}
 
-    state = ShowCommandFsm::advance(track, state, 2000).state;
-    state = ShowCommandFsm::setPlaying(state, false);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QCOMPARE(state.boundShowId, 55u);
+/** "rec m=1 p=2": REC on, the manual selection 1, Perform engaged on 2.
+ *  "off" or no "rec" is REC off, no "p=" is Perform idle. */
+ShowRecordState recordState(const QString &text)
+{
+    ShowRecordState state;
+    for (const QString &token : text.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+    {
+        if (token == QLatin1String("rec"))
+            state.recording = true;
+        else if (token.startsWith(QLatin1String("m=")))
+            state.manual = recordId(token.mid(2));
+        else if (token.startsWith(QLatin1String("p=")))
+            state.perform = recordId(token.mid(2));
+    }
+    return state;
+}
 
-    state = ShowCommandFsm::seek(state, 0);
-    state = ShowCommandFsm::setPlaying(state, true);
-    QVERIFY(state.phase() == ShowRecordPhase::Bound);
-    QVERIFY(state.recording);
-    QCOMPARE(state.boundShowId, 55u);
-    QCOMPARE(state.position, 0u);
+QString recordStateText(const ShowRecordState &state)
+{
+    QStringList tokens{ state.recording ? QStringLiteral("rec") : QStringLiteral("off") };
+    if (state.manual != ShowCommand::InvalidId)
+        tokens << QStringLiteral("m=") + recordIdText(state.manual);
+    if (state.perform)
+        tokens << QStringLiteral("p=") + recordIdText(*state.perform);
+    return tokens.join(QLatin1Char(' '));
+}
+
+/** "rec on", "manual 2", "perform -", "perform ended", "removed 1", "discard" */
+ShowRecordEvent recordEvent(const QString &text)
+{
+    using Kind = ShowRecordEvent::Kind;
+    const QStringList words = text.split(QLatin1Char(' '));
+    ShowRecordEvent event;
+    event.showId = recordId(words.last());
+    if (words.first() == QLatin1String("rec"))
+    {
+        event.kind = Kind::Rec;
+        event.on = words.last() == QLatin1String("on");
+    }
+    else if (text == QLatin1String("perform ended"))
+        event.kind = Kind::PerformEnded;
+    else if (words.first() == QLatin1String("manual") || words.first() == QLatin1String("perform"))
+    {
+        event.kind = Kind::Resolved;
+        event.source = words.first() == QLatin1String("manual") ? ShowRecordSource::Manual
+                                                                 : ShowRecordSource::Perform;
+    }
+    else if (words.first() == QLatin1String("removed"))
+        event.kind = Kind::Removed;
+    else
+        event.kind = Kind::Discard;
+    return event;
+}
+
+QString recordEffectsText(const QVector<ShowRecordEffect> &effects)
+{
+    using Kind = ShowRecordEffect::Kind;
+    QStringList parts;
+    for (const ShowRecordEffect &effect : effects)
+    {
+        switch (effect.kind)
+        {
+            case Kind::DropUnpublished:
+                parts << QStringLiteral("drop ") +
+                         (effect.showId == ShowCommand::InvalidId ? QStringLiteral("*") : recordIdText(effect.showId));
+            break;
+            case Kind::SetCommandRecording:
+                parts << (effect.on ? QStringLiteral("on ") : QStringLiteral("off ")) + recordIdText(effect.showId);
+            break;
+            case Kind::Track: parts << QStringLiteral("track ") + recordIdText(effect.showId); break;
+            case Kind::RefuseSelection: parts << QStringLiteral("refuse"); break;
+            case Kind::ReportFailure: parts << QStringLiteral("report ") + recordIdText(effect.showId); break;
+        }
+    }
+    return parts.join(QStringLiteral(", "));
+}
+}
+
+void ShowCommandTrack_Test::recordTransitions_data()
+{
+    QTest::addColumn<QString>("from");
+    QTest::addColumn<QString>("event");
+    QTest::addColumn<bool>("saved"); // the transition's checkpoint saves
+    QTest::addColumn<QString>("to");
+    QTest::addColumn<ShowRecordPhase>("phase");
+    QTest::addColumn<bool>("checkpoint");
+    QTest::addColumn<QString>("effects");
+
+    const ShowRecordPhase off = ShowRecordPhase::Off, armed = ShowRecordPhase::Armed, bound = ShowRecordPhase::Bound;
+    const auto row = [](const char *name, const char *from, const char *event, bool saved, const char *to,
+                        ShowRecordPhase phase, bool checkpoint, const char *effects) {
+        QTest::newRow(name) << QString::fromLatin1(from) << QString::fromLatin1(event) << saved
+                            << QString::fromLatin1(to) << phase << checkpoint << QString::fromLatin1(effects);
+    };
+
+    // REC
+    row("arming without a Show waits", "off", "rec on", true, "rec", armed, false, "");
+    row("arming binds the resolved Show", "off m=1", "rec on", true, "rec m=1", bound, false, "on 1");
+    row("arming again changes nothing", "rec m=1", "rec on", true, "rec m=1", bound, false, "");
+    row("disarming saves the take", "rec m=1", "rec off", true, "off m=1", off, true, "off 1");
+    row("disarming a take that cannot save keeps it", "rec m=1", "rec off", false, "rec m=1", bound, true,
+        "report 1");
+    row("disarming while armed", "rec", "rec off", true, "off", off, false, "");
+    row("arming again while Perform resolves nothing", "rec m=1 p=-", "rec on", true, "rec m=1 p=-", armed, false,
+        "");
+    row("disarming a take Perform resolved", "rec m=1 p=2", "rec off", true, "off m=1 p=2", off, true, "off 2");
+
+    // manual selection
+    row("a selection while off is tracked", "off m=1", "manual 2", true, "off m=2", off, false, "track 2");
+    row("armed binds the first selection", "rec", "manual 1", true, "rec m=1", bound, false, "track 1, on 1");
+    row("a bound take refuses another selection", "rec m=1", "manual 2", true, "rec m=1", bound, false, "refuse");
+    row("a bound take refuses no selection", "rec m=1", "manual -", true, "rec m=1", bound, false, "refuse");
+    row("selecting the bound Show again", "rec m=1", "manual 1", true, "rec m=1", bound, false, "");
+    row("while Perform is engaged a selection resolves nothing", "rec m=1 p=-", "manual 2", true, "rec m=2 p=-",
+        armed, false, "");
+    row("the Show Manager follows an engaged Perform", "rec p=2", "manual 2", true, "rec m=2 p=2", bound, false,
+        "");
+    row("a take Perform resolved refuses another selection", "rec m=1 p=2", "manual 3", true, "rec m=1 p=2", bound,
+        false, "refuse");
+
+    // Perform
+    row("engaging Perform hands the take over", "rec m=1", "perform 2", true, "rec m=1 p=2", bound, true,
+        "off 1, track 2, on 2");
+    row("engaging Perform on an empty deck arms", "rec m=1", "perform -", true, "rec m=1 p=-", armed, true,
+        "off 1, track -");
+    row("a deck change hands the take over", "rec m=1 p=2", "perform 3", true, "rec m=1 p=3", bound, true,
+        "off 2, track 3, on 3");
+    row("a gap arms", "rec m=1 p=2", "perform -", true, "rec m=1 p=-", armed, true, "off 2, track -");
+    row("armed binds the next deck", "rec m=1 p=-", "perform 3", true, "rec m=1 p=3", bound, false,
+        "track 3, on 3");
+    row("a handover that cannot save ends the take", "rec m=1 p=2", "perform 3", false, "off m=1 p=3", off, true,
+        "off 2, track 3, report 2");
+    row("Perform ends: the selection resolves again", "rec m=2 p=-", "perform ended", true, "rec m=2", bound,
+        false, "track 2, on 2");
+    row("Perform ends on another Show: handed back", "rec m=1 p=2", "perform ended", true, "rec m=1", bound, true,
+        "off 2, track 1, on 1");
+    row("Perform ends, the take cannot save", "rec m=1 p=2", "perform ended", false, "off m=1", off, true,
+        "off 2, track 1, report 2");
+    row("Perform ends where the Show Manager is", "rec m=2 p=2", "perform ended", true, "rec m=2", bound, false,
+        "");
+    row("Perform ends while it was idle", "off m=1", "perform ended", true, "off m=1", off, false, "");
+    row("Perform resolves while REC is off", "off m=1", "perform 2", true, "off m=1 p=2", off, false, "track 2");
+
+    // deletion: a deleted Show is no selection; the one that comes back is
+    // resolved again by its source (the Show Manager, Perform's song index)
+    row("deleting the bound Show arms", "rec m=1", "removed 1", true, "rec", armed, false,
+        "drop 1, track -, report 1");
+    row("deleting the tracked Show while off", "off m=1", "removed 1", true, "off", off, false,
+        "drop 1, track -");
+    row("deleting another Show drops only its input", "rec m=1", "removed 2", true, "rec m=1", bound, false,
+        "drop 2");
+    row("deleting the Show Perform resolved arms", "rec m=1 p=2", "removed 2", true, "rec m=1 p=-", armed, false,
+        "drop 2, track -, report 2");
+
+    // workspace replacement
+    row("discarding drops everything unsaved", "rec m=1 p=2", "discard", true, "off p=-", off, false,
+        "drop *, off 2, track -");
+}
+
+void ShowCommandTrack_Test::recordTransitions()
+{
+    QFETCH(QString, from);
+    QFETCH(QString, event);
+    QFETCH(bool, saved);
+    QFETCH(QString, to);
+    QFETCH(ShowRecordPhase, phase);
+    QFETCH(bool, checkpoint);
+    QFETCH(QString, effects);
+
+    const ShowRecordTransition step = ShowCommandFsm::record(recordState(from), recordEvent(event), saved);
+    QCOMPARE(recordStateText(step.state), recordStateText(recordState(to)));
+    QCOMPARE(step.state.phase(), phase);
+    QCOMPARE(step.checkpoint, checkpoint);
+    QCOMPARE(recordEffectsText(step.effects), effects);
+    // a bound take always records into the resolved Show
+    if (step.state.phase() == ShowRecordPhase::Bound)
+        QCOMPARE(step.state.boundShowId(), step.state.resolvedShowId());
 }
 
 void ShowCommandTrack_Test::recordsOnlyAcceptedUserInput_data()
@@ -2260,8 +2400,7 @@ void ShowCommandTrack_Test::recordsOnlyAcceptedUserInput()
     QFETCH(bool, explained);
 
     ShowCommandTrack track = playbackTrack();
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
     state = ShowCommandFsm::advance(track, state, 2600).state;
 
@@ -2293,36 +2432,20 @@ void ShowCommandTrack_Test::recordsOnlyAcceptedUserInput()
     QVERIFY(track.insert(authored));
 }
 
-void ShowCommandTrack_Test::recordingIsGatedByPhaseAndTransport_data()
+void ShowCommandTrack_Test::userInputAuthorsAtTheFrozenPosition_data()
 {
-    QTest::addColumn<bool>("recording");
-    QTest::addColumn<quint32>("boundShowId");
-    QTest::addColumn<quint32>("resolvedShowId");
     QTest::addColumn<bool>("playing");
-    QTest::addColumn<bool>("authors");
 
-    QTest::newRow("bound and playing") << true << 55u << 55u << true << true;
-    QTest::newRow("bound and paused") << true << 55u << 55u << false << true;
-    QTest::newRow("record off") << false << ShowCommand::InvalidId << 55u << true << false;
-    QTest::newRow("armed without a show")
-        << true << ShowCommand::InvalidId << ShowCommand::InvalidId << true << false;
-    QTest::newRow("suspended by another show") << true << 55u << 77u << true << false;
-    QTest::newRow("suspended while paused") << true << 55u << 77u << false << false;
+    QTest::newRow("playing") << true;
+    QTest::newRow("paused") << false;
 }
 
-void ShowCommandTrack_Test::recordingIsGatedByPhaseAndTransport()
+void ShowCommandTrack_Test::userInputAuthorsAtTheFrozenPosition()
 {
-    QFETCH(bool, recording);
-    QFETCH(quint32, boundShowId);
-    QFETCH(quint32, resolvedShowId);
     QFETCH(bool, playing);
-    QFETCH(bool, authors);
 
     const ShowCommandTrack track = playbackTrack();
     ShowCommandState state;
-    state.recording = recording;
-    state.boundShowId = boundShowId;
-    state.resolvedShowId = resolvedShowId;
     state.playing = playing;
     state.position = 2600;
     state.consumedThrough = 2601;
@@ -2333,15 +2456,8 @@ void ShowCommandTrack_Test::recordingIsGatedByPhaseAndTransport()
     input.functionId = 12;
 
     const ShowCommandTransition step = ShowCommandFsm::userInput(track, state, input);
-    QCOMPARE(step.authored.count(), authors ? 1 : 0);
+    QCOMPARE(step.authored.count(), 1);
     QVERIFY(step.effects.isEmpty());
-
-    if (!authors)
-    {
-        QVERIFY(step.state == state);
-        return;
-    }
-
     // a frozen transport records at the position it froze on
     QCOMPARE(step.authored.first().time, 2600u);
     QCOMPARE(step.state.playing, playing);
@@ -2352,8 +2468,7 @@ void ShowCommandTrack_Test::liveCommandDoesNotEchoUntilTheNextTraversal()
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::start(0, 2000, 12)));
 
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
 
     // an authored event at the very first position must not echo either
@@ -2394,8 +2509,6 @@ void ShowCommandTrack_Test::liveCommandDoesNotEchoUntilTheNextTraversal()
     state = ShowCommandFsm::seek(state, 0);
     step = ShowCommandFsm::advance(track, state, 6000);
     QCOMPARE(idsOf(step.effects), QStringLiteral("1,0,2"));
-    QVERIFY(state.recording);
-    QCOMPARE(state.boundShowId, 55u);
 }
 
 void ShowCommandTrack_Test::liveInputMarksOnlyItsOwnEvent()
@@ -2405,8 +2518,7 @@ void ShowCommandTrack_Test::liveInputMarksOnlyItsOwnEvent()
     QVERIFY(track.insert(ShowCommand::start(0, 3500, 30)));
     QVERIFY(track.insert(ShowCommand::start(1, 4200, 12)));
 
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
     state = ShowCommandFsm::advance(track, state, 3000).state;
     state.position = 4200;
@@ -2490,8 +2602,7 @@ void ShowCommandTrack_Test::liveOccurrence()
     ShowCommandState runner = ShowCommandFsm::advance(track, playingState(), 500).state;
 
     // the recorder follows the authoritative clock, which is ahead of the cursor
-    ShowCommandState recorder = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState recorder = ShowCommandState();
     recorder = ShowCommandFsm::setPlaying(recorder, true);
     recorder.position = 800;
 
@@ -2552,8 +2663,7 @@ void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
     ShowCommandTrack track;
     QVERIFY(track.insert(ShowCommand::start(4, 100, 12)));
 
-    ShowCommandState state = ShowCommandFsm::setResolvedShow(
-        ShowCommandFsm::setRecording(ShowCommandState(), true), 55);
+    ShowCommandState state = ShowCommandState();
     state = ShowCommandFsm::setPlaying(state, true);
     state = ShowCommandFsm::advance(track, state, 2750).state;
 
@@ -2585,6 +2695,283 @@ void ShowCommandTrack_Test::controlStateInputAuthorsVcRecord()
     QVERIFY(rejected.authored.isEmpty());
     QVERIFY(!rejected.error.isEmpty());
     QVERIFY(rejected.state == state);
+}
+
+/** The hold pairs in track order as "press-release", an open one as "press-" */
+static QString holdSpans(const ShowCommandTrack &track)
+{
+    QStringList spans;
+    QHash<quint32, int> at;
+    for (const ShowCommand &cmd : track.commands())
+    {
+        if (cmd.action != ShowCommandAction::SetButtonState || cmd.pairId == ShowCommand::InvalidId)
+            continue;
+        if (cmd.on)
+        {
+            at.insert(cmd.pairId, spans.count());
+            spans.append(QString::number(cmd.time) + QLatin1Char('-'));
+        }
+        else
+        {
+            spans[at.value(cmd.pairId)] += QString::number(cmd.time);
+        }
+    }
+    return spans.join(QLatin1Char(' '));
+}
+
+/** A Flash edge "<pair>:<on|off>@<time>", "/B" for the other control */
+static ShowCommand holdEdge(quint32 id, const QString &text)
+{
+    ShowCommand edge = ShowCommand::setButtonState(id, text.section('@', 1).section('/', 0, 0).toUInt(),
+                                                   text.endsWith(QLatin1String("/B")) ? kControlB : kControlA,
+                                                   text.section(':', 1).startsWith(QLatin1String("on")));
+    edge.role = ShowControlRole::FlashButton;
+    edge.pairId = text.section(':', 0, 0).toUInt();
+    return edge;
+}
+
+void ShowCommandTrack_Test::holdRecordingKeepsPairsValid_data()
+{
+    QTest::addColumn<QString>("steps");
+    QTest::addColumn<QString>("spans");
+
+    // as the recorder drives it: a press opens a live hold, a release or REC
+    // off ends it, a seek back while held ends it where the clock was and
+    // starts it again at the arrival; "at" moves the clock
+    const QString take = QStringLiteral("press 10000, release 12000, seek 5000, ");
+    QTest::newRow("record pair") << QStringLiteral("press 1000, release 2000") << QStringLiteral("1000-2000");
+    QTest::newRow("seek back, earlier pair") << take + QStringLiteral("press 6000, release 7000")
+                                             << QStringLiteral("6000-7000 10000-12000");
+    // what was recorded inside the hold goes; a recorded hold still on at its end starts again there
+    QTest::newRow("seek back, held into a later pair") << take + QStringLiteral("press 6000, release 11000")
+                                                       << QStringLiteral("6000-11000 11000-12000");
+    QTest::newRow("seek back, held over a later pair") << take + QStringLiteral("press 6000, release 13000")
+                                                       << QStringLiteral("6000-13000");
+    QTest::newRow("covering two holds")
+        << QStringLiteral("press 2000, release 3000, press 4000, release 5000, seek 0, press 1000, release 6000")
+        << QStringLiteral("1000-6000");
+    QTest::newRow("starting before a hold, ending inside it")
+        << QStringLiteral("press 2000, release 4000, seek 0, press 1000, release 3000")
+        << QStringLiteral("1000-3000 3000-4000");
+    // a recorded hold on at the press ends there
+    QTest::newRow("seek back, press inside a recorded hold") << take + QStringLiteral("press 11000, release 13000")
+                                                             << QStringLiteral("10000-11000 11000-13000");
+    QTest::newRow("seek back, a tap inside a recorded hold") << take + QStringLiteral("press 10500, release 11000")
+                                                             << QStringLiteral("10000-10500 10500-11000 11000-12000");
+    // one that begins at the press goes, no hold of no time is cut off
+    QTest::newRow("seek back, press at a recorded press") << take + QStringLiteral("press 10000, release 11000")
+                                                          << QStringLiteral("10000-11000 11000-12000");
+    QTest::newRow("seek back, press at a recorded release") << take + QStringLiteral("press 12000, release 13000")
+                                                            << QStringLiteral("10000-12000 12000-13000");
+    // a press on a control already held live starts nothing
+    QTest::newRow("second press while held") << QStringLiteral("press 1000, press 1500, release 2000")
+                                             << QStringLiteral("1000-2000");
+    QTest::newRow("second press while held inside a recorded hold")
+        << take + QStringLiteral("press 11000, press 11500, release 13000") << QStringLiteral("10000-11000 11000-13000");
+    QTest::newRow("release with nothing held") << QStringLiteral("release 1000, press 2000, release 3000")
+                                               << QStringLiteral("2000-3000");
+    QTest::newRow("hold at a frozen position") << QStringLiteral("press 4000, release 4000")
+                                               << QStringLiteral("4000-4000");
+    QTest::newRow("holds at a frozen position") << QStringLiteral("press 4000, release 4000, press 4000, release 4000")
+                                                << QStringLiteral("4000-4000 4000-4000");
+    QTest::newRow("loop back while held") << QStringLiteral("press 10000, seek 5000, release 6000")
+                                          << QStringLiteral("5000-6000 10000-10000");
+    QTest::newRow("loop back while held, REC off") << QStringLiteral("press 10000, seek 5000, close 6000")
+                                                   << QStringLiteral("5000-6000 10000-10000");
+    QTest::newRow("two wraps while held")
+        << QStringLiteral("press 5000, at 6000, seek 0, at 6000, seek 0, release 1000")
+        << QStringLiteral("0-1000 1000-6000");
+    QTest::newRow("REC off before a later pair") << take + QStringLiteral("press 6000, close 8000")
+                                                 << QStringLiteral("6000-8000 10000-12000");
+    QTest::newRow("REC off held into a later pair") << take + QStringLiteral("press 6000, close 11000")
+                                                    << QStringLiteral("6000-11000 11000-12000");
+}
+
+void ShowCommandTrack_Test::holdRecordingKeepsPairsValid()
+{
+    QFETCH(QString, steps);
+    QFETCH(QString, spans);
+
+    ShowCommandTrack track;
+    ShowCommandInput hold;
+    hold.origin = ShowCommandOrigin::Pointer;
+    hold.action = ShowCommandAction::SetButtonState;
+    hold.controlId = kControlA;
+    hold.role = ShowControlRole::FlashButton;
+    std::optional<quint32> held;
+    quint32 position = 0;
+    const auto end = [&](quint32 time) {
+        const ShowCommandTransition ended = ShowCommandFsm::liveHold(track, hold, *held, time);
+        QVERIFY2(ended.error.isEmpty(), qPrintable(ended.error));
+        for (quint32 id : ended.removed)
+            QVERIFY(track.remove(id));
+        for (const ShowCommand &cmd : ended.authored)
+            QVERIFY(track.insert(cmd));
+    };
+    for (const QString &step : steps.split(QStringLiteral(", ")))
+    {
+        const QString verb = step.section(' ', 0, 0);
+        const quint32 time = step.section(' ', 1, 1).toUInt();
+        if (verb == QLatin1String("seek") && held)
+        {
+            end(position);
+            held = time;
+        }
+        else if (verb == QLatin1String("press") && !held)
+            held = time;
+        else if ((verb == QLatin1String("release") || verb == QLatin1String("close")) && held)
+        {
+            end(time);
+            held.reset();
+        }
+        position = time;
+        QVERIFY2(track.malformedHoldPairs().isEmpty(), qPrintable(step));
+    }
+    QCOMPARE(holdSpans(track), spans);
+
+    ShowCommandTrack loaded;
+    QVERIFY(fromXml(toXml(track), &loaded));
+    QCOMPARE(loaded.commands(), track.commands());
+    QVERIFY(loaded.malformedHoldPairs().isEmpty());
+}
+
+void ShowCommandTrack_Test::malformedHoldPairs_data()
+{
+    QTest::addColumn<QString>("edges");
+    QTest::addColumn<QString>("malformed");
+
+    QTest::newRow("closed pair") << QStringLiteral("1:on@1000 1:off@2000") << QString();
+    // a track holds whole holds only: one without its release is malformed
+    QTest::newRow("open pair") << QStringLiteral("1:on@1000") << QStringLiteral("1");
+    QTest::newRow("open before a later pair") << QStringLiteral("1:on@6000 2:on@10000 2:off@12000")
+                                              << QStringLiteral("1");
+    QTest::newRow("touching pairs") << QStringLiteral("1:on@1000 1:off@2000 2:on@2000 2:off@3000") << QString();
+    QTest::newRow("another control overlaps freely")
+        << QStringLiteral("1:on@1000 1:off@3000 2:on@2000/B 2:off@4000/B") << QString();
+    QTest::newRow("open at the next press time") << QStringLiteral("1:on@10000 2:on@10000 2:off@12000")
+                                                 << QStringLiteral("1");
+    QTest::newRow("overlap keeps the earlier") << QStringLiteral("1:on@1000 2:on@2000 1:off@3000 2:off@4000")
+                                               << QStringLiteral("2");
+    QTest::newRow("nested") << QStringLiteral("1:on@1000 2:on@2000 2:off@3000 1:off@5000") << QStringLiteral("2");
+    QTest::newRow("release before press") << QStringLiteral("1:off@1000 1:on@2000") << QStringLiteral("1");
+    QTest::newRow("two presses") << QStringLiteral("1:on@1000 1:on@2000") << QStringLiteral("1");
+    QTest::newRow("two releases") << QStringLiteral("1:on@1000 1:off@2000 1:off@3000") << QStringLiteral("1");
+    QTest::newRow("two open pairs") << QStringLiteral("1:on@1000 2:on@2000") << QStringLiteral("1,2");
+    QTest::newRow("mixed controls") << QStringLiteral("1:on@1000 1:off@2000/B") << QStringLiteral("1");
+    QTest::newRow("one id, two holds") << QStringLiteral("1:on@1000 1:off@2000 1:on@3000 1:off@4000")
+                                       << QStringLiteral("1");
+}
+
+void ShowCommandTrack_Test::malformedHoldPairs()
+{
+    QFETCH(QString, edges);
+    QFETCH(QString, malformed);
+
+    ShowCommandTrack track;
+    quint32 id = 0;
+    for (const QString &edge : edges.split(QLatin1Char(' ')))
+        QVERIFY(track.insert(holdEdge(id++, edge)));
+
+    QStringList found;
+    for (quint32 pair : track.malformedHoldPairs())
+        found.append(QString::number(pair));
+    QCOMPARE(found.join(QLatin1Char(',')), malformed);
+}
+
+void ShowCommandTrack_Test::idsRunOutExplicitly_data()
+{
+    QTest::addColumn<bool>("pairs");
+
+    QTest::newRow("event ids") << false;
+    QTest::newRow("hold pair ids") << true;
+}
+
+void ShowCommandTrack_Test::idsRunOutExplicitly()
+{
+    QFETCH(bool, pairs);
+
+    ShowCommandTrack track;
+    ShowCommandInput input;
+    input.origin = ShowCommandOrigin::Pointer;
+    if (pairs)
+    {
+        const QString last = QString::number(ShowCommand::MaxTime);
+        QVERIFY(track.insert(holdEdge(0, last + QStringLiteral(":on@500"))));
+        QVERIFY(track.insert(holdEdge(1, last + QStringLiteral(":off@900"))));
+        QCOMPARE(track.nextPairId(), ShowCommand::InvalidId);
+        input.action = ShowCommandAction::SetButtonState;
+        input.controlId = kControlA;
+        input.role = ShowControlRole::FlashButton;
+        input.on = true;
+    }
+    else
+    {
+        QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime - 1, 500, 12)));
+        QCOMPARE(track.nextEventId(), ShowCommand::MaxTime);
+        QVERIFY(track.insert(ShowCommand::start(ShowCommand::MaxTime, 900, 12)));
+        QCOMPARE(track.nextEventId(), ShowCommand::InvalidId);
+        input.action = ShowCommandAction::Start;
+        input.functionId = 12;
+    }
+
+    // the recorder explains the exhaustion instead of dropping the input silently
+    ShowCommandState state = ShowCommandState();
+    state = ShowCommandFsm::setPlaying(state, true);
+    state.position = 5000;
+    // a hold is refused when it ends: its release records it
+    const ShowCommandTransition step = pairs ? ShowCommandFsm::liveHold(track, input, 5000, 6000)
+                                             : ShowCommandFsm::userInput(track, state, input);
+    QVERIFY(step.authored.isEmpty());
+    QVERIFY(!step.error.isEmpty());
+    // liveHold() carries no transport state
+    QVERIFY(pairs || step.state == state);
+}
+
+void ShowCommandTrack_Test::pairIdsAreNeverReissued_data()
+{
+    QTest::addColumn<QString>("history");
+    QTest::addColumn<quint32>("pairId");
+
+    QTest::newRow("fresh track") << QString() << 1u;
+    QTest::newRow("after removing the highest pair") << QStringLiteral("remove") << 3u;
+    QTest::newRow("after an undo history reserved one") << QStringLiteral("reserve") << 9u;
+    // both edges replaced in place, at their times, with a higher pair id
+    QTest::newRow("after replacing a pair's edges in place") << QStringLiteral("replace") << 3u;
+}
+
+void ShowCommandTrack_Test::pairIdsAreNeverReissued()
+{
+    QFETCH(QString, history);
+    QFETCH(quint32, pairId);
+
+    ShowCommandTrack track;
+    if (!history.isEmpty())
+    {
+        QVERIFY(track.insert(holdEdge(0, QStringLiteral("1:on@1000"))));
+        QVERIFY(track.insert(holdEdge(1, QStringLiteral("1:off@2000"))));
+    }
+    if (history == QLatin1String("remove") || history == QLatin1String("reserve"))
+    {
+        QVERIFY(track.insert(holdEdge(2, QStringLiteral("2:on@3000"))));
+        QVERIFY(track.insert(holdEdge(3, QStringLiteral("2:off@4000"))));
+        QVERIFY(track.remove(2) && track.remove(3));
+    }
+    if (history == QLatin1String("reserve"))
+        track.reserve(highWaterMarks(1, 1, 9));
+    if (history == QLatin1String("replace"))
+    {
+        QVERIFY(track.replace(holdEdge(0, QStringLiteral("2:on@1000"))));
+        QVERIFY(track.replace(holdEdge(1, QStringLiteral("2:off@2000"))));
+    }
+
+    ShowCommandInput hold;
+    hold.origin = ShowCommandOrigin::Pointer;
+    hold.action = ShowCommandAction::SetButtonState;
+    hold.controlId = kControlA;
+    hold.role = ShowControlRole::FlashButton;
+    const ShowCommandTransition taken = ShowCommandFsm::liveHold(track, hold, 5000, 6000);
+    QCOMPARE(taken.authored.count(), 2);
+    QCOMPARE(taken.authored.first().pairId, pairId);
 }
 
 void ShowCommandTrack_Test::buttonOpReachesDesiredState_data()

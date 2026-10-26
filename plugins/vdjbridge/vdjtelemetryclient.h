@@ -28,7 +28,7 @@
 /**
  * TCP server implementing the DMXDesktop telemetry protocol for VirtualDJ.
  *
- * Listens on a configurable port (default 8050). When VDJ connects, sends
+ * Listens on a configurable port. When VDJ connects, sends
  * a subscription handshake then parses incoming NDJSON frames and dispatches
  * typed signals for deck updates, beat events, and global mixer state.
  *
@@ -48,7 +48,6 @@ public:
     };
     Q_ENUM(Status)
 
-    static const quint16 kDefaultPort = 8050;
     static const int kDefaultFrequency = 25;
     static const int kDeckCount = 4;
 
@@ -56,9 +55,9 @@ public:
     ~VdjTelemetryClient() override;
 
     /** Start listening on the given port. Returns false if port bind fails. */
-    bool start(quint16 port = kDefaultPort);
+    bool start(quint16 port);
 
-    /** Stop listening and disconnect any client. */
+    /** Stop listening; a connected client is dropped and clientDisconnected() emitted. */
     void stop();
 
     Status status() const { return m_status; }
@@ -66,15 +65,21 @@ public:
     /** Return the connected client's address:port string, or empty. */
     QString clientAddress() const;
 
-    /** Build the 112-trigger subscription JSON payload. */
+    /** The subscription: the triggers QLC+ reads, for each of kDeckCount decks */
     static QByteArray buildSubscriptionMessage(int frequency = kDefaultFrequency);
 
     /** Parse a single NDJSON line. Exposed for testing. */
     void parseLine(const QByteArray &line);
 
-signals:
-    void statusChanged(VdjTelemetryClient::Status status);
+    /** One chunk as the socket delivers it. VDJ makes one write per tick: its
+     *  changed triggers joined by newlines; writes sit adjacent ("}{"); a chunk
+     *  may hold several writes and may end inside an object. Objects are cut
+     *  by brace depth, so a "}{" inside a title is text. tickEnded() follows
+     *  the objects of each write (an adjacent "{", or the data's end after a
+     *  complete object). Exposed so tests replay captures without a socket. */
+    void feed(const QByteArray &chunk);
 
+signals:
     /** Per-deck trigger update. deckIndex is 0-based (0–3). */
     void deckTriggerReceived(int deckIndex, const QString &trigger, const QVariant &value);
 
@@ -88,18 +93,23 @@ signals:
     void clientConnected();
     void clientDisconnected();
 
+    /** The objects of one VDJ write (one tick) have all been dispatched */
+    void tickEnded();
+
 private slots:
     void onNewConnection();
     void onReadyRead();
     void onClientDisconnected();
 
 private:
-    void setStatus(Status s);
     void closeClient();
 
     QTcpServer m_server;
     QTcpSocket *m_client = nullptr;
-    QByteArray m_lineBuffer;
+    QByteArray m_buffer;
+    /** The connection's first "subscribed" object (the snapshot) is in: its
+     *  beats are live, the ones before it are VDJ's backlog */
+    bool m_subscriptionAnswered = false;
     Status m_status = Idle;
 };
 

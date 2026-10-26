@@ -137,7 +137,6 @@ struct ShowReceiptState
 Show::Show(Doc* doc) : Function(doc, Function::ShowType)
     , m_timeDivisionType(Time)
     , m_timeDivisionBPM(120)
-    , m_syncSource(0) // ShowRunner::Autonomous
     , m_performAudioSuppressed(false)
     , m_latestTrackId(0)
     , m_latestShowFunctionID(0)
@@ -372,19 +371,27 @@ void Show::setSyncSource(int source)
         }
         m_syncSource = source;
     }
-    if (m_runner != NULL)
-        m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
     if (changed)
         emit syncSourceChanged();
 }
 
 void Show::setExternalElapsedTime(quint32 ms)
 {
-    const bool changed = m_externalElapsedTime.exchange(ms, std::memory_order_relaxed) != ms;
+    const quint32 previous = m_externalElapsedTime.exchange(ms, std::memory_order_relaxed);
     // after the value: a reader that sees the anchor also sees a value at least as new
     quint64 none = NoSample;
     m_playFirstSample.compare_exchange_strong(none, ms, std::memory_order_acq_rel);
-    if (changed)
+    bool back = false;
+    if (ms < previous)
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        back = m_syncSource == ShowRunner::External && stopped() == false;
+        if (back)
+            endTraversal(ms);
+    }
+    if (back)
+        emit commandTraversalCancelled();
+    if (previous != ms)
         emit externalElapsedTimeChanged(ms);
 }
 
@@ -410,13 +417,18 @@ void Show::requestSeek(quint32 ms)
             m_requestedSeekTime.store(ms, std::memory_order_release);
             return;
         }
-        for (auto it = m_commandAppliedIds.cbegin(); it != m_commandAppliedIds.cend(); ++it)
-            m_requestedSeekIds.insert(it.key());
-        cancelControlWork();
-        // after the cancellation, so the runner consuming it publishes anew
-        m_requestedSeekTime.store(ms, std::memory_order_release);
+        endTraversal(ms);
     }
     emit commandTraversalCancelled();
+}
+
+void Show::endTraversal(quint32 ms)
+{
+    for (auto it = m_commandAppliedIds.cbegin(); it != m_commandAppliedIds.cend(); ++it)
+        m_requestedSeekIds.insert(it.key());
+    cancelControlWork();
+    // after the cancellation, so the runner consuming it publishes anew
+    m_requestedSeekTime.store(ms, std::memory_order_release);
 }
 
 std::optional<quint32> Show::pendingBackwardSeek() const
@@ -475,7 +487,18 @@ bool Show::removeTrack(quint32 id)
         Track* track = m_tracks.take(id);
         Q_ASSERT(track != NULL);
 
-        unregisterAttribute(QString("%1-%2").arg(track->name()).arg(track->id()));
+        const QString name = QString("%1-%2").arg(track->name()).arg(track->id());
+        const int index = getAttributeIndex(name);
+        unregisterAttribute(name);
+        // the attributes behind it moved down: so does the copy the runner takes
+        {
+            QMutexLocker locker(&m_commandTrackMutex);
+            if (index >= 0 && index < m_trackIntensities.count())
+            {
+                m_trackIntensities.removeAt(index);
+                m_trackBaseIntensities.removeAt(index);
+            }
+        }
 
         //emit trackRemoved(id);
         delete track;
@@ -606,18 +629,36 @@ void Show::armCommandTrackSaveProjection(const ShowCommandTrack &track)
     m_commandTrackSaveProjectionArmed = true;
 }
 
-QString Show::commandTargetError(const ShowCommandTrack &track) const
+void Show::disarmCommandTrackSaveProjection()
+{
+    QMutexLocker locker(&m_commandTrackMutex);
+    m_commandTrackSaveProjectionArmed = false;
+}
+
+QString Show::commandTrackError(const ShowCommandTrack &track) const
 {
     Doc *document = doc();
+    const ShowCommandTrack published = commandTrack();
 
-    foreach (quint32 functionId, track.referencedFunctionIds())
+    for (const ShowCommand &cmd : track.commands())
     {
-        if (id() != Function::invalidId() && functionId == id())
+        if (ShowCommand::isControlAction(cmd.action))
+            continue;
+
+        if (id() != Function::invalidId() && cmd.functionId == id())
             return tr("A Show cannot command itself");
 
-        if (document != NULL && document->function(functionId) == NULL)
-            return tr("Unknown command target %1").arg(functionId);
+        if (document == NULL || document->function(cmd.functionId) != NULL)
+            continue;
+        // a published command whose target was deleted since blocks nothing else
+        const int index = published.indexOfId(cmd.id);
+        if (index < 0 || published.commands().at(index) != cmd)
+            return tr("Unknown command target %1").arg(cmd.functionId);
     }
+
+    const QVector<quint32> malformed = track.malformedHoldPairs();
+    if (malformed.isEmpty() == false)
+        return tr("Hold pair %1 overlaps another hold or is malformed").arg(malformed.first());
 
     return QString();
 }
@@ -634,28 +675,15 @@ bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &a
     return publishCommandTrack(track, alreadyApplied, appliedTraversal, error);
 }
 
-bool Show::commandPlaybackStopped() const
-{
-    QMutexLocker locker(&m_commandTrackMutex);
-    return m_startsEnded == m_startsAccepted;
-}
-
-bool Show::setStoppedCommandTrack(const ShowCommandTrack &track, QString *error)
-{
-    return publishCommandTrack(track, QSet<quint32>(), std::nullopt, error, true);
-}
-
 void Show::startRequested()
 {
-    QMutexLocker locker(&m_commandTrackMutex);
-    m_startsAccepted++;
     m_playFirstSample.store(NoSample, std::memory_order_release);
 }
 
 bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
-                               std::optional<quint64> appliedTraversal, QString *error, bool onlyStopped)
+                               std::optional<quint64> appliedTraversal, QString *error)
 {
-    QString reason = commandTargetError(track);
+    QString reason = commandTrackError(track);
     // a live mark needs the occurrence the caller executed
     for (auto it = alreadyApplied.cbegin(); reason.isEmpty() && it != alreadyApplied.cend(); ++it)
     {
@@ -676,12 +704,7 @@ bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32
     if (accepted.extent() < accepted.lastCommandTime())
         accepted.setExtent(accepted.lastCommandTime());
 
-    if (storeCommandTrack(accepted, alreadyApplied, appliedTraversal, onlyStopped) == false)
-    {
-        if (error != NULL)
-            *error = tr("Recordings can be edited once playback has fully stopped");
-        return false;
-    }
+    storeCommandTrack(accepted, alreadyApplied, appliedTraversal);
 
     if (error != NULL)
         error->clear();
@@ -690,13 +713,11 @@ bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32
     return true;
 }
 
-bool Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
-                             std::optional<quint64> appliedTraversal, bool onlyStopped)
+void Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
+                             std::optional<quint64> appliedTraversal)
 {
     {
         QMutexLocker locker(&m_commandTrackMutex);
-        if (onlyStopped && m_startsEnded != m_startsAccepted)
-            return false;
         m_commandTrack = track;
         m_commandTrackSaveProjectionArmed = false;
         /** Ids published earlier in this traversal are still waiting for the
@@ -716,7 +737,6 @@ bool Show::storeCommandTrack(const ShowCommandTrack &track, const QSet<quint32> 
     }
 
     m_commandTrackRevision.fetch_add(1, std::memory_order_release);
-    return true;
 }
 
 quint64 Show::commandTrackRevision() const
@@ -1036,18 +1056,13 @@ bool Show::loadXML(QXmlStreamReader &root)
         {
             ShowCommandTrack parsed;
             QString error;
+            // an unreadable command track is dropped: the Show and its clips stay
             if (parsed.loadXML(root, &error) == false)
-            {
-                qWarning() << Q_FUNC_INFO << "Invalid command track:" << error;
-                // leave the reader at the end of this Show, not inside it
-                while (root.readNextStartElement())
-                    root.skipCurrentElement();
-                return false;
-            }
-
-            /** Targets are not resolved here: the functions a Show commands may
-             *  still be further down the workspace. postLoad() diagnoses them. */
-            storeCommandTrack(parsed);
+                qWarning() << Q_FUNC_INFO << "Show" << name() << "dropped its unreadable command track:" << error;
+            else
+                /** Targets are not resolved here: the functions a Show commands may
+                 *  still be further down the workspace. postLoad() diagnoses them. */
+                storeCommandTrack(parsed);
         }
         else
         {
@@ -1121,7 +1136,6 @@ void Show::preRun(MasterTimer* timer)
     {
         QMutexLocker locker(&m_commandTrackMutex);
         stops = m_commandStops;
-        m_startsRunning = m_startsAccepted;
     }
     m_requestedSeekTime.store(NoSeekRequested, std::memory_order_relaxed);
     m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
@@ -1135,19 +1149,17 @@ void Show::preRun(MasterTimer* timer)
     }
 
     {
-        // a Stop while installing wins: this runner is retired from the start
+        // a Stop while installing, or before this first tick, wins: this
+        // runner is retired from the start
         QMutexLocker locker(&m_commandTrackMutex);
-        if (m_commandStops == stops)
+        if (m_commandStops == stops && stopped() == false)
             m_runnerRetired.store(false, std::memory_order_release);
     }
     m_runner = new ShowRunner(doc(), this->id(), elapsed());
     m_runnerPaused = false;
-    m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(m_syncSource));
     const quint64 anchor = m_playFirstSample.load(std::memory_order_acquire);
     m_runner->setExternalElapsedTime(externalElapsedTime(), anchor);
-    int i = 0;
-    foreach (Track *track, m_tracks)
-        m_runner->adjustIntensity(getAttributeValue(i++), track);
+    m_trackIntensityChanged.store(true, std::memory_order_release);
 
     connect(m_runner, SIGNAL(timeChanged(quint32)), this, SIGNAL(timeChanged(quint32)));
     connect(m_runner, SIGNAL(showFinished()), this, SIGNAL(showFinished()));
@@ -1168,6 +1180,23 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
     if (m_runnerRetired.load(std::memory_order_acquire))
         return;
 
+    if (m_trackIntensityChanged.exchange(false, std::memory_order_acq_rel))
+    {
+        QVector<qreal> intensities;
+        {
+            QMutexLocker locker(&m_commandTrackMutex);
+            // a deep copy: a shared one leaves the buffer the GUI writes in place once its ref drops
+            intensities = QVector<qreal>(m_trackIntensities.cbegin(), m_trackIntensities.cend());
+        }
+        int i = 0;
+        foreach (Track *track, m_tracks)
+        {
+            if (i < intensities.count())
+                m_runner->adjustIntensity(intensities.at(i), track);
+            i++;
+        }
+    }
+
     const bool paused = isPaused();
     if (paused != m_runnerPaused)
     {
@@ -1187,24 +1216,27 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
     m_runner->setExternalElapsedTime(externalElapsedTime(), anchor);
     quint64 seekTime;
     quint64 forwardTime;
+    int source;
     {
         QMutexLocker locker(&m_commandTrackMutex);
+        // one source for this whole tick, taken with the seek requests made under it
+        source = m_syncSource;
         seekTime = m_requestedSeekTime.exchange(NoSeekRequested, std::memory_order_acquire);
         forwardTime = m_requestedForwardTime.exchange(NoSeekRequested, std::memory_order_acquire);
-        // an external clock ignores it; consumed, what it ends is history
-        if (seekTime != NoSeekRequested && m_syncSource == ShowRunner::Autonomous)
-        {
-            for (quint32 id : std::as_const(m_requestedSeekIds))
-                m_commandAppliedIds.remove(id);
-        }
-        else
-            seekTime = NoSeekRequested;
+        // consumed, what the move back ended is history; an external clock
+        // takes its own move from its value
+        for (quint32 id : std::as_const(m_requestedSeekIds))
+            m_commandAppliedIds.remove(id);
         m_requestedSeekIds.clear();
+        if (source != ShowRunner::Autonomous)
+            seekTime = NoSeekRequested;
         // the runner reached it since the request was classified: playback crossed it already
-        if (m_syncSource != ShowRunner::Autonomous ||
+        if (source != ShowRunner::Autonomous ||
             forwardTime <= m_commandPosition.load(std::memory_order_relaxed))
             forwardTime = NoSeekRequested;
     }
+    if (m_runner->syncSource() != source)
+        m_runner->setSyncSource(static_cast<ShowRunner::SyncSource>(source));
     if (seekTime != NoSeekRequested)
         m_runner->requestSeek(quint32(seekTime));
     else if (forwardTime != NoSeekRequested)
@@ -1222,12 +1254,13 @@ void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
         delete m_runner;
         m_runner = NULL;
     }
-    {
-        // a start accepted after this run began keeps the Show playing
-        QMutexLocker locker(&m_commandTrackMutex);
-        m_startsEnded = m_startsRunning;
-    }
     Function::postRun(timer, universes);
+
+    // the stop reset the attributes: the copy the next run takes follows,
+    // from the values adjustAttribute stored, as the GUI writes the attributes now
+    // shortcut: assumes the reset ran (no caller stops with preserveAttributes), check it if one does
+    QMutexLocker locker(&m_commandTrackMutex);
+    m_trackIntensities = m_trackBaseIntensities;
 }
 
 void Show::slotChildStopped(quint32 fid)
@@ -1242,18 +1275,21 @@ void Show::slotChildStopped(quint32 fid)
 int Show::adjustAttribute(qreal fraction, int attributeId)
 {
     int attrIndex = Function::adjustAttribute(fraction, attributeId);
+    if (attrIndex < 0)
+        return attrIndex;
 
-    if (m_runner != NULL)
+    // the runner belongs to the timer thread: it takes the value at its next
+    // tick, from this copy, while the GUI goes on writing the attribute
     {
-        QList<Track*> trkList = m_tracks.values();
-        if (trkList.isEmpty() == false &&
-            attrIndex >= 0 && attrIndex < trkList.count())
+        QMutexLocker locker(&m_commandTrackMutex);
+        while (m_trackIntensities.count() <= attrIndex)
         {
-            Track *track = trkList.at(attrIndex);
-            if (track != NULL)
-                m_runner->adjustIntensity(getAttributeValue(attrIndex), track);
+            m_trackIntensities.append(1.0);
+            m_trackBaseIntensities.append(1.0);
         }
+        m_trackIntensities[attrIndex] = getAttributeValue(attrIndex);
+        m_trackBaseIntensities[attrIndex] = attributes().at(attrIndex).m_value;
     }
-
+    m_trackIntensityChanged.store(true, std::memory_order_release);
     return attrIndex;
 }

@@ -1286,10 +1286,7 @@ bool ShowControlAction::release(Doc *doc, VCWidget *control, const FunctionParen
     Function *function = doc->function(functionId(control));
     if (function == nullptr || !function->hasSource(owner))
         return false;
-    if (owner.type() == FunctionParent::ManualVCWidget)
-        function->stopSource(owner);
-    else
-        function->stop(owner);
+    function->stop(owner);
     return true;
 }
 
@@ -1344,13 +1341,22 @@ void ShowControlAction::releaseHold(VirtualConsole *vc, VCWidget *control, ShowC
     }
 }
 
+void ShowControlAction::Holds::unite(const Holds &other)
+{
+    freeze |= other.freeze;
+    flash |= other.flash;
+    sliderFlash |= other.sliderFlash;
+}
+
 ShowControlAction::Holds ShowControlAction::stop(Doc *doc, VirtualConsole *vc, const Stop &state)
 {
+    Holds held = state.user;
+    held.unite(state.elsewhere);
     const auto releaseHolds = [&](const QSet<QUuid> &holds, ShowControlRole role)
     {
         for (const QUuid &id : holds)
             for (VCWidget *control : vc != nullptr ? vc->widgetsByRecordingId(id) : QList<VCWidget *>())
-                releaseHold(vc, control, role, state.owner, state.user, true);
+                releaseHold(vc, control, role, state.owner, held, true);
     };
     releaseHolds(state.freeze, ShowControlRole::FreezeHoldButton);
     releaseHolds(state.flash, ShowControlRole::FlashButton);
@@ -1399,7 +1405,7 @@ ShowControlAction::Holds ShowControlAction::stop(Doc *doc, VirtualConsole *vc, c
         released.insert(control);
     }
     if (!state.freeze.isEmpty())
-        doc->inputOutputMap()->setFrozenMomentary(!retained.freeze.isEmpty());
+        doc->inputOutputMap()->setFrozenMomentary(!retained.freeze.isEmpty() || !state.elsewhere.freeze.isEmpty());
     if (touchedFreeze || state.freezeIntent)
         doc->inputOutputMap()->setFrozen(state.freezeIntent.value_or(false));
     if (touchedBlackout || state.blackoutIntent)

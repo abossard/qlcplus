@@ -33,14 +33,21 @@
 #include <QQmlContext>
 #include <QSettings>
 
+
 // ════════════════════════════════════════════════════════════════
 //  DjSongModel
 // ════════════════════════════════════════════════════════════════
 
-DjSongModel::DjSongModel(Doc *doc, QObject *parent)
+DjSongModel::DjSongModel(Doc *doc, ShowFactory *index, QObject *parent)
     : QAbstractListModel(parent)
     , m_doc(doc)
+    , m_index(index)
 {
+}
+
+quint32 DjSongModel::showFor(const QString &filepath) const
+{
+    return m_index ? m_index->showIdForFilepath(filepath) : Function::invalidId();
 }
 
 int DjSongModel::rowCount(const QModelIndex &parent) const
@@ -57,7 +64,6 @@ QHash<int, QByteArray> DjSongModel::roleNames() const
         { TitleRole,      "title" },
         { ArtistRole,     "artist" },
         { BpmRole,        "bpm" },
-        { KeyRole,        "key" },
         { DurationRole,   "duration" },
         { ShowIdRole,     "showId" },
         { HasShowRole,    "hasShow" },
@@ -74,6 +80,8 @@ QVariant DjSongModel::data(const QModelIndex &index, int role) const
         return {};
 
     const Row &row = m_rows.at(index.row());
+    const quint32 showId = showFor(row.filepath);
+    Function *show = m_doc && showId != Function::invalidId() ? m_doc->function(showId) : nullptr;
 
     switch (role)
     {
@@ -81,42 +89,20 @@ QVariant DjSongModel::data(const QModelIndex &index, int role) const
     case TitleRole:     return row.title;
     case ArtistRole:    return row.artist;
     case BpmRole:       return row.bpm;
-    case KeyRole:       return row.key;
-    case ShowIdRole:    return row.showId;
-    case HasShowRole:   return row.showId != Function::invalidId();
+    case ShowIdRole:    return showId;
+    case HasShowRole:   return showId != Function::invalidId();
     case IsPlayingRole: return row.isPlaying;
     case IsActiveRole:  return row.isActive;
     case DurationRole:
     {
         if (row.durationMs > 0)
             return static_cast<qint64>(row.durationMs);
-        // Fall back to the assigned show's audio duration.
-        Function *f = (m_doc && row.showId != Function::invalidId())
-                          ? m_doc->function(row.showId) : nullptr;
-        if (f && f->type() == Function::ShowType)
-        {
-            for (Track *t : static_cast<Show *>(f)->tracks())
-                for (ShowFunction *sf : t->showFunctions())
-                {
-                    Function *child = m_doc->function(sf->functionID());
-                    if (child && child->type() == Function::AudioType)
-                        return static_cast<qint64>(child->totalDuration());
-                }
-        }
-        return static_cast<qint64>(0);
+        // Fall back to the show's audio duration.
+        Audio *audio = ShowFactory::songAudio(m_doc, qobject_cast<Show *>(show));
+        return static_cast<qint64>(audio ? audio->totalDuration() : 0);
     }
-    case LastPlayedRole:
-    {
-        Function *f = (m_doc && row.showId != Function::invalidId())
-                          ? m_doc->function(row.showId) : nullptr;
-        return f ? f->lastPlayed() : QDateTime();
-    }
-    case LastEditedRole:
-    {
-        Function *f = (m_doc && row.showId != Function::invalidId())
-                          ? m_doc->function(row.showId) : nullptr;
-        return f ? f->lastEdited() : QDateTime();
-    }
+    case LastPlayedRole: return show ? show->lastPlayed() : QDateTime();
+    case LastEditedRole: return show ? show->lastEdited() : QDateTime();
     default:
         return {};
     }
@@ -150,47 +136,20 @@ void DjSongModel::rebuildFromDoc()
         if (!f->path(true).startsWith(kSongFolderPath))
             continue;
 
-        Row row;
-        row.showId = f->id();
-        row.title = f->name();
-
-        Show *show = static_cast<Show *>(f);
-        for (Track *t : show->tracks())
-        {
-            for (ShowFunction *sf : t->showFunctions())
-            {
-                Function *child = m_doc->function(sf->functionID());
-                if (child && child->type() == Function::AudioType)
-                {
-                    row.filepath = static_cast<Audio *>(child)->getSourceFileName();
-                    row.durationMs = static_cast<int>(child->totalDuration());
-                    break;
-                }
-            }
-            if (!row.filepath.isEmpty())
-                break;
-        }
-
         // Skip Shows with no recoverable song filepath (not a DJ song row).
-        if (row.filepath.isEmpty())
+        Audio *audio = ShowFactory::songAudio(m_doc, static_cast<Show *>(f));
+        if (!audio || rowForFilepath(audio->getSourceFileName()) >= 0)
             continue;
 
+        Row row;
+        row.filepath = ShowFactory::normalizePath(audio->getSourceFileName());
+        row.title = f->name();
+        row.durationMs = static_cast<int>(audio->totalDuration());
         row.isPlaying = oldPlaying.value(row.filepath, false);
         row.isActive = (!m_activeFilepath.isEmpty() && row.filepath == m_activeFilepath);
         m_rows.append(row);
     }
     endResetModel();
-}
-
-QList<QPair<QString, quint32>> DjSongModel::showMappings() const
-{
-    QList<QPair<QString, quint32>> mappings;
-    for (const Row &row : m_rows)
-    {
-        if (row.showId != Function::invalidId())
-            mappings.append(qMakePair(row.filepath, row.showId));
-    }
-    return mappings;
 }
 
 bool DjSongModel::upsertSong(const DjFsm::DeckSong &song)
@@ -201,29 +160,26 @@ bool DjSongModel::upsertSong(const DjFsm::DeckSong &song)
     int idx = rowForFilepath(song.filepath);
     if (idx >= 0)
     {
-        // Refresh cached metadata; never touches the show assignment.
+        // Refresh cached metadata as the FSM reports it, an empty artist included
         Row &row = m_rows[idx];
         bool changed = false;
         if (!song.title.isEmpty() && row.title != song.title)   { row.title = song.title; changed = true; }
-        if (!song.artist.isEmpty() && row.artist != song.artist) { row.artist = song.artist; changed = true; }
-        if (!song.key.isEmpty() && row.key != song.key)         { row.key = song.key; changed = true; }
+        if (row.artist != song.artist) { row.artist = song.artist; changed = true; }
         if (song.bpm > 0.0 && !qFuzzyCompare(row.bpm, song.bpm)) { row.bpm = song.bpm; changed = true; }
         if (song.totalMs > 0 && row.durationMs != song.totalMs) { row.durationMs = song.totalMs; changed = true; }
         if (changed)
-            emitRow(idx, { TitleRole, ArtistRole, KeyRole, BpmRole, DurationRole });
+            emitRow(idx, { TitleRole, ArtistRole, BpmRole, DurationRole });
         return false;
     }
 
     const int pos = m_rows.size();
     beginInsertRows(QModelIndex(), pos, pos);
     Row row;
-    row.filepath = song.filepath;
+    row.filepath = ShowFactory::normalizePath(song.filepath);
     row.title = song.title.isEmpty() ? QFileInfo(song.filepath).completeBaseName() : song.title;
     row.artist = song.artist;
-    row.key = song.key;
     row.bpm = song.bpm;
     row.durationMs = song.totalMs;
-    row.showId = Function::invalidId();
     row.isActive = (!m_activeFilepath.isEmpty() && song.filepath == m_activeFilepath);
     m_rows.append(row);
     endInsertRows();
@@ -235,34 +191,13 @@ bool DjSongModel::hasFilepath(const QString &filepath) const
     return rowForFilepath(filepath) >= 0;
 }
 
-void DjSongModel::setShow(const QString &filepath, quint32 showId)
+void DjSongModel::refreshShow(const QString &filepath)
 {
-    int idx = rowForFilepath(filepath);
-    if (idx < 0)
-        return;
-    if (m_rows[idx].showId == showId)
-        return;
-    m_rows[idx].showId = showId;
-    emitRow(idx, { ShowIdRole, HasShowRole, DurationRole });
-}
-
-quint32 DjSongModel::showIdForFilepath(const QString &filepath) const
-{
-    int idx = rowForFilepath(filepath);
-    if (idx < 0)
-        return Function::invalidId();
-    return m_rows[idx].showId;
-}
-
-void DjSongModel::clearShowById(quint32 showId)
-{
-    if (showId == Function::invalidId())
-        return;
-    int idx = rowForShowId(showId);
-    if (idx < 0)
-        return;
-    m_rows[idx].showId = Function::invalidId();
-    emitRow(idx, { ShowIdRole, HasShowRole, DurationRole });
+    const QList<int> roles{ ShowIdRole, HasShowRole, DurationRole, LastPlayedRole, LastEditedRole };
+    if (!filepath.isEmpty())
+        emitRow(rowForFilepath(filepath), roles);
+    else if (!m_rows.isEmpty())
+        emit dataChanged(index(0), index(m_rows.size() - 1), roles.toVector());
 }
 
 DjFsm::DeckSong DjSongModel::songForFilepath(const QString &filepath) const
@@ -275,7 +210,6 @@ DjFsm::DeckSong DjSongModel::songForFilepath(const QString &filepath) const
     song.filepath = row.filepath;
     song.title = row.title;
     song.artist = row.artist;
-    song.key = row.key;
     song.bpm = row.bpm;
     song.totalMs = row.durationMs;
     return song;
@@ -299,9 +233,10 @@ void DjSongModel::setActiveFilepath(const QString &filepath)
     if (m_activeFilepath == filepath)
         return;
     m_activeFilepath = filepath;
+    const QString key = ShowFactory::normalizePath(filepath);
     for (int i = 0; i < m_rows.size(); ++i)
     {
-        bool active = (!filepath.isEmpty() && m_rows[i].filepath == filepath);
+        bool active = (!key.isEmpty() && m_rows[i].filepath == key);
         if (m_rows[i].isActive != active)
         {
             m_rows[i].isActive = active;
@@ -315,22 +250,29 @@ void DjSongModel::markPlayed(const QString &filepath)
     int idx = rowForFilepath(filepath);
     if (idx < 0)
         return;
-    Function *f = (m_doc && m_rows[idx].showId != Function::invalidId())
-                      ? m_doc->function(m_rows[idx].showId) : nullptr;
+    Function *f = m_doc ? m_doc->function(showFor(filepath)) : nullptr;
     if (f)
+    {
+        // saved with the workspace, so the workspace is modified
         f->setLastPlayed(QDateTime::currentDateTime());
+        m_doc->setModified();
+    }
     emitRow(idx, { LastPlayedRole });
 }
 
 void DjSongModel::markEdited(quint32 showId)
 {
-    int idx = rowForShowId(showId);
-    if (idx < 0)
+    Function *f = m_doc && showId != Function::invalidId() ? m_doc->function(showId) : nullptr;
+    if (!f)
         return;
-    Function *f = m_doc ? m_doc->function(showId) : nullptr;
-    if (f)
+    // the change that reports here already modified the workspace
+    for (int i = 0; i < m_rows.size(); ++i)
+    {
+        if (showFor(m_rows[i].filepath) != showId)
+            continue;
         f->setLastEdited(QDateTime::currentDateTime());
-    emitRow(idx, { LastEditedRole });
+        emitRow(i, { LastEditedRole });
+    }
 }
 
 void DjSongModel::clear()
@@ -344,16 +286,9 @@ void DjSongModel::clear()
 
 int DjSongModel::rowForFilepath(const QString &fp) const
 {
+    const QString key = ShowFactory::normalizePath(fp);
     for (int i = 0; i < m_rows.size(); ++i)
-        if (m_rows[i].filepath == fp)
-            return i;
-    return -1;
-}
-
-int DjSongModel::rowForShowId(quint32 id) const
-{
-    for (int i = 0; i < m_rows.size(); ++i)
-        if (m_rows[i].showId == id)
+        if (m_rows[i].filepath == key)
             return i;
     return -1;
 }
@@ -500,9 +435,10 @@ QVariant DjDeckModel::data(const QModelIndex &index, int role) const
     case DeckNumberRole: return deck.number;
     case StateRole:      return DjFsm::stateName(deck.state);
     case TitleRole:      return deck.song.title;
-    case ArtistRole:     return deck.song.artist;
+    // an emptied deck keeps VDJ's last artist and bpm for the next song, not for display
+    case ArtistRole:     return deck.song.isValid() ? deck.song.artist : QString();
     case FilepathRole:   return deck.song.filepath;
-    case BpmRole:        return deck.song.bpm;
+    case BpmRole:        return deck.song.isValid() ? deck.song.bpm : 0.0;
     case VolumeRole:     return deck.volume;
     case BeatPosRole:    return deck.beatPos;
     case ElapsedRole:    return deck.elapsedMs;
@@ -563,7 +499,7 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
     , m_bridge(bridge)
     , m_factory(factory)
     , m_fsm(bridge ? bridge->djFsm() : nullptr)
-    , m_model(new DjSongModel(doc, this))
+    , m_model(new DjSongModel(doc, factory, this))
     , m_proxy(new DjSongFilterModel(this))
     , m_deckModel(new DjDeckModel(m_fsm, this))
 {
@@ -580,13 +516,15 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
 
     if (m_factory)
     {
-        connect(m_factory, &ShowFactory::showCreatedForSong,
-                this, &DjManager::onShowCreatedForSong);
+        connect(m_factory, &ShowFactory::mappingChanged, this,
+                [this](const QString &filepath) { m_model->refreshShow(filepath); });
     }
 
     if (m_fsm)
     {
         connect(m_fsm, &DjFsm::songChanged, this, &DjManager::onSongChanged);
+        connect(m_fsm, &DjFsm::songUpdated, this,
+                [this](int, const DjFsm::DeckSong &song) { m_model->upsertSong(song); });
         connect(m_fsm, &DjFsm::deckChanged, this, &DjManager::onDeckChanged);
         connect(m_fsm, &DjFsm::positionChanged, this, &DjManager::onDeckPositionChanged);
         connect(m_fsm, &DjFsm::activeDeckChanged, this, &DjManager::onActiveDeckChanged);
@@ -603,29 +541,17 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
     {
         connect(m_bridge, &VdjBridge::performModeChanged,
                 this, &DjManager::performModeChanged);
-
-        // Perform FSM drives the Show Manager follow: whenever the state or
-        // the resolved show changes, the currently-performed show is loaded.
-        connect(m_bridge->performFsm(), &PerformFsm::stateChanged,
-                this, &DjManager::syncPerformShowToManager);
-        connect(m_bridge->performFsm(), &PerformFsm::activeShowChanged,
-                this, &DjManager::syncPerformShowToManager);
     }
 
     if (m_doc)
     {
         connect(m_doc, &Doc::cleared, this, &DjManager::onDocCleared);
+        // queued: App reads the song choices after the Engine, before the event loop runs
+        connect(m_doc, &Doc::loaded, this, &DjManager::onDocLoaded, Qt::QueuedConnection);
         connect(m_doc, &Doc::functionAdded, this, &DjManager::onFunctionAdded);
-        connect(m_doc, &Doc::functionRemoved, this, &DjManager::onFunctionRemoved);
         connect(m_doc, &Doc::functionChanged, this, &DjManager::onFunctionChanged);
 
         m_model->rebuildFromDoc();
-
-        // Restore the filepath->show mapping into the factory so Perform can
-        // resolve shows immediately after a workspace (re)load, instead of
-        // waiting for a deferred name-match (which duplicates renamed shows).
-        if (m_factory)
-            m_factory->registerMappings(m_model->showMappings());
     }
 }
 
@@ -675,7 +601,6 @@ void DjManager::setSortMode(int mode)
     if (m_proxy->sortMode() == m)
         return;
     m_proxy->setSortMode(m);
-    m_proxy->sort(0, m_proxy->sortAscending() ? Qt::AscendingOrder : Qt::DescendingOrder);
     emit sortModeChanged();
 }
 
@@ -706,11 +631,6 @@ void DjManager::setSearchFilter(const QString &text)
     emit searchFilterChanged();
 }
 
-int DjManager::songCount() const
-{
-    return m_proxy->rowCount();
-}
-
 bool DjManager::performMode() const
 {
     return m_bridge ? m_bridge->performMode() : false;
@@ -736,7 +656,9 @@ QString DjManager::activeTitle() const
 
 QString DjManager::activeArtist() const
 {
-    return m_fsm ? m_fsm->activeSong().artist : QString();
+    // an emptied deck keeps VDJ's last artist for the next song, not for the header
+    const DjFsm::DeckSong song = m_fsm ? m_fsm->activeSong() : DjFsm::DeckSong();
+    return song.isValid() ? song.artist : QString();
 }
 
 int DjManager::activeElapsedMs() const
@@ -744,13 +666,6 @@ int DjManager::activeElapsedMs() const
     if (!m_fsm || m_fsm->activeDeck() < 1)
         return 0;
     return m_fsm->deckAt(m_fsm->activeDeck() - 1).elapsedMs;
-}
-
-int DjManager::activeRemainingMs() const
-{
-    if (!m_fsm || m_fsm->activeDeck() < 1)
-        return 0;
-    return m_fsm->deckAt(m_fsm->activeDeck() - 1).remainingMs;
 }
 
 double DjManager::activeBeatPos() const
@@ -779,7 +694,7 @@ void DjManager::setDeckCount(int count)
 
 void DjManager::loadShow(const QString &filepath)
 {
-    quint32 showId = m_model->showIdForFilepath(filepath);
+    quint32 showId = m_factory ? m_factory->showIdForFilepath(filepath) : Function::invalidId();
     if (showId == Function::invalidId())
         return;
     emit showLoadRequested(static_cast<int>(showId));
@@ -787,7 +702,7 @@ void DjManager::loadShow(const QString &filepath)
 
 void DjManager::assignShow(const QString &filepath, int showId)
 {
-    if (!m_doc || filepath.isEmpty())
+    if (!m_doc || !m_factory || filepath.isEmpty())
         return;
 
     quint32 id = static_cast<quint32>(showId);
@@ -795,18 +710,7 @@ void DjManager::assignShow(const QString &filepath, int showId)
     if (!f || f->type() != Function::ShowType)
         return;
 
-    m_model->setShow(filepath, id);
-    if (m_factory)
-        m_factory->registerMapping(filepath, id);
-}
-
-void DjManager::clearShow(const QString &filepath)
-{
-    if (filepath.isEmpty())
-        return;
-    m_model->setShow(filepath, Function::invalidId());
-    if (m_factory)
-        m_factory->registerMapping(filepath, Function::invalidId());
+    m_factory->registerMapping(filepath, id);
 }
 
 void DjManager::createShow(const QString &filepath)
@@ -816,9 +720,10 @@ void DjManager::createShow(const QString &filepath)
     DjFsm::DeckSong song = m_model->songForFilepath(filepath);
     if (!song.isValid())
         return;
-    quint32 showId = m_factory->buildShow(song);
-    if (showId != Function::invalidId())
-        m_model->setShow(filepath, showId);
+    // the Show New builds is the user's choice for the song
+    const quint32 id = m_factory->buildShow(song);
+    if (id != Function::invalidId())
+        m_factory->registerMapping(filepath, id);
 }
 
 QVariantList DjManager::availableShows() const
@@ -842,17 +747,12 @@ void DjManager::onSongChanged(int deck, const DjFsm::DeckSong &song)
 {
     Q_UNUSED(deck)
 
-    const bool isNew = !m_model->hasFilepath(song.filepath);
     m_model->upsertSong(song);
+    // an announced song without a Show gets one now
+    if (m_factory && m_factory->showIdForFilepath(song.filepath) == Function::invalidId())
+        m_factory->buildShow(song);
 
-    if (isNew)
-    {
-        // Only newly-seen songs trigger a show existence check / creation.
-        ensureShowForSong(song);
-        emit songCountChanged();
-    }
-
-    // A song row may have just been added for a deck that is already playing —
+    // A song row may have just been added for a deck that is already playing:
     // reflect the playing state immediately.
     recomputePlayingSongs();
 }
@@ -889,45 +789,12 @@ void DjManager::onActiveSongChanged()
     emit activeChanged();
 }
 
-void DjManager::syncPerformShowToManager()
-{
-    // Read-only consumer of the Perform FSM: whenever Perform has a resolved
-    // show (Live or Suspended), the Show Manager displays it.
-    if (!m_bridge)
-        return;
-
-    PerformFsm *fsm = m_bridge->performFsm();
-    if (fsm->state() == PerformFsm::PerformState::Idle)
-        return;
-    if (fsm->activeShowId() == PerformFsm::InvalidShowId)
-        return;
-
-    emit showLoadRequested(static_cast<int>(fsm->activeShowId()));
-}
-
 void DjManager::onDeckCountChanged()
 {
     m_deckModel->refreshAll();
     recomputePlayingSongs();
     emit deckCountChanged();
     emit activeChanged();
-}
-
-void DjManager::ensureShowForSong(const DjFsm::DeckSong &song)
-{
-    if (!m_factory)
-        return;
-
-    quint32 existing = m_factory->showIdForFilepath(song.filepath);
-    if (existing != Function::invalidId())
-    {
-        m_model->setShow(song.filepath, existing);
-        return;
-    }
-
-    // Deferred create-or-find-by-name; assignment happens in
-    // onShowCreatedForSong once the Show exists.
-    m_factory->createShowForSong(song);
 }
 
 void DjManager::recomputePlayingSongs()
@@ -954,95 +821,52 @@ void DjManager::recomputePlayingSongs()
     m_lastPlayingPaths = nowPlaying;
 }
 
-void DjManager::onShowCreatedForSong(const QString &filepath, quint32 showId)
-{
-    // Ensure the song row exists (covers Doc-loaded shows too), then assign.
-    if (!m_model->hasFilepath(filepath))
-    {
-        DjFsm::DeckSong song;
-        song.filepath = filepath;
-        m_model->upsertSong(song);
-        emit songCountChanged();
-    }
-    m_model->setShow(filepath, showId);
-}
-
 void DjManager::onDocCleared()
 {
     m_model->clear();
     m_lastPlayingPaths.clear();
-    emit songCountChanged();
+    // the decks play on through the workspace change: their songs are back as
+    // rows now, announced again once the workspace is in (never built here: a
+    // Show built now would take an id the loading workspace assigns)
+    for (int i = 0; m_fsm && i < m_fsm->deckCount(); ++i)
+    {
+        const DjFsm::DeckSong &song = m_fsm->deckAt(i).song;
+        if (song.isValid() && !song.title.isEmpty())
+            m_model->upsertSong(song);
+    }
+    recomputePlayingSongs();
+}
+
+void DjManager::onDocLoaded()
+{
+    // the decks play on through the workspace change: their songs are announced to it
+    for (int i = 0; m_fsm && i < m_fsm->deckCount(); ++i)
+    {
+        const DjFsm::DeckSong &song = m_fsm->deckAt(i).song;
+        if (song.isValid() && !song.title.isEmpty())
+            onSongChanged(i + 1, song);
+    }
 }
 
 void DjManager::onFunctionAdded(quint32 fid)
 {
-    // Targeted merge of a single Show — never a full rebuild, so FSM-sourced
-    // song rows (which may not yet have a Doc Show) are preserved and no
-    // transient "phantom" row is created while a Show is mid-construction.
-    mergeShowFromDoc(fid);
-}
+    // a song Show of the Doc gets a row of its own, never a full rebuild: the
+    // FSM-sourced rows stay, and a Show under construction (no clip yet) adds none
+    Function *f = m_doc ? m_doc->function(fid) : nullptr;
+    if (!f || f->type() != Function::ShowType || !f->path(true).startsWith(kSongFolderPath))
+        return;
+    Audio *audio = ShowFactory::songAudio(m_doc, static_cast<Show *>(f));
+    if (!audio || m_model->hasFilepath(audio->getSourceFileName()))
+        return;
 
-void DjManager::onFunctionRemoved(quint32 fid)
-{
-    // A removed Show is unassigned from its song row; the row itself (the
-    // song seen on a deck) stays.
-    m_model->clearShowById(fid);
+    DjFsm::DeckSong song;
+    song.filepath = audio->getSourceFileName();
+    song.title = f->name();
+    song.totalMs = static_cast<int>(audio->totalDuration());
+    m_model->upsertSong(song);
 }
 
 void DjManager::onFunctionChanged(quint32 fid)
 {
     m_model->markEdited(fid);
-}
-
-void DjManager::mergeShowFromDoc(quint32 showId)
-{
-    if (!m_doc)
-        return;
-
-    Function *f = m_doc->function(showId);
-    if (!f || f->type() != Function::ShowType)
-        return;
-    if (!f->path(true).startsWith(kSongFolderPath))
-        return;
-
-    // Recover the song filepath from the Show's Audio child.
-    QString filepath;
-    int durationMs = 0;
-    Show *show = static_cast<Show *>(f);
-    for (Track *t : show->tracks())
-    {
-        for (ShowFunction *sf : t->showFunctions())
-        {
-            Function *child = m_doc->function(sf->functionID());
-            if (child && child->type() == Function::AudioType)
-            {
-                filepath = static_cast<Audio *>(child)->getSourceFileName();
-                durationMs = static_cast<int>(child->totalDuration());
-                break;
-            }
-        }
-        if (!filepath.isEmpty())
-            break;
-    }
-
-    // No audio wired yet (Show still under construction) — skip; the
-    // creator assigns the show explicitly once it is complete.
-    if (filepath.isEmpty())
-        return;
-
-    if (!m_model->hasFilepath(filepath))
-    {
-        DjFsm::DeckSong song;
-        song.filepath = filepath;
-        song.title = f->name();
-        song.totalMs = durationMs;
-        m_model->upsertSong(song);
-        emit songCountChanged();
-    }
-    m_model->setShow(filepath, showId);
-
-    // Keep the factory mapping in sync so Perform resolves this show without
-    // the deferred name-match (covers incremental workspace loading).
-    if (m_factory)
-        m_factory->registerMapping(filepath, showId);
 }

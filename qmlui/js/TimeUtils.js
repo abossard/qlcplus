@@ -509,8 +509,8 @@ function planSelectionNavigation(snapshot)
     {
         var start = Math.min.apply(null, target.starts)
         if (snapshot.access.readOnly)
-            // PerformFsm: Live 2, Suspended 3 follow the external clock
-            go.reason = snapshot.access.performState === 2 || snapshot.access.performState === 3
+            // PerformFsm: Live 2, Suspended 3, Ended 4 follow the external clock
+            go.reason = snapshot.access.performState >= 2
                 ? qsTr("Following external clock (Perform)") : qsTr("Read only in Perform mode")
         else if (start > bound)
             go.reason = qsTr("Selection start is beyond the seekable range")

@@ -778,7 +778,7 @@ void VCAuthoringOwner_Test::authoringCore_registeredToolNativeRoundtrip_redDraft
     QVERIFY2(track.insert(sliderPosition, &trackError), qPrintable(trackError));
     ShowCommand sceneStart = ShowCommand::start(6104u, 1500u, sceneId);
     QVERIFY2(track.insert(sceneStart, &trackError), qPrintable(trackError));
-    QVERIFY2(show->setStoppedCommandTrack(track, &trackError), qPrintable(trackError));
+    QVERIFY2(show->setCommandTrack(track, {}, &trackError), qPrintable(trackError));
 
     const QByteArray xmlBefore = serializeConsole();
     const bool dirtyBefore = doc->isModified();
@@ -2928,7 +2928,7 @@ void VCAuthoringOwner_Test::authoringPassS1_queryRecording_semanticRows_redDraft
     QVERIFY2(track.insert(controlOff, &trackError), qPrintable(trackError));
     ShowCommand stop = ShowCommand::stop(1004u, 1800u, sceneId);
     QVERIFY2(track.insert(stop, &trackError), qPrintable(trackError));
-    QVERIFY2(show->setStoppedCommandTrack(track, &trackError), qPrintable(trackError));
+    QVERIFY2(show->setCommandTrack(track, {}, &trackError), qPrintable(trackError));
 
     const QByteArray xmlBefore = serializeConsole();
     const bool dirtyBefore = doc->isModified();
@@ -3172,7 +3172,7 @@ void VCAuthoringOwner_Test::authoringCore_queryRecording_semanticsAndReadiness_r
     QVERIFY2(track.insert(setIntensity, &trackError), qPrintable(trackError));
     ShowCommand sceneStart = ShowCommand::start(3005u, 1600u, sceneId);
     QVERIFY2(track.insert(sceneStart, &trackError), qPrintable(trackError));
-    QVERIFY2(show->setStoppedCommandTrack(track, &trackError), qPrintable(trackError));
+    QVERIFY2(show->setCommandTrack(track, {}, &trackError), qPrintable(trackError));
 
     VCBridge::AuthoringRecordingQuery commands;
     commands.kind = VCBridge::AuthoringRecordingQuery::Kind::Commands;
@@ -3354,7 +3354,7 @@ void VCAuthoringOwner_Test::authoringCore_queryRecording_continuationUnfiltered_
         expectedEventIds.insert(eventId);
     }
     QCOMPARE(expectedEventIds.size(), 500);
-    QVERIFY2(show->setStoppedCommandTrack(track, &trackError), qPrintable(trackError));
+    QVERIFY2(show->setCommandTrack(track, {}, &trackError), qPrintable(trackError));
 
     auto collectCommands = [&](int limit, QList<quint32> &orderedEventIds, bool &sawContinuation) {
         VCBridge::AuthoringRecordingQuery q;
@@ -3533,7 +3533,7 @@ void VCAuthoringOwner_Test::authoringCore_queryRecording_continuationWindowed_50
 
     QVERIFY(!expectedWindowEventIds.isEmpty());
     QVERIFY(expectedWindowEventIds.size() > 10);
-    QVERIFY2(show->setStoppedCommandTrack(track, &trackError), qPrintable(trackError));
+    QVERIFY2(show->setCommandTrack(track, {}, &trackError), qPrintable(trackError));
 
     auto collectWindowedCommands = [&](int limit, QList<quint32> &orderedEventIds, bool &sawContinuation) {
         VCBridge::AuthoringRecordingQuery q;

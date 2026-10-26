@@ -23,8 +23,7 @@
 #include <cmath>
 
 namespace {
-// VDJ booleans arrive as "on"/"off", true/false, or 1/0 (the telemetry client
-// coerces JSON numbers→double and JSON bools→bool). Treat any truthy form as on.
+// VDJ booleans arrive as "on"/"off"; a JSON bool or number counts by its truth
 bool triggerIsOn(const QVariant &value)
 {
     if (value.typeId() == QMetaType::Bool)
@@ -35,6 +34,22 @@ bool triggerIsOn(const QVariant &value)
         return d != 0.0;
     const QString s = value.toString().trimmed().toLower();
     return s == QLatin1String("on") || s == QLatin1String("true") || s == QLatin1String("1");
+}
+
+// VDJ's title of an empty deck (English locale; other locales may differ)
+const QLatin1String kPlaceholderTitle("Drag a song on this deck to load it");
+
+// a displayed change: sub-integer bpm jitter is none
+bool sameSong(const DjFsm::DeckSong &a, const DjFsm::DeckSong &b)
+{
+    return a.filepath == b.filepath && a.title == b.title && a.artist == b.artist && a.key == b.key
+           && a.totalMs == b.totalMs && qRound(a.bpm) == qRound(b.bpm);
+}
+
+// announced: a song with a title, once per filepath it stays on the deck
+bool announced(const DjFsm::DeckSong &song)
+{
+    return song.isValid() && !song.title.isEmpty();
 }
 } // namespace
 
@@ -63,17 +78,12 @@ void DjFsm::setDeckCount(int count)
 
     for (int d = clamped; d < prev; ++d)
     {
-        resetSlot(m_slots[d], d + 1);
+        m_slots[d] = Slot();
+        m_slots[d].deck.number = d + 1;
+    }
+    recomputeActiveDeck();
+    for (int d = clamped; d < prev; ++d)
         emit deckChanged(d + 1);
-    }
-
-    if (m_activeDeck > m_deckCount)
-    {
-        m_activeDeck = 0;
-        emit activeDeckChanged(0);
-        recomputeActiveSong();
-    }
-
     emit deckCountChanged(m_deckCount);
 }
 
@@ -83,143 +93,68 @@ void DjFsm::setDeckCount(int count)
 
 void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &value)
 {
-    if (!deckTracked(deck))
+    if (!indexValid(deck - 1))
+        return;
+    Slot &s = m_slots[deck - 1];
+    if (trigger == QLatin1String("masterdeck"))
+    {
+        s.master = triggerIsOn(value);
+        return;
+    }
+    if (deck > m_deckCount)
         return;
 
-    Slot &s = slotForDeck(deck);
-    DeckSong &song = s.deck.song;
-    bool changed = false;
-    const bool prevPlaying = s.deck.playing;
-
-    if (trigger == QLatin1String("get_filepath"))
+    Pending &p = s.pending;
+    if (trigger == QLatin1String("loaded"))
     {
-        const QString path = value.toString();
-        if (path.isEmpty())
-        {
-            if (song.isValid() || s.deck.state != DeckState::Empty)
-            {
-                resetSlot(s, deck);
-                emit deckChanged(deck);
-                if (deck == m_activeDeck)
-                    recomputeActiveSong();
-            }
-            return;
-        }
-        if (path != song.filepath)
-        {
-            // A new song's filepath. Fields that have NOT been freshly set
-            // since the last commit are stale leftovers from the previous song
-            // (filepath-first order) and are cleared; freshly-set fields belong
-            // to this song (metadata-first order) and are kept. This makes song
-            // identification correct under any field arrival order.
-            clearStaleMetadata(s);
-            song.filepath = path;
-            s.gotMask |= F_Filepath;
-            s.freshMask |= F_Filepath;
-            changed = true;
-        }
+        s.loaded = triggerIsOn(value);
+        s.loadedOnSeen = s.loadedOnSeen || s.loaded;
     }
+    else if (trigger == QLatin1String("get_filepath"))
+        p.filepath = value.toString();
     else if (trigger == QLatin1String("get_title"))
-    {
-        const QString title = value.toString();
-        if (!title.isEmpty() && !isPlaceholderTitle(title) && song.title != title)
-        {
-            song.title = title;
-            s.gotMask |= F_Title;
-            s.freshMask |= F_Title;
-            changed = true;
-        }
-    }
-    else if (trigger == QLatin1String("get_artist"))
-    {
-        const QString artist = value.toString();
-        if (!artist.isEmpty() && song.artist != artist)
-        {
-            song.artist = artist;
-            s.gotMask |= F_Artist;
-            s.freshMask |= F_Artist;
-            changed = true;
-        }
-    }
+        p.title = value.toString();
     else if (trigger == QLatin1String("get_bpm"))
     {
         bool ok = false;
         const double bpm = value.toDouble(&ok);
         if (ok && bpm > 0.0)
-        {
-            // Notify on a real (integer) tempo change — not on sub-integer
-            // jitter (e.g. 127.999 vs 127.999168, both round to 128).
-            const int prevRounded = qRound(song.bpm);
-            song.bpm = bpm;
-            s.gotMask |= F_Bpm;
-            s.freshMask |= F_Bpm;
-            if (qRound(bpm) != prevRounded)
-                changed = true;
-        }
+            p.bpm = bpm;
+    }
+    else if (trigger == QLatin1String("get_artist"))
+    {
+        // an empty artist is a value: a file without tags
+        p.artist = value.toString();
+        s.perFileSeen = true;
     }
     else if (trigger == QLatin1String("get_key"))
     {
-        if (!value.toString().isEmpty() && song.key != value.toString())
-        {
-            song.key = value.toString();
-            changed = true;
-        }
-    }
-    else if (trigger == QLatin1String("get_album"))
-    {
-        song.album = value.toString();
-    }
-    else if (trigger == QLatin1String("get_genre"))
-    {
-        song.genre = value.toString();
-    }
-    else if (trigger == QLatin1String("get_firstbeat"))
-    {
-        bool ok = false;
-        const double fb = value.toDouble(&ok);
-        if (ok)
-            song.firstBeat = fb;
+        p.key = value.toString();
+        s.perFileSeen = true;
     }
     else if (trigger == QLatin1String("get_time total"))
     {
         bool ok = false;
         const double ms = value.toDouble(&ok);
         if (ok && ms > 0.0)
-            song.totalMs = static_cast<int>(ms); // VDJ sends milliseconds (verified from live telemetry)
+            p.totalMs = static_cast<int>(ms); // VDJ sends milliseconds (verified from live telemetry)
+        s.perFileSeen = true;
     }
-    else if (trigger == QLatin1String("loaded"))
-    {
-        const bool loaded = triggerIsOn(value);
-        if (s.deck.loaded != loaded) { s.deck.loaded = loaded; changed = true; }
-    }
+    else if (trigger == QLatin1String("get_title_artist") || trigger == QLatin1String("get_album")
+             || trigger == QLatin1String("get_genre") || trigger == QLatin1String("get_firstbeat"))
+        s.perFileSeen = true;
     else if (trigger == QLatin1String("play"))
-    {
-        // Store the raw play flag; the effective playing state is derived in
-        // recomputeState() once the song is valid. This recovers a play=on that
-        // VDJ sent BEFORE the track's filepath (unreliable field ordering),
-        // which would otherwise be lost.
-        s.rawPlaying = triggerIsOn(value);
-    }
+        s.play = triggerIsOn(value);
     else if (trigger == QLatin1String("volume"))
     {
         bool ok = false;
         const double v = value.toDouble(&ok);
-        if (ok && std::abs(v - s.deck.volume) >= 0.01)
-        {
-            s.deck.volume = v;
-            changed = true;
-        }
-        else if (ok)
-        {
-            s.deck.volume = v; // store fine value without a visible refresh
-        }
-    }
-    else if (trigger == QLatin1String("level"))
-    {
-        bool ok = false;
-        const double v = value.toDouble(&ok);
-        if (ok)
-            s.deck.level = v; // continuous metering, no visible refresh
+        if (!ok)
+            return;
+        const bool visible = std::abs(v - s.deck.volume) >= 0.01;
+        s.deck.volume = v;
+        if (visible)
+            emit deckChanged(deck);
     }
     else if (trigger == QLatin1String("get_beatpos"))
     {
@@ -230,7 +165,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
             s.deck.beatPos = v;          // full resolution stored for sync
             maybeEmitPosition(s, deck);  // throttled UI notification
         }
-        return;
     }
     else if (trigger == QLatin1String("get_time elapsed absolute"))
     {
@@ -239,9 +173,10 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         if (ok && ms >= 0.0)
         {
             s.deck.elapsedMs = static_cast<int>(ms); // VDJ sends milliseconds (verified from live telemetry)
+            s.deck.positionStale = false;
+            s.positionSeen = true;
             maybeEmitPosition(s, deck);
         }
-        return;
     }
     else if (trigger == QLatin1String("get_time"))
     {
@@ -249,53 +184,111 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         const double ms = value.toDouble(&ok);
         if (ok && ms >= 0.0)
             s.deck.remainingMs = static_cast<int>(ms); // VDJ sends milliseconds remaining (verified from live telemetry)
-        return;
-    }
-    else
-    {
-        return; // continuous transport fields don't affect deck state
-    }
-
-    recomputeState(s);
-    maybeAnnounceSong(s);
-
-    // A play state that only became effective after recomputeState (e.g. a
-    // play=on that arrived before the filepath) must still notify consumers.
-    if (s.deck.playing != prevPlaying)
-        changed = true;
-
-    if (changed)
-    {
-        emit deckChanged(deck);
-        if (deck == m_activeDeck)
-            recomputeActiveSong();
     }
 }
 
-void DjFsm::onMasterDeck(int deck)
+void DjFsm::onTickEnded()
 {
-    if (!deckTracked(deck) || deck == m_activeDeck)
-        return;
+    // every deck's view, then the master, then the write's notifications, the
+    // master's first: these see the whole write settled; a volume's deckChanged
+    // and positionChanged went out mid-write, as their triggers arrived
+    std::array<Deck, MaxDecks> before;
+    for (int d = 0; d < m_deckCount; ++d)
+    {
+        before[d] = m_slots[d].deck;
+        settle(m_slots[d]);
+    }
+    recomputeActiveDeck();
+    for (int d = 0; d < m_deckCount; ++d)
+    {
+        const Deck &was = before[d], &now = m_slots[d].deck;
+        const bool songMoved = !sameSong(was.song, now.song);
+        if (announced(now.song) && (!announced(was.song) || was.song.filepath != now.song.filepath))
+            emit songChanged(d + 1, now.song);
+        else if (announced(now.song) && songMoved)
+            emit songUpdated(d + 1, now.song);
+        if (songMoved || was.state != now.state || was.playing != now.playing)
+            emit deckChanged(d + 1);
+    }
+}
 
-    m_activeDeck = deck;
-    emit activeDeckChanged(deck);
+void DjFsm::settle(Slot &s)
+{
+    Pending &p = s.pending;
+    const bool hadSong = s.deck.song.isValid();
+
+    // held song fields are the file's whose filepath the write carries, or a
+    // position sample of the loaded song; `loaded` on brings the ejected file
+    // back unless the write carries a per-file field, which VDJ resends for
+    // another file only; an empty deck's values are nobody's and mirror at once
+    if (p.filepath || (s.positionSeen && hadSong) || !s.loaded
+        || (s.loadedOnSeen && !hadSong && !s.perFileSeen))
+    {
+        if (p.filepath && *p.filepath != s.last.filepath)
+            s.deck.positionStale = !s.positionSeen;
+        if (p.filepath) s.last.filepath = *p.filepath;
+        if (p.title)    s.last.title    = *p.title;
+        if (p.artist)   s.last.artist   = *p.artist;
+        if (p.key)      s.last.key      = *p.key;
+        if (p.bpm)      s.last.bpm      = *p.bpm;
+        if (p.totalMs)  s.last.totalMs  = *p.totalMs;
+        p = Pending();
+    }
+
+    s.deck.song = (s.loaded && !s.last.filepath.isEmpty() && s.last.title != kPlaceholderTitle) ? s.last : DeckSong();
+    const bool valid = s.deck.song.isValid();
+    s.deck.playing = s.play && valid;
+    if (!valid)
+    {
+        s.deck.state = DeckState::Empty;
+        s.deck.beatPos = 0.0;
+        s.deck.elapsedMs = 0;
+        s.deck.remainingMs = 0;
+        s.deck.positionStale = false;
+        s.posEmitSecond = -1;
+        s.posEmitBeatQ = -1000;
+        s.wasPlaying = false;
+    }
+    else
+    {
+        s.wasPlaying = s.wasPlaying || s.deck.playing;
+        s.deck.state = s.deck.song.title.isEmpty() ? DeckState::Loading
+                     : s.deck.playing              ? DeckState::Playing
+                     : s.wasPlaying                ? DeckState::Paused
+                                                   : DeckState::Loaded;
+    }
+    s.positionSeen = s.loadedOnSeen = s.perFileSeen = false;
+}
+
+void DjFsm::recomputeActiveDeck()
+{
+    int active = 0;
+    for (int d = 1; d <= m_deckCount && active == 0; ++d)
+        if (m_slots[d - 1].master)
+            active = d;
+    if (active != m_activeDeck)
+    {
+        m_activeDeck = active;
+        emit activeDeckChanged(active);
+    }
     recomputeActiveSong();
 }
 
 void DjFsm::onDisconnected()
 {
-    for (int i = 0; i < MaxDecks; ++i)
-    {
-        resetSlot(m_slots[i], i + 1);
-        emit deckChanged(i + 1);
-    }
-
+    // no active deck first: nothing reads the emptied decks as the active one
     if (m_activeDeck != 0)
     {
         m_activeDeck = 0;
         emit activeDeckChanged(0);
+        recomputeActiveSong();
     }
-    recomputeActiveSong();
+    for (int i = 0; i < MaxDecks; ++i)
+    {
+        m_slots[i] = Slot();
+        m_slots[i].deck.number = i + 1;
+        emit deckChanged(i + 1);
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -334,100 +327,6 @@ QString DjFsm::stateName(DeckState s)
 //  Private
 // ────────────────────────────────────────────────────────────────
 
-DjFsm::Slot &DjFsm::slotForDeck(int deck)
-{
-    const int idx = (deck >= 1 && deck <= MaxDecks) ? deck - 1 : 0;
-    return m_slots[idx];
-}
-
-void DjFsm::resetSlot(Slot &s, int deck1)
-{
-    s.deck.state   = DeckState::Empty;
-    s.deck.song    = DeckSong{};
-    s.deck.loaded  = false;
-    s.deck.playing = false;
-    s.deck.volume  = 0.0;
-    s.deck.level   = 0.0;
-    s.deck.beatPos = 0.0;
-    s.deck.elapsedMs = 0;
-    s.deck.remainingMs = 0;
-    s.deck.number  = deck1;
-    s.gotMask      = 0;
-    s.freshMask    = 0;
-    s.committedFilepath.clear();
-    s.wasPlaying   = false;
-    s.rawPlaying   = false;
-    s.posEmitSecond = -1;
-    s.posEmitBeatQ  = -1000;
-}
-
-void DjFsm::clearStaleMetadata(Slot &s)
-{
-    DeckSong &song = s.deck.song;
-
-    // Required fields: clear only those NOT freshly set since the last commit.
-    if (!(s.freshMask & F_Title))  { song.title.clear();  s.gotMask &= ~F_Title; }
-    if (!(s.freshMask & F_Artist)) { song.artist.clear(); s.gotMask &= ~F_Artist; }
-    if (!(s.freshMask & F_Bpm))    { song.bpm = 0.0;      s.gotMask &= ~F_Bpm; }
-
-    // Optional display-only fields carry no freshness bit; clear them so a new
-    // song never shows the previous song's key/album/etc. They re-arrive within
-    // the same burst if VirtualDJ sends them.
-    song.album.clear();
-    song.genre.clear();
-    song.key.clear();
-    song.firstBeat = 0.0;
-    song.totalMs   = 0;
-}
-
-void DjFsm::recomputeState(Slot &s)
-{
-    // The effective playing state is gated on song validity: a deck with no
-    // song (no filepath) is always Empty and never Playing — this filters VDJ's
-    // play broadcasts to phantom/mirror decks. Deriving from the raw flag here
-    // (rather than mutating it in the play handler) means a play=on that arrived
-    // before the filepath is correctly applied once the song becomes valid.
-    const bool valid = s.deck.song.isValid();
-    s.deck.playing = s.rawPlaying && valid;
-
-    if (!valid)
-    {
-        s.deck.state = DeckState::Empty;
-        s.wasPlaying = false;
-        return;
-    }
-
-    if (s.deck.playing)
-        s.wasPlaying = true;
-
-    if ((s.gotMask & RequiredMeta) != RequiredMeta)
-        s.deck.state = DeckState::Loading;
-    else if (s.deck.playing)
-        s.deck.state = DeckState::Playing;
-    else if (s.wasPlaying)
-        s.deck.state = DeckState::Paused;
-    else
-        s.deck.state = DeckState::Loaded;
-}
-
-bool DjFsm::isPlaceholderTitle(const QString &title)
-{
-    // VDJ shows this on empty decks (English locale; other locales may differ).
-    return title == QLatin1String("Drag a song on this deck to load it");
-}
-
-void DjFsm::maybeAnnounceSong(Slot &s)
-{
-    if ((s.gotMask & RequiredMeta) != RequiredMeta)
-        return;
-    if (s.deck.song.filepath == s.committedFilepath)
-        return;
-
-    s.committedFilepath = s.deck.song.filepath;
-    s.freshMask = 0;
-    emit songChanged(s.deck.number, s.deck.song);
-}
-
 void DjFsm::maybeEmitPosition(Slot &s, int deck1)
 {
     // Position fields are stored at full resolution (for show sync); the UI
@@ -443,9 +342,10 @@ void DjFsm::maybeEmitPosition(Slot &s, int deck1)
 
 void DjFsm::recomputeActiveSong()
 {
-    const QString fp = activeSong().filepath;
-    if (fp == m_activeFilepath)
+    const DeckSong song = activeSong();
+    const QString key = song.filepath + QLatin1Char('\n') + song.title + QLatin1Char('\n') + song.artist;
+    if (key == m_activeSongKey)
         return;
-    m_activeFilepath = fp;
+    m_activeSongKey = key;
     emit activeSongChanged();
 }

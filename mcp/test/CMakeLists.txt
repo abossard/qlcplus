@@ -753,6 +753,33 @@ if(MCP_AUTHORING_OWNER_TESTS)
         add_test(NAME mcp_authoring_owner_test COMMAND mcp_authoring_owner_test)
         set_tests_properties(mcp_authoring_owner_test PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+
+        add_executable(mcp_live_control_tools_test WIN32
+            ${CMAKE_SOURCE_DIR}/mcp/test/live_control_tools_test.cpp
+            ${CMAKE_SOURCE_DIR}/mcp/test/live_control_tools_test.h
+            ${_test_ui_sources}
+        )
+        add_dependencies(mcp_live_control_tools_test qlcplus5)
+        target_include_directories(mcp_live_control_tools_test PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,INCLUDE_DIRECTORIES>"
+            ${_ui_source_dir}
+            ${CMAKE_SOURCE_DIR}/mcp
+            ${CMAKE_SOURCE_DIR}/mcp/tools
+        )
+        target_compile_definitions(mcp_live_control_tools_test PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,COMPILE_DEFINITIONS>"
+        )
+        target_link_libraries(mcp_live_control_tools_test PRIVATE
+            "$<TARGET_PROPERTY:qlcplus5,LINK_LIBRARIES>"
+            Qt${QT_MAJOR_VERSION}::Test
+            qlcplusmcp
+            nlohmann_json::nlohmann_json
+        )
+        add_test(NAME mcp_live_control_tools_test COMMAND mcp_live_control_tools_test)
+        set_target_properties(mcp_live_control_tools_test PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/mcp/test")
+        set_tests_properties(mcp_live_control_tools_test PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
     endfunction()
 
     cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL mcp_register_authoring_owner_test)

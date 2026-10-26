@@ -87,9 +87,7 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
        keeps advancing in lockstep with the actual beat clock from there */
     if (startTime > 0)
     {
-        int bpm = m_doc->masterTimer()->beatSourceType() == MasterTimer::None
-                ? (m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120)
-                : m_doc->masterTimer()->bpmNumber();
+        const int bpm = beatsBpm();
         if (bpm > 0)
             m_elapsedBeats = qRound64(double(startTime) * bpm / 60.0);
     }
@@ -254,12 +252,11 @@ void ShowRunner::write(MasterTimer *timer)
         // stop all running functions and reset scan indices
         if (newTime < m_elapsedTime && m_elapsedTime > 0)
         {
-            seekTo(newTime, false);
+            seekTo(newTime);
         }
 
         m_elapsedTime = newTime;
-        const int songBpm = m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120;
-        m_elapsedBeats = qRound64(double(newTime) * songBpm / 60.0);
+        m_elapsedBeats = qRound64(double(newTime) * beatsBpm() / 60.0);
         beatSynced = true;
 
         // the earliest sample since Play, or where the clock went back to since
@@ -273,9 +270,9 @@ void ShowRunner::write(MasterTimer *timer)
     const quint64 requestedForwardTime =
             m_requestedForwardTime.exchange(NoSeekRequested, std::memory_order_acquire);
     if (requestedSeekTime != NoSeekRequested)
-        seekTo(quint32(requestedSeekTime), true);
+        seekTo(quint32(requestedSeekTime));
     else if (requestedForwardTime != NoSeekRequested)
-        seekTo(quint32(requestedForwardTime), true, true);
+        seekTo(quint32(requestedForwardTime), true);
 
     bool seekRestartPending = false;
     const auto waitForSeekRestart = [this, &seekRestartPending](Function *function) {
@@ -305,9 +302,7 @@ void ShowRunner::write(MasterTimer *timer)
     if (m_syncSource == Autonomous && timer->beatSourceType() == MasterTimer::None &&
         (!m_beatFunctions.isEmpty() || m_show->tempoType() == Function::Beats))
     {
-        int songBpm = m_show->timeDivisionBPM();
-        if (songBpm <= 0)
-            songBpm = 120;
+        const int songBpm = beatsBpm();
         beatSynced = true;
         m_internalBeatClockMs += double(MasterTimer::tick());
         m_elapsedBeats = quint32((m_internalBeatClockMs * songBpm * 1000.0) / 60000.0);
@@ -367,6 +362,12 @@ void ShowRunner::write(MasterTimer *timer)
         }
         if (m_elapsedTime >= funcStartTime)
         {
+            // kept running through a seek
+            if (isFunctionScheduled(f, functionStopTime))
+            {
+                m_currentTimeFunctionIndex++;
+                continue;
+            }
             if (waitForSeekRestart(f))
             {
                 startFunctionsDone = true;
@@ -418,6 +419,11 @@ void ShowRunner::write(MasterTimer *timer)
         }
         if (m_elapsedBeats >= funcStartTime)
         {
+            if (isFunctionScheduled(f, functionStopTime))
+            {
+                m_currentBeatFunctionIndex++;
+                continue;
+            }
             if (waitForSeekRestart(f))
             {
                 startFunctionsDone = true;
@@ -471,14 +477,19 @@ void ShowRunner::write(MasterTimer *timer)
     // An authored command extent and an armed recorder extend that end.
     // crossed commands still owed, a VC batch still being applied, or a
     // jump's Start/Stop still settling hold the end
-    bool timeDone = m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent() &&
+    // an external clock ends nothing before this Play's first sample, as processCommands waits for it
+    bool timeDone = !m_externalBaselinePending && m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent() &&
                     m_commandRemainder.isEmpty() && m_heldControlBatch == 0 &&
                     m_settlingFunction == ShowCommand::InvalidId;
     bool beatsDone = m_beatFunctions.isEmpty() ||
                       (beatSynced && m_elapsedBeats >= m_totalRunBeats);
 
-    // an armed recorder keeps a command-only or very short Show alive
-    if (m_show != NULL && m_show->commandRecording())
+    // REC keeps a command-only or short run alive past its end, and a run it
+    // kept stays alive when REC turns off: REC never stops playback. Beat
+    // clips still running are no end REC held the run past.
+    if (timeDone && beatsDone && m_show != NULL && m_show->commandRecording())
+        m_keptByRecording = true;
+    if (m_keptByRecording)
         timeDone = false;
 
     if (timeDone && beatsDone)
@@ -544,35 +555,45 @@ void ShowRunner::requestSeek(quint32 ms, bool forward)
     (forward ? m_requestedForwardTime : m_requestedSeekTime).store(ms, std::memory_order_release);
 }
 
-void ShowRunner::seekTo(quint32 newTime, bool requested, bool forward)
+void ShowRunner::seekTo(quint32 newTime, bool forward)
 {
     qDebug() << "[ShowRunner] Seeking:" << m_elapsedTime << "->" << newTime;
 
-    // Stop all currently running functions
+    m_elapsedTime = newTime;
+    m_internalBeatClockMs = newTime;
+    const int bpm = beatsBpm();
+    if (bpm > 0)
+        m_elapsedBeats = qRound64(double(newTime) * bpm / 60.0);
+
+    // a Scene one of its clips makes active at newTime keeps running, while this
+    // Show still owns it: its output reads no elapsed time once its faders
+    // exist. Every other Function holds its position, so it starts again there.
     m_seekRestartFunctions.clear();
-    for (int i = 0; i < m_runningQueue.count(); i++)
+    for (int i = m_runningQueue.count() - 1; i >= 0; i--)
     {
         Function *f = m_runningQueue.at(i).first;
+        const bool time = f->tempoType() == Function::Time;
+        const quint32 at = time ? m_elapsedTime : m_elapsedBeats;
+        const ShowFunction *active = nullptr;
+        for (const ShowFunction *sf : time ? m_timeFunctions : m_beatFunctions)
+            if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->startTime() + sf->duration(m_doc))
+                active = sf;
+        if (active != nullptr && f->type() == Function::SceneType && f->hasSource(functionParent()))
+        {
+            m_runningQueue[i].second = active->startTime() + active->duration(m_doc);
+            continue;
+        }
         f->stop(functionParent());
         if (f->isRunning() && f->stopped())
             m_seekRestartFunctions.insert(f);
+        m_runningQueue.removeAt(i);
     }
-    m_runningQueue.clear();
     m_deferredTimeAudioFunctionIds.clear();
     m_deferredBeatAudioFunctionIds.clear();
 
     // Reset the scan index so functions can be re-evaluated from the new position
     m_currentTimeFunctionIndex = 0;
     m_currentBeatFunctionIndex = 0;
-
-    m_elapsedTime = newTime;
-    m_internalBeatClockMs = newTime;
-    const MasterTimer *timer = m_doc->masterTimer();
-    const int bpm = timer->beatSourceType() == MasterTimer::None
-            ? (m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120)
-            : timer->bpmNumber();
-    if (bpm > 0)
-        m_elapsedBeats = qRound64(double(newTime) * bpm / 60.0);
     m_syncElapsedTime = newTime;
     m_syncBeatsTime = newTime;
 
@@ -609,7 +630,7 @@ void ShowRunner::seekTo(quint32 newTime, bool requested, bool forward)
     // ids published from here on belong to the next traversal and stay shielded
     m_commandState = ShowCommandFsm::seek(m_commandState, newTime);
     if (m_show != NULL)
-        m_commandTraversal = m_show->commandTraversalRestarted(m_commandTraversal, requested);
+        m_commandTraversal = m_show->commandTraversalRestarted(m_commandTraversal, true);
     if (m_externalBaselinePending == false)
         m_pendingRollback = newTime;
 }
@@ -1129,6 +1150,14 @@ void ShowRunner::syncPerformAudioSuppression()
     m_performAudioSuppressed = requested;
     if (m_performAudioSuppressed)
         stopRunningAudioFunctions();
+}
+
+int ShowRunner::beatsBpm() const
+{
+    const MasterTimer *timer = m_doc->masterTimer();
+    if (m_syncSource == External || timer->beatSourceType() == MasterTimer::None)
+        return m_show->timeDivisionBPM() > 0 ? m_show->timeDivisionBPM() : 120;
+    return timer->bpmNumber();
 }
 
 bool ShowRunner::isAudioFunction(const Function *function) const

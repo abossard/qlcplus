@@ -45,7 +45,6 @@ struct ShowControlBatch
 {
     quint64 traversal = 0; //!< stamped when the playhead crossed the records
     quint64 seq = 0;
-    bool restore = false;
     /** A backward move to this time: the executor first returns what the
      *  timeline changed after it to its state before (commands is empty) */
     std::optional<quint32> rollbackTo;
@@ -139,13 +138,16 @@ private:
      * External sync
      *********************************************************************/
 public:
-    /** Set the sync source for this show's runner. */
+    /** Set the time source. Any thread: the runner takes it at its next tick. */
     void setSyncSource(int source);
 
     /** Get the current sync source. */
-    int syncSource() const { return m_syncSource; }
+    int syncSource() const { return m_syncSource.load(); }
 
-    /** Store the latest externally-observed elapsed time in milliseconds. */
+    /** Store the latest externally-observed elapsed time in milliseconds.
+     *  A smaller one, while this Show plays from it, ends the traversal at
+     *  once like a backward requestSeek(): input accepted from then on
+     *  belongs to the next pass. */
     void setExternalElapsedTime(quint32 ms);
     quint32 externalElapsedTime() const
     {
@@ -176,7 +178,7 @@ public:
     }
 
 private:
-    int m_syncSource;  // stored as int to avoid header dependency on ShowRunner enum
+    std::atomic<int> m_syncSource{0};  // stored as int to avoid header dependency on ShowRunner enum
     std::atomic<quint32> m_externalElapsedTime{0};
     std::atomic_bool m_performAudioSuppressed;
     static constexpr quint64 NoSeekRequested = std::numeric_limits<quint64>::max();
@@ -265,6 +267,8 @@ public:
      *  track instead of the live one, then discards it. Runtime playback and
      *  commandTrack() reads are unchanged. */
     void armCommandTrackSaveProjection(const ShowCommandTrack &track);
+    /** Discard an armed projection no saveXML() used */
+    void disarmCommandTrackSaveProjection();
 
     /**
      * Validate and publish a command track. The candidate is rejected as a
@@ -293,15 +297,6 @@ public:
      *  are history a later one replays otherwise */
     bool setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
                          quint64 appliedTraversal, QString *error);
-
-    /** Any thread: no start was accepted that has not ended yet. Queued,
-     *  running, paused and stopping all count as playing. */
-    bool commandPlaybackStopped() const;
-
-    /** An editor edit: published only if commandPlaybackStopped() holds as it
-     *  is stored, decided under the same lock that accepts a start, so either
-     *  the edit is in before the start or the start wins and it is refused */
-    bool setStoppedCommandTrack(const ShowCommandTrack &track, QString *error);
 
     /** Transient recording intent. It keeps a command-only or short Show
      *  playing and is never stored in the workspace. */
@@ -376,8 +371,9 @@ private:
 
     /** The runtime began another traversal (seek, loop or stop) after the
      *  one it last saw, so live no-echo suppression from that one is over.
-     *  Returns the stamp the runner keeps. Consuming a requested seek keeps
-     *  what was published since the request, and a retired runner changes
+     *  Returns the stamp the runner keeps. Consuming a move back the Show
+     *  ended already (a requested seek, an external clock moving back) keeps
+     *  what was published since, and a retired runner changes
      *  nothing: the newer Play owns it */
     quint64 commandTraversalRestarted(quint64 traversal, bool requested);
 
@@ -387,6 +383,9 @@ private:
     /** With m_commandTrackMutex held: start a traversal, dropping the
      *  outbox and every pending receipt */
     void cancelControlWork();
+    /** With m_commandTrackMutex held: a move back to ms ends the traversal;
+     *  the live marks of the ended pass go when the runner takes the move */
+    void endTraversal(quint32 ms);
 
     /** Stamp and queue a VC batch for the GUI, returning its seq, or 0 when
      *  a requested seek or stop already cancelled it, run was retired, or
@@ -427,18 +426,18 @@ private:
     bool functionSettled(quint32 functionId, bool expectLive) const;
 
     bool publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
-                             std::optional<quint64> appliedTraversal, QString *error,
-                             bool onlyStopped = false);
+                             std::optional<quint64> appliedTraversal, QString *error);
 
-    /** Publish without target validation, for loading and copying. With
-     *  onlyStopped, false and nothing stored unless commandPlaybackStopped(). */
-    bool storeCommandTrack(const ShowCommandTrack &track,
+    /** Publish without target validation, for loading and copying */
+    void storeCommandTrack(const ShowCommandTrack &track,
                            const QSet<quint32> &alreadyApplied = QSet<quint32>(),
-                           std::optional<quint64> appliedTraversal = std::nullopt,
-                           bool onlyStopped = false);
+                           std::optional<quint64> appliedTraversal = std::nullopt);
 
-    /** Empty when every command target is usable */
-    QString commandTargetError(const ShowCommandTrack &track) const;
+    /** Empty when the track may be published: no hold pair breaks the
+     *  invariant and every command added or changed since the published
+     *  track has a usable target. One whose target was deleted since it was
+     *  published stays, and blocks nothing. */
+    QString commandTrackError(const ShowCommandTrack &track) const;
 
     mutable QMutex m_commandTrackMutex;
     ShowCommandTrack m_commandTrack;
@@ -460,12 +459,6 @@ private:
     /** Counts every Stop, so preRun can tell one landed while it installed
      *  the runner. Changed with m_commandTrackMutex held */
     std::atomic<quint64> m_commandStops{0};
-
-    /** Guarded by m_commandTrackMutex: starts accepted, the accepted starts
-     *  the current run began with, and those whose run ended */
-    quint64 m_startsAccepted = 0;
-    quint64 m_startsRunning = 0;
-    quint64 m_startsEnded = 0;
 
     /** Guarded by m_commandTrackMutex */
     quint64 m_commandTraversal = 0;
@@ -537,9 +530,19 @@ signals:
     void showFinished();
 
 protected:
+    /** Timer thread only: preRun creates it, postRun deletes it */
     ShowRunner *m_runner;
     /** Timer thread: the pause state the runner last applied */
     bool m_runnerPaused = false;
+    /** A track intensity changed since the runner last took them all */
+    std::atomic_bool m_trackIntensityChanged{false};
+    /** The track intensities as the GUI last set them, by attribute index,
+     *  under m_commandTrackMutex: the runner takes these, never the
+     *  attributes the GUI keeps writing while it reads */
+    QVector<qreal> m_trackIntensities;
+    /** The same, without overrides: what the reset after a stop leaves.
+     *  Lets postRun reset the copy without reading the attributes */
+    QVector<qreal> m_trackBaseIntensities;
     /** Number of currently running children */
     QSet <quint32> m_runningChildren;
 

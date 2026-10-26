@@ -5,223 +5,340 @@
   Licensed under the Apache License, Version 2.0
 */
 
-#include <QtTest>
-#include <QSignalSpy>
-
 #include "showfactory_test.h"
 #include "showfactory.h"
 #include "djfsm.h"
 
 #include "doc.h"
-#include "show.h"
 #include "audio.h"
+#include "show.h"
 #include "track.h"
+#include "showfunction.h"
 #include "function.h"
+#include "scene.h"
 
-static Doc *createDoc()
+#include <QBuffer>
+#include <QDir>
+#include <QSignalSpy>
+
+static DjFsm::DeckSong song(const QString &filepath, const QString &title, const QString &artist, double bpm = 120.0)
 {
-    Doc *doc = new Doc(nullptr, 4);
-    return doc;
-}
-
-void ShowFactory_Test::initTestCase()
-{
-    m_doc = createDoc();
-}
-
-void ShowFactory_Test::cleanupTestCase()
-{
-    delete m_doc;
-    m_doc = nullptr;
-}
-
-// ── Parametrized: verify Audio + Show + Track created ──
-
-void ShowFactory_Test::createShowForSong_data()
-{
-    QTest::addColumn<QString>("filepath");
-    QTest::addColumn<QString>("title");
-    QTest::addColumn<QString>("artist");
-    QTest::addColumn<double>("bpm");
-    QTest::addColumn<QString>("expectedName");
-
-    QTest::newRow("artist_and_title")
-        << "/music/track1.mp3" << "My Song" << "DJ Alpha" << 128.0
-        << "DJ Alpha - My Song";
-
-    QTest::newRow("title_only")
-        << "/music/track2.mp3" << "Instrumental" << "" << 140.0
-        << "Instrumental";
-
-    QTest::newRow("filename_fallback")
-        << "/music/cool beat.flac" << "" << "" << 120.0
-        << "cool beat";
-}
-
-void ShowFactory_Test::createShowForSong()
-{
-    QFETCH(QString, filepath);
-    QFETCH(QString, title);
-    QFETCH(QString, artist);
-    QFETCH(double, bpm);
-    QFETCH(QString, expectedName);
-
-    // Fresh Doc for each row to avoid cross-contamination
-    Doc *doc = createDoc();
-    ShowFactory factory(doc);
-    QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
-
     DjFsm::DeckSong info;
     info.filepath = filepath;
     info.title = title;
     info.artist = artist;
     info.bpm = bpm;
+    return info;
+}
 
-    factory.createShowForSong(info);
+/** A Show with one Audio clip of filepath, as a workspace load leaves it */
+static Show *addSongShow(Doc *doc, const QString &name, const QString &filepath)
+{
+    Show *show = new Show(doc);
+    show->setName(name);
+    doc->addFunction(show);
+    Audio *audio = new Audio(doc);
+    audio->setSourceFileName(filepath);
+    doc->addFunction(audio);
+    Track *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    track->createShowFunction(audio->id());
+    return show;
+}
 
-    // Wait for the deferred timer (3000ms + margin)
-    QVERIFY(spy.wait(4000));
-    QCOMPARE(spy.count(), 1);
+void ShowFactory_Test::showNameForSong_data()
+{
+    QTest::addColumn<QString>("filepath");
+    QTest::addColumn<QString>("title");
+    QTest::addColumn<QString>("artist");
+    QTest::addColumn<QString>("name");
 
-    quint32 showId = spy[0][1].toUInt();
+    QTest::newRow("artist and title") << "/music/track1.mp3" << "My Song" << "DJ Alpha" << "DJ Alpha - My Song";
+    QTest::newRow("empty artist: title only") << "/music/track2.mp3" << "Instrumental" << "" << "Instrumental";
+    QTest::newRow("no tags: the file name") << "/music/cool beat.flac" << "" << "" << "cool beat";
+    QTest::newRow("no song: a name, nothing to build") << "" << "Ghost" << "Nobody" << "Nobody - Ghost";
+}
+
+void ShowFactory_Test::showNameForSong()
+{
+    QFETCH(QString, filepath);
+    QFETCH(QString, title);
+    QFETCH(QString, artist);
+    QFETCH(QString, name);
+
+    QCOMPARE(ShowFactory::showNameForSong(song(filepath, title, artist)), name);
+}
+
+void ShowFactory_Test::buildShow_data()
+{
+    showNameForSong_data();
+}
+
+void ShowFactory_Test::buildShow()
+{
+    QFETCH(QString, filepath);
+    QFETCH(QString, title);
+    QFETCH(QString, artist);
+    QFETCH(QString, name);
+
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    QSignalSpy created(&factory, &ShowFactory::showCreatedForSong);
+
+    const quint32 showId = factory.buildShow(song(filepath, title, artist, 128.0));
+    if (filepath.isEmpty())
+    {
+        QCOMPARE(showId, Function::invalidId());
+        QCOMPARE(created.count(), 0);
+        QVERIFY(doc.functions().isEmpty());
+        return;
+    }
     QVERIFY(showId != Function::invalidId());
+    QCOMPARE(created.count(), 1);
+    QCOMPARE(created[0][0].toString(), filepath);
+    QCOMPARE(created[0][1].toUInt(), showId);
 
-    // Verify the Show exists in Doc with the expected name
-    Function *showFn = doc->function(showId);
-    QVERIFY(showFn != nullptr);
-    QCOMPARE(showFn->type(), Function::ShowType);
-    QCOMPARE(showFn->name(), expectedName);
-
-    // Verify an Audio function also exists
-    bool foundAudio = false;
-    for (Function *f : doc->functionsByType(Function::AudioType))
-    {
-        Audio *audio = qobject_cast<Audio*>(f);
-        if (audio && audio->getSourceFileName() == filepath)
-        {
-            foundAudio = true;
-            break;
-        }
-    }
-    QVERIFY(foundAudio);
-
-    // Verify showIdForFilepath returns the correct ID
+    Show *show = qobject_cast<Show *>(doc.function(showId));
+    QVERIFY(show != nullptr);
+    QCOMPARE(show->name(), name);
+    QCOMPARE(show->path(true), kSongFolderPath);
+    Audio *audio = ShowFactory::songAudio(&doc, show);
+    QVERIFY(audio != nullptr);
+    QCOMPARE(audio->getSourceFileName(), filepath);
+    // the new Show is the song's through its clip, nothing else remembers it
     QCOMPARE(factory.showIdForFilepath(filepath), showId);
-
-    delete doc;
 }
 
-// ── Dedup: same filepath twice → only one Show ──
-
-void ShowFactory_Test::dedupByName()
+void ShowFactory_Test::indexFollowsTheDoc()
 {
-    Doc *doc = createDoc();
-    ShowFactory factory(doc);
-    QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    QSignalSpy mapping(&factory, &ShowFactory::mappingChanged);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
 
-    DjFsm::DeckSong info;
-    info.filepath = "/music/dedup.mp3";
-    info.title = "Dedup Song";
-    info.artist = "Artist";
-    info.bpm = 128.0;
+    // a loaded workspace: the Show maps without anyone registering it
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    // several Shows of one song: the first in Doc order
+    addSongShow(&doc, "A again", "/music/a.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    QVERIFY(factory.buildShow(song("/music/a.mp3", "A", "X")) != a->id());
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    QVERIFY(mapping.count() > 0);
 
-    factory.createShowForSong(info);
-    factory.createShowForSong(info); // second call — should be deduped
+    // the Shows go: the song has none; its Audio alone maps nothing
+    while (!doc.functionsByType(Function::ShowType).isEmpty())
+        QVERIFY(doc.deleteFunction(doc.functionsByType(Function::ShowType).last()->id()));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
 
-    // Only one timer should fire
-    QVERIFY(spy.wait(4000));
-    // Allow processing time for second timer (which should not exist)
-    QTest::qWait(500);
-    QCOMPARE(spy.count(), 1);
+    // a new workspace with new ids: no id survives from the old one
+    Show *b = addSongShow(&doc, "B", "/music/b.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/b.mp3"), b->id());
+    mapping.clear();
+    doc.clearContents();
+    QCOMPARE(factory.showIdForFilepath("/music/b.mp3"), Function::invalidId());
+    QVERIFY(mapping.count() > 0);
+    QCOMPARE(mapping.last()[0].toString(), QString());
+    Show *c = addSongShow(&doc, "C", "/music/c.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/c.mp3"), c->id());
+}
 
-    // Verify only one Show in Doc
-    auto shows = doc->functionsByType(Function::ShowType);
-    int matchCount = 0;
-    for (Function *f : shows)
+void ShowFactory_Test::choicesWinUntilTheDocIsCleared()
+{
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    Show *other = new Show(&doc);
+    other->setName("Other");
+    doc.addFunction(other);
+    doc.resetModified();
+    QSignalSpy mapping(&factory, &ShowFactory::mappingChanged);
+
+    // Assign: the user's Show, although the Doc names another; saved with the workspace
+    factory.registerMapping("/music/a.mp3", other->id());
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), other->id());
+    QVERIFY(doc.isModified());
+    QCOMPARE(mapping.count(), 1);
+    QCOMPARE(mapping[0][0].toString(), QString("/music/a.mp3"));
+    QCOMPARE(mapping[0][1].toUInt(), other->id());
+    doc.addFunction(new Show(&doc));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), other->id());
+    Q_UNUSED(a)
+
+    // the workspace goes: so do the choices
+    doc.clearContents();
+    Show *b = addSongShow(&doc, "A", "/music/a.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), b->id());
+}
+
+void ShowFactory_Test::overrideGoesWithItsShow()
+{
+    // Assign a song to a Show, then delete that Show: the Doc's Show is the
+    // song's again, and the freed id, handed to the next Function, maps nothing
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    Show *chosen = new Show(&doc);
+    chosen->setName("Chosen");
+    doc.addFunction(chosen);
+    const quint32 chosenId = chosen->id();
+    factory.registerMapping("/music/a.mp3", chosenId);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), chosenId);
+
+    QVERIFY(doc.deleteFunction(chosenId));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    Scene *scene = new Scene(&doc);
+    doc.addFunction(scene);
+    QCOMPARE(scene->id(), chosenId);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+}
+
+void ShowFactory_Test::choicesSurviveSaveAndLoad_data()
+{
+    QTest::addColumn<QString>("choice");
+    QTest::addColumn<bool>("showSurvives");
+
+    QTest::newRow("Assign") << "assign" << true;
+    QTest::newRow("New") << "new" << true;
+    QTest::newRow("a choice whose Show is gone is dropped") << "assign" << false;
+}
+
+void ShowFactory_Test::choicesSurviveSaveAndLoad()
+{
+    QFETCH(QString, choice);
+    QFETCH(bool, showSurvives);
+
+    // the Doc's Show of A, and the one the user chooses instead
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    quint32 chosen = Function::invalidId();
+    if (choice == QLatin1String("new"))
+        chosen = factory.buildShow(song("/music/a.mp3", "A", "X"));
+    else
     {
-        if (f->name() == "Artist - Dedup Song")
-            matchCount++;
+        Show *other = new Show(&doc);
+        doc.addFunction(other);
+        chosen = other->id();
     }
-    QCOMPARE(matchCount, 1);
+    factory.registerMapping("/music/a.mp3", chosen);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), chosen);
 
-    delete doc;
+    QBuffer xml;
+    xml.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartDocument();
+    factory.saveXML(&writer);
+    writer.writeEndDocument();
+
+    // reload: the Doc's Functions first, under their ids, then the choices
+    doc.clearContents();
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
+    a = addSongShow(&doc, "A", "/music/a.mp3");
+    if (showSurvives)
+    {
+        Show *again = new Show(&doc);
+        QVERIFY(doc.addFunction(again, chosen));
+        if (choice == QLatin1String("new"))
+            factory.buildShow(song("/music/a.mp3", "A", "X"));
+    }
+    QXmlStreamReader reader(xml.data());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(factory.loadXML(reader));
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), showSurvives ? chosen : a->id());
 }
 
-// ── showIdForFilepath lookup ──
-
-void ShowFactory_Test::showIdForFilepath()
+void ShowFactory_Test::choicesFollowTheWorkspaceFolder()
 {
-    Doc *doc = createDoc();
-    ShowFactory factory(doc);
-    QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
+    // a workspace saved under one folder and loaded under another: its Audio
+    // sources move with it (relative paths), and so does the choice
+    Doc doc(nullptr, 4);
+    doc.setWorkspacePath("/ws/a");
+    ShowFactory factory(&doc);
+    addSongShow(&doc, "A", "/ws/a/music/a.mp3");
+    Show *chosen = new Show(&doc);
+    doc.addFunction(chosen);
+    const quint32 chosenId = chosen->id();
+    factory.registerMapping("/ws/a/music/a.mp3", chosenId);
 
-    // Before any creation, should return invalidId
-    QCOMPARE(factory.showIdForFilepath("/nonexistent.mp3"), Function::invalidId());
+    QBuffer xml;
+    xml.open(QIODevice::WriteOnly);
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartDocument();
+    factory.saveXML(&writer);
+    writer.writeEndDocument();
+    QVERIFY(xml.data().contains("music/a.mp3"));
+    QVERIFY(!xml.data().contains("/ws/a/"));
 
-    DjFsm::DeckSong info;
-    info.filepath = "/music/lookup.mp3";
-    info.title = "Lookup";
-    info.artist = "Finder";
-    info.bpm = 130.0;
-
-    factory.createShowForSong(info);
-    QVERIFY(spy.wait(4000));
-
-    quint32 id = factory.showIdForFilepath("/music/lookup.mp3");
-    QVERIFY(id != Function::invalidId());
-    QCOMPARE(factory.showIdForFilepath("/other/path.mp3"), Function::invalidId());
-
-    delete doc;
+    doc.clearContents();
+    doc.setWorkspacePath("/ws/b");
+    Show *a = addSongShow(&doc, "A", "/ws/b/music/a.mp3");
+    Show *again = new Show(&doc);
+    QVERIFY(doc.addFunction(again, chosenId));
+    QXmlStreamReader reader(xml.data());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(factory.loadXML(reader));
+    QCOMPARE(factory.showIdForFilepath("/ws/b/music/a.mp3"), chosenId);
+    QCOMPARE(factory.showIdForFilepath("/ws/a/music/a.mp3"), Function::invalidId());
+    Q_UNUSED(a)
 }
 
-// ── Signal emission with correct args ──
-
-void ShowFactory_Test::signalEmitted()
+void ShowFactory_Test::malformedChoiceIsDropped()
 {
-    Doc *doc = createDoc();
-    ShowFactory factory(doc);
-    QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
-
-    DjFsm::DeckSong info;
-    info.filepath = "/music/signal.mp3";
-    info.title = "Signal Check";
-    info.artist = "Emitter";
-    info.bpm = 125.0;
-
-    factory.createShowForSong(info);
-    QVERIFY(spy.wait(4000));
-    QCOMPARE(spy.count(), 1);
-
-    // Verify signal args
-    QList<QVariant> args = spy[0];
-    QCOMPARE(args[0].toString(), QString("/music/signal.mp3"));
-    QVERIFY(args[1].toUInt() != Function::invalidId());
-
-    delete doc;
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    Show *other = new Show(&doc);
+    doc.addFunction(other);
+    // "junk" is no Show, whatever id 0 holds
+    QXmlStreamReader reader(QStringLiteral("<SongShows><Song Path=\"/music/a.mp3\" Show=\"%1\"/>"
+                                           "<Song Path=\"/music/a.mp3\" Show=\"junk\"/></SongShows>")
+                                .arg(other->id()));
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(factory.loadXML(reader));
+    QCOMPARE(a->id(), 0u);
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), other->id());
 }
 
-// ── Empty filepath is rejected immediately ──
-
-void ShowFactory_Test::emptyFilepathRejected()
+void ShowFactory_Test::clipChangesReachTheIndex()
 {
-    Doc *doc = createDoc();
-    ShowFactory factory(doc);
-    QSignalSpy spy(&factory, &ShowFactory::showCreatedForSong);
+    // the index reads the first Audio clip: re-sourcing that Audio moves the song
+    Doc doc(nullptr, 4);
+    ShowFactory factory(&doc);
+    Show *a = addSongShow(&doc, "A", "/music/a.mp3");
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), a->id());
+    QSignalSpy mapping(&factory, &ShowFactory::mappingChanged);
 
-    DjFsm::DeckSong info;
-    info.filepath = "";  // empty
-    info.title = "Ghost";
-    info.artist = "Nobody";
-    info.bpm = 120.0;
+    ShowFactory::songAudio(&doc, a)->setSourceFileName("/music/b.mp3");
+    QCOMPARE(mapping.count(), 1);
+    QCOMPARE(factory.showIdForFilepath("/music/b.mp3"), a->id());
+    QCOMPARE(factory.showIdForFilepath("/music/a.mp3"), Function::invalidId());
 
-    factory.createShowForSong(info);
+    // a renamed Show is a change of the same kind
+    a->setName("A renamed");
+    QVERIFY(mapping.count() >= 2);
+}
 
-    // No timer should fire — wait briefly to confirm
-    QTest::qWait(500);
-    QCOMPARE(spy.count(), 0);
-    QVERIFY(factory.createdShows().isEmpty());
+void ShowFactory_Test::normalizePath_data()
+{
+    QTest::addColumn<QString>("path");
+    QTest::addColumn<QString>("key");
 
-    delete doc;
+    QTest::newRow("posix") << "/music/sub/a.mp3" << "/music/sub/a.mp3";
+#ifdef Q_OS_WIN
+    QTest::newRow("windows") << "C:\\music\\sub\\a.mp3" << "C:/music/sub/a.mp3";
+#else
+    QTest::newRow("a backslash is a character here") << "/music/sub\\a.mp3" << "/music/sub\\a.mp3";
+#endif
+}
+
+void ShowFactory_Test::normalizePath()
+{
+    QFETCH(QString, path);
+    QFETCH(QString, key);
+    // the platform's native separators become the saved workspace's form
+    QCOMPARE(ShowFactory::normalizePath(path), key);
+    QCOMPARE(ShowFactory::normalizePath(path), QDir::fromNativeSeparators(path));
 }
 
 QTEST_MAIN(ShowFactory_Test)

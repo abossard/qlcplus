@@ -28,6 +28,7 @@
 #include <QSet>
 #include <QUuid>
 #include <QMap>
+#include <optional>
 #include <variant>
 
 class QXmlStreamReader;
@@ -249,6 +250,8 @@ struct ShowCommand
     /** false when the name is not a known action */
     static bool actionFromString(const QString &name, ShowCommandAction *action);
     static bool isControlAction(ShowCommandAction action);
+    /** A momentary role whose press and release form one hold pair */
+    static bool isHoldRole(ShowControlRole role);
     static bool hasTypedPayload(ShowCommandAction action);
 
     static QString roleToString(ShowControlRole role);
@@ -380,9 +383,20 @@ public:
     quint32 nextEventId() const;
     /** The order the next inserted command gets */
     quint32 nextOrder() const;
-    /** Never issue an id or order below these again, e.g. ones an undo
-     *  history still names */
-    void reserve(quint32 nextEventId, quint32 nextOrder);
+    /** Free hold pair id for the next press, InvalidId when exhausted. Above
+     *  every pair id this track value has held, so a removed pair's id is
+     *  never reissued. */
+    quint32 nextPairId() const;
+    /** Never issue an id, order or pair id below the ones floor would issue,
+     *  e.g. ones an undo history still names. True when a mark was raised. */
+    bool reserve(const ShowCommandTrack &floor);
+
+    /** The one hold pair invariant. Per control and role, the SetButtonState
+     *  edges sharing a pair id are one press and at most one release after it,
+     *  and pairs never overlap: a release comes before the next pair's press,
+     *  in stored order at an equal time. The ids of the pairs that break it,
+     *  each once, earliest kept. */
+    QVector<quint32> malformedHoldPairs() const;
 
     /** A new command, after every command sharing its time. cmd.order is
      *  ignored. Fails on an invalid command or a duplicate id. */
@@ -415,7 +429,9 @@ public:
     /** Retargets every command pointing at `from`. Returns the number changed. */
     int remapFunctionId(quint32 from, quint32 to);
 
-    /** Transactional: on failure the track keeps its previous contents */
+    /** Transactional: on failure the track keeps its previous contents. A
+     *  hold pair that breaks the invariant is dropped with a warning
+     *  instead: the rest of the track stays usable. */
     bool loadXML(QXmlStreamReader &root, QString *error = nullptr);
     bool saveXML(QXmlStreamWriter *doc) const;
 
@@ -424,18 +440,10 @@ private:
     quint32 m_extent = 0;
     quint32 m_nextEventId = 0; //!< high water mark of inserted ids
     quint32 m_nextOrder = 0;   //!< high water mark of issued orders
+    quint32 m_nextPairId = 1;  //!< high water mark of held pair ids
 
     /** Insert at its (time, order) place, raising the high water marks */
     bool place(const ShowCommand &cmd, QString *error);
-};
-
-/** What the recorder is doing, derived from the state below */
-enum class ShowRecordPhase : quint8
-{
-    Off,      //!< not recording
-    Armed,    //!< recording requested, no Show bound yet
-    Bound,    //!< bound to the resolved Show
-    Suspended //!< bound, but another Show is currently resolved
 };
 
 /** One occurrence the host executed live, fixed when it was captured */
@@ -463,15 +471,12 @@ inline ShowLiveMark liveMarkOf(const ShowCommand &cmd)
 }
 
 /**
- * Transport and recording state. Deliberately holds no running functions, owners,
- * clips or engine observations - only what the transitions need.
+ * Transport state of one traversal. Deliberately holds no running functions,
+ * owners, clips or engine observations - only what the transitions need.
  */
 struct ShowCommandState
 {
-    bool recording = false;
     bool playing = false;
-    quint32 boundShowId = ShowCommand::InvalidId;    //!< sticky while recording
-    quint32 resolvedShowId = ShowCommand::InvalidId; //!< Show currently resolved by the host
     quint32 position = 0;                            //!< authoritative transport milliseconds
     quint32 consumedThrough = 0;                     //!< commands before this are history
 
@@ -482,9 +487,94 @@ struct ShowCommandState
      *  time, wherever its event has moved since. */
     ShowLiveMarks consumedLiveEventIds;
 
-    ShowRecordPhase phase() const;
     bool operator==(const ShowCommandState &other) const;
     bool operator!=(const ShowCommandState &other) const { return !(*this == other); }
+};
+
+/** What REC is doing */
+enum class ShowRecordPhase : quint8
+{
+    Off,   //!< not recording
+    Armed, //!< recording requested, no Show resolved
+    Bound  //!< recording into the resolved Show
+};
+
+/** Who resolves the Show REC records into */
+enum class ShowRecordSource : quint8
+{
+    Manual, //!< the Show Manager selection
+    Perform //!< the Show an engaged Perform plays
+};
+
+/**
+ * REC lifecycle. While Perform is engaged only Perform resolves a Show,
+ * otherwise only the manual selection. A take always records into the
+ * resolved Show: a manual selection cannot move it, and when the resolved
+ * Show changes otherwise the take is handed over or ends.
+ */
+struct ShowRecordState
+{
+    bool recording = false;
+    /** The Show Manager's Show, InvalidId for none; a deleted Show is none */
+    quint32 manual = ShowCommand::InvalidId;
+    /** Perform's Show while Perform is engaged, InvalidId for none */
+    std::optional<quint32> perform;
+
+    /** The engaged source's Show, InvalidId when it names none or a deleted one */
+    quint32 resolvedShowId() const;
+    ShowRecordPhase phase() const;
+    /** The Show the take records into, InvalidId unless Bound */
+    quint32 boundShowId() const;
+    bool operator==(const ShowRecordState &other) const;
+    bool operator!=(const ShowRecordState &other) const { return !(*this == other); }
+};
+
+/** Something that happened to REC */
+struct ShowRecordEvent
+{
+    enum class Kind : quint8
+    {
+        Rec,          //!< the user's REC toggle, on
+        Resolved,     //!< source resolved showId, InvalidId for none
+        PerformEnded, //!< Perform disengaged: the manual selection resolves again
+        Removed,      //!< showId was deleted
+        Discard       //!< the workspace is replaced: nothing of it carries over
+    };
+    Kind kind = Kind::Rec;
+    bool on = false;
+    quint32 showId = ShowCommand::InvalidId;
+    ShowRecordSource source = ShowRecordSource::Manual;
+};
+
+/** One thing the recorder does for a transition */
+struct ShowRecordEffect
+{
+    enum class Kind : quint8
+    {
+        DropUnpublished,     //!< forget the accepted input of showId, of every Show for InvalidId
+        SetCommandRecording, //!< set showId's transient recording intent to on
+        Track,               //!< showId is the tracked Show now
+        RefuseSelection,     //!< the manual selection was refused, the take keeps its Show
+        ReportFailure        //!< the take on showId ended, or could not, for a reason the user sees
+    };
+    Kind kind = Kind::Track;
+    quint32 showId = ShowCommand::InvalidId;
+    bool on = false;
+
+    bool operator==(const ShowRecordEffect &other) const
+    {
+        return kind == other.kind && showId == other.showId && on == other.on;
+    }
+};
+
+/** Result of one REC transition */
+struct ShowRecordTransition
+{
+    ShowRecordState state;
+    /** Publish the bound take's accepted input and end its live holds
+     *  before the effects. The transition stands only once that is saved. */
+    bool checkpoint = false;
+    QVector<ShowRecordEffect> effects; //!< in order
 };
 
 /** A resolved user control change offered to the recorder */
@@ -510,6 +600,7 @@ struct ShowCommandTransition
     ShowCommandState state;
     QVector<ShowCommand> effects;  //!< ordered commands for the host to apply
     QVector<ShowCommand> authored; //!< commands the host must commit to the track
+    QVector<quint32> removed;      //!< ids the host must remove from it: what the input replaced
     /** Why an offered input authored nothing, empty when there is nothing to explain.
      *  Input the recorder is not meant to author is ignored without a reason. */
     QString error;
@@ -521,15 +612,14 @@ struct ShowCommandTransition
  */
 namespace ShowCommandFsm
 {
-    /** Arming binds the resolved Show at once; disarming drops the binding */
-    ShowCommandState setRecording(const ShowCommandState &state, bool on);
+    /** The one REC transition. checkpointSaved is the outcome of the
+     *  transition's own checkpoint, and matters only when it has one: REC off
+     *  that cannot save keeps the take, a handover that cannot save ends it,
+     *  keeping its accepted input. */
+    ShowRecordTransition record(const ShowRecordState &state, const ShowRecordEvent &event,
+                                bool checkpointSaved = true);
 
-    /** A Show resolved for the current source. While armed this binds the target;
-     *  a later different Show suspends recording instead of retargeting it. */
-    ShowCommandState setResolvedShow(const ShowCommandState &state, quint32 showId);
-
-    /** Pausing freezes the position, not the recorder: live input keeps authoring
-     *  at that frozen timestamp and Record intent survives */
+    /** Pausing freezes the position: live input authors at that frozen timestamp */
     ShowCommandState setPlaying(const ShowCommandState &state, bool playing);
 
     /** Forward playback to positionMs. Effects are the commands due in
@@ -541,18 +631,30 @@ namespace ShowCommandFsm
      *  or an external clock's first sample. No effects: nothing before the
      *  destination is replayed or restored, and commands at exactly
      *  positionMs are due on the next advance(). Live marks of the previous
-     *  pass are cleared; Record intent and binding survive. A forward jump
-     *  is no seek: advance() plays the crossed interval. */
+     *  pass are cleared. A forward jump is no seek: advance() plays the
+     *  crossed interval. */
     ShowCommandState seek(const ShowCommandState &state, quint32 positionMs);
 
-    /** Offer real user input to the recorder. Authors at most one command at the
+    /** Offer real user input while REC is bound. Authors at most one command at the
      *  authoritative position and marks that occurrence, its id at its time, as
      *  consumed, so the freshly authored command cannot echo back through
      *  advance() during this traversal while every other due command still
      *  executes. The host has already executed the input live, so this returns
-     *  no effects. */
+     *  no effects. A hold edge authors nothing: liveHold() records the whole
+     *  hold once it ends. */
     ShowCommandTransition userInput(const ShowCommandTrack &track,
                                     const ShowCommandState &state, const ShowCommandInput &input);
+
+    /** The performer held hold's control from from to to (at least from):
+     *  what was recorded for that control in that time is replaced. A
+     *  recorded hold on at from ends there, its recorded edges inside go, one
+     *  still on at to starts again there, and the live hold is recorded
+     *  between them; nothing else changes and no hold of no time is cut off.
+     *  At equal times what ends at from comes first and what starts again at
+     *  to last. Refused with the reason when no event or hold pair id is
+     *  left. Authors without live marks: the host decides. */
+    ShowCommandTransition liveHold(const ShowCommandTrack &track, const ShowCommandInput &hold,
+                                   quint32 from, quint32 to);
 
     /** Whether input of this origin is a person operating a control, the only
      *  input that may author */

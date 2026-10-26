@@ -25,12 +25,11 @@ value updates at the requested frequency.
 | Discovery     | Bonjour/mDNS service `_os2l._tcp` on the same port           |
 | Encoding      | UTF-8                                                         |
 
-**Framing — how to split the stream:** VDJ does not delimit messages. Insert a
-break at every `}{` boundary and parse each object. QLC+ does exactly this:
-`m_lineBuffer.replace("}{", "}\n{")` then splits on `\n`
-(`plugins/vdjbridge/vdjtelemetryclient.cpp:163-169`).
-> Limitation: a literal `}{` inside a JSON string value (e.g. an odd track title)
-> would mis-split. A string-aware/brace-depth splitter would be more robust.
+**Framing — how to split the stream:** VDJ does not delimit messages, and a
+literal `}{` inside a string value reaches the wire (measured with a title
+`a"b}{c\d`), so splitting on `}{` text is wrong. QLC+ cuts objects by brace
+depth outside strings (`VdjTelemetryClient::feed`). An object still open after
+1 MB (a snapshot is ~7 KB) drops the connection.
 
 ## Connection lifecycle (observed frame directions & sizes)
 
@@ -40,7 +39,26 @@ break at every `}{` boundary and parse each object. QLC+ does exactly this:
    **3560 bytes**, ~112 triggers).
 4. **Client → server**: VDJ streams `subscribed` value-updates and `beat` events
    (`…57522 → …8050`).
-5. On disconnect the server resets deck state and keeps listening; VDJ reconnects.
+5. On disconnect the server resets deck state, keeps listening and registers its
+   Bonjour service again, whichever side closed. Measured: after a server-side
+   close VDJ did not reconnect for 212 s, and reconnected ~0.3 s after the
+   service was registered again.
+
+QLC+ flushes pending outbound data, half-closes the socket's write side to send
+FIN, and drains incoming telemetry until the peer closes. One 250 ms deadline
+bounds the whole close, followed by `disconnectFromHost()` and deferred deletion.
+This applies when the input closes, its port changes, a client is replaced,
+the unfinished-object cap is exceeded, or the application exits. A plain Qt
+disconnect is insufficient: on macOS, closing with unread incoming data can
+produce a reset with either `disconnectFromHost()` or `abort()`. A peer that
+ignores FIN is released at the deadline; traffic after that bound can still meet
+a closed socket.
+
+Before the `subscribe` only beats arrive. A reconnecting VDJ first drains every
+beat it queued while disconnected (measured: 22,946 beats after 3 h, 11 minutes
+at 33/s), then sends the subscription snapshot. QLC+ forwards a connection's
+beats only after its first `subscribed` object; the ones before it are backlog
+(`plugins/vdjbridge/vdjtelemetryclient.cpp`).
 
 Message tally over a ~5-minute session: `subscribed` **193,367**, `beat` **587**,
 `subscribe` **1**, `unsubscribe` **1**.
@@ -59,14 +77,26 @@ A single JSON object, sent once on connect:
 | `frequency` | string | `"25"` (updates per second for continuous fields) |
 | `trigger`   | array  | **112 elements** = 26 distinct per-deck triggers × 4 decks + 8 globals |
 
-The per-deck triggers requested (each prefixed `deck N `, N=1–4):
+DMXDesktop requested (each prefixed `deck N `, N=1–4):
 `get_bpm, volume, play, get_key, get_title_artist, get_artist, get_title,
 get_album, get_genre, get_position, loaded, get_time, get_time total, eq_high,
 eq_med, eq_low, gain, get_filepath, level, get_vu_meter, get_time elapsed absolute,
-get_beatpos, get_firstbeat, loop, get_loop`, plus a **`loop_roll … ? constant … :`
-VDJScript ternary** (returns the active loop-roll size as one number).
+get_beatpos, get_firstbeat, loop, get_loop, masterdeck`.
 Globals: `master_volume, get_decks, crossfader, headphone_volume, masterdeck,
 get_crossfader_result full, mixer_order, get_vu_meter`.
+
+QLC+ subscribes only what it reads, **69 triggers** = 17 per deck × 4 + `get_decks`
+(`plugins/vdjbridge/vdjtelemetryclient.cpp`), in this order:
+`get_filepath, loaded, get_time, get_time elapsed absolute, get_beatpos,
+get_title, get_artist, get_title_artist, get_album, get_genre, get_bpm, get_key,
+get_firstbeat, get_time total, play, volume, masterdeck` (the per-deck master
+flag; at a handover the old master sends `off` and the new one `on` in the same
+tick). `get_title_artist`, `get_album`, `get_genre` and `get_firstbeat` are read
+only as "this file's fields arrived" (`qmlui/djfsm.cpp`). Not subscribed, since
+nothing reads them: `get_position, get_vu_meter, level, eq_high, eq_med, eq_low,
+gain, loop, get_loop` and the globals `master_volume, crossfader,
+headphone_volume, masterdeck, get_crossfader_result full, mixer_order,
+get_vu_meter`. The tables below keep their measured types.
 
 ## Client → server: streamed frames
 
@@ -127,6 +157,15 @@ Real sample from the capture (note field order and that `pos` can be `-1`,
 | `get_time total`   | int       | **milliseconds** total track length (298,525 … 360,262) |
 | `loaded` / `play`  | string    | **`"on"` / `"off"`** |
 
+Every trigger is a delta against the value VDJ last sent for it, across ejects.
+An eject (measured) is one write: `get_position` 0 (when the deck had moved),
+the placeholder title, `get_bpm` 120, `loaded off`, and `play off` after it when
+the deck was playing; no empty `get_filepath`. Loading the same file again sends
+only what the eject changed: `get_title`, `get_bpm`, `loaded on` (no
+`get_filepath`, artist, key or total). A next song that shares a field with the
+ejected one (artist, or a bpm of 120) does not get it resent either. QLC+ keeps
+the last values per deck across the eject (`qmlui/djfsm.cpp`).
+
 ### Per-deck — EQ / mixer / loop
 
 | Trigger                 | JSON type | Observed | Meaning |
@@ -142,7 +181,7 @@ Real sample from the capture (note field order and that `pos` can be `-1`,
 | Trigger                      | JSON type | Observed | Meaning |
 |------------------------------|-----------|----------|---------|
 | `get_decks`                  | int       | **2**    | **Real deck count** (see below) |
-| `masterdeck`                 | string    | `"on"`/`"off"` | **`on` ⇒ deck 1 is master, `off` ⇒ deck 2.** NOT an int index |
+| `masterdeck`                 | string    | `"on"`/`"off"` | the master flag of VDJ's **default deck** (the deck last loaded/unloaded). Not a deck index, not "deck 1 is master": QLC+ ignores it and subscribes the per-deck `deck N masterdeck` instead |
 | `master_volume`              | number    | 1        | master volume 0–1 |
 | `crossfader`                 | float     | —        | crossfader 0–1 |
 | `get_crossfader_result full` | float     | 0 … 0.92 | effective crossfader blend |
@@ -153,9 +192,10 @@ Real sample from the capture (note field order and that `pos` can be `-1`,
 ## Deck count & phantom decks (important)
 
 VDJ always streams **4 decks**, but in a 2-deck configuration **decks 3 & 4 are
-phantom mirrors** of decks 1 & 2 — VDJ sends *cloned* `get_filepath`/`get_title`/…
-for them. The authoritative real count is the **`get_decks`** global (value `2` in
-the capture).
+phantom copies of VDJ's default deck** (the deck last targeted by a load or
+unload, deck 1 at startup): VDJ sends *cloned* `get_filepath`/`get_title`/… and
+`masterdeck on` for them. The authoritative real count is the **`get_decks`**
+global (value `2` in the capture).
 
 **Rule:** treat `get_decks` as the number of real decks and ignore any deck beyond
 it. This is how the real DMXDesktop avoids showing cloned decks. QLC+ drives its
@@ -217,3 +257,10 @@ tcpdump -r "$PCAP" -A | grep -oaE '\{"message":"[a-z]+"[^}]*\}' | sort | uniq -c
 
 - **Service type**: `_os2l._tcp`, **Domain**: `local.`, **Port**: the TCP server port (8050).
 - macOS: native `dns_sd.h` (`DNSServiceRegister`). Elsewhere: manual IP:port in VDJ.
+- The OS2L plugin registers the same service type (`QLC+`, port 9996). With both
+  inputs open QLC+ advertises two `_os2l._tcp` services, and VDJ connects to one
+  of them by registration order: open only the input VDJ should talk to, or turn
+  Bonjour off in the other plugin's configuration.
+- A registration that fails (or that mDNSResponder later reports as failed)
+  releases its `DNSServiceRef`; the VDJ Bridge shows the reason in its
+  configuration status and input info.

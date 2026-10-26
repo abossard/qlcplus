@@ -4,6 +4,40 @@ The MCP authoring tools inspect and repair lighting functions without replacing
 unrelated configuration. Read the registered input and output schemas through
 `tools/list` before constructing a request.
 
+## Live performance control
+
+These v5 tools use the application's existing DJ, recorder and VC entry points.
+They can affect live output. Authorizing project authoring alone does not
+authorize their use.
+
+| Tool | Arguments | Result |
+|------|-----------|--------|
+| `set_perform_mode` | `on`: boolean | DJ state after the DJ Manager's Perform toggle |
+| `get_dj_state` | none | `performMode`, `performState`, `activeShowId`, `activeDeck`, `decks` |
+| `set_recording` | `on`: boolean | Shared recorder state after arming or disarming |
+| `get_recording_state` | none | `recording`, `phase`, `boundShowId`, `lastError` |
+| `press_vc_widget` | `widget`: numeric button ID, `action`: `press`, `release`, or `toggle` | Input acceptance, widget ID and action |
+| `quit_app` | optional `discard`: boolean, default false | Queued application exit |
+
+DJ state names come from Perform and the deck FSM. Each deck reports `deck`
+(1-based), `state`, `filepath`, `title`, `artist`, `bpm`, and `elapsedMs`.
+`activeDeck` is 0 without an active deck; unresolved Show IDs are null.
+Recorder `phase` is the same display name as REC. Arming without a Show waits
+for one; arming never starts transport. Failed disarming returns an `error`
+alongside the actual recorder state and keeps the take intact.
+
+VC input uses `VCButton::requestUserStateChange`, not function-start commands
+or recorded-state injection, so REC sees the same input as a mouse.
+`press` activates once; `release` releases Flash and FreezeHold and does nothing
+to latched buttons; `toggle` flips the current button state. Disabled, hidden,
+non-button or unbound function buttons are refused. VC edit mode refuses input,
+except a FreezeHold release, which must remain possible after entering edit
+mode. Acceptance is not proof that pending replay-dependent work has executed.
+
+`quit_app` refuses a modified workspace or armed REC unless `discard` is true.
+It queues the same `App::exit` path as the UI; the MCP connection closes on exit.
+It does not save the workspace or launch or restart another instance.
+
 ## Compatibility changes
 
 Batch authoring results now have one terminal record per input item, in input

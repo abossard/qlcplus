@@ -144,11 +144,15 @@ before, and a document without `Order` uses its file order. Unsupported
 versions/actions and invalid values, including `Order` on only some commands or
 used twice, are errors; they must not load as an empty successful track.
 Both edges of a saved hold share one `Pair` identity and keep separate event
-IDs. The loader rejects orphan or mismatched pairs.
+IDs. A track holds whole holds only: a Show refuses a press without its
+release, and loading drops an orphan, mismatched, overlapping or unclosed pair
+with a warning and keeps the rest of the track. A hold the performer still
+holds is not in the track yet (see Live input while recording).
 
 Edit XML only while the workspace is closed or saved elsewhere. Keep the target
 function definitions in the same workspace. A function reference does not freeze
-that function's definition.
+that function's definition. A stored command whose target function is deleted
+later stays and blocks nothing else; a new or changed command needs its target.
 
 ## Position changes
 
@@ -158,8 +162,9 @@ not guess which caused the new position.
 
 Moving the cursor while paused or stopped applies nothing. The earlier prefix
 catch-up (replaying everything from 0 on Play or seek) and the legacy seek value
-restore are superseded by correction C1 (2026-10-02). Position changes follow
-three rules, for every recording kind:
+restore are superseded (2026-10-02). Position changes follow three rules, for
+every recording kind. Nothing knows about loops: a VirtualDJ loop wrap is a
+backward move like any other.
 
 - **Forward:** a requested forward seek plays the commands from the current
   position to the destination once, in stored order, through native controls;
@@ -168,12 +173,13 @@ three rules, for every recording kind:
   stay. A forward external clock jump plays the same crossed interval.
 - **Backward** (requested seek, backward external clock jump, a VirtualDJ loop
   wrap, a seek to 0): nothing before the destination is replayed. What this
-  traversal's own timeline operations (replayed events and REC captures)
-  changed after the destination returns to its native state before the first
-  of those changes, as one delta, Offs before Ons; native couplings follow
-  (Solo Frame, Collection). Controls changed outside the timeline keep their
-  state, and win in their Solo Frame. Commands at the destination play again.
-  Live marks of the previous pass are cleared.
+  traversal's replayed events changed after the destination returns to its
+  native state before the first of those changes, as one delta, Offs before
+  Ons; native couplings follow (Solo Frame, Collection). Live input, recorded
+  or not, is not replay: the performer's own actions keep their state, and win
+  in their Solo Frame. Commands at the destination play again. Live marks of
+  the previous pass are cleared; input accepted after the move, also before
+  the runner's next tick, belongs to the next pass.
 - **Play from T:** nothing before T is dispatched; commands at T play once.
   Under an external clock, T is the earliest sample set after Play (a value
   present before Play is ignored); VirtualDJ Perform sets the deck position
@@ -217,8 +223,15 @@ attribute value from immediately before playback asserted it, not the value
 from the original take.
 
 The direction of a requested seek is decided when it is requested, against the
-position the runtime last reported. Ordinary function clips retain their native
-seek behavior. External clock updates are not explicit VirtualDJ seek intent.
+position the runtime last reported. External clock updates are not explicit
+VirtualDJ seek intent.
+
+A seek of either direction keeps a Scene running when one of its clips is
+active at the destination and this Show still runs it: a Scene's output does
+not read its elapsed time once its faders exist. Every other running clip
+stops and starts again at its offset, as before, since Chasers, Sequences,
+nested Shows, Collections, RGB Matrices, Scripts, EFX, Audio and Video hold
+a position of their own. Beat clips are judged on the clock that plays them.
 
 ## Recording and editing
 
@@ -432,12 +445,19 @@ Recording Cut and keyboard drag/drop placement are not implemented.
 
 The Show Manager, DJ view and Virtual Console share one Record switch, which
 shows the take's Show and whether it is playing, pausing, paused or stopped.
-Record arms capture only; it never plays, pauses or seeks. REC waits for a Show
-if none has resolved yet, then binds the first resolved Show, such as the first
-one selected in the Show Manager. When Perform resolves another Show, the
-take on the previous one closes and REC continues on the new one; if the previous
-take cannot be saved, REC turns off and displays why. While a take is bound, the
-Show Manager keeps its Show selected.
+Record arms capture only; it never plays, pauses, stops or seeks, and turning it
+off leaves playback as it is: a Show it kept playing past its end plays on until
+stopped. REC waits for a Show if none has resolved yet, then binds the first
+resolved Show. While Perform is engaged only Perform resolves the Show,
+otherwise the Show Manager selection does. When Perform resolves another Show,
+or turns off while the selection is another Show, the take on the previous one
+closes and REC continues on the new one; if the previous take cannot be saved,
+REC turns off and displays why. While a take is bound, the Show Manager keeps its
+Show selected. Deleting the take's Show leaves REC waiting for a Show, says why
+and drops the input the Show had not stored. A Show that comes back (undo of
+its deletion) is no selection by itself: REC binds it again once its source
+resolves it again, Perform through the song index, the Show Manager when the
+user shows it.
 
 Toggle buttons, including those in Solo Frames, record their desired On/Off
 state. Flash buttons, slider flash and FreezeHold record paired press/release
@@ -493,25 +513,79 @@ Played Blackout/Freeze edits remain data-only until the next recorded change,
 accepted position boundary or Stop. An event moved from behind to ahead of it plays again
 when reached. Work the Show already reached, queued or is still settling finishes
 as it was accepted, and no edit seeks or replays earlier events. Recording goes
-on during an edit and only ever adds; the input played live is not played again
+on during an edit and removes only what live input replaced; the input played live is not played again
 at its captured time, but an event moved elsewhere plays there. Each edit is one
 undo step of its Show that restores only its own events and refuses if they
 changed since; Undo and Redo keep events recorded meanwhile and do not replay
 earlier lighting actions. Active-hold cleanup still applies. While Perform drives the Show,
 Undo and Redo apply only when the next step is a recorded-event edit of the
-shown Show; any other step is refused and stays where it is. To replace a
-passage, delete it and record again; there is no punch-in. The end of the Show follows its last
+shown Show; any other step is refused and stays where it is. Live input
+replaces what it touches while REC records (see below); there is no other
+punch-in. The end of the Show follows its last
 retained command or clip. Visible rows follow renamed, rebound, enabled/disabled or removed
 controls and renamed functions. Editor steps are not sent to connected
 network clients. The workspace Save
 operation stores the track with its Show, including input accepted until the
-save, while REC and playback continue. An open hold gets a temporary release
-in the saved snapshot at save time; live authoring keeps the same open pair.
-REC-off closes the authored pair at that time, leaves the physical hold active
-and does not record its later release. The saved end is the last recorded
+save, while REC and playback continue. A hold still held is written up to the
+save time in the saved snapshot and goes on being recorded; an autosave writes
+the recording without it. REC off records the hold up to that time, leaves
+the physical hold active and does not record its later release. The saved end is the last recorded
 command or clip; time spent with REC armed is not saved. If the recording
 cannot be stored, the save fails and keeps it. New, Open and Exit ask to save or
 discard while REC is armed, even without other unsaved changes.
+
+### Live input while recording
+
+While REC records into the Show, live input works as it does with REC off and
+is recorded, and on a later pass it replaces what was recorded for that
+control for the time it is touched. A touch belongs to the control, whatever
+action records it, and to the take and pass it was made in; a touch while
+the Show is stopped belongs to no pass. Replay of a touched control is
+skipped and its live request never waits behind that replay.
+
+- A Flash button, slider flash or FreezeHold is touched from its press to its
+  release; a press on a control already held live records nothing. The hold
+  enters the track whole when it ends, and replaces what was recorded for that
+  control in its time: a recorded hold on at the press ends there, its edges
+  inside go, and one still on at the release starts again there. Nothing
+  outside the hold is removed, and no hold of no time is cut off. Until it
+  ends, the hold is in no track, the Recordings lane included, and the
+  recorded values it goes over are only not played: they leave the track
+  with the hold, so a save during the hold keeps them.
+- A hold belongs to the take it was pressed in. Its release ends it as the
+  release is accepted, before it waits behind any replay, whether REC records
+  the release or not: a release while REC is off, from a script, or after its
+  Show was deleted records nothing, removes nothing the hold went over, and
+  nothing of that hold reaches a later take. When REC goes on recording the
+  Show into a new take, as when switching between the Show Manager and
+  Perform, a hold still held goes on from its press. Held controls follow
+  accepted input order, even while native execution waits: a queued press
+  carries into the new take, and a queued release cannot reopen a hold there.
+  Native output, release and rollback keep their separate executed ownership.
+  A new workspace drops every hold.
+- A recorded value of a control is replaced, and removed from the track,
+  when the performer moved that control since its previous recorded value in
+  this pass. A press or release of a hold is no move: a hold owns only the
+  time from its press to its release.
+- REC turning on while a hold is held starts a live hold there, and REC
+  turning off ends it there: only what happens while REC records replaces
+  anything.
+- A hold still held when the position moves back is recorded up to the
+  departure and goes on from the arrival, so the file keeps its press before
+  its release and the native hold is not touched. A release after a move back
+  was asked for, before it lands, ends the hold at the departure.
+- On the next pass every recorded event replays, the live ones included;
+  controls nobody touched replay their recording exactly. In the pass a hold
+  was played live its release turns the control off; a recorded hold it
+  resumed plays from the next pass. With REC off, live input holds until the
+  next recorded change, as before.
+
+Known limits: a hold that spans a wrap replays with its release at the
+departure and its press at the arrival, so on later passes the control can
+be off for up to one clock sample at the wrap. Two clock samples in one
+engine tick, back and then forward, end a traversal that the runner then
+continues. A control removed while held and back with its identity in the
+same take (undo, cut and paste) goes on with that hold from its first press.
 
 Recording is not an undo history of raw widget changes. Programmatic changes and
 audio mappings do not create events, and a recorded Collection launch does not

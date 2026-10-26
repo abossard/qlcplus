@@ -23,26 +23,26 @@ private slots:
 
     // DjSongModel
     void modelUpsertAddsAndDedupsByFilepath();
-    void modelSetAndClearShow();
+    void modelReadsTheShowFromTheIndex();
     void modelActiveAndPlayingFlags();
 
     // DjManager orchestration
     void songChangeAddsOneEntryAndAssignsExistingShow();
     void repeatedSongChangeDoesNotRecreateShow();
+    void songChangeCreatesShowWhenNoneExists_data();
     void songChangeCreatesShowWhenNoneExists();
     void metadataFirstReloadDoesNotCorruptPreviousRow();
-    void clearShowSurvivesUnrelatedFunctionAdd();
     void removedShowUnassignsButKeepsRow();
 
     // Per-song actions
     void createShowAction();
-    void assignAndClearShowAction();
+    void assignShowAction();
     void loadShowEmitsRequest();
 
     // Perform mode
     void performModeDelegatesToBridge();
     void performModeGatesAutoPlay();
-    void performOffPausesRunningShow();
+    void performOffStopsRunningShow();
     void performLoadsAndSwitchesActiveShow();
     void externalPositionSyncDrivesShowWhenPerforming();
     void performShowsActiveShowInShowManager();
@@ -53,7 +53,18 @@ private slots:
     void deckTablePositionReflectsActiveDeck();
     void getDecksDrivesDeckCount();
     void deckCountSettingLimitsTable();
-    void masterDeckOnOffMapsToActiveDeck();
+    void perDeckMasterdeckSetsActiveDeck();
+
+    // Show creation and the index
+    void newShowWinsAfterAWorkspaceLoad();
+    void playingASongModifiesTheWorkspace();
+    void emptyArtistReachesTheRow();
+    void newShowBecomesTheSongsShow();
+    void deletedAssignedShowUnassignsTheRow();
+    void workspaceLoadKeepsThePlayingSong_data();
+    void workspaceLoadKeepsThePlayingSong();
+    void twoDecksWithOneSongBuildOneShow();
+    void liveWorkspaceClearKeepsPerformOffTheRecycledId();
 
 private:
     Doc *m_doc = nullptr;

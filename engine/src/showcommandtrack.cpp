@@ -20,6 +20,7 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QLocale>
+#include <QDebug>
 #include <QHash>
 #include <algorithm>
 #include <cmath>
@@ -462,64 +463,67 @@ namespace
         return pending;
     }
 
-    bool isMomentaryHoldRole(ShowControlRole role)
+    /** One hold pair: the indices of its press and release, -1 when absent */
+    struct HoldPair
     {
-        return role == ShowControlRole::FlashButton || role == ShowControlRole::FreezeHoldButton ||
-               role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
-               role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
-    }
+        quint32 id = ShowCommand::InvalidId;
+        int press = -1;
+        int release = -1;
+        bool broken = false;
+    };
 
-    quint32 nextPairId(const ShowCommandTrack &track)
+    /** Every hold pair in the order its first edge appears. A pair is broken
+     *  unless it is one press, then at most one release, of one control and role. */
+    QVector<HoldPair> holdPairs(const QVector<ShowCommand> &commands)
     {
-        quint32 top = 0;
-        for (const ShowCommand &cmd : track.commands())
+        QVector<HoldPair> pairs;
+        QHash<quint32, int> slot;
+        for (int i = 0; i < commands.count(); ++i)
         {
-            if (cmd.pairId != ShowCommand::InvalidId)
-                top = qMax(top, cmd.pairId);
-        }
-        if (top == std::numeric_limits<quint32>::max())
-            return ShowCommand::InvalidId;
-        return top + 1;
-    }
-
-    quint32 activePairId(const ShowCommandTrack &track, const QUuid &controlId, ShowControlRole role)
-    {
-        quint32 open = ShowCommand::InvalidId;
-        for (const ShowCommand &cmd : track.commands())
-        {
-            if (cmd.action != ShowCommandAction::SetButtonState || cmd.role != role || cmd.controlId != controlId ||
-                cmd.pairId == ShowCommand::InvalidId)
+            const ShowCommand &cmd = commands.at(i);
+            if (cmd.action != ShowCommandAction::SetButtonState || cmd.pairId == ShowCommand::InvalidId)
+                continue;
+            if (!slot.contains(cmd.pairId))
             {
+                slot.insert(cmd.pairId, pairs.count());
+                pairs.append(HoldPair{cmd.pairId});
+            }
+            HoldPair &pair = pairs[slot.value(cmd.pairId)];
+            const int first = pair.press >= 0 ? pair.press : pair.release;
+            if (first >= 0 && (commands.at(first).controlId != cmd.controlId || commands.at(first).role != cmd.role))
+                pair.broken = true;
+            if (cmd.on ? pair.press >= 0 || pair.release >= 0 : pair.press < 0 || pair.release >= 0)
+                pair.broken = true;
+            (cmd.on ? pair.press : pair.release) = i;
+        }
+        return pairs;
+    }
+
+    /** The ids of the pairs breaking the invariant, the earliest pairs kept */
+    QVector<quint32> malformedPairs(const QVector<ShowCommand> &commands, const QVector<HoldPair> &pairs)
+    {
+        // the release of the last pair kept on one control and role
+        QHash<QPair<QUuid, int>, int> lastRelease;
+        QVector<quint32> malformed;
+        for (const HoldPair &pair : pairs)
+        {
+            if (pair.broken || pair.release < 0)
+            {
+                malformed.append(pair.id);
                 continue;
             }
-            if (cmd.on)
-                open = cmd.pairId;
-            else if (open == cmd.pairId)
-                open = ShowCommand::InvalidId;
-        }
-        return open;
-    }
-
-    QString validatePairedHoldStructure(const ShowCommandTrack &track)
-    {
-        QHash<quint32, QVector<const ShowCommand *>> edgesByPair;
-        for (const ShowCommand &cmd : track.commands())
-        {
-            if (cmd.action == ShowCommandAction::SetButtonState && cmd.pairId != ShowCommand::InvalidId)
-                edgesByPair[cmd.pairId].append(&cmd);
-        }
-
-        for (auto it = edgesByPair.cbegin(); it != edgesByPair.cend(); ++it)
-        {
-            const QVector<const ShowCommand *> edges = it.value();
-            if (edges.count() != 2 || edges.at(0)->controlId != edges.at(1)->controlId ||
-                edges.at(0)->role != edges.at(1)->role || edges.at(0)->on == edges.at(1)->on)
+            const ShowCommand &press = commands.at(pair.press);
+            const QPair<QUuid, int> lane = qMakePair(press.controlId, int(press.role));
+            if (lastRelease.value(lane, -1) >= pair.press)
             {
-                return QStringLiteral("malformed hold pair '%1'").arg(it.key());
+                malformed.append(pair.id);
+                continue;
             }
+            lastRelease.insert(lane, pair.release);
         }
-        return QString();
+        return malformed;
     }
+
 }
 
 /************************************************************************
@@ -1183,6 +1187,13 @@ bool ShowCommand::hasTypedPayload(ShowCommandAction action)
            action <= ShowCommandAction::SetSliderChannel;
 }
 
+bool ShowCommand::isHoldRole(ShowControlRole role)
+{
+    return role == ShowControlRole::FlashButton || role == ShowControlRole::FreezeHoldButton ||
+           role == ShowControlRole::LevelSlider || role == ShowControlRole::AdjustSlider ||
+           role == ShowControlRole::SubmasterSlider || role == ShowControlRole::GrandMasterSlider;
+}
+
 bool ShowCommand::isControlAction(ShowCommandAction action)
 {
     return action >= ShowCommandAction::SetButtonState &&
@@ -1341,12 +1352,29 @@ quint32 ShowCommandTrack::nextOrder() const
     return m_nextOrder;
 }
 
-void ShowCommandTrack::reserve(quint32 nextEventId, quint32 nextOrder)
+quint32 ShowCommandTrack::nextPairId() const
 {
-    if (m_nextEventId != ShowCommand::InvalidId && nextEventId > m_nextEventId)
-        m_nextEventId = nextEventId;
-    if (m_nextOrder != ShowCommand::InvalidId && nextOrder > m_nextOrder)
-        m_nextOrder = nextOrder;
+    return m_nextPairId;
+}
+
+bool ShowCommandTrack::reserve(const ShowCommandTrack &floor)
+{
+    const auto raise = [](quint32 &mark, quint32 to)
+    {
+        if (mark == ShowCommand::InvalidId || to <= mark)
+            return false;
+        mark = to;
+        return true;
+    };
+    const bool event = raise(m_nextEventId, floor.m_nextEventId);
+    const bool order = raise(m_nextOrder, floor.m_nextOrder);
+    const bool pair = raise(m_nextPairId, floor.m_nextPairId);
+    return event || order || pair;
+}
+
+QVector<quint32> ShowCommandTrack::malformedHoldPairs() const
+{
+    return malformedPairs(m_commands, holdPairs(m_commands));
 }
 
 bool ShowCommandTrack::place(const ShowCommand &original, QString *error)
@@ -1373,6 +1401,12 @@ bool ShowCommandTrack::place(const ShowCommand &original, QString *error)
         m_nextOrder = ShowCommand::InvalidId;
     else if (m_nextOrder != ShowCommand::InvalidId && cmd.order >= m_nextOrder)
         m_nextOrder = cmd.order + 1;
+    if (cmd.pairId == ShowCommand::InvalidId)
+        return succeed(error);
+    if (cmd.pairId >= ShowCommand::MaxTime)
+        m_nextPairId = ShowCommand::InvalidId;
+    else if (m_nextPairId != ShowCommand::InvalidId && cmd.pairId >= m_nextPairId)
+        m_nextPairId = cmd.pairId + 1;
     return succeed(error);
 }
 
@@ -1408,14 +1442,9 @@ bool ShowCommandTrack::replace(const ShowCommand &original, QString *error)
     if (!reason.isEmpty())
         return fail(error, reason);
 
+    // one way in for every command, so the high water marks see it
     ShowCommand replaced = cmd;
     replaced.order = m_commands.at(index).order;
-    if (m_commands.at(index).time == cmd.time)
-    {
-        m_commands[index] = replaced;
-        return succeed(error);
-    }
-
     const ShowCommand previous = m_commands.takeAt(index);
     if (place(replaced, error))
         return true;
@@ -1643,9 +1672,18 @@ bool ShowCommandTrack::loadXML(QXmlStreamReader &root, QString *error)
 
     if (root.hasError())
         return fail(error, root.errorString());
-    const QString pairError = validatePairedHoldStructure(parsed);
-    if (!pairError.isEmpty())
-        return fail(error, pairError);
+
+    // a bad pair costs only its own edges
+    const QVector<quint32> malformed = parsed.malformedHoldPairs();
+    const QSet<quint32> dropped(malformed.cbegin(), malformed.cend());
+    for (int i = parsed.m_commands.count() - 1; i >= 0; --i)
+    {
+        const ShowCommand &cmd = parsed.m_commands.at(i);
+        if (cmd.action != ShowCommandAction::SetButtonState || !dropped.contains(cmd.pairId))
+            continue;
+        qWarning() << "Command track: dropping event" << cmd.id << "of malformed hold pair" << cmd.pairId;
+        parsed.m_commands.remove(i);
+    }
 
     *this = parsed;
     return succeed(error);
@@ -1655,29 +1693,31 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
 {
     Q_ASSERT(doc != nullptr);
 
+    const QVector<ShowCommand> &commands = m_commands;
+
     // a track of function commands only keeps writing exactly the legacy document
-    const bool controlStates = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool controlStates = std::any_of(commands.cbegin(), commands.cend(),
                                            [](const ShowCommand &cmd)
                                            { return isControlAction(cmd.action); });
-    const bool requiresV4 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV4 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetSliderReset; });
-    const bool requiresV5 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV5 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetSliderColors; });
-    const bool requiresV6 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV6 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetXYPadPosition; });
-    const bool requiresV7 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV7 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetAnimationFader; });
-    const bool requiresV8 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV8 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return cmd.action == ShowCommandAction::SetXYPadFloor; });
-    const bool requiresV9 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV9 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         { return ShowCommand::hasTypedPayload(cmd.action); });
-    const bool requiresV3 = std::any_of(m_commands.cbegin(), m_commands.cend(),
+    const bool requiresV3 = std::any_of(commands.cbegin(), commands.cend(),
                                         [](const ShowCommand &cmd)
                                         {
                                             return cmd.pairId != ShowCommand::InvalidId ||
@@ -1701,10 +1741,10 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
     // orders the file order gives back on loading are not written, so such a
     // track keeps writing exactly the document it did before orders existed
     bool fileOrder = true;
-    for (int i = 0; i < m_commands.count(); i++)
-        fileOrder = fileOrder && m_commands.at(i).order == quint32(i);
+    for (int i = 0; i < commands.count(); i++)
+        fileOrder = fileOrder && commands.at(i).order == quint32(i);
 
-    for (const ShowCommand &cmd : m_commands)
+    for (const ShowCommand &cmd : commands)
     {
         doc->writeStartElement(KXMLShowCommand);
         doc->writeAttribute(KXMLShowCommandId, QString::number(cmd.id));
@@ -1763,52 +1803,122 @@ bool ShowCommandTrack::saveXML(QXmlStreamWriter *doc) const
  * ShowCommandState
  ***********************************************************************/
 
-ShowRecordPhase ShowCommandState::phase() const
+bool ShowCommandState::operator==(const ShowCommandState &other) const
+{
+    return playing == other.playing && position == other.position && consumedThrough == other.consumedThrough
+        && consumedLiveEventIds == other.consumedLiveEventIds;
+}
+
+/************************************************************************
+ * ShowRecordState
+ ***********************************************************************/
+
+quint32 ShowRecordState::resolvedShowId() const
+{
+    return perform ? *perform : manual;
+}
+
+ShowRecordPhase ShowRecordState::phase() const
 {
     if (!recording)
         return ShowRecordPhase::Off;
-
-    if (boundShowId == ShowCommand::InvalidId)
-        return ShowRecordPhase::Armed;
-
-    return boundShowId == resolvedShowId ? ShowRecordPhase::Bound : ShowRecordPhase::Suspended;
+    return resolvedShowId() == ShowCommand::InvalidId ? ShowRecordPhase::Armed : ShowRecordPhase::Bound;
 }
 
-bool ShowCommandState::operator==(const ShowCommandState &other) const
+quint32 ShowRecordState::boundShowId() const
 {
-    return recording == other.recording && playing == other.playing
-        && boundShowId == other.boundShowId && resolvedShowId == other.resolvedShowId
-        && position == other.position && consumedThrough == other.consumedThrough
-        && consumedLiveEventIds == other.consumedLiveEventIds;
+    return phase() == ShowRecordPhase::Bound ? resolvedShowId() : ShowCommand::InvalidId;
+}
+
+bool ShowRecordState::operator==(const ShowRecordState &other) const
+{
+    return recording == other.recording && manual == other.manual && perform == other.perform;
 }
 
 /************************************************************************
  * ShowCommandFsm
  ***********************************************************************/
 
-ShowCommandState ShowCommandFsm::setRecording(const ShowCommandState &state, bool on)
+ShowRecordTransition ShowCommandFsm::record(const ShowRecordState &state, const ShowRecordEvent &event,
+                                            bool checkpointSaved)
 {
-    ShowCommandState next = state;
-    next.recording = on;
+    using Kind = ShowRecordEvent::Kind;
+    using Effect = ShowRecordEffect::Kind;
+    ShowRecordTransition result;
+    result.state = state;
+    ShowRecordState &next = result.state;
+    const quint32 bound = state.boundShowId();
 
-    if (!on)
-        next.boundShowId = ShowCommand::InvalidId;
-    else if (!state.recording)
-        next.boundShowId = state.resolvedShowId; // arming with a show already resolved binds it
+    switch (event.kind)
+    {
+        case Kind::Rec:
+            next.recording = event.on;
+        break;
+        case Kind::Resolved:
+            if (event.source == ShowRecordSource::Perform)
+            {
+                next.perform = event.showId;
+            }
+            else if (bound != ShowCommand::InvalidId && event.showId != bound)
+            {
+                // a bound take keeps its Show selected, whoever resolved it
+                result.effects.append({ Effect::RefuseSelection });
+                return result;
+            }
+            else
+            {
+                next.manual = event.showId;
+            }
+        break;
+        case Kind::PerformEnded:
+            next.perform.reset();
+        break;
+        case Kind::Removed:
+            // a deleted Show is no selection: its source names one again
+            if (next.manual == event.showId)
+                next.manual = ShowCommand::InvalidId;
+            if (next.perform == event.showId)
+                next.perform = ShowCommand::InvalidId;
+            result.effects.append({ Effect::DropUnpublished, event.showId });
+        break;
+        case Kind::Discard:
+            next.recording = false;
+            next.manual = ShowCommand::InvalidId;
+            // Perform stays engaged, on nothing, until it says otherwise
+            if (next.perform)
+                next.perform = ShowCommand::InvalidId;
+            result.effects.append({ Effect::DropUnpublished });
+        break;
+    }
 
-    return next;
-}
+    // a take leaving its Show is saved first, unless the Show or the workspace is gone
+    const bool removedBound = event.kind == Kind::Removed && event.showId == bound;
+    if (bound != ShowCommand::InvalidId && next.boundShowId() != bound && removedBound == false &&
+        event.kind != Kind::Discard)
+    {
+        result.checkpoint = true;
+        if (checkpointSaved == false && event.kind == Kind::Rec)
+        {
+            // REC off keeps a take that cannot be saved
+            result.state = state;
+            result.effects = { { Effect::ReportFailure, bound } };
+            return result;
+        }
+        // the Show moved on: the take ends there, its accepted input kept
+        if (checkpointSaved == false)
+            next.recording = false;
+    }
 
-ShowCommandState ShowCommandFsm::setResolvedShow(const ShowCommandState &state, quint32 showId)
-{
-    ShowCommandState next = state;
-    next.resolvedShowId = showId;
-
-    // an armed recorder binds the first Show it sees and keeps it afterwards
-    if (state.recording && state.boundShowId == ShowCommand::InvalidId)
-        next.boundShowId = showId;
-
-    return next;
+    const quint32 nowBound = next.boundShowId();
+    if (bound != ShowCommand::InvalidId && nowBound != bound && removedBound == false)
+        result.effects.append({ Effect::SetCommandRecording, bound, false });
+    if (next.resolvedShowId() != state.resolvedShowId())
+        result.effects.append({ Effect::Track, next.resolvedShowId() });
+    if (nowBound != ShowCommand::InvalidId && nowBound != bound)
+        result.effects.append({ Effect::SetCommandRecording, nowBound, true });
+    if (removedBound || (result.checkpoint && checkpointSaved == false))
+        result.effects.append({ Effect::ReportFailure, bound });
+    return result;
 }
 
 ShowCommandState ShowCommandFsm::setPlaying(const ShowCommandState &state, bool playing)
@@ -1865,11 +1975,6 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     ShowCommandTransition result;
     result.state = state;
 
-    // only a bound recorder authors anything; a frozen transport records at its
-    // own position, a different resolved Show does not reach this track at all
-    if (state.phase() != ShowRecordPhase::Bound)
-        return result;
-
     if (!isUserOrigin(input.origin))
         return result;
 
@@ -1887,22 +1992,9 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     cmd.on = input.on;
     cmd.position = input.position;
 
-    if (cmd.action == ShowCommandAction::SetButtonState && isMomentaryHoldRole(cmd.role))
-    {
-        const quint32 openPair = activePairId(track, cmd.controlId, cmd.role);
-        if (cmd.on)
-        {
-            if (openPair != ShowCommand::InvalidId)
-                return result;
-            cmd.pairId = nextPairId(track);
-        }
-        else
-        {
-            if (openPair == ShowCommand::InvalidId)
-                return result;
-            cmd.pairId = openPair;
-        }
-    }
+    // a hold is recorded whole when it ends, by liveHold()
+    if (cmd.action == ShowCommandAction::SetButtonState && ShowCommand::isHoldRole(cmd.role))
+        return result;
 
     if (cmd.id == ShowCommand::InvalidId)
     {
@@ -1918,6 +2010,105 @@ ShowCommandTransition ShowCommandFsm::userInput(const ShowCommandTrack &track,
     result.authored.append(cmd);
     // the host already executed this input: mark that occurrence, leave the cursor alone
     result.state.consumedLiveEventIds.insert(cmd.id, liveMarkOf(cmd));
+    return result;
+}
+
+ShowCommandTransition ShowCommandFsm::liveHold(const ShowCommandTrack &track, const ShowCommandInput &hold,
+                                               quint32 from, quint32 to)
+{
+    ShowCommandTransition result;
+    to = qMax(from, to);
+    const QVector<ShowCommand> &commands = track.commands();
+    ShowCommandTrack held = track;
+    QVector<ShowCommand> atFrom, atTo, later;
+    // a recorded hold is on from its press until its release; one that overlaps [from, to]
+    // ends at from when it was on before, and starts again at to when it is still on there
+    for (const HoldPair &pair : holdPairs(commands))
+    {
+        if (pair.broken || pair.press < 0 || pair.release < 0)
+            continue;
+        const ShowCommand &on = commands.at(pair.press);
+        const ShowCommand &off = commands.at(pair.release);
+        if (on.controlId != hold.controlId || on.role != hold.role || off.time <= from || on.time > to)
+            continue;
+        result.removed.append(on.time < from ? off.id : on.id);
+        if (on.time < from)
+        {
+            ShowCommand cut = off;
+            cut.time = from;
+            atFrom.append(cut);
+        }
+        if (off.time > to)
+        {
+            ShowCommand again = on;
+            again.time = to;
+            if (on.time < from)
+            {
+                // the cut hold keeps its pair, the rest takes a new one
+                again.pairId = ShowCommand::InvalidId;
+                ShowCommand end = off;
+                end.pairId = ShowCommand::InvalidId;
+                later.append(end);
+            }
+            atTo.append(again);
+        }
+        else if (on.time >= from)
+            result.removed.append(off.id);
+    }
+    ShowCommand press;
+    press.time = from;
+    press.functionId = hold.functionId;
+    press.action = ShowCommandAction::SetButtonState;
+    press.intensity = hold.intensity;
+    press.controlId = hold.controlId;
+    press.role = hold.role;
+    press.attribute = hold.attribute;
+    press.payload = hold.payload;
+    press.on = true;
+    press.position = hold.position;
+    press.pairId = ShowCommand::InvalidId;
+    ShowCommand release = press;
+    release.time = to;
+    release.on = false;
+
+    // in this order at equal times: what ends at from, the live hold, what starts again at to
+    for (quint32 id : std::as_const(result.removed))
+        held.remove(id);
+    quint32 pairs = ShowCommand::InvalidId;
+    for (QVector<ShowCommand> *group : { &atFrom, &atTo, &later })
+    {
+        if (group == &atTo)
+        {
+            press.pairId = held.nextPairId();
+            release.pairId = press.pairId;
+            group->prepend(release);
+            group->prepend(press);
+        }
+        for (ShowCommand &cmd : *group)
+        {
+            // a press opening a new pair takes the next pair id, its release the same
+            if (cmd.pairId == ShowCommand::InvalidId)
+                cmd.pairId = cmd.on ? (pairs = held.nextPairId()) : pairs;
+            cmd.id = held.nextEventId();
+            if (cmd.id == ShowCommand::InvalidId || cmd.pairId == ShowCommand::InvalidId)
+            {
+                result = ShowCommandTransition();
+                result.error = cmd.id == ShowCommand::InvalidId ? QStringLiteral("no free event id left in this track")
+                                                                : QStringLiteral("no free hold pair id left in this track");
+                return result;
+            }
+            cmd = cmd.canonicalized();
+            result.error = ShowCommand::validate(cmd);
+            if (!result.error.isEmpty() || !held.insert(cmd, &result.error))
+            {
+                const QString error = result.error;
+                result = ShowCommandTransition();
+                result.error = error;
+                return result;
+            }
+            result.authored.append(cmd);
+        }
+    }
     return result;
 }
 
