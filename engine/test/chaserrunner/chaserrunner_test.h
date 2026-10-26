@@ -66,6 +66,16 @@ private slots:
     void writeBackwardPingPongFive();
     void writeNoAutoStep();
     void writeStartOffset();
+    void C2_childDuration_data();
+    void C2_childDuration();
+
+    void writeBeatsWhole();
+    void writeBeatsQuarterLocked();
+    void writeBeatsLateBeat();
+    void writeBeatsEarlyBeat();
+    void writeBeatsOneAndHalf();
+    void writeBeatsStartEarlyInBeat();
+    void writeBeatsStartLateInBeat();
 
     void adjustIntensity();
     void adjustMasterIntensityAcrossRunningCrossfadeSteps();

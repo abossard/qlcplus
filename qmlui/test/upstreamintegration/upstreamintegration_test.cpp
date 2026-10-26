@@ -162,6 +162,8 @@ private slots:
     void incomingDistribution();
     void incomingChaserTempo_data();
     void incomingChaserTempo();
+    void C3_beatEditing_data();
+    void C3_beatEditing();
     void incomingChaserCommonHistory_data();
     void incomingChaserCommonHistory();
     void incomingSettingsScroll_data();
@@ -6661,6 +6663,65 @@ void UpstreamIntegration_Test::incomingDeskBytes()
     const QVariantMap channel = model->itemAt(500).toMap();
     QCOMPARE(channel.value("chValue").toUInt(), overridden ? 91u : uint(value));
     QCOMPARE(channel.value("isOverride").toBool(), overridden);
+}
+
+void UpstreamIntegration_Test::C3_beatEditing_data()
+{
+    QTest::addColumn<QString>("input");
+    QTest::addColumn<int>("expected");
+    for (int numerator = 1; numerator < 32; ++numerator)
+        QTest::newRow(qPrintable(QString("sixteenths-%1").arg(numerator)))
+            << QString("%1/16").arg(numerator) << qRound(numerator * 62.5);
+    QTest::newRow("decimal") << QString("0.5") << 500;
+    QTest::newRow("comma-decimal") << QString("1,25") << 1250;
+    QTest::newRow("mixed-fraction") << QString("2 1/2") << 2500;
+    QTest::newRow("whitespace") << QString("  2   1/4  ") << 2250;
+    QTest::newRow("decimal-sixteenth") << QString("0.0625") << 63;
+    QTest::newRow("zero") << QString("0") << 0;
+    QTest::newRow("infinite") << QString::fromUtf8("∞") << -2;
+    QTest::newRow("invalid") << QString("invalid") << -1;
+    QTest::newRow("negative") << QString("-1") << -1;
+    QTest::newRow("zero-denominator") << QString("1/0") << -1;
+}
+
+void UpstreamIntegration_Test::C3_beatEditing()
+{
+    QFETCH(QString, input);
+    QFETCH(int, expected);
+    QSignalSpy warnings(m_app->engine(), &QQmlEngine::warnings);
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/TimeEditTool.qml"));
+    std::unique_ptr<QObject> tool(component.create());
+    QVERIFY2(tool, qPrintable(component.errorString()));
+    tool->setProperty("allowFractions", Function::FineFractions);
+    tool->setProperty("tempoType", Function::Beats);
+    QVERIFY(QMetaObject::invokeMethod(tool.get(), "updateTime",
+        Q_ARG(QVariant, 500), Q_ARG(QVariant, QString())));
+    QSignalSpy changed(tool.get(), SIGNAL(valueChanged(int)));
+    QVERIFY(QMetaObject::invokeMethod(tool.get(), "updateTime",
+        Q_ARG(QVariant, -1), Q_ARG(QVariant, input)));
+    QCOMPARE(tool->property("timeValue").toInt(), expected == -1 ? 500 : expected);
+    QCOMPARE(changed.count(), expected == -1 ? 0 : 1);
+    if (expected > 0)
+    {
+        const QString formatted = tool->property("timeValueString").toString();
+        QCOMPARE(formatted, formatted.trimmed());
+        tool->setProperty("timeValue", 0);
+        QVERIFY(QMetaObject::invokeMethod(tool.get(), "applyBeatValue"));
+        QCOMPARE(tool->property("timeValue").toInt(), expected);
+        QVERIFY(QMetaObject::invokeMethod(tool.get(), "updateTime",
+            Q_ARG(QVariant, 0), Q_ARG(QVariant, QString())));
+        QVERIFY(QMetaObject::invokeMethod(tool.get(), "updateTime",
+            Q_ARG(QVariant, -1), Q_ARG(QVariant, formatted)));
+        QCOMPARE(tool->property("timeValue").toInt(), expected);
+    }
+    else if (expected == -2)
+    {
+        tool->setProperty("beatCount", 3);
+        tool->setProperty("subdivIdx", 4);
+        QVERIFY(QMetaObject::invokeMethod(tool.get(), "applyBeatValue"));
+        QCOMPARE(tool->property("timeValue").toInt(), 188);
+    }
+    QCOMPARE(warnings.count(), 0);
 }
 
 void UpstreamIntegration_Test::incomingDistribution_data()

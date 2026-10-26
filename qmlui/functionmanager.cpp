@@ -497,6 +497,16 @@ quint32 FunctionManager::createAudioVideoFunction(int type, QStringList fileList
     return addFunctiontoDoc(f, name, true);
 }
 
+quint32 FunctionManager::musicalBeatValue(int count, int subdivision) const
+{
+    return Function::musicalBeatValue(count, subdivision);
+}
+
+QPoint FunctionManager::beatValueToMusicalPoint(int value) const
+{
+    return Function::beatValueToMusicalPoint(value);
+}
+
 Function *FunctionManager::getFunction(quint32 id)
 {
     return m_doc->function(id);

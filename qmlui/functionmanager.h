@@ -88,6 +88,8 @@ public:
     QVariant functionsList();
 
     Q_INVOKABLE quint32 nextFunctionId() const;
+    Q_INVOKABLE quint32 musicalBeatValue(int count, int subdivision) const;
+    Q_INVOKABLE QPoint beatValueToMusicalPoint(int value) const;
 
     /** Get a list of Functions that use $fid */
     Q_INVOKABLE QVariantList usageList(quint32 fid);

@@ -156,53 +156,37 @@ function qlcStringToTime(str, type)
     }
     else if (type === 1 /* Function.Beats */)
     {
-        var tokens = str.split(" ");
+        // accepted formats: "2", "1/4", "2 1/2", "0.5", "1,25"
+        var beats = 0;
+        var tokens = str.trim().split(/\s+/);
 
-        // Handle fraction-only input like "14/16", "3/4", "1/16" (no whole part).
-        // parseInt("1/16") returns 1, which would mis-parse the fraction as a whole beat.
-        if (tokens[0].indexOf("/") >= 0)
+        for (var t = 0; t < tokens.length; t++)
         {
-            var fParts = tokens[0].split("/");
-            var fNum = parseInt(fParts[0]);
-            var fDen = parseInt(fParts[1]);
-            if (!isNaN(fNum) && fNum >= 0 && !isNaN(fDen)
-                && (fDen === 1 || fDen === 2 || fDen === 4 || fDen === 8 || fDen === 16))
+            var token = tokens[t].replace(",", ".");
+            if (token === "") continue;
+
+            var slashIdx = token.indexOf("/");
+            if (slashIdx !== -1)
             {
-                var sixteenths = fNum * (16 / fDen);
-                var wholeBeats = Math.floor(sixteenths / 16);
-                var remSixteenths = sixteenths - (wholeBeats * 16);
-                // ms-per-sixteenth table (matches the ladder below: round(n * 62.5))
-                var subBeatMs = [0, 63, 125, 188, 250, 313, 375, 438,
-                                 500, 563, 625, 688, 750, 813, 875, 938];
-                return wholeBeats * 1000 + subBeatMs[remSixteenths];
+                var num = parseFloat(token.substring(0, slashIdx));
+                var den = parseFloat(token.substring(slashIdx + 1));
+                if (isFinite(num) && num >= 0 && isFinite(den) && den > 0)
+                    beats += num / den;
+                else
+                    return NaN;
             }
-            return NaN;
+            else
+            {
+                var val = parseFloat(token);
+                if (isFinite(val) && val >= 0)
+                    beats += val;
+                else
+                    return NaN;
+            }
         }
 
-        var wholePart = parseInt(tokens[0]);
-        if (isNaN(wholePart) || wholePart < 0)
-            return NaN;
-        finalTime = wholePart * 1000;
-
-        if (tokens.length > 1)
-        {
-            var frac = tokens[1];
-            if (frac === "1/16") { finalTime += 63; }
-            else if (frac === "1/8") { finalTime += 125; }
-            else if (frac === "3/16") { finalTime += 188; }
-            else if (frac === "1/4") { finalTime += 250; }
-            else if (frac === "5/16") { finalTime += 313; }
-            else if (frac === "3/8") { finalTime += 375; }
-            else if (frac === "7/16") { finalTime += 438; }
-            else if (frac === "1/2") { finalTime += 500; }
-            else if (frac === "9/16") { finalTime += 563; }
-            else if (frac === "5/8") { finalTime += 625; }
-            else if (frac === "11/16") { finalTime += 688; }
-            else if (frac === "3/4") { finalTime += 750; }
-            else if (frac === "13/16") { finalTime += 813; }
-            else if (frac === "7/8") { finalTime += 875; }
-            else if (frac === "15/16") { finalTime += 938; }
-        }
+        // Preserve the fork's sixteenth grid, rounded to integer beat units.
+        finalTime = Math.round(Math.round(beats * 16) * 62.5);
     }
 
     return finalTime;
@@ -292,6 +276,8 @@ function timeToQlcString(value, type)
         else if (value === 875) { timeString += " 7/8"; }
         else if (value === 938) { timeString += " 15/16"; }
         else if (value > 0) { timeString += " " + value; } // off-grid fallback
+
+        timeString = timeString.trim();
     }
 
     //console.log("Final time string: " + timeString)

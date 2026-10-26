@@ -86,7 +86,7 @@ GridLayout
             subdivIdx = maxSubdivIdx
         _suppressBeatsSync = true
         var subdiv = [1, 2, 4, 8, 16][subdivIdx]
-        var v = QLCFunction.musicalBeatValue(beatCount, subdiv)
+        var v = functionManager.musicalBeatValue(beatCount, subdiv)
         updateTime(v, "")
         _suppressBeatsSync = false
     }
@@ -95,7 +95,7 @@ GridLayout
     {
         if (v <= 0)
             return { count: 1, idx: subdivIdx }
-        var pt = QLCFunction.beatValueToMusicalPoint(v)
+        var pt = functionManager.beatValueToMusicalPoint(v)
         if (pt.x > 0 && pt.y > 0)
         {
             // Map subdivision value to index: 1→0, 2→1, 4→2, 8→3, 16→4
@@ -159,8 +159,7 @@ GridLayout
         speedType = tType
         timeValueString = tStrValue
         timeValue = TimeUtils.qlcStringToTime(timeValueString, tempoType)
-        if (allowFractions !== QLCFunction.NoFractions)
-            currentFraction = (timeValue % 1000)
+        updateFraction()
 
         if (tX >= 0)
             x = tX
@@ -175,12 +174,18 @@ GridLayout
         timeBox.selectAndFocus()
     }
 
+    function updateFraction()
+    {
+        currentFraction = (allowFractions !== QLCFunction.NoFractions && timeValue > 0) ? timeValue % 1000 : 0
+    }
+
     function updateTime(value, string)
     {
         if (value !== -1 && value !== timeValue)
         {
             timeValue = value
             timeValueString = TimeUtils.timeToQlcString(timeValue, tempoType)
+            updateFraction()
             toolRoot.valueChanged(timeValue)
         }
         if (string !== "" && string !== timeValueString)
@@ -194,6 +199,7 @@ GridLayout
             }
             timeValue = parsed
             timeValueString = TimeUtils.timeToQlcString(timeValue, tempoType)
+            updateFraction()
             toolRoot.valueChanged(timeValue)
         }
     }

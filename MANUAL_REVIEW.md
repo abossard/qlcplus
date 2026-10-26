@@ -2699,3 +2699,80 @@ python3 build/upstream-integration-20261025/run-tests.py
 - Conflict seams retain the cached first FadeChannel index while adopting upstream resolved-address semantics, guard and release old VC projections while preserving fork QML contexts, retain fork selection/authoring admission, and combine upstream frame/color live actions with fork editor history and recording. Linux package installation keeps the fork's Qt6/MCP architecture matrix and dependency verification while adding upstream mirror retries.
 - Workflow YAML parses and every shell run block passes `bash -n`. Linux CI/package execution, v4, Windows, physical DMX, Android document providers, Tardis peers and native desktop focus are not verified by this macOS/offscreen run.
 - Review parser tests: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `49 passed`, exit `0`. Both native-canvas and TypeScript parsers recognize six new cases and eleven unique pending checks. All preceding parsed sections are identical. Original document prefix preserved: `184943` bytes, SHA-256 `0f1423f1dc6b282ba1835af7a3914c5a50e8e52a240272ba2bac0a25951f957e`. [Parser tests](build/upstream-integration-20261025/review-parser-tests.log), [byte and parser preservation check](build/upstream-integration-20261025/review-preservation.log).
+
+## 43. Upstream master integration, 2b447118e (2026-10-26)
+
+> Incoming range: `0eee616b5..2b447118e` from `mcallegari/qlcplus:master`, six commits. Changes cover fractional chaser playback and editing, input-feedback deadlock prevention, Windows palette notifications, settings scrollbar space and cross-platform libusb Peperoni support. Fork sixteenth-beat controls and child-duration propagation remain. These are pending human checks, not automated sign-offs.
+
+### 43.1 Fractional chaser timing and editing
+
+- **Do:** In a disposable workspace, run a beat-tempo Chaser or Sequence with whole, quarter, sixteenth and one-and-a-half-beat steps. Start near and between beats, change BPM, and navigate steps manually. Enter `0.5`, `1,25`, `2 1/2` and `1/16` in the time editor. Exercise the count/subdivision controls, infinity and invalid text; save and reopen.
+- ☐ Steps remain musically aligned without accumulating drift, including fractional steps, BPM changes and manual navigation. Child effects respect the selected step duration.
+- ☐ Decimal, comma-decimal and fractional values display and persist consistently. Fork sixteenth precision and count/subdivision controls remain usable; invalid text does not replace the accepted value.
+
+### 43.2 Input-feedback selection and refresh [MIDI]
+
+- **Do:** With a MIDI input/output device, select a feedback line, switch lines and clear the selection. Change input/output patches while the panel is open, then reopen the panel. Exercise external controller feedback after each user selection.
+- ☐ Selecting or clearing feedback returns promptly. Patch-driven model refreshes do not hang the application or change feedback routing without a user selection.
+- ☐ The selected line and physical controller feedback agree after refresh and reopening.
+
+### 43.3 Palette list notifications on Windows
+
+- **Do:** On Windows, keep the palette manager open while adding palettes through another editor or Stage Wizard. Remove a palette outside the manager. Repeat on macOS or Linux and save/reopen the workspace.
+- ☐ The list reflects each addition and removal once, without stale entries, signal warnings or a restart.
+- ☐ Palette selection and saved content remain correct across platforms and workspace reload.
+
+### 43.4 Settings editor scrollbar space
+
+- **Do:** Open UI Settings at a small window size and at high UI scaling. Scroll through every control, resize until the scrollbar disappears, then reopen the editor.
+- ☐ The vertical scrollbar does not cover control labels, values or click targets. Settings remain reachable and the layout adapts when scrolling is no longer needed.
+
+### 43.5 Peperoni libusb hardware [DMX]
+
+- **Do:** With a Peperoni interface, test discovery, connect/disconnect, DMX output and supported input on each available platform. On Windows, use WinUSB (automatic with firmware >= `0x1000`, otherwise bind with Zadig). Include old/new firmware and both output lines where available.
+- ☐ Each available interface and line is identified correctly. DMX input/output and reconnection work without stuck values or crashes.
+- ☐ Windows WinUSB, Linux permissions and macOS control-transfer behavior work on the tested hardware. Record unavailable platforms, firmware and lines rather than signing them off.
+
+### 43.6 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, platform/Qt version, BPM/step values, MIDI device, Peperoni firmware and driver. Leave unavailable hardware and platforms unsigned.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Fractional chaser timing and fork beat editor | | | | | |
+| MIDI feedback selection and refresh | | | | | |
+| Windows palette notifications and platform comparison | | | | | |
+| Settings scrollbar layout | | | | | |
+| Peperoni libusb, firmware and output lines | | | | | |
+
+#### Automated evidence, 2026-10-26
+
+- Application, Peperoni plugin and affected-suite builds completed with exit `0`. Build commands from the repository root:
+
+```sh
+cmake --build build --target qlcplus5 peperoni chaserrunner_test chaser_test sequence_test function_test upstreamintegration_test mcp_vc_query_filter_test mcp_vc_authoring_apply_tools_test mcp_query_tools_test -j8
+cmake --build build --target chaserrunner_test mcp_idempotency_test -j8
+cmake --build build --target qlcplus5 peperoni upstreamintegration_test -j8
+python3 build/upstream-integration-20261026/run-tests.py
+```
+
+- Build evidence: [initial Peperoni compile failure](build/upstream-integration-20261026/build.log), [affected-target build](build/upstream-integration-20261026/build-final.log), [regression-target build](build/upstream-integration-20261026/build-regressions.log), [final application/UI build](build/upstream-integration-20261026/build-ui-repair.log). The incoming Peperoni implementation left `line` unused on macOS, where bulk output is excluded. A single `Q_UNUSED(line)` fixes the warning-as-error failure without changing transfers. The plugin links Homebrew `libusb-1.0.0.dylib`. Existing compiler/linker warning policy was not relaxed.
+- Native execution used Qt `6.12.0`, offscreen/software rendering, isolated per-suite HOME/config/runtime directories, source-test working directories for engine resources and owned scratch directories for UI/MCP suites. The runner uses sleep-inclusive macOS deadlines, preserves true exit codes and reports timeouts separately. No suite timed out. [Commands, exits, totals and failing rows](build/upstream-integration-20261026/results.json), [runner output](build/upstream-integration-20261026/native-tests.log).
+
+| Suite | Passed | Failed | Skipped | Exit |
+|-------|--------|--------|---------|------|
+| chaserrunner | 37 | 0 | 0 | 0 |
+| chaser | 23 | 0 | 0 | 0 |
+| sequence | 9 | 0 | 0 | 0 |
+| function | 37 | 0 | 0 | 0 |
+| mcp_vc_query_filter | 65 | 0 | 0 | 0 |
+| mcp_vc_authoring_apply_tools | 47 | 0 | 0 | 0 |
+| mcp_query_tools | 94 | 0 | 0 | 0 |
+| mcp_idempotency | 96 | 0 | 0 | 0 |
+| upstreamintegration | 605 | 15 | 8 | 15 |
+
+- Native aggregate: `1013 passed, 15 failed, 8 skipped`; the runner exits `1`, not green. All fifteen failures are the same `timelineViewport` rows at `preview->width() <= width` recorded in section 42. The affected ShowItem.qml, ShowManager.qml and HeaderAndCursor.qml files and the complete viewport test methods remain unchanged from first parent `38d57ee04`. The eight skips require opt-in `QLC_VC_VISUAL_DIR`. This is not a fresh first-parent runtime comparison, Windows run, hardware test or native desktop-focus check.
+- Chaser resolution adopts upstream beat-clock alignment and drift-free chaining, retaining only the fork's child-duration argument. The parameterized `C2_childDuration` covers six Time/Beats duration combinations; the incoming whole/fractional, early/late beat and mid-beat-start tests also pass.
+- Parameterized `C3_beatEditing` covers 31 sixteenth fractions, decimal/comma-decimal/mixed inputs, whitespace, zero, infinity and rejected invalid values through the actual QML component. It checks format round-trips, functional count/subdivision controls and absence of QML warnings. A focused pre-repair run exposed the fork calling static invokables on the uncreatable `QLCFunction` type (`42 passed, 1 failed`, including TypeError warnings). Two instance forwarding methods on FunctionManager now reuse the existing engine helpers. The focused rerun is `43 passed, 0 failed`, exit `0`; all 41 rows also pass in the full suite. [Before helper repair](build/upstream-integration-20261026/beat-editing-before-helper-fix.log), [focused rerun](build/upstream-integration-20261026/beat-editing-focused.log).
+- Review parser suites: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `50 passed`, exit `0`. Native-canvas parsing also confirms six new cases and ten unique pending checks. All preceding parsed sections and the original `193535` document bytes remain unchanged, SHA-256 `74dfffbf710efc684eb6693769859d7aa8f8233d0f3e080df12e48c5211d2f99`. [Parser tests](build/upstream-integration-20261026/review-parser-tests.log), [preservation evidence](build/upstream-integration-20261026/review-preservation.json).
+- Windows palette behavior, MIDI hardware feedback, Peperoni firmware/driver combinations, Linux permissions, Android packaging and perceptual beat alignment remain unsigned. No live QLC+ process or unsaved workspace was restarted or modified.

@@ -16,6 +16,19 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
   // Skip if file doesn't exist (CI environments)
   const skip = md.length === 0;
 
+  it.each([
+    { number: '43', commit: '2b447118e',
+      cases: ['43.1', '43.2', '43.3', '43.4', '43.5', '43.6'],
+      checks: [2, 2, 2, 1, 2, 1], tags: [[], ['MIDI'], [], [], ['DMX'], []] },
+  ])('recognizes upstream $commit chaser and plugin review cases', ({ number, commit, cases, checks, tags }) => {
+    const section = parseManualReview(md).sections.find(s => s.number === number);
+    expect(section?.title).toContain(commit);
+    expect(section?.cases.map(c => c.number)).toEqual(cases);
+    expect(section!.cases.map(c => c.steps.flatMap(s => s.checks).length)).toEqual(checks);
+    expect(section!.cases.map(c => c.tags)).toEqual(tags);
+    expect(section!.cases.flatMap(c => c.steps.flatMap(s => s.checks)).every(c => c.status === 'pending')).toBe(true);
+  });
+
   it('recognizes the upstream 0eee616b5 integration review cases', () => {
     const section = parseManualReview(md).sections.find(s => s.number === '42');
     expect(section?.title).toContain('0eee616b5');
