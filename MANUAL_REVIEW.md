@@ -2776,3 +2776,88 @@ python3 build/upstream-integration-20261026/run-tests.py
 - Parameterized `C3_beatEditing` covers 31 sixteenth fractions, decimal/comma-decimal/mixed inputs, whitespace, zero, infinity and rejected invalid values through the actual QML component. It checks format round-trips, functional count/subdivision controls and absence of QML warnings. A focused pre-repair run exposed the fork calling static invokables on the uncreatable `QLCFunction` type (`42 passed, 1 failed`, including TypeError warnings). Two instance forwarding methods on FunctionManager now reuse the existing engine helpers. The focused rerun is `43 passed, 0 failed`, exit `0`; all 41 rows also pass in the full suite. [Before helper repair](build/upstream-integration-20261026/beat-editing-before-helper-fix.log), [focused rerun](build/upstream-integration-20261026/beat-editing-focused.log).
 - Review parser suites: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `50 passed`, exit `0`. Native-canvas parsing also confirms six new cases and ten unique pending checks. All preceding parsed sections and the original `193535` document bytes remain unchanged, SHA-256 `74dfffbf710efc684eb6693769859d7aa8f8233d0f3e080df12e48c5211d2f99`. [Parser tests](build/upstream-integration-20261026/review-parser-tests.log), [preservation evidence](build/upstream-integration-20261026/review-preservation.json).
 - Windows palette behavior, MIDI hardware feedback, Peperoni firmware/driver combinations, Linux permissions, Android packaging and perceptual beat alignment remain unsigned. No live QLC+ process or unsaved workspace was restarted or modified.
+
+## 44. Upstream master fb21860d8 integration (2026-10-27)
+
+> Incoming range: `2b447118e..fb21860d8`, fetched from `mcallegari/qlcplus:master` through the `upstream` remote. First parent: `mcp-server@508045374`. Includes shared-Function Show playback, mid-way beat items, missing/deleted fixture safety, additive preview colors and generic 3D item settings. Automated evidence does not sign off the human checks below.
+
+### 44.1 Adjacent and overlapping Show clips [DMX]
+
+- **Do:** In a disposable workspace, place the same Scene or Chaser in adjacent clips, then overlapping clips on separate tracks. Play across their boundaries, start mid-way and seek backward and forward. Repeat with fork recording and playback enabled, including a recorded Start or Stop at a clip boundary.
+- ☐ Adjacent clips restart cleanly. Overlapping clips keep visible output until the last clip ends, with no blackout or unexpected restart at the earlier clip's end.
+- ☐ Seeking and recorded actions affect the intended function once, with coherent output and cursor position. Unrelated running functions retain their output.
+
+### 44.2 Mid-way beat clips and deferred audio
+
+- **Do:** Mix Time and Beats clips in a Show at 30 BPM and above 60 BPM. Start before, inside and after a beat clip. With a supported audio file, exercise the fork's Perform audio suppression and release it during overlapping clips of the same Audio function.
+- ☐ The expected beat clip is visible and playing at each start position, without skipping a future clip or briefly flashing a finished one.
+- ☐ Time-based audio remains aligned with the Show. Releasing suppression produces one continuous audible stream until the last active clip ends, without doubled starts or an unexpected cut.
+
+### 44.3 Running effects after fixture or group removal [DMX]
+
+- **Do:** Run an EFX using a multi-head fixture and a second independent fixture. Remove the multi-head fixture. Repeat with an EFX loaded with a missing fixture and with an RGB Matrix whose group is deleted during playback. Compare the fork HUE Matrix on a disposable group.
+- ☐ The remaining EFX heads continue smoothly, without a crash or stray output attributed to the removed heads.
+- ☐ Matrix output stops or clears as intended when its group disappears. Other functions and fixtures continue normally, without stuck channels.
+
+### 44.4 Additive preview colors and CMY separation [DMX]
+
+- **Do:** Compare physical output, 2D and 3D previews and Color Tool swatches using RGB plus White, Amber or UV. Include available Cyan, Magenta, Yellow, Lime and Indigo LED emitters. Select a complete subtractive CMY fixture together with an RGB fixture containing only a Cyan emitter, then use the RGB color picker. Switch a color-wheel head back to continuous color.
+- ☐ Additional emitters brighten the preview without dimming the existing RGB contribution. Physical color intent remains recognizable across the available emitters and preview surfaces.
+- ☐ The RGB picker updates complete CMY heads without unexpectedly changing a lone Cyan LED emitter. Switching away from a wheel leaves no stale secondary color in the preview.
+
+### 44.5 Generic 3D item editing, selection and history
+
+- **Do:** Add two generic 3D objects. Select them from the list and the scene, including Control and Shift selection, single-to-single changes and mixed fixture/object selection. Rename one item, color one or both, restore original colors, adjust transforms, save and reopen. Exercise Undo/Redo and a Tardis peer where available.
+- ☐ List and scene selection agree. Transform controls refresh for the selected object, and relative multi-selection edits preserve the intended layout without jumps.
+- ☐ Names and custom colors apply to the intended objects, persist after reopening and restore through supported history and peer actions. Reset restores the mesh's original materials without losing selection.
+
+### 44.6 Sign-off
+
+- ☐ Record reviewer, date, build, workspace, platform/Qt version, BPM, fixture definitions, output hardware, audio device and Tardis peer details. Leave unavailable hardware and interaction paths unsigned.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Adjacent/overlapping clips and fork recording | | | | | |
+| Mid-way beats and deferred audio | | | | | |
+| Deleted/missing fixtures and groups | | | | | |
+| Additive preview and CMY separation | | | | | |
+| Generic 3D items, selection and history | | | | | |
+
+#### Automated evidence, 2026-10-27
+
+- Application and affected-suite builds exited `0`, using the existing Release configuration and compiler warning policy. The final application includes Qt3D and fork MCP consumers. Existing unnecessary-virtual and macOS deployment-target versus Homebrew Qt warnings remain visible in the logs. Commands from the repository root:
+
+```sh
+cmake --build build --target qlcplus5 efx_test efxfixture_test rgbmatrix_test huematrix_test monitorproperties_test showrunner_test show_test showcommandtrack_test function_test upstreamintegration_test mcp_show_tools_test mcp_stage_tools_test mcp_query_tools_test mcp_vc_query_filter_test mcp_vc_validation_test -j8
+cmake --build build --target monitorproperties_test upstreamintegration_test -j8
+cmake --build build --target showrunner_test -j8
+cmake --build build --target qlcplus5 showrunner_test upstreamintegration_test -j8
+python3 build/upstream-integration-20261027/run-tests.py
+```
+
+- Logs: [initial build](build/upstream-integration-20261027/build.log), [color/XML regressions](build/upstream-integration-20261027/build-regressions.log), [test-slot correction](build/upstream-integration-20261027/build-showrunner.log), [final seek-compatible application and UI build](build/upstream-integration-20261027/build-seek-fix.log). Final native execution used offscreen/software rendering, isolated per-suite HOME/config/runtime/TMPDIR, source-test resource directories for engine tests, owned UI/MCP working directories and sleep-inclusive macOS deadlines. No suite timed out. [Exact commands, environment, binary hashes, exits, totals and failures](build/upstream-integration-20261027/results.json).
+
+| Suite | Passed | Failed | Skipped | Exit |
+|-------|--------|--------|---------|------|
+| efx | 54 | 0 | 1 | 0 |
+| efxfixture | 21 | 0 | 0 | 0 |
+| rgbmatrix | 28 | 0 | 0 | 0 |
+| huematrix | 257 | 0 | 0 | 0 |
+| monitorproperties | 12 | 0 | 0 | 0 |
+| showrunner | 213 | 0 | 0 | 0 |
+| show | 41 | 0 | 0 | 0 |
+| showcommandtrack | 533 | 0 | 0 | 0 |
+| function | 37 | 0 | 0 | 0 |
+| mcp_show_tools | 55 | 0 | 0 | 0 |
+| mcp_stage_tools | 36 | 0 | 0 | 0 |
+| mcp_query_tools | 94 | 0 | 0 | 0 |
+| mcp_vc_query_filter | 65 | 0 | 0 | 0 |
+| mcp_vc_validation | 76 | 0 | 0 | 0 |
+| upstreamintegration | 613 | 15 | 8 | 15 |
+
+- Native aggregate: `2135 passed, 15 failed, 9 skipped`; batch exit `1`, not green. All fifteen remaining failures are the previously recorded `timelineViewport` rows asserting `preview->width() <= width`. ShowItem.qml, ShowManager.qml, HeaderAndCursor.qml and both viewport test methods remain unchanged from first parent `508045374`. The preview-cache attribution in section 41 still applies; neither the cache policy nor its assertions were changed. No complete first-parent runtime comparison was performed. Eight UI skips require opt-in `QLC_VC_VISUAL_DIR`; the EFX skip documents that duplicate fixtures are intentionally allowed.
+- Conflict resolution preserves upstream stop-before-start ordering and shared-function queue ownership. Fork journaling and track intensity are applied only for actual starts/stops, and deferred Audio uses the same shared-function start helper. Engine EFX and MainView3D implementation/header files remain byte-identical to upstream. Existing fork RGB/HUE behavior, monitor projection state and recording/seek seams are retained.
+- An auto-merged `private:` label initially hid the fork ShowRunner slots, giving only `9 passed`. Moving the upstream helper declarations below all slots restored the full suite. That run exposed `208 passed, 4 failed`: backward seek lost earlier clips and one externally clocked beat clip was filtered against the wrong initial clock. The initial full UI run also failed `timelineUserSeek(backward-drag)` (`612 passed, 16 failed, 8 skipped`). Retaining the fork's full clip inventory fixes these regressions; `write()` already rejects expired clips using their own time/beat clock. The final ShowRunner suite passes all `213`, and the backward-drag UI case passes. The incoming mid-way beat regression now tests actual queue admission at both 30 and 120 BPM instead of requiring a pruned private list. [Pre-repair ShowRunner failures](build/upstream-integration-20261027/showrunner-before-seek-fix.log), [pre-repair full UI](build/upstream-integration-20261027/upstreamintegration-before-seek-fix.log).
+- Added parameterized automation checks eight emitter preview colors, WAUV QML additive swatches and unchanged wheel mode, plus generic-item custom-color XML round-trip and reset omission. These checks do not establish perceptual color matching, native pointer interaction or actual 3D material rendering.
+- Both review parser suites pass `51` tests, exit `0`. Native-canvas and TypeScript parsing independently verify six new cases, eleven unique pending checks and unchanged prior parsed sections. The original `216603` document bytes, including entry-time uncommitted edits, remain an exact prefix with SHA-256 `6de427552f65ef77eac6235674eeaabaf04675e3f1d9e3197ed31ce2e4e3ee4b`. [Parser results](build/upstream-integration-20261027/review-parser-tests.log), [prefix and plan preservation](build/upstream-integration-20261027/review-preservation.log).
+- Physical DMX, audible alignment, rendered 3D materials, Tardis peers, other platforms and native desktop focus remain unverified and unsigned. No running QLC+ process or unsaved workspace was restarted or modified.

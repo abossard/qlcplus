@@ -80,6 +80,8 @@ public:
         GenericItemSetPosition,
         GenericItemSetRotation,
         GenericItemSetScale,
+        GenericItemSetName,
+        GenericItemSetColor,
 
         /* Input/Output mapping actions */
         IOAddUniverse = 0x0100,

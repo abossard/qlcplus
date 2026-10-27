@@ -33,6 +33,8 @@ private slots:
     void lightItemsXML_data();
     void lightItemsXML();
     void genericItems();
+    void C3_genericItemXML_data();
+    void C3_genericItemXML();
     void reset();
 };
 

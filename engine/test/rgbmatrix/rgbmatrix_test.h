@@ -47,6 +47,7 @@ private slots:
     void linesPropertyReplay_data();
     void linesPropertyReplay();
     void loadSave();
+    void groupRemovedWhileRunning();
 
     void repeatedFadeTarget_data();
     void repeatedFadeTarget();

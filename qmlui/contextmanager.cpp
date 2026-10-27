@@ -1677,10 +1677,42 @@ void ContextManager::setColorValue(QColor col, QColor wauv)
     setChannelValueByType((int)QLCChannel::Amber, wauv.green());
     setChannelValueByType((int)QLCChannel::UV, wauv.blue());
 
+    // Set CMY only on heads that have all three C, M, Y channels (same rule as
+    // color palettes). A lone C/M/Y LED emitter (e.g. RGBWA+Cyan) is left untouched.
+    // The check is per fixture head, so mixed RGB/CMY selections work too.
     QColor cmykColor = col.toCmyk();
-    setChannelValueByType((int)QLCChannel::Cyan, cmykColor.cyan());
-    setChannelValueByType((int)QLCChannel::Magenta, cmykColor.magenta());
-    setChannelValueByType((int)QLCChannel::Yellow, cmykColor.yellow());
+    const int cmyTypes[3] = { QLCChannel::Cyan, QLCChannel::Magenta, QLCChannel::Yellow };
+    const uchar cmyValues[3] = { uchar(cmykColor.cyan()), uchar(cmykColor.magenta()), uchar(cmykColor.yellow()) };
+
+    for (int i = 0; i < 3; i++)
+    {
+        const QList<SceneValue> svList = m_channelsMap.values(cmyTypes[i]);
+        for (const SceneValue &sv : svList)
+        {
+            Fixture *fixture = m_doc->fixture(sv.fxi);
+            if (fixture == nullptr)
+                continue;
+
+            bool isSubtractive = false;
+            for (int h = 0; h < fixture->heads(); h++)
+            {
+                QVector<quint32> cmyCh = fixture->cmyChannels(h);
+                if (cmyCh.size() == 3 && cmyCh.contains(sv.channel))
+                {
+                    isSubtractive = true;
+                    break;
+                }
+            }
+
+            if (isSubtractive == false)
+                continue;
+
+            if (m_editingEnabled == false || m_functionManager->acceptsSceneValues() == false)
+                setDumpValue(sv.fxi, sv.channel, cmyValues[i]);
+            else
+                m_functionManager->setChannelValue(sv.fxi, sv.channel, cmyValues[i]);
+        }
+    }
 }
 
 void ContextManager::setChannelValueByType(int type, int value, bool isRelative, quint32 channel)

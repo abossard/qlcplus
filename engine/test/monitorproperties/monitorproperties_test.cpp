@@ -171,6 +171,41 @@ void MonitorProperties_Test::genericItems()
     QCOMPARE(mp.containsItem(id), false);
 }
 
+void MonitorProperties_Test::C3_genericItemXML_data()
+{
+    QTest::addColumn<QColor>("color");
+    QTest::newRow("reset-omits-color") << QColor();
+    QTest::newRow("custom-color") << QColor("#123456");
+}
+
+void MonitorProperties_Test::C3_genericItemXML()
+{
+    QFETCH(QColor, color);
+    Doc doc(this);
+    MonitorProperties original;
+    original.setItemName(100, "Backdrop");
+    original.setItemResource(100, "backdrop.dae");
+    original.setItemColor(100, QColor(Qt::red));
+    original.setItemColor(100, color);
+    QCOMPARE(original.itemColor(100), color);
+
+    QByteArray data;
+    QBuffer buffer(&data);
+    QVERIFY(buffer.open(QIODevice::WriteOnly));
+    QXmlStreamWriter writer(&buffer);
+    QVERIFY(original.saveXML(&writer, &doc));
+    buffer.close();
+    QCOMPARE(data.contains("Color="), color.isValid());
+
+    MonitorProperties loaded;
+    QXmlStreamReader reader(data);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(loaded.loadXML(reader, &doc));
+    QVERIFY(!reader.hasError());
+    QCOMPARE(loaded.itemName(100), QString("Backdrop"));
+    QCOMPARE(loaded.itemColor(100), color);
+}
+
 void MonitorProperties_Test::reset()
 {
     MonitorProperties mp;

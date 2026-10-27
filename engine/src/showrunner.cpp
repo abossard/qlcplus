@@ -109,6 +109,9 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
             if (f == NULL)
                 continue;
 
+            // Retain earlier clips for backward seeks. write() filters ended
+            // items against their own time or beat clock before starting them.
+
             if (f->tempoType() == Function::Time)
             {
                 m_timeFunctions.append(sfunc);
@@ -218,6 +221,33 @@ FunctionParent ShowRunner::functionParent() const
     return FunctionParent(FunctionParent::Function, m_show->id());
 }
 
+bool ShowRunner::isQueued(Function *function) const
+{
+    for (int i = 0; i < m_runningQueue.count(); i++)
+    {
+        if (m_runningQueue.at(i).first == function)
+            return true;
+    }
+
+    return false;
+}
+
+void ShowRunner::startShowFunction(ShowFunction *sf, Function *f, quint32 startTime)
+{
+    // The same Function can be used by more than one item, e.g. on
+    // overlapping items on different tracks. A Function can run only once,
+    // so if it is already running for another item it just keeps running,
+    // and it will be stopped when the last of its items ends
+    if (isQueued(f) == false)
+    {
+        applyTrackIntensity(sf, f);
+        f->start(m_doc->masterTimer(), functionParent(), startTime);
+        noteEngineStart(f);
+    }
+
+    m_runningQueue.append(QPair<Function *, quint32>(f, sf->startTime() + sf->duration(m_doc)));
+}
+
 void ShowRunner::write(MasterTimer *timer)
 {
     //qDebug() << Q_FUNC_INFO << "elapsed:" << m_elapsedTime << ", total:" << m_totalRunTime;
@@ -287,11 +317,6 @@ void ShowRunner::write(MasterTimer *timer)
         return false;
     };
 
-    // Phase 1. Check all the Functions that need to be started
-    // m_timeFunctions is ordered by startup time, so when we found an entry
-    // with start time greater than m_elapsed, this phase is over
-    bool startFunctionsDone = false;
-
     // A Show can freely mix time-based and beat-based Functions on its
     // tracks (e.g. a beat-synced Chaser next to a Time-based Audio track),
     // regardless of the Show's own timeline display type. So beat tracking
@@ -323,6 +348,34 @@ void ShowRunner::write(MasterTimer *timer)
         }
     }
 
+    // Phase 1. Check if we need to stop some running Functions.
+    // This is done before starting new ones, so that when an item ends
+    // exactly where another item of the same Function begins, the Function
+    // is stopped and started again (MasterTimer restarts it cleanly),
+    // instead of the start being ignored and the stop winning.
+    // It is done in reverse order for two reasons:
+    // 1- m_runningQueue is not ordered by stop time
+    // 2- to avoid messing up with indices when an entry is removed
+    for (int i = m_runningQueue.count() - 1; i >= 0; i--)
+    {
+        Function *func = m_runningQueue.at(i).first;
+        quint32 stopTime = m_runningQueue.at(i).second;
+        quint32 currTime = func->tempoType() == Function::Time ? m_elapsedTime : m_elapsedBeats;
+
+        // if we passed the function stop time
+        if (currTime >= stopTime)
+        {
+            // remove it from the running queue
+            m_runningQueue.removeAt(i);
+            // and stop it, unless another item still needs it running
+            if (isQueued(func) == false)
+            {
+                func->stop(functionParent());
+                noteEngineStop(func);
+            }
+        }
+    }
+
     syncPerformAudioSuppression();
     if (!m_performAudioSuppressed)
     {
@@ -330,6 +383,11 @@ void ShowRunner::write(MasterTimer *timer)
         if (beatSynced)
             startDeferredAudioFunctions(m_beatFunctions, m_deferredBeatAudioFunctionIds, m_elapsedBeats);
     }
+
+    // Phase 2. Check all the Functions that need to be started
+    // m_timeFunctions is ordered by startup time, so when we found an entry
+    // with start time greater than m_elapsed, this phase is over
+    bool startFunctionsDone = false;
 
     // check if there are time-based functions to start
     while (startFunctionsDone == false)
@@ -373,11 +431,7 @@ void ShowRunner::write(MasterTimer *timer)
                 startFunctionsDone = true;
                 continue;
             }
-            applyTrackIntensity(sf, f);
-
-            f->start(m_doc->masterTimer(), functionParent(), functionTimeOffset);
-            noteEngineStart(f);
-            m_runningQueue.append(QPair<Function *, quint32>(f, functionStopTime));
+            startShowFunction(sf, f, functionTimeOffset);
             m_currentTimeFunctionIndex++;
         }
         else
@@ -429,36 +483,11 @@ void ShowRunner::write(MasterTimer *timer)
                 startFunctionsDone = true;
                 continue;
             }
-            applyTrackIntensity(sf, f);
-
-            f->start(m_doc->masterTimer(), functionParent(), functionTimeOffset);
-            noteEngineStart(f);
-            m_runningQueue.append(QPair<Function *, quint32>(f, functionStopTime));
+            startShowFunction(sf, f, functionTimeOffset);
             m_currentBeatFunctionIndex++;
         }
         else
             startFunctionsDone = true;
-    }
-
-    // Phase 2. Check if we need to stop some running Functions
-    // It is done in reverse order for two reasons:
-    // 1- m_runningQueue is not ordered by stop time
-    // 2- to avoid messing up with indices when an entry is removed
-    for (int i = m_runningQueue.count() - 1; i >= 0; i--)
-    {
-        Function *func = m_runningQueue.at(i).first;
-        quint32 stopTime = m_runningQueue.at(i).second;
-        quint32 currTime = func->tempoType() == Function::Time ? m_elapsedTime : m_elapsedBeats;
-
-        // if we passed the function stop time
-        if (currTime >= stopTime)
-        {
-            // stop the function
-            func->stop(functionParent());
-            noteEngineStop(func);
-            // remove it from the running queue
-            m_runningQueue.removeAt(i);
-        }
     }
 
     // Phase 3. Apply the commands this position is due for. They run after the
@@ -1231,10 +1260,7 @@ void ShowRunner::startDeferredAudioFunctions(const QList<ShowFunction *> &functi
         if (!isFunctionScheduled(f, stopTime))
         {
             const quint32 offset = elapsed > startTime ? elapsed - startTime : 0;
-            applyTrackIntensity(sf, f);
-            f->start(m_doc->masterTimer(), functionParent(), offset);
-            noteEngineStart(f);
-            m_runningQueue.append(QPair<Function *, quint32>(f, stopTime));
+            startShowFunction(sf, f, offset);
         }
 
         deferred.remove(sf->id());

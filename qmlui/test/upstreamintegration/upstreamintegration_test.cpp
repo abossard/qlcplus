@@ -187,6 +187,8 @@ private slots:
     void faderHandleScaling();
     void selectedFixtureColors_data();
     void selectedFixtureColors();
+    void C3_additiveColors_data();
+    void C3_additiveColors();
     void colorPressOwnership();
     void liveFontDialog_data();
     void liveFontDialog();
@@ -7659,6 +7661,58 @@ void UpstreamIntegration_Test::selectedFixtureColors()
         QCOMPARE(receiver->property("rgbColor").value<QColor>(), QColor(64, 64, 64));
     if (wauv && !mixed)
         QCOMPARE(receiver->property("wauvColor").value<QColor>(), QColor(64, 64, 64));
+}
+
+void UpstreamIntegration_Test::C3_additiveColors_data()
+{
+    QTest::addColumn<int>("emitter");
+    QTest::addColumn<QColor>("expected");
+    QTest::newRow("white") << int(QLCChannel::White) << QColor(192, 160, 144);
+    QTest::newRow("amber") << int(QLCChannel::Amber) << QColor(192, 95, 16);
+    QTest::newRow("uv") << int(QLCChannel::UV) << QColor(138, 32, 122);
+    QTest::newRow("cyan-emitter") << int(QLCChannel::Cyan) << QColor(64, 160, 144);
+    QTest::newRow("magenta-emitter") << int(QLCChannel::Magenta) << QColor(192, 32, 144);
+    QTest::newRow("yellow-emitter") << int(QLCChannel::Yellow) << QColor(192, 160, 16);
+    QTest::newRow("lime") << int(QLCChannel::Lime) << QColor(151, 160, 39);
+    QTest::newRow("indigo") << int(QLCChannel::Indigo) << QColor(101, 32, 81);
+}
+
+void UpstreamIntegration_Test::C3_additiveColors()
+{
+    QFETCH(int, emitter);
+    QFETCH(QColor, expected);
+    QLCFixtureDef definition;
+    auto *mode = new QLCFixtureMode(&definition);
+    QVERIFY(definition.addMode(mode));
+    for (int color : {int(QLCChannel::Red), int(QLCChannel::Green), int(QLCChannel::Blue), emitter})
+    {
+        auto *channel = new QLCChannel;
+        channel->setName(QString::number(color));
+        channel->setGroup(QLCChannel::Intensity);
+        channel->setColour(QLCChannel::PrimaryColour(color));
+        QVERIFY(definition.addChannel(channel));
+        QVERIFY(mode->insertChannel(channel, definition.channels().size() - 1));
+    }
+    Fixture fixture(m_app->doc());
+    fixture.setFixtureDefinition(&definition, mode);
+    fixture.setChannelValues(QByteArray::fromHex("40201080"));
+    const QColor actual = FixtureUtils::headColor(&fixture, 0).toRgb();
+    QCOMPARE(actual.rgb(), expected.rgb());
+
+    if (emitter == QLCChannel::White || emitter == QLCChannel::Amber || emitter == QLCChannel::UV)
+    {
+        QQmlComponent component(m_app->engine(), QUrl("qrc:/MultiColorBox.qml"));
+        std::unique_ptr<QObject> box(component.create());
+        QVERIFY2(box, qPrintable(component.errorString()));
+        QVERIFY(box->setProperty("primary", QColor(64, 32, 16)));
+        const QColor secondary(emitter == QLCChannel::White ? 128 : 0,
+                               emitter == QLCChannel::Amber ? 128 : 0,
+                               emitter == QLCChannel::UV ? 128 : 0);
+        QVERIFY(box->setProperty("secondary", secondary));
+        QCOMPARE(box->property("color").value<QColor>().rgb(), expected.rgb());
+        QVERIFY(box->setProperty("biColor", true));
+        QCOMPARE(box->property("color").value<QColor>(), QColor(64, 32, 16));
+    }
 }
 
 void UpstreamIntegration_Test::colorPressOwnership()
