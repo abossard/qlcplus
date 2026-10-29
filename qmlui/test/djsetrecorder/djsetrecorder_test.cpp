@@ -725,9 +725,9 @@ void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified_data()
     QTest::addColumn<QString>("script");  // after a save while song A plays on deck 1
     QTest::addColumn<bool>("modified");
 
-    QTest::newRow("a playing deck") << "+1000;wait" << true;
-    QTest::newRow("a paused deck") << "d1.pause;~1000;wait" << true;
-    QTest::newRow("a clip removed from the set") << "remove-clip=1;save;+1000;wait" << false;
+    QTest::newRow("a playing deck") << "+1000" << true;
+    QTest::newRow("a paused deck") << "d1.pause;~1000" << true;
+    QTest::newRow("a clip removed from the set") << "remove-clip=1;save;+1000" << false;
 }
 
 void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified()
@@ -738,7 +738,17 @@ void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified()
     Rig rig;
     rig.run("perform=on;d1.load=A;d1.play;+300;save");
     rig.run(script);
-    QCOMPARE(rig.doc.isModified(), modified);
+    // the next update marks it
+    if (modified)
+    {
+        QTRY_VERIFY_WITH_TIMEOUT(rig.doc.isModified(), 2000);
+        QCOMPARE(rig.clip(1, 0)->duration(), 1300u);
+    }
+    else
+    {
+        rig.run("wait");
+        QVERIFY(rig.doc.isModified() == false);
+    }
 }
 
 void DjSetRecorder_Test::setChangesRestartTheAutosave_data()
