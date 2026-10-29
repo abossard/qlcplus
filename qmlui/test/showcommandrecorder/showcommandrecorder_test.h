@@ -83,6 +83,8 @@ private slots:
     void timeline_groupsSelectAndRevealSamples();
     void timeline_clipSelectionTakesKeyboardFocus();
     void timeline_clipSelectionTakesKeyboardFocus_data();
+    void timeline_nestedShowOpensAndGoesBack();
+    void timeline_nestedShowOpensAndGoesBack_data();
     void timeline_localKeysDoNotReachVc_data();
     void timeline_localKeysDoNotReachVc();
     void timeline_ordinaryHoldKeepsSelectedIdentity_data();

@@ -123,6 +123,17 @@ public:
     /** The last step at or before t, dominant before the first one */
     bool dominantAt(quint32 clipMs) const;
 
+    /** The same play seen from a clip start moved by deltaMs: later trims
+     *  the head, earlier extends it. Song positions, levels and dominance
+     *  stay at their Show times. An extension continues the state at the
+     *  old start, the song held at 0 until the first segment's line reaches
+     *  it. A moved result with segments has its first one at 0. */
+    ShowClipAutomation withStartMoved(qint64 deltaMs) const;
+
+    /** How far the clip start can move earlier before its song would start
+     *  below 0: UINT_MAX while the start is paused, 0 without segments */
+    quint32 startExtensionLimit() const;
+
     /**
      * Recorder compression. Each builder takes samples in rising clip time
      * and skips one that does not come after the one before it.

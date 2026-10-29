@@ -53,10 +53,14 @@ private slots:
     void addShowItems_nestedShow_data();
     void addShowItems_nestedShow();
     void addShowItems_unknownFunction_error();
+    void addShowItems_inPoint_data();
+    void addShowItems_inPoint();
 
     // query / delete
     void queryShows_reportsTracksAndItems();
     void queryShows_tempoTypeFeedsBackIntoCreate();
+    void queryShows_reportsClipAutomation_data();
+    void queryShows_reportsClipAutomation();
     void showItemIds_areDistinctAcrossTracks();
     void deleteShowItems_deletesTheNamedItemOnly();
     void createShows_updatePath_marksModified();

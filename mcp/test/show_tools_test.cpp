@@ -39,6 +39,8 @@
 
 using Json = nlohmann::json;
 
+Q_DECLARE_METATYPE(ShowClipAutomation)
+
 namespace {
 
 Json parsed(const Json &value)
@@ -71,6 +73,47 @@ Show *makeShow(Doc *doc, const QString &name)
         {{"name", name.toStdString()}, {"tracks", Json::array({{{"name", "Track 1"}}})}}
     })}});
     return qobject_cast<Show*>(doc->function((quint32)result[0].value("id", -1)));
+}
+
+/** A clip function by kind: a Time Scene, a Beats Scene, a song Show or a Beats one */
+Function *makeClipFunction(Doc *doc, const QString &kind)
+{
+    if (kind == "show" || kind == "beat show")
+    {
+        Show *song = makeShow(doc, "Song");
+        if (kind == "beat show")
+            song->setTempoType(Function::Beats);
+        return song;
+    }
+    Scene *scene = makeScene(doc, "Clip", 0, 4000);
+    if (kind == "beat scene")
+        scene->setTempoType(Function::Beats);
+    return scene;
+}
+
+ShowClipSegment clipSegment(quint32 clipMs, quint32 songMs, qreal rate)
+{
+    ShowClipSegment s;
+    s.clipMs = clipMs;
+    s.songMs = songMs;
+    s.rate = rate;
+    return s;
+}
+
+ShowClipLevel clipLevel(quint32 clipMs, qreal level)
+{
+    ShowClipLevel l;
+    l.clipMs = clipMs;
+    l.level = level;
+    return l;
+}
+
+ShowClipDominance clipStep(quint32 clipMs, bool dominant)
+{
+    ShowClipDominance d;
+    d.clipMs = clipMs;
+    d.dominant = dominant;
+    return d;
 }
 
 }
@@ -329,6 +372,73 @@ void McpShowTools_Test::addShowItems_unknownFunction_error()
     QVERIFY2(result[0].contains("error"), result[0].dump().c_str());
 }
 
+void McpShowTools_Test::addShowItems_inPoint_data()
+{
+    QTest::addColumn<QString>("kind");
+    QTest::addColumn<int>("bpm");
+    QTest::addColumn<QString>("inPoint");
+    // the stored in-point in the item's own unit; -1 stores none, -2 refuses
+    QTest::addColumn<int>("stored");
+    QTest::addColumn<QString>("error");
+
+    QTest::newRow("a scene") << "scene" << 120 << "12000" << 12000 << "";
+    QTest::newRow("a song show") << "show" << 120 << "30000" << 30000 << "";
+    QTest::newRow("zero stores nothing") << "scene" << 120 << "0" << -1 << "";
+    QTest::newRow("a beat scene at the show BPM") << "beat scene" << 120 << "1500" << 3000 << "";
+    // a nested Show plays its in-point on its own millisecond clock
+    QTest::newRow("a beat song show keeps milliseconds") << "beat show" << 120 << "30000" << 30000 << "";
+    QTest::newRow("a beat in-point that cannot round-trip") << "beat scene" << 30 << "1" << -2 << "round-trip";
+    QTest::newRow("negative") << "scene" << 120 << "-5" << -2 << "inPoint must be a non-negative integer";
+    QTest::newRow("a fraction") << "scene" << 120 << "1.5" << -2 << "inPoint must be a non-negative integer";
+    QTest::newRow("a string") << "scene" << 120 << "\"5\"" << -2 << "inPoint must be a non-negative integer";
+}
+
+void McpShowTools_Test::addShowItems_inPoint()
+{
+    QFETCH(QString, kind);
+    QFETCH(int, bpm);
+    QFETCH(QString, inPoint);
+    QFETCH(int, stored);
+    QFETCH(QString, error);
+
+    Show *set = makeShow(m_doc, "Set");
+    set->setTimeDivision(Show::Time, bpm);
+    Function *function = makeClipFunction(m_doc, kind);
+    m_doc->resetModified();
+
+    const Json value = Json::parse(inPoint.toStdString());
+    const Json result = invoke(m_doc, "add_show_items", Json{
+        {"showID", (int)set->id()}, {"trackName", "Track 1"},
+        {"items", Json::array({{{"functionID", (int)function->id()}, {"startTime", 0}, {"duration", 4000},
+                                {"inPoint", value}}})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    const QList<ShowFunction *> items = set->tracks().first()->showFunctions();
+    if (stored == -2)
+    {
+        QCOMPARE(result[0].value("status", std::string()), std::string("error"));
+        QVERIFY2(result[0].value("error", std::string()).find(error.toStdString()) != std::string::npos,
+                 result.dump().c_str());
+        QVERIFY(items.isEmpty());
+        QVERIFY(!m_doc->isModified());
+        return;
+    }
+    QCOMPARE(result[0].value("status", std::string()), std::string("ok"));
+    QCOMPARE(result[0].value("inPoint", -1), value.get<int>());
+    QCOMPARE(items.count(), 1);
+    const ShowClipAutomation automation = items.first()->clipAutomation();
+    if (stored < 0)
+        QVERIFY(automation.isEmpty());
+    else
+        QVERIFY(automation.segments() == QVector<ShowClipSegment>{clipSegment(0, quint32(stored), 1.0)}
+                && automation.envelope().isEmpty() && automation.dominance().isEmpty());
+
+    // query_shows reports the in-point add_show_items took
+    const Json read = invoke(m_doc, "query_shows", Json{{"showID", (int)set->id()}});
+    const Json &item = read[0]["tracks"][0]["items"][0];
+    QCOMPARE(item.contains("clipAutomation") ? item["clipAutomation"].value("inPoint", -1) : 0, value.get<int>());
+}
+
 // ─── query / delete ────────────────────────────────────────────────────────
 
 void McpShowTools_Test::queryShows_reportsTracksAndItems()
@@ -470,6 +580,65 @@ void McpShowTools_Test::queryShows_tempoTypeFeedsBackIntoCreate()
         {{"name", "Club"}, {"tempoType", tempo}}
     })}});
     QVERIFY2(!again[0].contains("error"), again[0].dump().c_str());
+}
+
+void McpShowTools_Test::queryShows_reportsClipAutomation_data()
+{
+    QTest::addColumn<QString>("kind");
+    QTest::addColumn<ShowClipAutomation>("automation");
+    // the reported clipAutomation; empty when not reported
+    QTest::addColumn<QString>("expected");
+
+    ShowClipAutomation inPoint;
+    inPoint.setSegments({clipSegment(0, 12000, 1.0)});
+    ShowClipAutomation play;
+    play.setSegments({clipSegment(0, 30000, 1.0), clipSegment(1900, 28000, 1.0), clipSegment(4000, 30100, 0.0)});
+    play.setEnvelope({clipLevel(0, 0.0), clipLevel(2000, 1.0)});
+    play.setDominance({clipStep(0, false), clipStep(2500, true)});
+    ShowClipAutomation beats;
+    beats.setSegments({clipSegment(0, 4000, 1.0), clipSegment(2000, 1000, 1.0)});
+    beats.setEnvelope({clipLevel(1000, 0.5)});
+    beats.setDominance({clipStep(3000, false)});
+
+    QTest::newRow("a clip without automation reports none") << "scene" << ShowClipAutomation() << "";
+    QTest::newRow("an in-point") << "scene" << inPoint
+        << R"({"inPoint":12000,"segments":[{"clipMs":0,"songMs":12000,"rate":1.0}],"envelope":[],"dominance":[]})";
+    QTest::newRow("a recorded song play") << "show" << play
+        << R"({"inPoint":30000,"segments":[{"clipMs":0,"songMs":30000,"rate":1.0},{"clipMs":1900,"songMs":28000,"rate":1.0},)"
+           R"({"clipMs":4000,"songMs":30100,"rate":0.0}],"envelope":[{"clipMs":0,"level":0.0},{"clipMs":2000,"level":1.0}],)"
+           R"("dominance":[{"clipMs":0,"dominant":false},{"clipMs":2500,"dominant":true}]})";
+    QTest::newRow("a beat song show's song positions are its milliseconds") << "beat show" << beats
+        << R"({"inPoint":4000,"segments":[{"clipMs":0,"songMs":4000,"rate":1.0},{"clipMs":1000,"songMs":1000,"rate":1.0}],)"
+           R"("envelope":[{"clipMs":500,"level":0.5}],"dominance":[{"clipMs":1500,"dominant":false}]})";
+    QTest::newRow("a beat item in milliseconds at the show BPM") << "beat scene" << beats
+        << R"({"inPoint":2000,"segments":[{"clipMs":0,"songMs":2000,"rate":1.0},{"clipMs":1000,"songMs":500,"rate":1.0}],)"
+           R"("envelope":[{"clipMs":500,"level":0.5}],"dominance":[{"clipMs":1500,"dominant":false}]})";
+}
+
+void McpShowTools_Test::queryShows_reportsClipAutomation()
+{
+    QFETCH(QString, kind);
+    QFETCH(ShowClipAutomation, automation);
+    QFETCH(QString, expected);
+
+    Show *set = makeShow(m_doc, "Set");
+    set->setTimeDivision(Show::Time, 120);
+    Function *function = makeClipFunction(m_doc, kind);
+    ShowFunction *clip = set->tracks().first()->createShowFunction(function->id());
+    clip->setStartTime(1000);
+    clip->setDuration(5000);
+    clip->setClipAutomation(automation);
+
+    const Json read = invoke(m_doc, "query_shows", Json{{"showID", (int)set->id()}});
+    const Json &item = read[0]["tracks"][0]["items"][0];
+
+    if (expected.isEmpty())
+    {
+        QVERIFY2(!item.contains("clipAutomation"), item.dump().c_str());
+        return;
+    }
+    QVERIFY2(item.contains("clipAutomation") && item["clipAutomation"] == Json::parse(expected.toStdString()),
+             item.dump().c_str());
 }
 
 void McpShowTools_Test::addShowItems_containmentCycle_data()

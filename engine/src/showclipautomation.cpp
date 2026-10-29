@@ -171,6 +171,127 @@ bool ShowClipAutomation::dominantAt(quint32 clipMs) const
 }
 
 /*********************************************************************
+ * Editing
+ *********************************************************************/
+
+/** A clip time seen from a start moved by deltaMs, within the clock range */
+static quint32 movedClipTime(quint32 clipMs, qint64 deltaMs)
+{
+    return quint32(qBound(qint64(0), qint64(clipMs) - deltaMs, qint64(std::numeric_limits<quint32>::max())));
+}
+
+static quint32 roundedMs(double ms)
+{
+    return quint32(qBound(0.0, std::round(ms), double(std::numeric_limits<quint32>::max())));
+}
+
+/** Appended unless the end of the clock range squeezed it onto the one before */
+template <typename T>
+static void appendRising(QVector<T> &items, const T &item)
+{
+    if (items.isEmpty() || item.clipMs > items.last().clipMs)
+        items.append(item);
+}
+
+ShowClipAutomation ShowClipAutomation::withStartMoved(qint64 deltaMs) const
+{
+    if (deltaMs == 0)
+        return *this;
+
+    const qint64 range = std::numeric_limits<quint32>::max();
+    deltaMs = qBound(-range, deltaMs, range);
+    ShowClipAutomation moved;
+
+    /* The segment playing at the new start continues from there; one that
+     * would play before the song start holds it at 0 until its line gets
+     * there. Without segments the clip plays from 0 at rate 1. */
+    const QVector<ShowClipSegment> source = m_segments.isEmpty() ? QVector<ShowClipSegment>(1) : m_segments;
+    const int from = deltaMs > 0 ? governing(source, quint32(deltaMs)) : 0;
+    const ShowClipSegment &playing = source.at(from);
+    const double position = double(playing.songMs) + (double(deltaMs) - double(playing.clipMs)) * playing.rate;
+    ShowClipSegment head;
+    head.rate = playing.rate;
+    if (position >= 0.0)
+    {
+        head.songMs = roundedMs(position);
+        moved.m_segments.append(head);
+    }
+    else
+    {
+        // only a running segment reaches back before the song start
+        head.clipMs = roundedMs(-position / playing.rate);
+        if (head.clipMs > 0)
+        {
+            ShowClipSegment held;
+            held.rate = 0.0;
+            moved.m_segments.append(held);
+        }
+        moved.m_segments.append(head);
+    }
+    for (int i = from + 1; i < source.count(); i++)
+    {
+        ShowClipSegment segment = source.at(i);
+        segment.clipMs = movedClipTime(segment.clipMs, deltaMs);
+        appendRising(moved.m_segments, segment);
+    }
+
+    if (m_envelope.isEmpty() == false)
+    {
+        // a trim past the first keyframe starts at the level there
+        const bool cutsIn = deltaMs > 0 && qint64(m_envelope.first().clipMs) < deltaMs;
+        if (cutsIn)
+        {
+            ShowClipLevel start;
+            start.level = levelAt(quint32(deltaMs));
+            moved.m_envelope.append(start);
+        }
+        for (ShowClipLevel keyframe : m_envelope)
+        {
+            if (cutsIn && qint64(keyframe.clipMs) <= deltaMs)
+                continue;
+            keyframe.clipMs = movedClipTime(keyframe.clipMs, deltaMs);
+            appendRising(moved.m_envelope, keyframe);
+        }
+    }
+
+    if (m_dominance.isEmpty() == false)
+    {
+        // a trim past the first step starts with the state there
+        const bool cutsIn = deltaMs > 0 && qint64(m_dominance.first().clipMs) <= deltaMs;
+        if (cutsIn)
+        {
+            ShowClipDominance start;
+            start.dominant = dominantAt(quint32(deltaMs));
+            moved.m_dominance.append(start);
+        }
+        for (ShowClipDominance step : m_dominance)
+        {
+            if (cutsIn && qint64(step.clipMs) <= deltaMs)
+                continue;
+            // a step at the old start also holds over an extension
+            if (step.clipMs > 0 || deltaMs > 0)
+                step.clipMs = movedClipTime(step.clipMs, deltaMs);
+            appendRising(moved.m_dominance, step);
+        }
+    }
+
+    return moved;
+}
+
+quint32 ShowClipAutomation::startExtensionLimit() const
+{
+    if (m_segments.isEmpty())
+        return 0;
+
+    const ShowClipSegment &first = m_segments.first();
+    if (first.rate == 0.0)
+        return std::numeric_limits<quint32>::max();
+
+    const double position = double(first.songMs) - double(first.clipMs) * first.rate;
+    return quint32(qBound(0.0, std::floor(position / first.rate), double(std::numeric_limits<quint32>::max())));
+}
+
+/*********************************************************************
  * Builders
  *********************************************************************/
 

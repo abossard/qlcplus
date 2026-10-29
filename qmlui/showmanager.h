@@ -471,6 +471,7 @@ private:
      *  detected, otherwise false */
     bool checkOverlapping(Track *track, ShowFunction *sourceFunc,
                           quint32 startTime, quint32 duration) const;
+    friend class ShowClipEditor;
 
 signals:
     void itemsColorChanged(QColor itemsColor);

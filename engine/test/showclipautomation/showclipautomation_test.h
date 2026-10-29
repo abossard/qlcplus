@@ -39,6 +39,16 @@ private slots:
     void refusedValuesKeepThePreviousOnes_data();
     void refusedValuesKeepThePreviousOnes();
 
+    // Editing: the Show Manager trims a clip's left edge
+    void startMoved_data();
+    void startMoved();
+    void startMovedKeepsShowTimes_data();
+    void startMovedKeepsShowTimes();
+    void startExtensionLimit_data();
+    void startExtensionLimit();
+    void startMovedStaysValid_data();
+    void startMovedStaysValid();
+
     // Builders the recorder compresses its samples with
     void segmentsFromSamples_data();
     void segmentsFromSamples();

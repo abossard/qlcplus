@@ -58,6 +58,7 @@
 #include "showfactory.h"
 #include "showmanager.h"
 #include "showcommandrecorder.h"
+#include "showclipeditor.h"
 #include "showrunner.h"
 #define private public
 #include "tardis.h"
@@ -92,6 +93,8 @@
 #include "scriptrunner.h"
 #undef private
 
+Q_DECLARE_METATYPE(ShowClipAutomation)
+
 class UpstreamIntegration_Test : public QObject
 {
     Q_OBJECT
@@ -115,6 +118,14 @@ private slots:
     void mixedAuthoring();
     void showClipCycleGuard_data();
     void showClipCycleGuard();
+    void nestedClipTrim_data();
+    void nestedClipTrim();
+    void nestedClipPaste_data();
+    void nestedClipPaste();
+    void nestedClipOpen_data();
+    void nestedClipOpen();
+    void nestedClipOverlay_data();
+    void nestedClipOverlay();
     void rulerChangeGeometry_data();
     void rulerChangeGeometry();
     void fileOpenGuard_data();
@@ -5576,6 +5587,466 @@ void UpstreamIntegration_Test::showClipCycleGuard()
     manager->addItems(&area, 0, 0, {shows[item]->id()});
 
     QCOMPARE(set->tracks().first()->showFunctions().count(), accepted ? 1 : 0);
+}
+
+namespace
+{
+
+ShowClipAutomation clipAutomation(const QVector<ShowClipSegment> &segments, const QVector<ShowClipLevel> &envelope,
+                                  const QVector<ShowClipDominance> &dominance)
+{
+    ShowClipAutomation automation;
+    automation.setSegments(segments);
+    automation.setEnvelope(envelope);
+    automation.setDominance(dominance);
+    return automation;
+}
+
+/** A recorded play from inPoint: a loop wrap, a fade in, a handover; none for a negative in-point */
+ShowClipAutomation recordedPlay(int inPoint)
+{
+    if (inPoint < 0)
+        return ShowClipAutomation();
+    return clipAutomation({{0, quint32(inPoint), 1.0}, {4000, quint32(inPoint / 2), 1.0}},
+                          {{0, 0.0}, {3000, 1.0}}, {{0, false}, {2500, true}});
+}
+
+}
+
+void UpstreamIntegration_Test::nestedClipTrim_data()
+{
+    QTest::addColumn<QString>("kind");
+    QTest::addColumn<int>("inPoint");
+    QTest::addColumn<int>("dragPx");
+    QTest::addColumn<QString>("expect");
+
+    QTest::newRow("a song show trimmed") << "show" << 10000 << 60 << "rebased";
+    QTest::newRow("a song show extended into its in-point") << "show" << 10000 << -60 << "rebased";
+    QTest::newRow("a song show extension stops at the song start") << "show" << 300 << -200 << "clamped";
+    QTest::newRow("an untrimmed song show cannot extend") << "show" << -1 << -60 << "unchanged";
+    QTest::newRow("an untrimmed song show trimmed gets an in-point") << "show" << -1 << 60 << "rebased";
+    QTest::newRow("a scene with an in-point trimmed") << "scene" << 2000 << 60 << "rebased";
+    QTest::newRow("a plain scene keeps the upstream trim") << "scene" << -1 << 60 << "upstream";
+    QTest::newRow("read-only refuses") << "show" << 10000 << 0 << "read-only";
+    QTest::newRow("a playing show refuses") << "show" << 10000 << 0 << "playing";
+    QTest::newRow("undo waits while the show plays") << "show" << 10000 << 60 << "undo-playing";
+    QTest::newRow("a chaser with an in-point is not stretched") << "chaser" << 2000 << 60 << "rebased";
+}
+
+void UpstreamIntegration_Test::nestedClipTrim()
+{
+    QFETCH(QString, kind);
+    QFETCH(int, inPoint);
+    QFETCH(int, dragPx);
+    QFETCH(QString, expect);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    auto *editor = qobject_cast<ShowClipEditor*>(m_app->rootContext()->contextProperty("showClipEditor").value<QObject*>());
+    QVERIFY(manager);
+    QVERIFY(editor);
+    auto *set = new Show(doc);
+    QVERIFY(doc->addFunction(set));
+    set->setTimeDivision(Show::Time, 120);
+    Function *function = nullptr;
+    if (kind == "show")
+    {
+        auto *song = new Show(doc);
+        song->addTrack(new Track(Function::invalidId(), song));
+        function = song;
+    }
+    else if (kind == "chaser")
+    {
+        auto *scene = new Scene(doc);
+        QVERIFY(doc->addFunction(scene));
+        auto *chaser = new Chaser(doc);
+        chaser->addStep(ChaserStep(scene->id()));
+        chaser->addStep(ChaserStep(scene->id()));
+        chaser->setDuration(4000);
+        function = chaser;
+    }
+    else
+    {
+        auto *scene = new Scene(doc);
+        scene->setDuration(8000);
+        function = scene;
+    }
+    QVERIFY(doc->addFunction(function));
+    manager->setCurrentShowID(set->id());
+    manager->setTimeScale(0.5);
+    manager->setGridEnabled(false);
+    // a function keeps its length when the clip trims its in-point
+    manager->setStretchFunctions(true);
+    QQuickItem area(m_app->rootObject());
+    area.setY(200);
+    area.setZ(1000);
+    area.setWidth(800);
+    area.setHeight(100);
+    const auto reset = qScopeGuard([&]() {
+        manager->setReadOnly(false);
+        manager->setStretchFunctions(false);
+        if (set->isRunning())
+            set->stopAndWait();
+        doc->masterTimer()->stop();
+        manager->resetView();
+        manager->setCurrentShowID(Function::invalidId());
+    });
+    manager->addItems(&area, -1, 4000, {function->id()});
+    ShowFunction *sf = set->tracks().first()->showFunctions().first();
+    sf->setDuration(8000);
+    const ShowClipAutomation before = recordedPlay(inPoint);
+    sf->setClipAutomation(before);
+    const quint32 functionDuration = function->totalDuration();
+    auto *item = area.childItems().first();
+    QVERIFY(QMetaObject::invokeMethod(item, "updateGeometry"));
+    auto *handle = item->findChild<QQuickItem*>("showItemResizeLeft");
+    QVERIFY(handle);
+    QTest::qWait(300);
+
+    if (expect == "read-only" || expect == "playing")
+    {
+        // the runner keeps the automation it started the clip with
+        if (expect == "playing")
+        {
+            doc->masterTimer()->start();
+            set->setSyncSource(ShowRunner::Autonomous);
+            manager->playShow();
+            QTRY_VERIFY(set->isRunning());
+        }
+        else
+        {
+            manager->setReadOnly(true);
+            QVERIFY(!handle->isVisible());
+        }
+        QVERIFY(!editor->trimStart(sf, 5000));
+        QCOMPARE(sf->startTime(), 4000u);
+        QCOMPARE(sf->duration(), 8000u);
+        QVERIFY(sf->clipAutomation() == before);
+        return;
+    }
+
+    const QPoint point = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+    const int direction = dragPx < 0 ? -1 : 1;
+    QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, point);
+    QTest::mouseMove(m_app.get(), point + QPoint(direction * 15, 0), 20);
+    QTest::mouseMove(m_app.get(), point + QPoint(dragPx, 0), 20);
+    QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, point + QPoint(dragPx, 0));
+
+    const qint64 delta = qint64(sf->startTime()) - 4000;
+    if (expect == "unchanged")
+    {
+        QCOMPARE(sf->startTime(), 4000u);
+        QCOMPARE(sf->duration(), 8000u);
+        QVERIFY(sf->clipAutomation().isEmpty());
+        return;
+    }
+    if (expect == "upstream")
+    {
+        QVERIFY(delta > 0);
+        QVERIFY(sf->clipAutomation().isEmpty());
+        return;
+    }
+    if (expect == "clamped")
+        QCOMPARE(delta, -qint64(before.startExtensionLimit()));
+    else
+        QCOMPARE(delta > 0, dragPx > 0);
+    QVERIFY(delta != 0);
+    QCOMPARE(sf->startTime() + sf->duration(), 12000u);
+    // other functions play only the in-point, on at rate 1
+    ShowClipAutomation played = before;
+    if (kind != "show" && !before.segments().isEmpty())
+        played.setSegments({{0, before.inPoint(), 1.0}});
+    QVERIFY(sf->clipAutomation() == played.withStartMoved(delta));
+    QCOMPARE(function->totalDuration(), functionDuration);
+
+    // one undo step gives back the edge and the automation
+    QTest::qWait(300);
+    if (expect == "undo-playing")
+    {
+        // the runner keeps the automation it started the clip with
+        const quint32 trimmedStart = sf->startTime();
+        const ShowClipAutomation trimmed = sf->clipAutomation();
+        doc->masterTimer()->start();
+        set->setSyncSource(ShowRunner::Autonomous);
+        manager->playShow();
+        QTRY_VERIFY(set->isRunning());
+        Tardis::instance()->undoAction();
+        QCOMPARE(sf->startTime(), trimmedStart);
+        QVERIFY(sf->clipAutomation() == trimmed);
+        // a network peer's edit is not history: it lands at once
+        const QString peerEdit = ShowClipEditor::clipXml(set->id(), sf);
+        QVERIFY(!ShowClipEditor::applyClip(doc, sf->id(), peerEdit, true));
+        QVERIFY(ShowClipEditor::applyClip(doc, sf->id(), peerEdit, false));
+        set->stopAndWait();
+    }
+    Tardis::instance()->undoAction();
+    QCOMPARE(sf->startTime(), 4000u);
+    QCOMPARE(sf->duration(), 8000u);
+    QVERIFY(sf->clipAutomation() == before);
+}
+
+void UpstreamIntegration_Test::nestedClipPaste_data()
+{
+    QTest::addColumn<QString>("kind");
+    QTest::addColumn<int>("inPoint");
+
+    QTest::newRow("a song show with a recorded play") << "show" << 30000;
+    QTest::newRow("a scene with an in-point") << "scene" << 2000;
+    QTest::newRow("a plain scene") << "scene" << -1;
+}
+
+void UpstreamIntegration_Test::nestedClipPaste()
+{
+    QFETCH(QString, kind);
+    QFETCH(int, inPoint);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    QVERIFY(manager);
+    auto *set = new Show(doc);
+    QVERIFY(doc->addFunction(set));
+    set->setTimeDivision(Show::Time, 120);
+    Function *function = kind == "show" ? static_cast<Function*>(new Show(doc)) : new Scene(doc);
+    QVERIFY(doc->addFunction(function));
+    manager->setCurrentShowID(set->id());
+    QQuickItem area;
+    const auto reset = qScopeGuard([&]() {
+        manager->resetView();
+        manager->setCurrentShowID(Function::invalidId());
+    });
+    manager->addItems(&area, -1, 0, {function->id()});
+    ShowFunction *source = set->tracks().first()->showFunctions().first();
+    const ShowClipAutomation automation = recordedPlay(inPoint);
+    source->setClipAutomation(automation);
+    manager->setItemSelection(0, source, area.childItems().first(), true, Qt::NoModifier);
+    manager->copyToClipboard();
+    manager->setCurrentTime(20000);
+    QTest::qWait(300);
+
+    QVERIFY(manager->pasteFromClipboard());
+
+    QList<ShowFunction*> items = set->tracks().first()->showFunctions();
+    QCOMPARE(items.count(), 2);
+    QCOMPARE(items.last()->startTime(), 20000u);
+    QVERIFY(items.last()->clipAutomation() == automation);
+
+    // the pasted clip comes back with its automation on redo
+    QTest::qWait(300);
+    Tardis::instance()->undoAction();
+    QCOMPARE(set->tracks().first()->showFunctions().count(), 1);
+    QTest::qWait(300);
+    Tardis::instance()->redoAction();
+    items = set->tracks().first()->showFunctions();
+    QCOMPARE(items.count(), 2);
+    QVERIFY(items.last()->clipAutomation() == automation);
+}
+
+void UpstreamIntegration_Test::nestedClipOpen_data()
+{
+    QTest::addColumn<QString>("then");
+
+    QTest::newRow("back to the parent") << "back";
+    QTest::newRow("two levels deep and back") << "deeper";
+    QTest::newRow("choosing another show forgets the way back") << "other";
+    QTest::newRow("a deleted parent leaves no way back") << "deleted";
+    QTest::newRow("read-only still navigates") << "read-only";
+    QTest::newRow("a scene clip is not a nested show") << "scene";
+    QTest::newRow("undo of a trim keeps to its show") << "undo";
+}
+
+void UpstreamIntegration_Test::nestedClipOpen()
+{
+    QFETCH(QString, then);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    auto *editor = qobject_cast<ShowClipEditor*>(m_app->rootContext()->contextProperty("showClipEditor").value<QObject*>());
+    QVERIFY(manager);
+    QVERIFY(editor);
+    QMap<QString, Show *> shows;
+    for (const char *name : {"Set", "Song", "Inner", "Other"})
+    {
+        auto *show = new Show(doc);
+        show->setName(name);
+        show->addTrack(new Track(Function::invalidId(), show));
+        QVERIFY(doc->addFunction(show));
+        shows.insert(name, show);
+    }
+    ShowFunction *inner = shows["Song"]->tracks().first()->createShowFunction(shows["Inner"]->id());
+    inner->setStartTime(0);
+    inner->setDuration(1000);
+    auto *scene = new Scene(doc);
+    QVERIFY(doc->addFunction(scene));
+    manager->setCurrentShowID(shows["Set"]->id());
+    manager->setTimeScale(0.5);
+    QQuickItem area(m_app->rootObject());
+    area.setY(200);
+    area.setZ(1000);
+    area.setWidth(800);
+    area.setHeight(100);
+    // the Show Manager view's flickable, which a press on a clip holds still
+    QQuickItem flickable(m_app->rootObject());
+    flickable.setObjectName("showItemsArea");
+    const auto reset = qScopeGuard([&]() {
+        manager->setReadOnly(false);
+        manager->resetView();
+        manager->setCurrentShowID(Function::invalidId());
+    });
+    manager->addItems(&area, 0, 0, {then == "scene" ? scene->id() : shows["Song"]->id()});
+    ShowFunction *clip = shows["Set"]->tracks().first()->showFunctions().first();
+    if (then == "scene")
+    {
+        QVERIFY(!editor->openNested(clip));
+        QCoreApplication::processEvents();
+        QCOMPARE(manager->currentShowID(), int(shows["Set"]->id()));
+        QVERIFY(!editor->canGoBack());
+        return;
+    }
+    if (then == "read-only")
+        manager->setReadOnly(true);
+    const uint clipDuration = clip->duration();
+    if (then == "undo")
+    {
+        QTest::qWait(300);
+        QVERIFY(editor->trimStart(clip, 500));
+        QTest::qWait(300);
+    }
+    auto *item = area.childItems().first();
+    QVERIFY(QMetaObject::invokeMethod(item, "updateGeometry"));
+    const QPoint point = item->mapToScene(QPointF(item->width() / 2, item->height() / 2)).toPoint();
+
+    QTest::mouseDClick(m_app.get(), Qt::LeftButton, Qt::NoModifier, point);
+
+    QTRY_COMPARE(manager->currentShowID(), int(shows["Song"]->id()));
+    QVERIFY(editor->canGoBack());
+    QCOMPARE(editor->parentShowName(), QString("Set"));
+
+    if (then == "back" || then == "read-only")
+    {
+        QSignalSpy pathChanged(editor, &ShowClipEditor::pathChanged);
+        shows["Set"]->setName("Renamed set");
+        QCOMPARE(pathChanged.count(), 1);
+        QCOMPARE(editor->parentShowName(), QString("Renamed set"));
+        editor->goBack();
+        QCOMPARE(manager->currentShowID(), int(shows["Set"]->id()));
+        QVERIFY(!editor->canGoBack());
+    }
+    else if (then == "deeper")
+    {
+        QVERIFY(editor->openNested(inner));
+        QTRY_COMPARE(manager->currentShowID(), int(shows["Inner"]->id()));
+        QCOMPARE(editor->parentShowName(), QString("Song"));
+        editor->goBack();
+        QCOMPARE(manager->currentShowID(), int(shows["Song"]->id()));
+        QCOMPARE(editor->parentShowName(), QString("Set"));
+        editor->goBack();
+        QCOMPARE(manager->currentShowID(), int(shows["Set"]->id()));
+        QVERIFY(!editor->canGoBack());
+    }
+    else if (then == "other")
+    {
+        manager->setCurrentShowID(shows["Other"]->id());
+        QVERIFY(!editor->canGoBack());
+        QCOMPARE(editor->parentShowName(), QString());
+    }
+    else if (then == "undo")
+    {
+        // the Song shown now has a clip with the same Show-local id
+        QCOMPARE(inner->id(), clip->id());
+        Tardis::instance()->undoAction();
+        QCOMPARE(inner->startTime(), 0u);
+        QCOMPARE(inner->duration(), 1000u);
+        QVERIFY(inner->clipAutomation().isEmpty());
+        QCOMPARE(clip->startTime(), 0u);
+        QCOMPARE(clip->duration(), clipDuration);
+        QVERIFY(clip->clipAutomation().isEmpty());
+    }
+    else if (then == "deleted")
+    {
+        manager->resetView();
+        QVERIFY(doc->deleteFunction(shows["Set"]->id()));
+        QVERIFY(!editor->canGoBack());
+        editor->goBack();
+        QCOMPARE(manager->currentShowID(), int(shows["Song"]->id()));
+    }
+}
+
+void UpstreamIntegration_Test::nestedClipOverlay_data()
+{
+    QTest::addColumn<QString>("kind");
+    QTest::addColumn<ShowClipAutomation>("automation");
+    // the overlay as JSON; empty when there is nothing to draw
+    QTest::addColumn<QString>("expected");
+
+    QTest::newRow("a recorded song play") << "show"
+        << clipAutomation({{0, 30000, 1.0}, {1900, 28000, 1.0}, {4000, 30100, 0.0}}, {{0, 0.0}, {2000, 1.0}},
+                          {{0, false}, {2500, true}})
+        << R"({"boundaries":[1900,4000],"envelope":[{"clipMs":0,"level":0},{"clipMs":2000,"level":1}],)"
+           R"("inPoint":30000,"shaded":[{"fromMs":0,"toMs":2500}]})";
+    QTest::newRow("an in-point only") << "scene" << clipAutomation({{0, 12000, 1.0}}, {}, {})
+        << R"({"boundaries":[],"envelope":[],"inPoint":12000,"shaded":[]})";
+    QTest::newRow("a scene plays no loops") << "scene" << clipAutomation({{0, 12000, 1.0}, {3000, 0, 1.0}}, {}, {})
+        << R"({"boundaries":[],"envelope":[],"inPoint":12000,"shaded":[]})";
+    QTest::newRow("dominance handed back and forth") << "show"
+        << clipAutomation({}, {}, {{0, true}, {1000, false}, {3000, true}, {5000, false}})
+        << R"({"boundaries":[],"envelope":[],"inPoint":-1,"shaded":[{"fromMs":1000,"toMs":3000},{"fromMs":5000,"toMs":6000}]})";
+    QTest::newRow("markers past the clip end are not drawn") << "show"
+        << clipAutomation({{0, 0, 1.0}, {7000, 0, 1.0}}, {}, {{7000, false}})
+        << R"({"boundaries":[],"envelope":[],"inPoint":0,"shaded":[]})";
+    QTest::newRow("a plain scene shows nothing") << "scene" << ShowClipAutomation() << "";
+}
+
+void UpstreamIntegration_Test::nestedClipOverlay()
+{
+    QFETCH(QString, kind);
+    QFETCH(ShowClipAutomation, automation);
+    QFETCH(QString, expected);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    auto *editor = qobject_cast<ShowClipEditor*>(m_app->rootContext()->contextProperty("showClipEditor").value<QObject*>());
+    QVERIFY(manager);
+    QVERIFY(editor);
+    auto *set = new Show(doc);
+    QVERIFY(doc->addFunction(set));
+    set->setTimeDivision(Show::Time, 120);
+    Function *function = kind == "show" ? static_cast<Function*>(new Show(doc)) : new Scene(doc);
+    QVERIFY(doc->addFunction(function));
+    manager->setCurrentShowID(set->id());
+    manager->setTimeScale(0.5);
+    QQuickItem area(m_app->rootObject());
+    area.setWidth(800);
+    area.setHeight(100);
+    const auto reset = qScopeGuard([&]() {
+        manager->resetView();
+        manager->setCurrentShowID(Function::invalidId());
+    });
+    manager->addItems(&area, -1, 0, {function->id()});
+    ShowFunction *sf = set->tracks().first()->showFunctions().first();
+    sf->setDuration(6000);
+    auto *item = area.childItems().first();
+    auto *overlay = item->findChild<QQuickItem*>("clipAutomationOverlay");
+    QVERIFY(overlay);
+    QVERIFY(!overlay->isVisible());
+
+    // the overlay follows an automation set after the item exists
+    sf->setClipAutomation(automation);
+
+    // Repeater delegates are only in the visual tree
+    const auto count = [overlay](const QString &name) {
+        int n = 0;
+        for (QQuickItem *child : overlay->childItems())
+            n += child->objectName() == name && child->isVisible() ? 1 : 0;
+        return n;
+    };
+    if (expected.isEmpty())
+    {
+        QVERIFY(!overlay->isVisible());
+        return;
+    }
+    const QJsonObject drawn = QJsonObject::fromVariantMap(editor->overlay(sf));
+    QCOMPARE(QJsonDocument(drawn).toJson(QJsonDocument::Compact),
+             QJsonDocument::fromJson(expected.toUtf8()).toJson(QJsonDocument::Compact));
+    QVERIFY(overlay->isVisible());
+    QCOMPARE(count("clipBoundary"), int(drawn["boundaries"].toArray().size()));
+    QCOMPARE(count("clipShade"), int(drawn["shaded"].toArray().size()));
+    QCOMPARE(count("clipEnvelope"), drawn["envelope"].toArray().isEmpty() ? 0 : 1);
 }
 
 void UpstreamIntegration_Test::rulerChangeGeometry_data()
