@@ -43,7 +43,7 @@ private slots:
     void performModeDelegatesToBridge();
     void performModeGatesAutoPlay();
     void performOffStopsRunningShow();
-    void performLoadsAndSwitchesActiveShow();
+    void performRunsEveryDeckAndMovesDominance();
     void externalPositionSyncDrivesShowWhenPerforming();
     void performShowsActiveShowInShowManager();
     void performResolvesShowAfterWorkspaceReload();

@@ -566,7 +566,7 @@ void DjManager_Test::performOffStopsRunningShow()
     delete doc;
 }
 
-void DjManager_Test::performLoadsAndSwitchesActiveShow()
+void DjManager_Test::performRunsEveryDeckAndMovesDominance()
 {
     Doc *doc = createDoc();
     QQuickView view;
@@ -604,19 +604,21 @@ void DjManager_Test::performLoadsAndSwitchesActiveShow()
 
     doc->masterTimer()->start();
 
-    // Active deck 1 + Perform ON → show A loads/runs; show B is not the active
-    // show so it is not actively running.
+    // Active deck 1 + Perform ON → both playing decks run their shows; show A,
+    // the active deck's, is dominant.
     master(bridge, 0);
     mgr.setPerformMode(true);
     QTest::qWait(60);
     QVERIFY(showA->isRunning() && !showA->isPaused());
-    QVERIFY(!(showB->isRunning() && !showB->isPaused()));
+    QVERIFY(showB->isRunning() && !showB->isPaused());
+    QVERIFY(showA->isDominant() && !showB->isDominant());
 
-    // Active deck changes to deck 2 → show B is loaded immediately, show A stopped.
+    // Active deck changes to deck 2 → show B becomes dominant, show A plays on.
     master(bridge, 1);
     QTest::qWait(60);
     QVERIFY(showB->isRunning() && !showB->isPaused());
-    QVERIFY(!showA->isRunning());
+    QVERIFY(showA->isRunning() && !showA->isPaused());
+    QVERIFY(showB->isDominant() && !showA->isDominant());
 
     doc->masterTimer()->stop();
     delete doc;

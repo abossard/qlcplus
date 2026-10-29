@@ -19,6 +19,8 @@ private slots:
     void initialStateIsIdle();
     void stateTable_data();
     void stateTable();
+    void drivesTable_data();
+    void drivesTable();
     void inputChangeEmitsOnce_data();
     void inputChangeEmitsOnce();
     void planTable_data();

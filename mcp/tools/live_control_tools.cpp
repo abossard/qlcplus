@@ -80,7 +80,10 @@ void registerLiveControlTools(fastmcpp::tools::ToolManager &tm, Doc *doc,
                 return serialized(vcBridge->djState());
             });
         }
-    ).set_description("Read Perform mode, state, active Show and deck, and each deck's song and elapsedMs. "
+    ).set_description("Read Perform mode, the active deck's state and Show, each deck's song, elapsedMs and "
+                      "mix weight, and drivenShows: every Show Perform plays, with its deck, state, dominant "
+                      "(the active deck's), masterIntensity (its deck's weight), transport "
+                      "(running|paused|queued|stopped), external clock and positionMs. "
                       "activeShowId is null when no Show is resolved; activeDeck is 0 when none.")
      .set_annotations(mcp::kAnnotReadOnly));
 

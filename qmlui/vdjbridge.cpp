@@ -33,8 +33,10 @@
 #include <QDebug>
 #include <QScopedValueRollback>
 
-/** Engine tempo while the active deck is paused: a visible crawl */
+/** Engine tempo while the active deck is paused and no deck plays: a visible crawl */
 static const int kPausedBpm = 1;
+
+static_assert(PerformFsm::MaxDecks == DjFsm::MaxDecks, "PerformFsm and DjFsm track the same decks");
 
 VdjBridge::VdjBridge(QObject *parent)
     : QObject(parent)
@@ -69,15 +71,20 @@ void VdjBridge::setDoc(Doc *doc)
 
     if (m_doc && m_fsm)
     {
-        connect(m_fsm, &DjFsm::deckChanged, this, [this](int deck) {
-            if (deck != m_fsm->activeDeck())
-                return;
+        connect(m_fsm, &DjFsm::deckChanged, this, [this]() {
             pushActiveBpm();
             refreshPerformInputs();
         });
         connect(m_fsm, &DjFsm::activeDeckChanged, this, [this]() {
             pushActiveBpm();
             refreshPerformInputs();
+        });
+        // data plane: a driven Show's master intensity is its deck's mix weight
+        connect(m_fsm, &DjFsm::weightChanged, this, [this](int deck) {
+            for (const PerformFsm::Drive &drive : m_performFsm->snapshot().drives)
+                if (drive.deck == deck)
+                    if (Show *show = lookupShow(drive.showId))
+                        pushWeight(show, deck);
         });
     }
 }
@@ -89,19 +96,38 @@ void VdjBridge::pushActiveBpm()
     if (!iom || iom->beatGeneratorType() != InputOutputMap::Plugin)
         return;
 
-    const int active = m_fsm->activeDeck();
-    if (active < 1)
+    // a disconnect leaves VirtualDJ's tempo behind: the decks it empties lead no more
+    if (m_holdInputs)
         return;
 
-    const DjFsm::Deck &deck = m_fsm->deckAt(active - 1);
-    // an emptied deck keeps the engine where it was
-    if (!deck.song.isValid())
+    // a known tempo leads: the active deck's song while it plays, else a playing
+    // deck's, whose Show plays on; the crawl only while nothing plays
+    const int active = m_fsm->activeDeck();
+    const DjFsm::Deck *activeDeck = active >= 1 ? &m_fsm->deckAt(active - 1) : nullptr;
+    const auto leads = [](const DjFsm::Deck &deck) {
+        return deck.playing && deck.song.isValid() && deck.song.bpm > 0;
+    };
+    const DjFsm::Deck *lead = activeDeck && leads(*activeDeck) ? activeDeck : nullptr;
+    bool playing = false;
+    for (int deck = 1; deck <= m_fsm->deckCount(); deck++)
+    {
+        const DjFsm::Deck &other = m_fsm->deckAt(deck - 1);
+        playing = playing || (other.playing && other.song.isValid());
+        if (!lead && leads(other))
+            lead = &other;
+    }
+    if (lead)
+    {
+        m_lastSongBpm = qRound(lead->song.bpm);
+        iom->setExternalBpm(m_lastSongBpm);
         return;
-    if (deck.song.bpm > 0)
-        m_lastSongBpm = qRound(deck.song.bpm);
-    const int bpm = deck.playing ? qRound(deck.song.bpm) : kPausedBpm;
-    if (bpm > 0)
-        iom->setExternalBpm(bpm);
+    }
+    // a song of unknown tempo plays, or an emptied deck: the engine stays where it was
+    if (playing || !activeDeck || !activeDeck->song.isValid())
+        return;
+    if (activeDeck->song.bpm > 0)
+        m_lastSongBpm = qRound(activeDeck->song.bpm);
+    iom->setExternalBpm(kPausedBpm);
 }
 
 // ---------- VDJ Bridge plugin attachment ----------
@@ -171,10 +197,11 @@ void VdjBridge::onDeckTrigger(int deckIndex, const QString &trigger, const QVari
 void VdjBridge::onTickEnded()
 {
     m_fsm->onTickEnded();
-    // data plane: the adopted Show follows the active deck's clock, one
-    // sample per write, after the write's song change
-    if (Show *show = lookupShow(m_performFsm->activeShowId()))
-        pushPosition(show);
+    // data plane: every driven Show follows its deck's clock, one sample
+    // per write, after the write's song change
+    for (const PerformFsm::Drive &drive : m_performFsm->snapshot().drives)
+        if (Show *show = lookupShow(drive.showId))
+            pushPosition(show, drive.deck);
     refreshPerformInputs();
 }
 
@@ -205,7 +232,12 @@ void VdjBridge::onTelemetryClientDisconnected()
         iom->clearExternalBpm();
     }
     m_lastSongBpm = 0;
-    m_fsm->onDisconnected();
+    {
+        // the FSM empties the active deck first, then deck by deck: one fact for Perform
+        QScopedValueRollback<bool> hold(m_holdInputs, true);
+        m_fsm->onDisconnected();
+    }
+    refreshPerformInputs();
 }
 
 // ---------- Perform ----------
@@ -232,40 +264,61 @@ void VdjBridge::refreshPerformInputs()
     // a half-read workspace resolves no Show: the load's end refreshes once
     if (m_doc && m_doc->loadStatus() == Doc::Loading)
         return;
-    if (m_endedAt && deckPosition().value_or(0) < *m_endedAt)
-        m_endedAt.reset();
-    // the active deck's song and its Show as the FSM's one fact
+    if (m_holdInputs)
+        return;
+    // a Doc tearing down deletes its timer before its Shows: they go with it
+    if (m_doc && !m_doc->masterTimer())
+        return;
+    // every deck's song and its Show as the FSM's one fact
     PerformFsm::Inputs inputs;
-    const int active = m_fsm->activeDeck();
-    const DjFsm::Deck &deck = m_fsm->deckAt(active - 1);
-    Show *show = active >= 1 && m_showFactory && deck.song.isValid()
-                     ? lookupShow(m_showFactory->showIdForFilepath(deck.song.filepath))
-                     : nullptr;
-    if (show)
+    inputs.activeDeck = m_fsm->activeDeck();
+    for (int deck = 1; deck <= PerformFsm::MaxDecks; deck++)
     {
-        inputs.showId = show->id();
-        inputs.playing = deck.playing;
-        inputs.ended = m_endedAt.has_value();
+        std::optional<Ended> &ended = m_ended[deck - 1];
+        if (ended && deckPosition(deck).value_or(0) < ended->positionMs)
+            ended.reset();
+        const DjFsm::Deck &state = m_fsm->deckAt(deck - 1);
+        Show *show = m_showFactory && state.song.isValid()
+                         ? lookupShow(m_showFactory->showIdForFilepath(state.song.filepath))
+                         : nullptr;
+        if (!show)
+            continue;
+        PerformFsm::DeckInputs &in = inputs.decks[deck - 1];
+        in.showId = show->id();
+        in.playing = state.playing;
+        in.ended = ended && ended->showId == in.showId;
     }
     m_performFsm->setInputs(inputs);
 }
 
-std::optional<quint32> VdjBridge::deckPosition() const
+std::optional<quint32> VdjBridge::deckPosition(int deck) const
 {
-    const int active = m_fsm->activeDeck();
-    if (active < 1)
+    if (deck < 1)
         return std::nullopt;
-    const DjFsm::Deck &deck = m_fsm->deckAt(active - 1);
+    const DjFsm::Deck &state = m_fsm->deckAt(deck - 1);
     // a new song's first sample is still ahead: the runner waits for it
-    if (!deck.song.isValid() || deck.positionStale)
+    if (!state.song.isValid() || state.positionStale)
         return std::nullopt;
-    return quint32(qMax(0, deck.elapsedMs));
+    return quint32(qMax(0, state.elapsedMs));
 }
 
-void VdjBridge::pushPosition(Show *show) const
+void VdjBridge::pushPosition(Show *show, int deck) const
 {
-    if (const std::optional<quint32> position = deckPosition())
+    if (const std::optional<quint32> position = deckPosition(deck))
         show->setExternalElapsedTime(*position);
+}
+
+void VdjBridge::pushWeight(Show *show, int deck) const
+{
+    show->setMasterIntensity(m_fsm->deckAt(deck - 1).weight);
+}
+
+const PerformFsm::Drive *VdjBridge::appliedDrive(quint32 showId) const
+{
+    for (const PerformFsm::Drive &drive : m_applied.drives)
+        if (drive.showId == showId)
+            return &drive;
+    return nullptr;
 }
 
 Show *VdjBridge::lookupShow(quint32 showId) const
@@ -288,19 +341,16 @@ void VdjBridge::applyPerformPlan()
     do
     {
         m_replanPending = false;
-        const PerformFsm::PerformState state = m_performFsm->state();
-        const quint32 showId = m_performFsm->activeShowId();
-        PerformFsm::ShowFacts facts;
-        if (Show *show = lookupShow(showId))
+        const PerformFsm::Snapshot next = m_performFsm->snapshot();
+        QHash<quint32, PerformFsm::ShowFacts> facts;
+        for (const PerformFsm::Drive &drive : next.drives)
         {
-            facts.running = show->isRunning();
-            facts.paused = show->isPaused();
-            facts.startQueued = m_doc->masterTimer()->isStartQueued(show) && !show->stopped();
+            if (Show *show = lookupShow(drive.showId))
+                facts.insert(drive.showId, { show->isRunning(), show->isPaused(),
+                                             m_doc->masterTimer()->isStartQueued(show) && !show->stopped() });
         }
-        const QList<PerformFsm::Step> steps =
-            PerformFsm::plan(m_appliedState, m_appliedShowId, state, showId, facts);
-        m_appliedState = state;
-        m_appliedShowId = showId;
+        const QList<PerformFsm::Step> steps = PerformFsm::plan(m_applied, next, facts);
+        m_applied = next;
         for (const PerformFsm::Step &step : steps)
             perform(step);
     } while (m_replanPending);
@@ -310,6 +360,8 @@ void VdjBridge::perform(const PerformFsm::Step &step)
 {
     using Effect = PerformFsm::Effect;
     Show *show = lookupShow(step.showId);
+    // the deck that drives the Show from here: the plan's target
+    const PerformFsm::Drive *drive = appliedDrive(step.showId);
     switch (step.effect)
     {
         case Effect::ResolveRecorder:
@@ -332,49 +384,89 @@ void VdjBridge::perform(const PerformFsm::Step &step)
                 disconnect(show, nullptr, this, nullptr);
                 show->setPerformAudioSuppressed(false);
                 show->setSyncSource(ShowRunner::Autonomous);
+                show->setMasterIntensity(1.0);
+                show->setDominant(true);
                 qDebug() << "[VdjBridge] Perform: released show" << show->name();
             }
-            m_endedAt.reset();
+            for (std::optional<Ended> &ended : m_ended)
+                if (ended && ended->showId == step.showId)
+                    ended.reset();
+            m_finishedElsewhere.remove(step.showId);
+        break;
+        case Effect::DemoteShow:
+            if (show)
+                show->setDominant(false);
+        break;
+        case Effect::PromoteShow:
+            if (show)
+                show->setDominant(true);
         break;
         case Effect::AdoptShow:
-            if (show)
+            if (show && drive)
             {
                 show->setPerformAudioSuppressed(true);
                 show->setSyncSource(ShowRunner::External);
-                pushPosition(show);
+                show->setDominant(drive->dominant);
+                pushWeight(show, drive->deck);
+                pushPosition(show, drive->deck);
                 const quint32 id = show->id();
+                // a run its runner ended: the finish came first, so the deck reads Ended here
                 connect(show, QOverload<quint32>::of(&Function::stopped), this, [this, id]() {
-                    if (id == m_appliedShowId)
-                        applyPerformPlan();
+                    if (!appliedDrive(id))
+                        return;
+                    refreshPerformInputs();
+                    applyPerformPlan();
                 }, Qt::QueuedConnection);
-                // the runner is the one owner of "the Show ended": from here the deck
+                // the runner is the one owner of "the Show ended": from here its deck's
                 // position decides, a move below it plays the Show again; a finish
                 // before the song's first sample is the stale clock's: the queued
                 // stop re-plans Live and the start waits for the sample
-                connect(show, &Show::showFinished, this, [this, id]() {
-                    if (id != m_appliedShowId || !deckPosition())
-                        return;
-                    m_endedAt = *deckPosition();
-                    refreshPerformInputs();
+                connect(show, QOverload<quint32>::of(&Function::running), this, [this, id]() {
+                    m_finishedElsewhere.remove(id);
                 }, Qt::QueuedConnection);
-                qDebug() << "[VdjBridge] Perform: adopted show" << show->name();
+                // the Show forwards its runner's finish to the GUI thread itself: taken
+                // there at once, it comes in the timer thread's order, before the stop
+                // it caused and before a next run starts; the plan waits for the loop
+                connect(show, &Show::showFinished, this, [this, id]() {
+                    if (m_finishedElsewhere.contains(id))
+                        return;
+                    const PerformFsm::Drive *finished = appliedDrive(id);
+                    const std::optional<quint32> position = finished ? deckPosition(finished->deck) : std::nullopt;
+                    if (!position)
+                        return;
+                    m_ended[finished->deck - 1] = Ended{ id, *position };
+                    QMetaObject::invokeMethod(this, [this]() { refreshPerformInputs(); }, Qt::QueuedConnection);
+                });
+                qDebug() << "[VdjBridge] Perform: adopted show" << show->name() << "on deck" << drive->deck;
             }
-            m_endedAt.reset();
+            if (drive)
+                m_ended[drive->deck - 1].reset();
+        break;
+        case Effect::FollowDeck:
+            if (show && drive)
+            {
+                // a run its runner ended on the old deck's clock: its queued
+                // finish says nothing about the new deck
+                if (show->stopped())
+                    m_finishedElsewhere.insert(show->id());
+                pushWeight(show, drive->deck);
+                pushPosition(show, drive->deck);
+            }
         break;
         case Effect::StartShow:
-            if (show)
+            if (show && drive)
             {
                 // the position before the start, so its first tick runs there,
                 // and after it, as the first sample of this Play
-                pushPosition(show);
+                pushPosition(show, drive->deck);
                 show->start(m_doc->masterTimer(), FunctionParent::master());
-                pushPosition(show);
+                pushPosition(show, drive->deck);
             }
         break;
         case Effect::ResumeShow:
-            if (show)
+            if (show && drive)
             {
-                pushPosition(show);
+                pushPosition(show, drive->deck);
                 show->setPause(false);
             }
         break;

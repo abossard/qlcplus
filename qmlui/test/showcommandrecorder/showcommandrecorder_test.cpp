@@ -219,6 +219,16 @@ using Json = nlohmann::json;
 namespace
 {
 bool loadRecordingId(VCWidget *widget, const QUuid &id);
+
+/** Perform's inputs with deck 1 active and holding this, the other decks empty */
+PerformFsm::Inputs activeDeck(const PerformFsm::DeckInputs &deck)
+{
+    PerformFsm::Inputs inputs;
+    inputs.activeDeck = 1;
+    inputs.decks[0] = deck;
+    return inputs;
+}
+
 /** The production widgets talk to Tardis on every value change and are reached
  *  through the real VirtualConsole/VCPage dispatch, so the recorder has to be
  *  tested against that same graph. */
@@ -17277,13 +17287,13 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     // the failing row is a live handover: Perform starts the next Show itself
     if (change == QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setInputs({ b->id() });
+        fsm->setInputs(activeDeck({ b->id() }));
         QCOMPARE(recorder->boundShowId(), a->id());
         QCOMPARE(manager->currentShowID(), int(a->id()));
     }
     else
     {
-        fsm->setInputs({ a->id(), failing });
+        fsm->setInputs(activeDeck({ a->id(), failing }));
     }
     QSignalSpy reported(recorder, &ShowCommandRecorder::lastErrorChanged);
     fsm->setPerformEnabled(true);
@@ -17294,11 +17304,11 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
         QCOMPARE(recorder->phaseValue(), int(ShowRecordPhase::Armed));
         QVERIFY(recorder->isRecording());
         QVERIFY(!a->commandRecording());
-        fsm->setInputs({ c->id() });
+        fsm->setInputs(activeDeck({ c->id() }));
     }
     else if (change != QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setInputs({ b->id(), failing });
+        fsm->setInputs(activeDeck({ b->id(), failing }));
     }
     Show *next = change == QLatin1String("through a gap") ? c : b;
 
@@ -18322,7 +18332,7 @@ void ShowCommandRecorder_Test::appPerform_selectionOfTheResolvedShowPassesTheGat
     QCOMPARE(rig.manager->currentShowID(), int(a->id()));
 
     QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
-    fsm->setInputs({ b->id() });
+    fsm->setInputs(activeDeck({ b->id() }));
     fsm->setPerformEnabled(true);
     QCOMPARE(rig.recorder->boundShowId(), b->id());
     QCOMPARE(rig.manager->currentShowID(), int(b->id()));
@@ -18364,7 +18374,7 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
 
     rig.manager->setCurrentShowID(int(a->id()));
     QVERIFY(rig.recorder->setRecording(rec));
-    fsm->setInputs({ a->id() });
+    fsm->setInputs(activeDeck({ a->id() }));
     fsm->setPerformEnabled(true);
     QCOMPARE(rig.recorder->boundShowId(), rec ? a->id() : quint32(Function::invalidId()));
     if (gap)
@@ -34086,7 +34096,7 @@ void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal()
     QVERIFY(navEnabled(ed, false));
     fsm->setPerformEnabled(true);
     if (perform != QLatin1String("armed"))
-        fsm->setInputs({ ed.show->id(), perform == QLatin1String("live") });
+        fsm->setInputs(activeDeck({ ed.show->id(), perform == QLatin1String("live") }));
     if (perform == QLatin1String("off-again"))
         fsm->setPerformEnabled(false);
     QCoreApplication::processEvents();
@@ -34200,7 +34210,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary()
             tickAndDeliver(ed.rig.doc, 4);
         });
         fsm->setPerformEnabled(true);
-        fsm->setInputs({ ed.show->id(), true });
+        fsm->setInputs(activeDeck({ ed.show->id(), true }));
         QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
         fsm->setPerformEnabled(false);
         QCoreApplication::processEvents();
@@ -34258,7 +34268,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationKeyboard()
         {
             auto *fsm = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"))->performFsm();
             fsm->setPerformEnabled(true);
-            fsm->setInputs({ ed.show->id() });
+            fsm->setInputs(activeDeck({ ed.show->id() }));
             QCoreApplication::processEvents();
             selectRecorded(ed, {6});
         }

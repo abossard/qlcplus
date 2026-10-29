@@ -6,6 +6,8 @@
 #include "showcommandrecorder.h"
 #include "functionparent.h"
 #include "scene.h"
+#include "track.h"
+#include "showfunction.h"
 #include "fixture.h"
 #include "scenevalue.h"
 #include "universe.h"
@@ -15,6 +17,7 @@
 #include "virtualconsole.h"
 #include "djmanager.h"
 #include "vdjbridge.h"
+#include "showfactory.h"
 #include "showrunner.h"
 #include "vcbridgev5.h"
 #include "workspacebridgev5.h"
@@ -333,6 +336,110 @@ void McpLiveControlTools_Test::djTelemetry()
     QCOMPARE(song.at("artist"), Json("Test artist"));
     QCOMPARE(song.at("bpm"), Json(123.5));
     QCOMPARE(song.at("elapsedMs"), Json(2300));
+}
+
+void McpLiveControlTools_Test::drivenShows_data()
+{
+    QTest::addColumn<int>("active");
+    QTest::addColumn<QString>("second");  // what deck 2 does once Perform is on
+    // per driven Show: deck, Perform state, dominance, master intensity, transport, clock
+    QTest::addColumn<QString>("drives");
+    QTest::newRow("deck-one-active-both-play")
+        << 1 << "play" << "1 Live dominant 0.80 running external|2 Live sub 0.50 running external";
+    QTest::newRow("deck-two-active-and-paused")
+        << 2 << "pause" << "1 Live sub 0.80 running external|2 Suspended dominant 0.50 paused external";
+    QTest::newRow("deck-two-active-never-played")
+        << 2 << "cue" << "1 Live sub 0.80 running external|2 Suspended dominant 0.50 stopped external";
+}
+
+void McpLiveControlTools_Test::drivenShows()
+{
+    QFETCH(int, active);
+    QFETCH(QString, second);
+    QFETCH(QString, drives);
+    Doc *doc = m_app->doc();
+    auto *bridge = m_app->findChild<VdjBridge *>();
+    QVERIFY(bridge);
+    const auto clear = qScopeGuard([&]() {
+        invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+        bridge->djFsm()->onDisconnected();
+        QTest::qWait(100);
+        doc->masterTimer()->stop();
+    });
+    const auto send = [&](int deck, const QString &key, const QVariant &value) {
+        return QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, deck - 1),
+                                        Q_ARG(QString, key), Q_ARG(QVariant, value));
+    };
+    const auto write = [&]() { return QMetaObject::invokeMethod(bridge, "onTickEnded"); };
+    for (int deck : {1, 2})
+    {
+        const QString file = QStringLiteral("/music/p5-deck%1.mp3").arg(deck);
+        QVERIFY(send(deck, "get_filepath", file));
+        QVERIFY(send(deck, "get_title", QStringLiteral("Deck %1 song").arg(deck)));
+        QVERIFY(send(deck, "get_time elapsed absolute", 1000 * deck));
+        QVERIFY(send(deck, "volume", deck == 1 ? 0.8 : 0.5));
+        QVERIFY(send(deck, "loaded", "on"));
+        QVERIFY(send(deck, "masterdeck", deck == active ? "on" : "off"));
+        QVERIFY(send(deck, "play", deck == 1 ? "on" : "off"));
+    }
+    QVERIFY(write());
+    // the song Shows' Audio clips have no file: a Scene keeps them inside their content
+    QList<Show *> shows;
+    for (int deck : {1, 2})
+    {
+        auto *show = qobject_cast<Show *>(doc->function(bridge->showFactory()->showIdForFilepath(
+            QStringLiteral("/music/p5-deck%1.mp3").arg(deck))));
+        QVERIFY(show);
+        shows << show;
+        auto *scene = new Scene(doc);
+        QVERIFY(doc->addFunction(scene));
+        ShowFunction *clip = show->tracks().first()->createShowFunction(scene->id());
+        clip->setStartTime(0);
+        clip->setDuration(600000);
+    }
+    const Json result = invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", true}});
+    QVERIFY2(!result.contains("error"), result.dump().c_str());
+    const Json queued = invoke(doc, m_vc.get(), m_workspace.get(), "get_dj_state");
+    QCOMPARE(queued.at("drivenShows").at(0).at("transport"), Json("queued"));
+    if (second != "cue")
+    {
+        QVERIFY(send(2, "play", "on"));
+        QVERIFY(write());
+    }
+    doc->masterTimer()->start();
+    QTRY_VERIFY(shows[0]->isRunning() && (second == "cue" || shows[1]->isRunning()));
+    if (second == "pause")
+    {
+        QVERIFY(send(2, "play", "off"));
+        QVERIFY(write());
+    }
+
+    const Json state = invoke(doc, m_vc.get(), m_workspace.get(), "get_dj_state");
+    QCOMPARE(state.at("activeDeck"), Json(active));
+    QCOMPARE(state.at("decks").at(0).at("weight"), Json(0.8));
+    QCOMPARE(state.at("decks").at(1).at("weight"), Json(0.5));
+    QStringList seen;
+    for (const Json &drive : state.at("drivenShows"))
+    {
+        const auto *show = qobject_cast<Show *>(doc->function(drive.at("showId").get<quint32>()));
+        QVERIFY(show);
+        QCOMPARE(drive.at("name"), Json(show->name().toStdString()));
+        const int deck = drive.at("deck").get<int>();
+        QCOMPARE(drive.at("positionMs"), Json(1000 * deck));
+        // the active deck's Show is the one Perform reports as active
+        QCOMPARE(drive.at("showId") == state.at("activeShowId"), deck == active);
+        seen << QStringLiteral("%1 %2 %3 %4 %5 %6").arg(deck)
+                    .arg(QString::fromStdString(drive.at("state").get<std::string>()),
+                         drive.at("dominant").get<bool>() ? "dominant" : "sub")
+                    .arg(drive.at("masterIntensity").get<double>(), 0, 'f', 2)
+                    .arg(QString::fromStdString(drive.at("transport").get<std::string>()),
+                         drive.at("external").get<bool>() ? "external" : "autonomous");
+    }
+    QCOMPARE(seen.join('|'), drives);
+
+    invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+    const Json off = invoke(doc, m_vc.get(), m_workspace.get(), "get_dj_state");
+    QCOMPARE(off.at("drivenShows"), Json::array());
 }
 
 void McpLiveControlTools_Test::invalidArguments_data()
