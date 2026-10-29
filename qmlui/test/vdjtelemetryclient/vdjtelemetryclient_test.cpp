@@ -738,32 +738,40 @@ void VdjTelemetryClient_Test::framing_data()
 {
     QTest::addColumn<QStringList>("chunks");
     QTest::addColumn<QStringList>("objects");  // "deck:trigger" per deck object, in order
-    QTest::addColumn<int>("ticks");
+    QTest::addColumn<QList<int>>("ticksAt");   // deck objects dispatched when each tick ends
 
     const QString a = R"({"evt":"subscribed","trigger":"deck 1 play","value":"off"})";
     const QString b = R"({"evt":"subscribed","trigger":"deck 2 masterdeck","value":"on"})";
     const QString beat = R"({"evt":"beat","pos":1,"bpm":120,"strength":1,"change":false})";
     QTest::newRow("one write, newline-joined, no trailing newline") << QStringList{ a + "\n" + b }
-                                                                      << QStringList({ "1:play", "2:masterdeck" }) << 1;
+                                                                      << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
     QTest::newRow("a beat write adjacent to a tick write") << QStringList{ beat + a + "\n" + b }
-                                                              << QStringList({ "1:play", "2:masterdeck" }) << 2;
+                                                              << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 0, 2 };
     QTest::newRow("an object cut across chunks") << QStringList({ a.left(20), a.mid(20) + "\n" + b })
-                                                   << QStringList({ "1:play", "2:masterdeck" }) << 1;
+                                                   << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
     QTest::newRow("a title with braces and an escaped quote")
         << QStringList{ R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"a\"b}{c\\d"})" }
-        << QStringList{ "1:get_title" } << 1;
-    QTest::newRow("two writes in one chunk") << QStringList{ a + b } << QStringList({ "1:play", "2:masterdeck" }) << 2;
+        << QStringList{ "1:get_title" } << QList<int>{ 1 };
+    QTest::newRow("two writes in one chunk") << QStringList{ a + b } << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 1, 2 };
+    // a read can end inside a write (over the LAN): only the next write's start or the settle timeout ends it
+    QTest::newRow("a write split right after a complete object") << QStringList({ a, "\n" + b })
+                                                                  << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
+    QTest::newRow("a write split after the newline joining its objects") << QStringList({ a + "\n", b })
+                                                                          << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
+    QTest::newRow("the next write at the start of the next read") << QStringList({ a, b })
+                                                                   << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 1, 2 };
 }
 
 void VdjTelemetryClient_Test::framing()
 {
     QFETCH(QStringList, chunks);
     QFETCH(QStringList, objects);
-    QFETCH(int, ticks);
+    QFETCH(QList<int>, ticksAt);
 
     VdjTelemetryClient client;
     QSignalSpy deckSpy(&client, &VdjTelemetryClient::deckTriggerReceived);
-    QSignalSpy tickSpy(&client, &VdjTelemetryClient::tickEnded);
+    QList<int> seenAtTicks;
+    connect(&client, &VdjTelemetryClient::tickEnded, this, [&]() { seenAtTicks << int(deckSpy.count()); });
     for (const QString &chunk : chunks)
         client.feed(chunk.toUtf8());
 
@@ -771,7 +779,10 @@ void VdjTelemetryClient_Test::framing()
     for (const QList<QVariant> &args : deckSpy)
         seen << QStringLiteral("%1:%2").arg(args[0].toInt() + 1).arg(args[1].toString());
     QCOMPARE(seen, objects);
-    QCOMPARE(tickSpy.count(), ticks);
+    // the last write ends after the settle timeout, and nothing ends after it
+    QTRY_COMPARE_WITH_TIMEOUT(seenAtTicks.size(), ticksAt.size(), 1000);
+    QTest::qWait(5 * VdjTelemetryClient::kSettleMs);
+    QCOMPARE(seenAtTicks, ticksAt);
     if (objects.first() == QLatin1String("1:get_title"))
         QCOMPARE(deckSpy[0][2].toString(), QStringLiteral("a\"b}{c\\d"));
 }
