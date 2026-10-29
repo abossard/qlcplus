@@ -72,7 +72,8 @@ struct DeckSim
  *   x=V          crossfader; count=N deck count; disconnect
  *   perform=on|off, remove-set, remove-song=X, map-set=X (song X plays the set),
  *   map=X:Y (song X plays Y's Show), nest-set=X (X's Show holds the set),
- *   save (the Doc as saved), load (another workspace with the same songs)
+ *   save (the Doc as saved), load (another workspace with the same songs),
+ *   remove-clip=K (deck K's first clip leaves the set)
  */
 struct Rig
 {
@@ -206,6 +207,12 @@ struct Rig
             }
             else if (key == "remove-set")
                 doc.deleteFunction(recorder.setShowId());
+            else if (key == "remove-clip")
+            {
+                ShowFunction *sf = clip(value.toInt(), 0);
+                for (Track *track : sets().first()->tracks())
+                    track->removeShowFunction(sf);
+            }
             else if (key == "remove-song")
                 doc.deleteFunction(songs.value(value)->id());
             else if (key == "map-set")
@@ -716,23 +723,48 @@ void DjSetRecorder_Test::aClipWaitsForARunningSetToStop()
 void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified_data()
 {
     QTest::addColumn<QString>("script");  // after a save while song A plays on deck 1
+    QTest::addColumn<bool>("modified");
 
-    QTest::newRow("a playing deck") << "+1000";
-    QTest::newRow("a paused deck") << "d1.pause;~1000";
+    QTest::newRow("a playing deck") << "+1000;wait" << true;
+    QTest::newRow("a paused deck") << "d1.pause;~1000;wait" << true;
+    QTest::newRow("a clip removed from the set") << "remove-clip=1;save;+1000;wait" << false;
 }
 
 void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified()
 {
     QFETCH(QString, script);
+    QFETCH(bool, modified);
 
     Rig rig;
     rig.run("perform=on;d1.load=A;d1.play;+300;save");
-    ShowFunction *clip = rig.clip(1, 0);
-    QVERIFY(clip != nullptr);
     rig.run(script);
-    QTRY_COMPARE_WITH_TIMEOUT(clip->duration(), 1300u, 2000);
-    // the saved workspace lacks the growth
+    QCOMPARE(rig.doc.isModified(), modified);
+}
+
+void DjSetRecorder_Test::setChangesRestartTheAutosave_data()
+{
+    QTest::addColumn<QString>("script");  // while song A plays on deck 1, the workspace modified
+    QTest::addColumn<bool>("restarted");
+
+    QTest::newRow("a song change") << "d1.pause;d1.load=B;d1.play;+500" << true;
+    QTest::newRow("an eject") << "d1.eject;+500" << true;
+    QTest::newRow("a second deck") << "d2.load=B;d2.play;+500" << true;
+    // the autosave fires after the last restart: growth alone must not postpone it
+    QTest::newRow("growth alone") << "+1000;wait" << false;
+}
+
+void DjSetRecorder_Test::setChangesRestartTheAutosave()
+{
+    QFETCH(QString, script);
+    QFETCH(bool, restarted);
+
+    Rig rig;
+    rig.run("perform=on;d1.load=A;d1.play;+300;wait");
     QVERIFY(rig.doc.isModified());
+    // every Doc::setModified() restarts the autosave timer
+    QSignalSpy restarts(&rig.doc, &Doc::modified);
+    rig.run(script);
+    QCOMPARE(restarts.isEmpty() == false, restarted);
 }
 
 void DjSetRecorder_Test::performOffFinalizesTheSet_data()

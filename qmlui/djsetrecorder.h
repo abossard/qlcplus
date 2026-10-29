@@ -53,8 +53,9 @@ inline const QString kSetFolderPath = QStringLiteral("Sets");
  *
  * The decks are read only at DjFsm::settled(), on a monotonic clock from
  * the set start. The open clips reach the set every kUpdateIntervalMs, at
- * once when one opens or closes, and mark the workspace modified. A set that
- * leaves the Doc is not written again: the decks that play start a new one.
+ * once when one opens or closes, and mark the workspace modified; an opened
+ * or closed one restarts its autosave. A set that leaves the Doc is not
+ * written again: the decks that play start a new one.
  */
 class DjSetRecorder final : public QObject
 {
@@ -128,8 +129,15 @@ private:
     Show *set() const;
     /** The deck's track, with the tracks of the decks before it */
     Track *deckTrack(Show *set, int deck) const;
-    /** A clip into its set; false when a new clip has to wait for a running set to stop */
-    bool writeClip(quint32 setId, int deck, DeckClip &clip);
+    enum class Written
+    {
+        Created,    //!< a new clip in the set
+        Updated,
+        Waiting,    //!< a new clip waits for the running set to stop
+        Gone,       //!< the set or the clip left the Doc
+    };
+    /** A clip into its set */
+    Written writeClip(quint32 setId, int deck, DeckClip &clip);
     /** The closed clips, then the open ones */
     void write();
     /** The set left the Doc: its open clips go with it */

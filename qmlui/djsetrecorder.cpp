@@ -332,55 +332,66 @@ Track *DjSetRecorder::deckTrack(Show *set, int deck) const
     return track;
 }
 
-bool DjSetRecorder::writeClip(quint32 setId, int deck, DeckClip &clip)
+DjSetRecorder::Written DjSetRecorder::writeClip(quint32 setId, int deck, DeckClip &clip)
 {
     Show *set = qobject_cast<Show *>(m_doc->function(setId));
     // the set left the Doc, or the clip the set: nothing to write
     if (set == nullptr)
-        return true;
+        return Written::Gone;
     ShowFunction *sf = clip.uid ? set->showFunction(*clip.uid) : nullptr;
     if (clip.uid && sf == nullptr)
-        return true;
+        return Written::Gone;
 
+    Written written = Written::Updated;
     if (sf == nullptr)
     {
         // a running set's clips are its runner's: a new one waits for the stop
         MasterTimer *timer = m_doc->masterTimer();
         MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(set));
         if (!admission)
-            return false;
+            return Written::Waiting;
         Track *track = deckTrack(set, deck + 1);
         if (track == nullptr)
-            return true;
+            return Written::Gone;
         sf = track->createShowFunction(clip.showId);
         sf->setStartTime(clip.startMs);
         sf->setColor(ShowFunction::defaultColor(Function::ShowType));
         clip.uid = sf->id();
+        written = Written::Created;
     }
     // 0 would be the song Show's own duration
     sf->setDuration(qMax(1u, clip.endMs));
     sf->setClipAutomation(automation(clip));
-    return true;
+    return written;
 }
 
 void DjSetRecorder::write()
 {
-    if (pending() == false)
-        return;
+    // a clip that starts or ends restarts the autosave; growth only marks the workspace,
+    // else every update would postpone the autosave for the whole set
+    bool restart = false;
+    bool mark = false;
     for (auto it = m_closed.begin(); it != m_closed.end();)
     {
-        if (writeClip(it->setId, it->deck, it->clip))
-            it = m_closed.erase(it);
-        else
+        const Written written = writeClip(it->setId, it->deck, it->clip);
+        if (written == Written::Waiting)
+        {
+            mark = true;
             ++it;
+            continue;
+        }
+        restart = restart || written != Written::Gone;
+        it = m_closed.erase(it);
     }
     for (int i = 0; i < DjFsm::MaxDecks; ++i)
     {
-        if (m_clips[i])
-            writeClip(m_setId, i, *m_clips[i]);
+        if (m_clips[i] == std::nullopt)
+            continue;
+        const Written written = writeClip(m_setId, i, *m_clips[i]);
+        restart = restart || written == Written::Created;
+        mark = mark || written == Written::Updated || written == Written::Waiting;
     }
-    // the set changed since a save; a modified Doc keeps its autosave timer
-    if (m_doc->isModified() == false)
+    if (restart || (mark && m_doc->isModified() == false))
         m_doc->setModified();
 }
 

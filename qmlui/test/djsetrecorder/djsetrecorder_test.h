@@ -29,6 +29,8 @@ private slots:
     void aClipWaitsForARunningSetToStop();
     void growthAfterASaveMarksTheWorkspaceModified_data();
     void growthAfterASaveMarksTheWorkspaceModified();
+    void setChangesRestartTheAutosave_data();
+    void setChangesRestartTheAutosave();
     void performOffFinalizesTheSet_data();
     void performOffFinalizesTheSet();
     void replayReproducesTheSet_data();
