@@ -117,6 +117,9 @@ private slots:
     void alignToLastSelected_data();
     void alignToLastSelected();
 
+    void clickAndGoBoxShowsPick_data();
+    void clickAndGoBoxShowsPick();
+
 private:
     VirtualConsole *vc() const;
     ConsoleIds buildConsole();

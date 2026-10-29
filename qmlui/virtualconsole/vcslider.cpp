@@ -1798,6 +1798,9 @@ void VCSlider::writeDMXLevel(MasterTimer* timer, QList<Universe *> universes)
             if (! (chType & FadeChannel::Intensity))
                 fc->addFlag(FadeChannel::AutoRemove);
 
+            // every channel starts from the slider level, not from the previous channel's colour
+            uchar chLevel = modLevel;
+
             if (chType & FadeChannel::Intensity && clickAndGoType() == CnGColors)
             {
                 const QLCChannel *qlcch = fxi->channel(scv.channel);
@@ -1806,22 +1809,25 @@ void VCSlider::writeDMXLevel(MasterTimer* timer, QList<Universe *> universes)
                 {
                     switch (qlcch->colour())
                     {
-                        case QLCChannel::Red: modLevel = (uchar)r; break;
-                        case QLCChannel::Green: modLevel = (uchar)g; break;
-                        case QLCChannel::Blue: modLevel = (uchar)b; break;
-                        case QLCChannel::Cyan: modLevel = (uchar)c; break;
-                        case QLCChannel::Magenta: modLevel = (uchar)m; break;
-                        case QLCChannel::Yellow: modLevel = (uchar)y; break;
-                        case QLCChannel::White: modLevel = (uchar)w; break;
-                        case QLCChannel::Amber: modLevel = (uchar)a; break;
-                        case QLCChannel::UV: modLevel = (uchar)uv; break;
+                        case QLCChannel::Red: chLevel = (uchar)r; break;
+                        case QLCChannel::Green: chLevel = (uchar)g; break;
+                        case QLCChannel::Blue: chLevel = (uchar)b; break;
+                        case QLCChannel::Cyan: chLevel = (uchar)c; break;
+                        case QLCChannel::Magenta: chLevel = (uchar)m; break;
+                        case QLCChannel::Yellow: chLevel = (uchar)y; break;
+                        case QLCChannel::White: chLevel = (uchar)w; break;
+                        case QLCChannel::Amber: chLevel = (uchar)a; break;
+                        case QLCChannel::UV: chLevel = (uchar)uv; break;
+                        // not part of the picked RGB + WAUV colour
+                        case QLCChannel::Lime:
+                        case QLCChannel::Indigo: chLevel = 0; break;
                         default: break;
                     }
                 }
             }
 
             fc->setStart(fc->current());
-            fc->setTarget(qreal(modLevel) * intensity());
+            fc->setTarget(qreal(chLevel) * intensity());
             fc->setReady(false);
             fc->setElapsed(0);
         }

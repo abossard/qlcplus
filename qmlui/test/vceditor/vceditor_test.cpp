@@ -38,9 +38,14 @@
 #undef private
 #include "contextmanager.h"
 #include "doc.h"
+#include "fixture.h"
 #include "functionmanager.h"
 #include "mastertimer.h"
 #include "monitorproperties.h"
+#include "qlccapability.h"
+#include "qlcchannel.h"
+#include "qlcfixturedef.h"
+#include "qlcfixturemode.h"
 #include "scene.h"
 #include "uimanager.h"
 #include "vceditor.h"
@@ -2021,6 +2026,113 @@ void VCEditor_Test::alignToLastSelected()
     vc()->setWidgetsAlignment(vc()->selectedWidget(), Qt::AlignLeft);
     QCOMPARE(vc()->widget(first)->logicalGeometry().x(), lastX);
     QCOMPARE(vc()->widget(last)->logicalGeometry().x(), lastX);
+}
+
+void VCEditor_Test::clickAndGoBoxShowsPick_data()
+{
+    QTest::addColumn<int>("cngType");
+    QTest::addColumn<bool>("picked");
+
+    QTest::newRow("colours-unpicked") << int(VCSlider::CnGColors) << false;
+    QTest::newRow("colours-red") << int(VCSlider::CnGColors) << true;
+    QTest::newRow("preset-unpicked") << int(VCSlider::CnGPreset) << false;
+    QTest::newRow("preset-red") << int(VCSlider::CnGPreset) << true;
+}
+
+void VCEditor_Test::clickAndGoBoxShowsPick()
+{
+    QFETCH(int, cngType);
+    QFETCH(bool, picked);
+
+    // channels 0-2: red, green, blue; channel 3: a wheel of red (0-127) and blue (128-255)
+    QLCFixtureDef *def = new QLCFixtureDef();
+    def->setManufacturer("Test");
+    def->setModel("CnG box");
+    QLCFixtureMode *mode = new QLCFixtureMode(def);
+    mode->setName("Standard");
+    const QLCChannel::PrimaryColour colours[] = { QLCChannel::Red, QLCChannel::Green, QLCChannel::Blue };
+    for (int i = 0; i < 4; ++i)
+    {
+        QLCChannel *ch = new QLCChannel();
+        ch->setName(QString::number(i));
+        if (i < 3)
+        {
+            ch->setGroup(QLCChannel::Intensity);
+            ch->setColour(colours[i]);
+        }
+        else
+        {
+            ch->setGroup(QLCChannel::Colour);
+            const QList<QPair<QString, QColor>> wheel = { { "Red", Qt::red }, { "Blue", Qt::blue } };
+            for (int s = 0; s < wheel.size(); ++s)
+            {
+                QLCCapability *cap = new QLCCapability(uchar(s * 128), uchar(s * 128 + 127), wheel.at(s).first);
+                cap->setPreset(QLCCapability::ColorMacro);
+                cap->setResource(0, wheel.at(s).second);
+                QVERIFY(ch->addCapability(cap));
+            }
+        }
+        def->addChannel(ch);
+        mode->insertChannel(ch, i);
+    }
+    def->addMode(mode);
+    Fixture *fixture = new Fixture(m_app->doc());
+    fixture->setFixtureDefinition(def, mode);
+    QVERIFY(m_app->doc()->addFixture(fixture));
+
+    const QVariantMap created = vc()->createWidgetGeometry(vc()->page(0)->id(), "Slider",
+                                                           QRectF(40, 40, 120, 400));
+    QVERIFY2(created.value("accepted").toBool(), qPrintable(created.value("error").toString()));
+    const quint32 id = created.value("widgetIDs").toList().first().toUInt();
+    VCSlider *slider = qobject_cast<VCSlider *>(vc()->widget(id));
+    QVERIFY(slider);
+    slider->setSliderMode(VCSlider::Level);
+    slider->setClickAndGoType(VCSlider::ClickAndGoType(cngType));
+    if (cngType == VCSlider::CnGColors)
+        for (quint32 ch = 0; ch < 3; ++ch)
+            slider->addLevelChannel(fixture->id(), ch);
+    else
+        slider->addLevelChannel(fixture->id(), 3);
+    vc()->setEditMode(false);
+
+    if (picked && cngType == VCSlider::CnGColors)
+        slider->setClickAndGoColors(Qt::red, Qt::black);
+    else if (picked)
+        slider->setClickAndGoPresetValue(64);
+
+    QTRY_VERIFY(slider->renderItem());
+    QQuickItem *box = nullptr;
+    QTRY_VERIFY((box = [&]() -> QQuickItem * {
+        for (QQuickItem *item : slider->renderItem()->findChildren<QQuickItem *>())
+            if (QByteArray(item->metaObject()->className()).startsWith("MultiColorBox"))
+                return item;
+        return nullptr;
+    }()));
+    QTRY_VERIFY(box->width() > 0 && box->parentItem()->isVisible());
+
+    // share of the box area showing a colour, in the grabbed window
+    const auto share = [&](const std::function<bool(QRgb)> &match) {
+        const QImage image = m_app->grabWindow().convertToFormat(QImage::Format_RGB32);
+        const qreal dpr = qreal(image.width()) / m_app->width();
+        const QRect area = QRectF(box->mapToScene(QPointF(0, 0)) * dpr,
+                                  QSizeF(box->width(), box->height()) * dpr).toRect();
+        int hits = 0;
+        for (int y = area.top(); y <= area.bottom(); ++y)
+            for (int x = area.left(); x <= area.right(); ++x)
+                hits += match(image.pixel(x, y)) ? 1 : 0;
+        return qreal(hits) / (area.width() * area.height());
+    };
+    const auto black = [](QRgb p) { return qRed(p) < 16 && qGreen(p) < 16 && qBlue(p) < 16; };
+    const auto red = [](QRgb p) { return qRed(p) > 200 && qGreen(p) < 60 && qBlue(p) < 60; };
+    // the first grabs of the offscreen window can still be blank
+    const auto white = [](QRgb p) { return qRed(p) > 240 && qGreen(p) > 240 && qBlue(p) > 240; };
+
+    QTRY_VERIFY2(share(white) < 0.5, qPrintable(QString::number(share(white))));
+    if (picked)
+        QTRY_VERIFY2(share(red) > 0.9, qPrintable(QString::number(share(red))));
+    checkScreenshot(QString("cng-%1").arg(QTest::currentDataTag()));
+    if (!picked)
+        QVERIFY2(share(black) < 0.1, qPrintable(QString::number(share(black))));
 }
 
 QTEST_MAIN(VCEditor_Test)

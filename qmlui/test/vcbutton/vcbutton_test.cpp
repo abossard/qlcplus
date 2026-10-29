@@ -58,6 +58,7 @@
 #include "qlcchannel.h"
 #include "virtualconsole.h"
 #include "tools/tool_registry.h"
+#include "universe.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/mcp/handler.hpp>
@@ -2646,5 +2647,83 @@ void VCButton_Test::recordingId_malformedControlDroppedFromFrame()
     QVERIFY(ui.vc()->widgetsByRecordingId(idB).isEmpty());
     QCOMPARE(ui.vc()->widgetsByRecordingId(idC).count(), 1);
 }
+
+
+namespace
+{
+/** One synchronous fader pass: Universe::processFaders is protected and the
+ *  universe threads do not run in these tests. */
+struct UniverseFaders : Universe
+{
+    static void process(Universe *universe)
+    {
+        (universe->*(&UniverseFaders::processFaders))(MasterTimer::tick());
+    }
+};
+}
+
+void VCButton_Test::sliderClickAndGo_colourChannelLevels_data()
+{
+    // One Intensity channel per entry, in fixture order. The slider picks pure red.
+    QTest::addColumn<QList<int>>("colours");
+    QTest::addColumn<QList<int>>("levels");
+
+    const int dimmer = QLCChannel::NoColour;
+    const int red = QLCChannel::Red;
+    const int lime = QLCChannel::Lime;
+    const int indigo = QLCChannel::Indigo;
+
+    QTest::newRow("lime after red") << QList<int>{ red, lime } << QList<int>{ 255, 0 };
+    QTest::newRow("lime first") << QList<int>{ lime, red } << QList<int>{ 0, 255 };
+    QTest::newRow("indigo after red") << QList<int>{ red, indigo } << QList<int>{ 255, 0 };
+    QTest::newRow("dimmer after red") << QList<int>{ red, dimmer } << QList<int>{ 255, 128 };
+    QTest::newRow("dimmer first") << QList<int>{ dimmer, red } << QList<int>{ 128, 255 };
+}
+
+void VCButton_Test::sliderClickAndGo_colourChannelLevels()
+{
+    QFETCH(QList<int>, colours);
+    QFETCH(QList<int>, levels);
+
+    Doc doc(nullptr, 1);
+    UiFixture ui(&doc);
+
+    QLCFixtureDef *def = new QLCFixtureDef();
+    def->setManufacturer("Test");
+    def->setModel("CnG");
+    QLCFixtureMode *mode = new QLCFixtureMode(def);
+    mode->setName("Standard");
+    for (int i = 0; i < colours.size(); ++i)
+    {
+        QLCChannel *ch = new QLCChannel();
+        ch->setName(QString::number(i));
+        ch->setGroup(QLCChannel::Intensity);
+        ch->setColour(QLCChannel::PrimaryColour(colours.at(i)));
+        def->addChannel(ch);
+        mode->insertChannel(ch, i);
+    }
+    def->addMode(mode);
+    Fixture *fxi = new Fixture(&doc);
+    fxi->setFixtureDefinition(def, mode);
+    fxi->setAddress(0);
+    fxi->setUniverse(0);
+    QVERIFY(doc.addFixture(fxi));
+
+    VCSlider slider(&doc);
+    slider.setSliderMode(VCSlider::Level);
+    slider.setClickAndGoType(VCSlider::CnGColors);
+    for (int i = 0; i < colours.size(); ++i)
+        slider.addLevelChannel(fxi->id(), quint32(i));
+
+    slider.setClickAndGoColors(QColor(255, 0, 0), QColor(0, 0, 0));
+
+    const QList<Universe *> universes = doc.inputOutputMap()->claimUniverses();
+    const auto release = qScopeGuard([&]() { doc.inputOutputMap()->releaseUniverses(false); });
+    slider.writeDMX(doc.masterTimer(), universes);
+    UniverseFaders::process(universes.first());
+    for (int i = 0; i < levels.size(); ++i)
+        QCOMPARE(int(uchar(universes.first()->preGMValues()[i])), levels.at(i));
+}
+
 
 QTEST_MAIN(VCButton_Test)
