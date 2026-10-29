@@ -50,6 +50,8 @@ private slots:
     void addShowItems_defaultDurationFromFunction();
     void addShowItems_missingTrack_isCreated();
     void addShowItems_showOnItsOwnTimeline_rejected();
+    void addShowItems_nestedShow_data();
+    void addShowItems_nestedShow();
     void addShowItems_unknownFunction_error();
 
     // query / delete

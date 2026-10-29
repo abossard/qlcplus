@@ -21,8 +21,10 @@
 #define SHOWFUNCTION_H
 
 #include <QColor>
+#include <QMutex>
 
 #include "function.h"
+#include "showclipautomation.h"
 
 class QXmlStreamReader;
 class Doc;
@@ -83,12 +85,18 @@ public:
     int intensityOverrideId() const;
     void setIntensityOverrideId(int id);
 
+    /** Get/Set how the clip plays its Function over the clip time.
+     *  Any thread: a runner takes a copy when the clip starts */
+    ShowClipAutomation clipAutomation() const;
+    void setClipAutomation(const ShowClipAutomation &automation);
+
 signals:
     void functionIDChanged();
     void startTimeChanged();
     void durationChanged();
     void colorChanged();
     void lockedChanged();
+    void clipAutomationChanged();
 
 private:
     /** ID of this class to uniquely identify it within a Show */
@@ -112,6 +120,9 @@ private:
 
     /** Intensity attribute override ID */
     int m_intensityOverrideId;
+
+    mutable QMutex m_clipAutomationMutex;
+    ShowClipAutomation m_clipAutomation;
 
     /************************************************************************
      * Load & Save

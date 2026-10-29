@@ -30,6 +30,7 @@
 #include <limits>
 
 #include <function.h>
+#include <showclipdriver.h>
 #include <showcommandtrack.h>
 
 class ShowFunction;
@@ -155,9 +156,9 @@ private:
     QSet<Function *> m_seekRestartFunctions;
 
     /** A Scene this Show still owns, whose clip is active at newTime, keeps
-     *  running; every other clip stops and starts again there, judged on the
-     *  clock that plays it. A forward request keeps the
-     *  command traversal and plays the crossed interval; otherwise the
+     *  running, and so does a nested Show, whose clock moves; every other
+     *  clip stops and starts again there, judged on the clock that plays it.
+     *  A forward request keeps the command traversal and plays the crossed interval; otherwise the
      *  traversal restarts at newTime, unless the Show restarted it already
      *  for this move, and rolls back its own effects. */
     void seekTo(quint32 newTime, bool forward = false);
@@ -175,7 +176,6 @@ private:
     void startDeferredAudioFunctions(const QList<ShowFunction *> &functions,
                                      QSet<quint32> &deferred,
                                      quint32 elapsed);
-    void applyTrackIntensity(ShowFunction *sf, Function *f);
 
     /************************************************************************
      * Commands
@@ -255,6 +255,8 @@ private:
     quint64 m_pendingRollback = NoCommandSeek;
     /** A requested forward jump was taken: its crossed interval plays serially */
     bool m_commandJumpPending = false;
+    /** The Show was not dominant: what it crossed meanwhile plays like a forward jump */
+    bool m_commandsWithheld = false;
 
     /** What a legacy Start, Stop or SetIntensity found and left on its target */
     struct LegacyEffect
@@ -304,6 +306,9 @@ private:
     /** Return true if $function is in the running queue for any item */
     bool isQueued(Function *function) const;
 
+    /** The last clip of $f, in list order, active at $at on the clock that plays it */
+    const ShowFunction *activeClip(const Function *f, quint32 at) const;
+
     /** Start the Function of $sf with the given $startTime offset and add it
      *  to the running queue. Does not restart an already running Function */
     void startShowFunction(ShowFunction *sf, Function *f, quint32 startTime);
@@ -327,6 +332,8 @@ private:
     QSet<quint32> m_deferredTimeAudioFunctionIds;
     QSet<quint32> m_deferredBeatAudioFunctionIds;
 
+    /** Plays the clips through their automation */
+    ShowClipDriver m_clips;
 };
 
 /** @} */

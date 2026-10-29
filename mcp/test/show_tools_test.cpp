@@ -277,6 +277,46 @@ void McpShowTools_Test::addShowItems_showOnItsOwnTimeline_rejected()
     QCOMPARE(show->tracks().first()->showFunctions().count(), 0);
 }
 
+void McpShowTools_Test::addShowItems_nestedShow_data()
+{
+    QTest::addColumn<QString>("item");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("a song show") << "Song" << true;
+    QTest::newRow("a show that plays this show") << "Wrapper" << false;
+    QTest::newRow("a show that plays it through another show") << "Outer" << false;
+}
+
+void McpShowTools_Test::addShowItems_nestedShow()
+{
+    QFETCH(QString, item);
+    QFETCH(bool, accepted);
+
+    Show *set = makeShow(m_doc, "Set");
+    makeShow(m_doc, "Song");
+    Show *wrapper = makeShow(m_doc, "Wrapper");
+    Show *outer = makeShow(m_doc, "Outer");
+    // Wrapper plays Set, Outer plays Wrapper
+    ShowFunction *plays = wrapper->tracks().first()->createShowFunction(set->id());
+    plays->setStartTime(0);
+    plays->setDuration(1000);
+    ShowFunction *playsWrapper = outer->tracks().first()->createShowFunction(wrapper->id());
+    playsWrapper->setStartTime(0);
+    playsWrapper->setDuration(1000);
+    m_doc->resetModified();
+
+    const Json result = invoke(m_doc, "add_show_items", Json{
+        {"showID", (int)set->id()}, {"trackName", "Track 1"},
+        {"items", Json::array({{{"functionName", item.toStdString()}, {"startTime", 0}, {"duration", 1000}}})}});
+
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result[0].value("status", std::string()), std::string(accepted ? "ok" : "error"));
+    QCOMPARE(set->tracks().first()->showFunctions().count(), accepted ? 1 : 0);
+    QCOMPARE(m_doc->isModified(), accepted);
+    if (!accepted)
+        QVERIFY2(result[0].value("error", std::string()).find("cycle") != std::string::npos, result.dump().c_str());
+}
+
 void McpShowTools_Test::addShowItems_unknownFunction_error()
 {
     Show *show = makeShow(m_doc, "Set");

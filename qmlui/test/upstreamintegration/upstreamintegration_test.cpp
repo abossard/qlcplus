@@ -113,6 +113,8 @@ private slots:
     void functionRemovalProjection();
     void mixedAuthoring_data();
     void mixedAuthoring();
+    void showClipCycleGuard_data();
+    void showClipCycleGuard();
     void rulerChangeGeometry_data();
     void rulerChangeGeometry();
     void fileOpenGuard_data();
@@ -5524,6 +5526,56 @@ void UpstreamIntegration_Test::mixedAuthoring()
     QVERIFY(std::isfinite(item->x()));
     QVERIFY(std::isfinite(item->width()));
     manager->setCurrentShowID(Function::invalidId());
+}
+
+void UpstreamIntegration_Test::showClipCycleGuard_data()
+{
+    QTest::addColumn<QString>("item");
+    QTest::addColumn<bool>("accepted");
+
+    QTest::newRow("a song show") << "song" << true;
+    QTest::newRow("the show itself") << "self" << false;
+    QTest::newRow("a show that plays this show") << "wrapper" << false;
+    QTest::newRow("a show that plays it through another show") << "outer" << false;
+}
+
+void UpstreamIntegration_Test::showClipCycleGuard()
+{
+    QFETCH(QString, item);
+    QFETCH(bool, accepted);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    QVERIFY(manager);
+    QMap<QString, Show *> shows;
+    for (const char *name : {"set", "song", "wrapper", "outer"})
+    {
+        auto *show = new Show(doc);
+        QVERIFY(doc->addFunction(show));
+        auto *track = new Track(Function::invalidId(), show);
+        show->addTrack(track);
+        shows.insert(name, show);
+    }
+    shows["self"] = shows["set"];
+    // wrapper plays the set, outer plays wrapper
+    for (const auto &[parent, child] : {std::pair<const char *, const char *>{"wrapper", "set"}, {"outer", "wrapper"}})
+    {
+        ShowFunction *clip = shows[parent]->tracks().first()->createShowFunction(shows[child]->id());
+        clip->setStartTime(0);
+        clip->setDuration(1000);
+    }
+    const auto cleanup = qScopeGuard([&]() {
+        manager->resetView();
+        manager->setCurrentShowID(Function::invalidId());
+        for (const char *name : {"outer", "wrapper", "song", "set"})
+            doc->deleteFunction(shows[name]->id());
+    });
+    Show *set = shows["set"];
+    manager->setCurrentShowID(set->id());
+    QQuickItem area;
+
+    manager->addItems(&area, 0, 0, {shows[item]->id()});
+
+    QCOMPARE(set->tracks().first()->showFunctions().count(), accepted ? 1 : 0);
 }
 
 void UpstreamIntegration_Test::rulerChangeGeometry_data()

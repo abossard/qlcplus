@@ -4729,4 +4729,750 @@ void ShowRunner_Test::beatItemsWhenStartingMidway()
     m_doc->masterTimer()->timerTick();
 }
 
+/*****************************************************************************
+ * Clip automation and nested Shows
+ *****************************************************************************/
+
+typedef QVector<ShowClipSegment> ClipSegments;
+typedef QVector<ShowClipLevel> ClipLevels;
+typedef QVector<ShowClipDominance> ClipSteps;
+Q_DECLARE_METATYPE(ClipSegments)
+Q_DECLARE_METATYPE(ClipLevels)
+Q_DECLARE_METATYPE(ClipSteps)
+
+namespace
+{
+
+ShowClipSegment clipSegment(quint32 clipMs, quint32 songMs, qreal rate)
+{
+    ShowClipSegment s;
+    s.clipMs = clipMs;
+    s.songMs = songMs;
+    s.rate = rate;
+    return s;
+}
+
+ShowClipLevel clipLevel(quint32 clipMs, qreal level)
+{
+    ShowClipLevel l;
+    l.clipMs = clipMs;
+    l.level = level;
+    return l;
+}
+
+ShowClipDominance clipStep(quint32 clipMs, bool dominant)
+{
+    ShowClipDominance d;
+    d.clipMs = clipMs;
+    d.dominant = dominant;
+    return d;
+}
+
+ShowClipAutomation clipAutomation(const ClipSegments &segments, const ClipLevels &envelope = ClipLevels(),
+                                  const ClipSteps &dominance = ClipSteps())
+{
+    ShowClipAutomation a;
+    a.setSegments(segments);
+    a.setEnvelope(envelope);
+    a.setDominance(dominance);
+    return a;
+}
+
+ShowFunction *addClip(Show *show, Track *track, quint32 functionId, quint32 start, quint32 duration,
+                      const ShowClipAutomation &automation = ShowClipAutomation())
+{
+    ShowFunction *clip = new ShowFunction(show->getLatestShowFunctionId());
+    clip->setFunctionID(functionId);
+    clip->setStartTime(start);
+    clip->setDuration(duration);
+    clip->setClipAutomation(automation);
+    track->addShowFunction(clip);
+    return clip;
+}
+
+/** A song Show playing one long Scene, nested in a set Show on its first track */
+struct NestedSet
+{
+    Scene *scene = nullptr;
+    Show *song = nullptr;
+    Show *set = nullptr;
+    Track *track = nullptr;
+};
+
+NestedSet makeNestedSet(Doc &doc)
+{
+    NestedSet n;
+    Fixture *fixture = makeFixture(doc, 1);
+    n.scene = makeScene(doc, fixture->id(), 0, 200);
+    n.song = new Show(&doc);
+    doc.addFunction(n.song);
+    Track *songTrack = new Track(n.scene->id());
+    n.song->addTrack(songTrack);
+    addClip(n.song, songTrack, n.scene->id(), 0, 600000);
+    n.set = new Show(&doc);
+    doc.addFunction(n.set);
+    n.track = new Track(Function::invalidId());
+    n.set->addTrack(n.track);
+    return n;
+}
+
+/** The set under External sync, its clock exactly the positions pushed */
+void playExternal(Doc &doc, Show *show, const QList<quint32> &positions)
+{
+    MasterTimer *timer = doc.masterTimer();
+    if (show->isRunning() == false)
+    {
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(0);
+        timer->timerTick();
+    }
+    for (quint32 ms : positions)
+    {
+        show->setExternalElapsedTime(ms);
+        timer->timerTick();
+        timer->timerTick();
+    }
+}
+
+void stopAndSettle(Doc &doc, Show *show)
+{
+    show->stop(FunctionParent::master());
+    doc.masterTimer()->timerTick();
+    doc.masterTimer()->timerTick();
+}
+
+}
+
+void ShowRunner_Test::nestedShowFollowsThePositionMap_data()
+{
+    QTest::addColumn<ClipSegments>("segments");
+    QTest::addColumn<quint32>("setMs");
+    QTest::addColumn<quint32>("songMs");
+
+    // the clip starts at 1000 on the set's timeline
+    QTest::newRow("no map plays from the clip start") << ClipSegments() << 1500u << 500u;
+    QTest::newRow("in-point") << ClipSegments{clipSegment(0, 30000, 1.0)} << 1500u << 30500u;
+    QTest::newRow("after a loop wrap")
+        << ClipSegments{clipSegment(0, 1000, 1.0), clipSegment(1900, 1000, 1.0)} << 3000u << 1100u;
+    QTest::newRow("paused deck")
+        << ClipSegments{clipSegment(0, 500, 1.0), clipSegment(1000, 1500, 0.0)} << 4000u << 1500u;
+    QTest::newRow("pitched deck") << ClipSegments{clipSegment(0, 0, 1.08)} << 2000u << 1080u;
+}
+
+void ShowRunner_Test::nestedShowFollowsThePositionMap()
+{
+    QFETCH(ClipSegments, segments);
+    QFETCH(quint32, setMs);
+    QFETCH(quint32, songMs);
+
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.song->id(), 1000, 60000, clipAutomation(segments));
+
+    playExternal(doc, n.set, {setMs});
+
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::External));
+    QVERIFY(n.song->performAudioSuppressed());
+    QCOMPARE(n.song->externalElapsedTime(), songMs);
+    QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
+    QVERIFY(n.scene->isRunning());
+
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::nestedShowGetsItsSettingsBack_data()
+{
+    QTest::addColumn<QString>("ending");
+    QTest::addColumn<bool>("customized");
+
+    for (const bool customized : {false, true})
+    {
+        const QString settings = customized ? QStringLiteral("customized") : QStringLiteral("defaults");
+        for (const char *ending : {"clip ends", "set stops", "set seeks before the clip", "two clips back to back"})
+            QTest::newRow(qPrintable(QString("%1, %2").arg(ending, settings))) << QString(ending) << customized;
+    }
+}
+
+void ShowRunner_Test::nestedShowGetsItsSettingsBack()
+{
+    QFETCH(QString, ending);
+    QFETCH(bool, customized);
+
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    // the set keeps playing after the clip: a long Scene on a second track
+    Track *keepAlive = new Track(Function::invalidId());
+    n.set->addTrack(keepAlive);
+    Scene *other = makeScene(doc, makeFixture(doc, 1)->id(), 0, 100);
+    addClip(n.set, keepAlive, other->id(), 0, 60000);
+
+    const int sync = customized ? int(ShowRunner::External) : int(ShowRunner::Autonomous);
+    const qreal master = customized ? 0.7 : 1.0;
+    n.song->setSyncSource(sync);
+    n.song->setPerformAudioSuppressed(customized);
+    n.song->setMasterIntensity(master);
+    n.song->setDominant(!customized);
+
+    const ShowClipAutomation in = clipAutomation({clipSegment(0, 20000, 1.0)}, {clipLevel(0, 0.4)},
+                                                 {clipStep(0, customized)});
+    QList<quint32> during;
+    if (ending == "set seeks before the clip")
+    {
+        addClip(n.set, n.track, n.song->id(), 500, 1000, in);
+        during = {700};
+    }
+    else
+    {
+        addClip(n.set, n.track, n.song->id(), 0, 200, in);
+        if (ending == "two clips back to back")
+            addClip(n.set, n.track, n.song->id(), 200, 200, in);
+        during = {100};
+    }
+
+    playExternal(doc, n.set, during);
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::External));
+    QVERIFY(n.song->performAudioSuppressed());
+    QCOMPARE(n.song->masterIntensity(), 0.4 * 1.0);
+
+    if (ending == "clip ends")
+        playExternal(doc, n.set, {300});
+    else if (ending == "set stops")
+        stopAndSettle(doc, n.set);
+    else if (ending == "set seeks before the clip")
+        playExternal(doc, n.set, {100});
+    else
+    {
+        // the second clip takes the song over at once, still driven
+        playExternal(doc, n.set, {300});
+        QVERIFY(n.song->isRunning());
+        QCOMPARE(n.song->syncSource(), int(ShowRunner::External));
+        QCOMPARE(n.song->externalElapsedTime(), quint32(20100));
+        playExternal(doc, n.set, {500});
+    }
+
+    QVERIFY(n.song->isRunning() == false);
+    QCOMPARE(n.song->syncSource(), sync);
+    QCOMPARE(n.song->performAudioSuppressed(), customized);
+    QCOMPARE(n.song->masterIntensity(), master);
+    QCOMPARE(n.song->isDominant(), !customized);
+
+    if (n.set->isRunning())
+        stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::parentSeekOnlyMovesTheNestedClock_data()
+{
+    QTest::addColumn<bool>("external");
+    QTest::addColumn<quint32>("target");
+
+    QTest::newRow("local seek forward") << false << 5000u;
+    QTest::newRow("local seek back") << false << 100u;
+    QTest::newRow("external clock forward") << true << 5000u;
+    QTest::newRow("external clock back") << true << 100u;
+}
+
+void ShowRunner_Test::parentSeekOnlyMovesTheNestedClock()
+{
+    QFETCH(bool, external);
+    QFETCH(quint32, target);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.song->id(), 0, 60000, clipAutomation({clipSegment(0, 10000, 1.0)}));
+
+    if (external)
+        playExternal(doc, n.set, {400});
+    else
+    {
+        n.set->start(timer, FunctionParent::master());
+        for (int i = 0; i < ticksToReach(400); i++)
+            timer->timerTick();
+    }
+    QVERIFY(n.song->isRunning());
+    QSignalSpy started(n.song, &Function::running);
+    QSignalSpy stopped(n.song, qOverload<quint32>(&Function::stopped));
+
+    if (external)
+        n.set->setExternalElapsedTime(target);
+    else
+        n.set->requestSeek(target);
+    timer->timerTick();
+
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(started.count(), 0);
+    QCOMPARE(stopped.count(), 0);
+    QCOMPARE(n.song->externalElapsedTime(), 10000 + target);
+    QCOMPARE(n.song->m_runner->m_elapsedTime, 10000 + target);
+
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::parentJumpIntoAnotherClipKeepsTheNestedShow_data()
+{
+    QTest::addColumn<bool>("external");
+
+    QTest::newRow("external clock") << true;
+    QTest::newRow("local seek") << false;
+}
+
+void ShowRunner_Test::parentJumpIntoAnotherClipKeepsTheNestedShow()
+{
+    QFETCH(bool, external);
+
+    // clip A plays the song from 0 over [0, 1000), clip B from 50000 over [2000, 7000)
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.song->id(), 0, 1000, clipAutomation({clipSegment(0, 0, 1.0)}));
+    addClip(n.set, n.track, n.song->id(), 2000, 5000, clipAutomation({clipSegment(0, 50000, 1.0)}));
+
+    if (external)
+        playExternal(doc, n.set, {400});
+    else
+    {
+        n.set->start(timer, FunctionParent::master());
+        for (int i = 0; i < ticksToReach(400); i++)
+            timer->timerTick();
+    }
+    QVERIFY(n.song->isRunning());
+    QSignalSpy started(n.song, &Function::running);
+    QSignalSpy stopped(n.song, qOverload<quint32>(&Function::stopped));
+
+    if (external)
+        n.set->setExternalElapsedTime(3000);
+    else
+        n.set->requestSeek(3000);
+    timer->timerTick();
+    timer->timerTick();
+
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(started.count(), 0);
+    QCOMPARE(stopped.count(), 0);
+    QCOMPARE(n.song->m_runner->m_elapsedTime, external ? 51000u : 51000u + MasterTimer::tick());
+
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::nestedShowLevelAndDominance_data()
+{
+    QTest::addColumn<qreal>("trackIntensity");
+    QTest::addColumn<qreal>("setMaster");
+    QTest::addColumn<bool>("setDominant");
+    QTest::addColumn<ClipLevels>("envelope");
+    QTest::addColumn<ClipSteps>("dominance");
+    QTest::addColumn<quint32>("clipMs");
+    QTest::addColumn<qreal>("master");
+    QTest::addColumn<bool>("dominant");
+
+    QTest::newRow("full") << 1.0 << 1.0 << true << ClipLevels() << ClipSteps() << 500u << 1.0 << true;
+    QTest::newRow("track intensity") << 0.5 << 1.0 << true << ClipLevels() << ClipSteps() << 500u << 0.5 << true;
+    QTest::newRow("envelope") << 1.0 << 1.0 << true << ClipLevels{clipLevel(0, 0.0), clipLevel(1000, 1.0)}
+                              << ClipSteps() << 250u << 0.25 << true;
+    QTest::newRow("track, envelope and set master multiply")
+        << 0.8 << 0.5 << true << ClipLevels{clipLevel(0, 0.5)} << ClipSteps() << 500u << 0.2 << true;
+    const ClipSteps handover{clipStep(0, false), clipStep(400, true)};
+    QTest::newRow("before the handover") << 1.0 << 1.0 << true << ClipLevels() << handover << 300u << 1.0 << false;
+    QTest::newRow("after the handover") << 1.0 << 1.0 << true << ClipLevels() << handover << 500u << 1.0 << true;
+    QTest::newRow("a set that is not dominant")
+        << 1.0 << 1.0 << false << ClipLevels() << handover << 500u << 1.0 << false;
+}
+
+void ShowRunner_Test::nestedShowLevelAndDominance()
+{
+    QFETCH(qreal, trackIntensity);
+    QFETCH(qreal, setMaster);
+    QFETCH(bool, setDominant);
+    QFETCH(ClipLevels, envelope);
+    QFETCH(ClipSteps, dominance);
+    QFETCH(quint32, clipMs);
+    QFETCH(qreal, master);
+    QFETCH(bool, dominant);
+
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.song->id(), 1000, 60000, clipAutomation({}, envelope, dominance));
+    n.set->adjustAttribute(trackIntensity, 0);
+    n.set->setMasterIntensity(setMaster);
+    n.set->setDominant(setDominant);
+
+    playExternal(doc, n.set, {1000 + clipMs});
+
+    QVERIFY(qAbs(n.song->masterIntensity() - master) < 1e-9);
+    QCOMPARE(n.song->isDominant(), dominant);
+    // the song's own first track is not where the set's level goes
+    QCOMPARE(n.song->getAttributeValue(0), 1.0);
+    // the song's master scales what its tracks play
+    QVERIFY(qAbs(n.scene->getAttributeValue(Function::Intensity) - master) < 1e-9);
+
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::laterClipTakesOverTheNestedShow_data()
+{
+    QTest::addColumn<quint32>("laterDuration");
+    QTest::addColumn<QList<quint32>>("positions");
+    QTest::addColumn<quint32>("songMs");
+
+    // clip A plays the song from 0 over [0, 10000), clip B from 50000 from 2000 on
+    QTest::newRow("only the first clip") << 4000u << QList<quint32>{1000} << 1000u;
+    QTest::newRow("the later clip drives") << 4000u << QList<quint32>{3000} << 51000u;
+    QTest::newRow("back to the first when the later ends") << 4000u << QList<quint32>{3000, 7000} << 7000u;
+    QTest::newRow("the later clip drives when both end together") << 8000u << QList<quint32>{3000} << 51000u;
+}
+
+void ShowRunner_Test::laterClipTakesOverTheNestedShow()
+{
+    QFETCH(quint32, laterDuration);
+    QFETCH(QList<quint32>, positions);
+    QFETCH(quint32, songMs);
+
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    Track *second = new Track(Function::invalidId());
+    n.set->addTrack(second);
+    addClip(n.set, n.track, n.song->id(), 0, 10000, clipAutomation({clipSegment(0, 0, 1.0)}));
+    addClip(n.set, second, n.song->id(), 2000, laterDuration, clipAutomation({clipSegment(0, 50000, 1.0)}));
+
+    playExternal(doc, n.set, positions);
+
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(n.song->externalElapsedTime(), songMs);
+    QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
+
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::masterIntensityScalesEveryTrack_data()
+{
+    QTest::addColumn<qreal>("master");
+    QTest::addColumn<bool>("whilePlaying");
+    QTest::addColumn<qreal>("track0");
+    QTest::addColumn<qreal>("track1");
+
+    QTest::newRow("full master") << 1.0 << false << 1.0 << 0.5;
+    QTest::newRow("half before playing") << 0.5 << false << 1.0 << 0.5;
+    QTest::newRow("half while playing") << 0.5 << true << 0.8 << 1.0;
+}
+
+void ShowRunner_Test::masterIntensityScalesEveryTrack()
+{
+    QFETCH(qreal, master);
+    QFETCH(bool, whilePlaying);
+    QFETCH(qreal, track0);
+    QFETCH(qreal, track1);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Fixture *fixture = makeFixture(doc, 2);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    QVector<Scene *> scenes;
+    for (int i = 0; i < 2; i++)
+    {
+        Scene *scene = makeScene(doc, fixture->id(), i, 200);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, 60000);
+        scenes.append(scene);
+    }
+    show->adjustAttribute(track0, 0);
+    show->adjustAttribute(track1, 1);
+    if (whilePlaying == false)
+        show->setMasterIntensity(master);
+
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+    if (whilePlaying)
+    {
+        show->setMasterIntensity(master);
+        timer->timerTick();
+    }
+
+    QVERIFY(qAbs(scenes.at(0)->getAttributeValue(Function::Intensity) - master * track0) < 1e-9);
+    QVERIFY(qAbs(scenes.at(1)->getAttributeValue(Function::Intensity) - master * track1) < 1e-9);
+
+    stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::nonDominantShowReplaysNoCommands_data()
+{
+    QTest::addColumn<bool>("controlRecords");
+
+    QTest::newRow("Function commands") << false;
+    QTest::newRow("VC state records") << true;
+}
+
+void ShowRunner_Test::nonDominantShowReplaysNoCommands()
+{
+    QFETCH(bool, controlRecords);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Fixture *fixture = makeFixture(doc, 2);
+    Scene *first = makeScene(doc, fixture->id(), 0, 200);
+    Scene *second = makeScene(doc, fixture->id(), 1, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+
+    ShowCommandTrack track;
+    if (controlRecords)
+    {
+        QVERIFY(track.insert(ShowCommand::setButtonState(1, 100, QUuid::createUuid(), true)));
+        QVERIFY(track.insert(ShowCommand::setButtonState(2, 300, QUuid::createUuid(), true)));
+        QVERIFY(track.insert(ShowCommand::setButtonState(3, 600, QUuid::createUuid(), true)));
+    }
+    else
+    {
+        QVERIFY(track.insert(ShowCommand::start(1, 100, first->id())));
+        QVERIFY(track.insert(ShowCommand::start(2, 300, second->id())));
+        QVERIFY(track.insert(ShowCommand::stop(3, 600, first->id())));
+    }
+    QVERIFY(track.setExtent(5000));
+    QVERIFY(show->setCommandTrack(track));
+    if (controlRecords)
+        show->attachControlExecutor(true);
+    int replayed = 0;
+    const auto replay = [&]() {
+        if (controlRecords)
+        {
+            for (const ShowControlBatch &batch : show->takeControlBatches())
+            {
+                replayed += batch.commands.count();
+                show->acknowledgeControlBatch(batch.traversal, batch.seq);
+            }
+        }
+        else
+        {
+            replayed = int(first->isRunning()) + int(second->isRunning());
+        }
+    };
+
+    show->setDominant(false);
+    playExternal(doc, show, {400});
+    replay();
+    QCOMPARE(replayed, 0);
+    QVERIFY(show->commandWorkPending() == false);
+
+    // dominant again: what it crossed meanwhile plays like a forward jump
+    show->setDominant(true);
+    timer->timerTick();
+    timer->timerTick();
+    replay();
+    QCOMPARE(replayed, 2);
+
+    // not dominant once more: the next crossing replays nothing
+    show->setDominant(false);
+    playExternal(doc, show, {700});
+    replay();
+    QCOMPARE(replayed, 2);
+
+    stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::otherClipsStartAtTheInPoint_data()
+{
+    QTest::addColumn<ClipSegments>("segments");
+    QTest::addColumn<quint32>("showMs");
+    QTest::addColumn<quint32>("elapsed");
+
+    // the clip starts at 1000
+    QTest::newRow("no automation") << ClipSegments() << 1500u << 500u;
+    QTest::newRow("in-point at the clip start") << ClipSegments{clipSegment(0, 2000, 1.0)} << 1000u << 2000u;
+    QTest::newRow("in-point, started midway") << ClipSegments{clipSegment(0, 2000, 1.0)} << 1500u << 2500u;
+}
+
+void ShowRunner_Test::otherClipsStartAtTheInPoint()
+{
+    QFETCH(ClipSegments, segments);
+    QFETCH(quint32, showMs);
+    QFETCH(quint32, elapsed);
+
+    Doc doc(nullptr);
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    addClip(show, track, scene->id(), 1000, 5000, clipAutomation(segments));
+
+    ShowRunner runner(&doc, show->id());
+    runner.setSyncSource(ShowRunner::External);
+    runner.setExternalElapsedTime(showMs);
+    runner.write(doc.masterTimer());
+
+    QCOMPARE(runner.m_runningQueue.count(), 1);
+    QCOMPARE(scene->elapsed(), elapsed);
+
+    runner.stop();
+    doc.masterTimer()->timerTick();
+}
+
+void ShowRunner_Test::envelopeDrivesOtherClipsIntensity_data()
+{
+    QTest::addColumn<qreal>("trackIntensity");
+    QTest::addColumn<qreal>("master");
+    QTest::addColumn<QList<quint32>>("positions");
+    QTest::addColumn<qreal>("intensity");
+
+    // the envelope fades in over the first second of the clip
+    QTest::newRow("at the clip start") << 1.0 << 1.0 << QList<quint32>{} << 0.0;
+    QTest::newRow("fading in") << 1.0 << 1.0 << QList<quint32>{250} << 0.25;
+    QTest::newRow("follows each tick") << 1.0 << 1.0 << QList<quint32>{250, 750} << 0.75;
+    QTest::newRow("track and master multiply") << 0.5 << 0.5 << QList<quint32>{1000} << 0.25;
+}
+
+void ShowRunner_Test::envelopeDrivesOtherClipsIntensity()
+{
+    QFETCH(qreal, trackIntensity);
+    QFETCH(qreal, master);
+    QFETCH(QList<quint32>, positions);
+    QFETCH(qreal, intensity);
+
+    Doc doc(nullptr);
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    addClip(show, track, scene->id(), 0, 10000,
+            clipAutomation({}, {clipLevel(0, 0.0), clipLevel(1000, 1.0)}));
+    show->adjustAttribute(trackIntensity, 0);
+    show->setMasterIntensity(master);
+
+    playExternal(doc, show, positions);
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - intensity) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::clipLevelSurvivesBackToBackRestart_data()
+{
+    QTest::addColumn<qreal>("trackIntensity");
+    QTest::addColumn<qreal>("master");
+    QTest::addColumn<qreal>("envelope");
+
+    QTest::newRow("track intensity") << 0.5 << 1.0 << 1.0;
+    QTest::newRow("master intensity") << 1.0 << 0.5 << 1.0;
+    QTest::newRow("envelope") << 1.0 << 1.0 << 0.5;
+}
+
+void ShowRunner_Test::clipLevelSurvivesBackToBackRestart()
+{
+    QFETCH(qreal, trackIntensity);
+    QFETCH(qreal, master);
+    QFETCH(qreal, envelope);
+
+    // the second clip restarts the Scene in the tick the first one ends: the
+    // timer resets its attributes when it runs that start
+    Doc doc(nullptr);
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    const ShowClipAutomation level = clipAutomation({}, {clipLevel(0, envelope)});
+    addClip(show, track, scene->id(), 0, 200, level);
+    addClip(show, track, scene->id(), 200, 1000, level);
+    show->adjustAttribute(trackIntensity, 0);
+    show->setMasterIntensity(master);
+
+    playExternal(doc, show, {100, 300, 320});
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - 0.5) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::clipLevelLeavesAnotherOwnersFunction_data()
+{
+    QTest::addColumn<qreal>("trackIntensity");
+    QTest::addColumn<QList<quint32>>("positions");
+
+    QTest::newRow("held level") << 0.3 << QList<quint32>{300, 320};
+    QTest::newRow("envelope ramp") << 1.0 << QList<quint32>{300, 600};
+}
+
+void ShowRunner_Test::clipLevelLeavesAnotherOwnersFunction()
+{
+    QFETCH(qreal, trackIntensity);
+    QFETCH(QList<quint32>, positions);
+
+    // the Scene's clip runs, then somebody else stops it and plays it on its own
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    addClip(show, track, scene->id(), 0, 60000,
+            clipAutomation({}, {clipLevel(0, 0.5), clipLevel(1000, 1.0)}));
+    show->adjustAttribute(trackIntensity, 0);
+
+    playExternal(doc, show, {100});
+    QVERIFY(scene->getAttributeValue(Function::Intensity) < 1.0);
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+    scene->start(timer, FunctionParent::master());
+    timer->timerTick();
+    QCOMPARE(scene->getAttributeValue(Function::Intensity), 1.0);
+
+    playExternal(doc, show, positions);
+
+    QVERIFY(scene->isRunning());
+    QCOMPARE(scene->getAttributeValue(Function::Intensity), 1.0);
+
+    stopAndSettle(doc, show);
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
+void ShowRunner_Test::clipLevelFromTheFirstFrame_data()
+{
+    QTest::addColumn<quint32>("laterDuration");
+
+    // clip A on a full track over [1000, 10000), clip B on a 30 % track from 2000 on
+    QTest::newRow("both end together") << 8000u;
+    QTest::newRow("the later ends first") << 4000u;
+}
+
+void ShowRunner_Test::clipLevelFromTheFirstFrame()
+{
+    QFETCH(quint32, laterDuration);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *full = new Track(scene->id());
+    show->addTrack(full);
+    Track *dimmed = new Track(Function::invalidId());
+    show->addTrack(dimmed);
+    addClip(show, full, scene->id(), 1000, 9000);
+    addClip(show, dimmed, scene->id(), 2000, laterDuration);
+    show->adjustAttribute(0.3, 1);
+
+    playExternal(doc, show, {});
+    // both clips start the Scene in one tick: the later one drives its first frame
+    show->setExternalElapsedTime(3000);
+    timer->timerTick();
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - 0.3) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, show);
+}
+
 QTEST_GUILESS_MAIN(ShowRunner_Test)

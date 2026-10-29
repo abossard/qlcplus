@@ -177,7 +177,22 @@ public:
         return m_performAudioSuppressed.load(std::memory_order_relaxed);
     }
 
+    /** Any thread: a factor in [0, 1] on every track intensity, taken by the
+     *  runner at its next tick. 1.0 unless a parent Show's clip plays this
+     *  Show. Not persisted. */
+    void setMasterIntensity(qreal level);
+    qreal masterIntensity() const { return m_masterIntensity.load(std::memory_order_relaxed); }
+
+    /** Any thread: a Show that is not dominant replays none of its command
+     *  track; once dominant again it plays what it crossed meanwhile, like a
+     *  forward jump. Dominant unless a parent Show's clip says otherwise.
+     *  Not persisted. */
+    void setDominant(bool dominant);
+    bool isDominant() const { return m_dominant.load(std::memory_order_relaxed); }
+
 private:
+    std::atomic<double> m_masterIntensity{1.0};
+    std::atomic_bool m_dominant{true};
     std::atomic<int> m_syncSource{0};  // stored as int to avoid header dependency on ShowRunner enum
     std::atomic<quint32> m_externalElapsedTime{0};
     std::atomic_bool m_performAudioSuppressed;
