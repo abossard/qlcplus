@@ -350,6 +350,10 @@ DjSetRecorder::Written DjSetRecorder::writeClip(quint32 setId, int deck, DeckCli
         MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(set));
         if (!admission)
             return Written::Waiting;
+        // the song went, or came to hold the set, while its clip waited
+        const Show *song = qobject_cast<Show *>(m_doc->function(clip.showId));
+        if (song == nullptr || song->contains(setId))
+            return Written::Gone;
         Track *track = deckTrack(set, deck + 1);
         if (track == nullptr)
             return Written::Gone;
