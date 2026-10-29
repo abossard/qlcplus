@@ -167,6 +167,9 @@ void ShowRunner::setPause(bool enable)
         Function *f = m_runningQueue.at(i).first;
         if (keepAudioPaused && isAudioFunction(f))
             continue;
+        // a song Show live Perform drives follows its deck
+        if (ShowClipDriver::performed(f))
+            continue;
         f->setPause(enable);
     }
 }

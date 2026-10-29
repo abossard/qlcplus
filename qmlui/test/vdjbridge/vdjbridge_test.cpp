@@ -307,19 +307,35 @@ void VdjBridge_Test::handoverKeepsTheOldShowPlaying()
 void VdjBridge_Test::aSetLeavesPerformItsSongs_data()
 {
     QTest::addColumn<QString>("order");
-    QTest::addColumn<QString>("expected");  // A's drive, without its clock
+    QTest::addColumn<QString>("expected");     // A's drive, without its clock
+    QTest::addColumn<QString>("afterTheClip"); // past the set's clip of A
 
-    QTest::newRow("the set plays A, then Perform") << "set first" << "running ext muted dom 0.80";
-    QTest::newRow("Perform plays A, then the set") << "Perform first" << "running ext muted sub 0.80";
-    QTest::newRow("then A's deck ejects") << "eject" << "idle auto audible dom 1.00";
+    QTest::newRow("the set plays A, then Perform")
+        << "set first" << "running ext muted dom 0.80" << "running ext muted dom 0.80";
+    QTest::newRow("the set stops right after Perform took A")
+        << "set first, stops" << "running ext muted dom 0.80" << "running ext muted dom 0.80";
+    QTest::newRow("Perform takes A from a paused set")
+        << "paused set first" << "running ext muted dom 0.80" << "running ext muted dom 0.80";
+    QTest::newRow("somebody else starts A while the set plays it")
+        << "manual start" << "running ext muted dom 1.00" << "running auto audible dom 1.00";
+    QTest::newRow("Perform plays A, then the set")
+        << "Perform first" << "running ext muted sub 0.80" << "running ext muted sub 0.80";
+    QTest::newRow("Perform and the set start A in one tick")
+        << "one tick" << "running ext muted sub 0.80" << "running ext muted sub 0.80";
+    QTest::newRow("then the set pauses")
+        << "set pauses" << "running ext muted sub 0.80" << "running ext muted sub 0.80";
+    QTest::newRow("then A's deck ejects")
+        << "eject" << "idle auto audible dom 1.00" << "idle auto audible dom 1.00";
 }
 
 void VdjBridge_Test::aSetLeavesPerformItsSongs()
 {
     QFETCH(QString, order);
     QFETCH(QString, expected);
+    QFETCH(QString, afterTheClip);
 
     PerformRig rig;
+    MasterTimer *timer = rig.doc.masterTimer();
     Show *a = rig.addShow("A", "/music/a.mp3");
     // a recorded set: its first second plays A
     Show *set = new Show(&rig.doc);
@@ -334,14 +350,26 @@ void VdjBridge_Test::aSetLeavesPerformItsSongs()
     rig.deck(0, "volume", 0.8);
     rig.play(0, true);
     rig.elapsed(0, 40000);
-    if (order == "set first")
+    const bool setFirst = order == "set first" || order == "set first, stops" || order == "paused set first"
+                          || order == "manual start";
+    if (setFirst)
     {
         rig.master(0);
-        set->start(rig.doc.masterTimer(), FunctionParent::master());
+        set->start(timer, FunctionParent::master());
         rig.tick(2);
         QVERIFY(a->isRunning());
-        rig.bridge.setPerformMode(true);
-        rig.tick();
+        if (order == "paused set first")
+        {
+            set->setPause(true);
+            rig.tick();
+        }
+        if (order == "manual start")
+            a->start(timer, FunctionParent::master());
+        else
+            rig.bridge.setPerformMode(true);
+        if (order == "set first, stops")
+            set->stop(FunctionParent::master());
+        rig.tick(2);
     }
     else
     {
@@ -351,9 +379,15 @@ void VdjBridge_Test::aSetLeavesPerformItsSongs()
         rig.play(1, true);
         rig.master(1);
         rig.bridge.setPerformMode(true);
-        rig.tick();
-        set->start(rig.doc.masterTimer(), FunctionParent::master());
+        if (order != "one tick")
+            rig.tick();
+        set->start(timer, FunctionParent::master());
         rig.tick(2);
+        if (order == "set pauses")
+        {
+            set->setPause(true);
+            rig.tick(2);
+        }
         if (order == "eject")
         {
             rig.deck(0, "loaded", QVariant("off"));
@@ -362,9 +396,10 @@ void VdjBridge_Test::aSetLeavesPerformItsSongs()
     }
     QCOMPARE(rig.drive(a).section(' ', 0, 4), expected);
 
-    // past the set's clip
+    if (set->isPaused())
+        set->setPause(false);
     rig.tick(60);
-    QCOMPARE(rig.drive(a).section(' ', 0, 4), expected);
+    QCOMPARE(rig.drive(a).section(' ', 0, 4), afterTheClip);
 }
 
 void VdjBridge_Test::everyDeckDrivesItsShow_data()

@@ -228,6 +228,9 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
 
     if (drive.nested != nullptr)
     {
+        // paused, this Show still applies levels: Perform's Show is Perform's
+        if (performed(drive.nested))
+            return;
         drive.nested->setMasterIntensity(level);
         drive.nested->setDominant(driving.automation.dominantAt(drive.at) && m_show->isDominant());
         return;
@@ -250,7 +253,8 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
 
 void ShowClipDriver::release(const Drive &drive)
 {
-    if (drive.nested == nullptr)
+    // Perform took it meanwhile, with its own settings
+    if (drive.nested == nullptr || performed(drive.nested))
         return;
 
     drive.nested->setSyncSource(drive.saved.syncSource);
@@ -279,5 +283,6 @@ bool ShowClipDriver::keepsThroughSeek(const Function *f)
 
 bool ShowClipDriver::performed(const Function *f)
 {
-    return f->isRunning() && f->stopped() == false && f->hasSource(FunctionParent::master());
+    const Show *show = qobject_cast<const Show *>(f);
+    return show != nullptr && show->isPerformDriven();
 }

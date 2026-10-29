@@ -199,7 +199,14 @@ public:
     void setNestedAudioSuppressed(bool suppressed);
     bool nestedAudioSuppressed() const { return m_nestedAudioSuppressed.load(std::memory_order_relaxed); }
 
+    /** Any thread: live Perform drives this Show (its deck's clock, weight
+     *  and dominance); a parent Show's clip neither starts nor drives it
+     *  then. Not persisted. */
+    void setPerformDriven(bool driven) { m_performDriven.store(driven, std::memory_order_relaxed); }
+    bool isPerformDriven() const { return m_performDriven.load(std::memory_order_relaxed); }
+
 private:
+    std::atomic_bool m_performDriven{false};
     std::atomic<double> m_masterIntensity{1.0};
     std::atomic_bool m_dominant{true};
     std::atomic_bool m_nestedAudioSuppressed{false};
