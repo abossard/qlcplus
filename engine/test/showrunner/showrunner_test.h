@@ -171,6 +171,8 @@ private slots:
     // follows the clip's clock, level and dominance
     void nestedShowFollowsThePositionMap_data();
     void nestedShowFollowsThePositionMap();
+    void nestedShowPausesWithItsDeck_data();
+    void nestedShowPausesWithItsDeck();
     void nestedShowGetsItsSettingsBack_data();
     void nestedShowGetsItsSettingsBack();
     void parentSeekOnlyMovesTheNestedClock_data();

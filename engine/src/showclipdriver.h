@@ -44,7 +44,7 @@ class Doc;
  * thread. A clip's Function starts at the clip's in-point, at the level of
  * its track intensity x the envelope x the Show's master intensity. A nested
  * Show follows its clip every tick instead: External clock from the position
- * map, master intensity from that level, dominant when the clip and this
+ * map (paused where it stands), master intensity from that level, dominant when the clip and this
  * Show are, with its Audio suppressed when this Show suppresses nested audio
  * or its own.
  * It gets its own settings back once its clip ends, or at once when somebody
@@ -130,6 +130,8 @@ private:
         Settings saved;
         /** The clip suppressed the nested Show's Audio */
         bool audioSuppressed = false;
+        /** Its position map stands (rate 0): the nested Show is paused */
+        bool paused = false;
     };
 
     FunctionParent parent() const;

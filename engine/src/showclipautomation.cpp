@@ -142,6 +142,11 @@ quint32 ShowClipAutomation::songPositionAt(quint32 clipMs) const
     return quint32(qBound(0.0, std::round(position), double(std::numeric_limits<quint32>::max())));
 }
 
+qreal ShowClipAutomation::rateAt(quint32 clipMs) const
+{
+    return m_segments.isEmpty() ? 1.0 : m_segments.at(governing(m_segments, clipMs)).rate;
+}
+
 quint32 ShowClipAutomation::inPoint() const
 {
     return m_segments.isEmpty() ? 0 : m_segments.first().songMs;
