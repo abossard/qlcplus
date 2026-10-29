@@ -1359,6 +1359,8 @@ void Function::start(MasterTimer* timer, FunctionParent source, quint32 startTim
             return;
     }
 
+    MixLayer::followStarter(this, source);
+
     /** If we're in a paused state, then just return to the running state
      *  to let subclasses resuming what they were doing. */
     if (m_paused == true)
