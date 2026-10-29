@@ -772,6 +772,8 @@ Rectangle
                 onTextEdited: showManager.showName = text
             }
 
+            NestedShowBack { }
+
             // read-only indicator while VDJ Perform drives this show
             Rectangle
             {

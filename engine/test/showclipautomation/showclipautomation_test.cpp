@@ -303,6 +303,180 @@ void ShowClipAutomation_Test::refusedValuesKeepThePreviousOnes()
 }
 
 /*********************************************************************
+ * Editing
+ *********************************************************************/
+
+void ShowClipAutomation_Test::startMoved_data()
+{
+    QTest::addColumn<ShowClipAutomation>("before");
+    QTest::addColumn<qint64>("deltaMs");
+    QTest::addColumn<ShowClipAutomation>("after");
+
+    QTest::newRow("no automation unmoved") << ShowClipAutomation() << qint64(0) << ShowClipAutomation();
+    QTest::newRow("no automation trimmed gets an in-point")
+        << ShowClipAutomation() << qint64(1500) << automation({segment(0, 1500, 1.0)}, {}, {});
+    QTest::newRow("no automation extended holds the song start")
+        << ShowClipAutomation() << qint64(-1000) << automation({segment(0, 0, 0.0), segment(1000, 0, 1.0)}, {}, {});
+
+    const Segments loop{segment(0, 10000, 1.0), segment(4000, 8000, 1.0)};
+    QTest::newRow("in-point trimmed")
+        << automation({segment(0, 10000, 1.0)}, {}, {}) << qint64(2000) << automation({segment(0, 12000, 1.0)}, {}, {});
+    QTest::newRow("trimmed before a loop wrap")
+        << automation(loop, {}, {}) << qint64(1000)
+        << automation({segment(0, 11000, 1.0), segment(3000, 8000, 1.0)}, {}, {});
+    QTest::newRow("trimmed at a loop wrap")
+        << automation(loop, {}, {}) << qint64(4000) << automation({segment(0, 8000, 1.0)}, {}, {});
+    QTest::newRow("trimmed past a loop wrap")
+        << automation(loop, {}, {}) << qint64(5000) << automation({segment(0, 9000, 1.0)}, {}, {});
+    QTest::newRow("trimmed inside a pause")
+        << automation({segment(0, 0, 1.0), segment(2000, 2000, 0.0), segment(5000, 2000, 1.0)}, {}, {}) << qint64(3000)
+        << automation({segment(0, 2000, 0.0), segment(2000, 2000, 1.0)}, {}, {});
+    QTest::newRow("trimmed at pitch")
+        << automation({segment(0, 1000, 0.5)}, {}, {}) << qint64(4000) << automation({segment(0, 3000, 0.5)}, {}, {});
+    QTest::newRow("extended into the in-point")
+        << automation(loop, {}, {}) << qint64(-3000)
+        << automation({segment(0, 7000, 1.0), segment(7000, 8000, 1.0)}, {}, {});
+    QTest::newRow("extended at pitch")
+        << automation({segment(0, 10000, 0.5)}, {}, {}) << qint64(-4000)
+        << automation({segment(0, 8000, 0.5)}, {}, {});
+    QTest::newRow("extended past the song start holds 0")
+        << automation({segment(0, 1000, 1.0)}, {}, {}) << qint64(-3000)
+        << automation({segment(0, 0, 0.0), segment(2000, 0, 1.0)}, {}, {});
+    QTest::newRow("extended pause stays paused")
+        << automation({segment(0, 5000, 0.0)}, {}, {}) << qint64(-2000) << automation({segment(0, 5000, 0.0)}, {}, {});
+
+    const Levels fadeIn{keyframe(0, 0.0), keyframe(2000, 1.0)};
+    QTest::newRow("envelope trimmed mid fade")
+        << automation({}, fadeIn, {}) << qint64(1000)
+        << automation({segment(0, 1000, 1.0)}, {keyframe(0, 0.5), keyframe(1000, 1.0)}, {});
+    QTest::newRow("envelope trimmed past the last keyframe")
+        << automation({}, fadeIn, {}) << qint64(3000) << automation({segment(0, 3000, 1.0)}, {keyframe(0, 1.0)}, {});
+    QTest::newRow("envelope trimmed before its first keyframe")
+        << automation({}, {keyframe(2000, 0.5)}, {}) << qint64(500)
+        << automation({segment(0, 500, 1.0)}, {keyframe(1500, 0.5)}, {});
+    QTest::newRow("envelope extended keeps its Show times")
+        << automation({segment(0, 5000, 1.0)}, {keyframe(0, 0.2), keyframe(1000, 1.0)}, {}) << qint64(-500)
+        << automation({segment(0, 4500, 1.0)}, {keyframe(500, 0.2), keyframe(1500, 1.0)}, {});
+
+    const Steps handover{step(0, true), step(3000, false)};
+    QTest::newRow("dominance trimmed before a step")
+        << automation({}, {}, handover) << qint64(1000)
+        << automation({segment(0, 1000, 1.0)}, {}, {step(0, true), step(2000, false)});
+    QTest::newRow("dominance trimmed past a step")
+        << automation({}, {}, handover) << qint64(4000) << automation({segment(0, 4000, 1.0)}, {}, {step(0, false)});
+    QTest::newRow("dominance trimmed before its first step")
+        << automation({}, {}, {step(3000, false)}) << qint64(1000)
+        << automation({segment(0, 1000, 1.0)}, {}, {step(2000, false)});
+    QTest::newRow("dominance extended keeps the state at the old start")
+        << automation({segment(0, 5000, 1.0)}, {}, {step(0, false), step(3000, true)}) << qint64(-1000)
+        << automation({segment(0, 4000, 1.0)}, {}, {step(0, false), step(4000, true)});
+    QTest::newRow("dominance extended before a later first step")
+        << automation({segment(0, 5000, 1.0)}, {}, {step(3000, false)}) << qint64(-1000)
+        << automation({segment(0, 4000, 1.0)}, {}, {step(4000, false)});
+}
+
+void ShowClipAutomation_Test::startMoved()
+{
+    QFETCH(ShowClipAutomation, before);
+    QFETCH(qint64, deltaMs);
+    QFETCH(ShowClipAutomation, after);
+
+    const ShowClipAutomation moved = before.withStartMoved(deltaMs);
+    QCOMPARE(moved.segments(), after.segments());
+    QCOMPARE(moved.envelope(), after.envelope());
+    QCOMPARE(moved.dominance(), after.dominance());
+}
+
+void ShowClipAutomation_Test::startMovedKeepsShowTimes_data()
+{
+    QTest::addColumn<qint64>("deltaMs");
+
+    for (qint64 delta : {qint64(-4000), qint64(-1), qint64(1), qint64(999), qint64(1900), qint64(4321), qint64(9000)})
+        QTest::newRow(qPrintable(QString("moved by %1 ms").arg(delta))) << delta;
+}
+
+void ShowClipAutomation_Test::startMovedKeepsShowTimes()
+{
+    QFETCH(qint64, deltaMs);
+
+    // a recorded play: in-point, loop wrap, pause, pitch; a crossfade; a handover
+    const ShowClipAutomation before = automation(
+        {segment(0, 30000, 1.0), segment(1900, 28000, 1.0), segment(4000, 30100, 0.0), segment(6000, 30100, 1.08)},
+        {keyframe(1000, 0.0), keyframe(3000, 1.0), keyframe(7000, 0.4)},
+        {step(0, false), step(2500, true), step(8000, false)});
+    const ShowClipAutomation moved = before.withStartMoved(deltaMs);
+
+    // every Show time both clips cover plays as before; a song position
+    // rounded to whole ms at the new start may differ by that rounding
+    for (qint64 oldClip = qMax(qint64(0), deltaMs); oldClip < 10000; oldClip += 7)
+    {
+        const quint32 newClip = quint32(oldClip - deltaMs);
+        QVERIFY2(qAbs(qint64(moved.songPositionAt(newClip)) - qint64(before.songPositionAt(quint32(oldClip)))) <= 1,
+                 qPrintable(QString("song position at old clip time %1").arg(oldClip)));
+        QVERIFY2(qAbs(moved.levelAt(newClip) - before.levelAt(quint32(oldClip))) < 1e-9,
+                 qPrintable(QString("level at old clip time %1").arg(oldClip)));
+        QCOMPARE(moved.dominantAt(newClip), before.dominantAt(quint32(oldClip)));
+    }
+    // an extension continues the state at the old start
+    for (qint64 newClip = 0; newClip < -deltaMs; newClip += 7)
+    {
+        QCOMPARE(moved.levelAt(quint32(newClip)), before.levelAt(0));
+        QCOMPARE(moved.dominantAt(quint32(newClip)), before.dominantAt(0));
+    }
+    QCOMPARE(moved.segments().first().clipMs, 0u);
+}
+
+void ShowClipAutomation_Test::startMovedStaysValid_data()
+{
+    QTest::addColumn<ShowClipAutomation>("before");
+    QTest::addColumn<qint64>("deltaMs");
+
+    const quint32 last = std::numeric_limits<quint32>::max();
+    QTest::newRow("segments at the end of the clock")
+        << automation({segment(0, 5000, 0.0), segment(last - 1, 0, 1.0), segment(last, 0, 1.0)}, {}, {}) << qint64(-1000);
+    QTest::newRow("keyframes at the end of the clock")
+        << automation({}, {keyframe(0, 0.0), keyframe(last - 1, 0.5), keyframe(last, 1.0)}, {}) << qint64(-1000);
+    QTest::newRow("steps at the end of the clock")
+        << automation({}, {}, {step(0, false), step(last - 1, true), step(last, false)}) << qint64(-1000);
+}
+
+void ShowClipAutomation_Test::startMovedStaysValid()
+{
+    QFETCH(ShowClipAutomation, before);
+    QFETCH(qint64, deltaMs);
+
+    const ShowClipAutomation moved = before.withStartMoved(deltaMs);
+    // what a ShowFunction saves loads again
+    ShowClipAutomation loaded;
+    QVERIFY(loaded.setSegments(moved.segments()));
+    QVERIFY(loaded.setEnvelope(moved.envelope()));
+    QVERIFY(loaded.setDominance(moved.dominance()));
+}
+
+void ShowClipAutomation_Test::startExtensionLimit_data()
+{
+    QTest::addColumn<Segments>("segments");
+    QTest::addColumn<quint32>("limit");
+
+    QTest::newRow("no map starts at the song start") << Segments() << 0u;
+    QTest::newRow("the in-point") << Segments{segment(0, 10000, 1.0), segment(3000, 0, 1.0)} << 10000u;
+    QTest::newRow("at pitch") << Segments{segment(0, 10000, 0.5)} << 20000u;
+    QTest::newRow("a paused start never runs out") << Segments{segment(0, 5000, 0.0)}
+                                                  << std::numeric_limits<quint32>::max();
+    QTest::newRow("a first segment after the start") << Segments{segment(1000, 3000, 1.0)} << 2000u;
+}
+
+void ShowClipAutomation_Test::startExtensionLimit()
+{
+    QFETCH(Segments, segments);
+    QFETCH(quint32, limit);
+
+    ShowClipAutomation a;
+    QVERIFY(a.setSegments(segments));
+    QCOMPARE(a.startExtensionLimit(), limit);
+}
+
+/*********************************************************************
  * Builders
  *********************************************************************/
 

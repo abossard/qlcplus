@@ -23198,6 +23198,74 @@ void ShowCommandRecorder_Test::timeline_clipSelectionTakesKeyboardFocus()
     QVERIFY(!group->state().selected);
 }
 
+void ShowCommandRecorder_Test::timeline_nestedShowOpensAndGoesBack_data()
+{
+    QTest::addColumn<QString>("then");
+    QTest::newRow("back button") << "back";
+    QTest::newRow("another show forgets the way back") << "other";
+    QTest::newRow("read-only (Perform) still navigates") << "read-only";
+}
+
+void ShowCommandRecorder_Test::timeline_nestedShowOpensAndGoesBack()
+{
+    QFETCH(QString, then);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *song = new Show(ed.rig.doc);
+    song->setName(QStringLiteral("Song"));
+    QVERIFY(ed.rig.doc->addFunction(song));
+    song->addTrack(new Track(Function::invalidId(), song));
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    QVERIFY(area);
+    auto *content = qvariant_cast<QQuickItem *>(area->property("contentItem"));
+    QVERIFY(content);
+    ed.rig.manager->setTimeScale(1.0);
+    ed.rig.manager->addItems(content, -1, 0, {song->id()});
+    ShowFunction *clip = ed.show->tracks().first()->showFunctions().first();
+    clip->setDuration(20000);
+    // a recorded play: a loop wrap, a seek, a fade in and out, two handovers
+    ShowClipAutomation automation;
+    automation.setSegments({{0, 30000, 1.0}, {6000, 32000, 1.0}, {12000, 60000, 1.0}});
+    automation.setEnvelope({{0, 0.0}, {4000, 1.0}, {16000, 1.0}, {20000, 0.0}});
+    automation.setDominance({{0, false}, {3000, true}, {17000, false}});
+    clip->setClipAutomation(automation);
+    QCoreApplication::processEvents();
+    QQuickItem *item = nullptr;
+    for (auto *child : content->childItems())
+        if (child->property("sfRef").value<ShowFunction *>() == clip)
+            item = child;
+    QVERIFY(item);
+    auto *overlay = findVisualItem(item, QStringLiteral("clipAutomationOverlay"));
+    QVERIFY(overlay && overlay->isVisible());
+    QVERIFY(ed.item(QStringLiteral("nestedShowBack")) == nullptr);
+    if (!kDiagArtifacts.isEmpty())
+        ed.rig.app->grabWindow().save(kDiagArtifacts + QStringLiteral("/nested-clip-%1-parent.png").arg(then));
+    if (then == "read-only")
+        ed.rig.manager->setReadOnly(true);
+
+    QTest::mouseDClick(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, ed.centerOf(item));
+
+    QTRY_COMPARE(ed.rig.manager->currentShowID(), int(song->id()));
+    QCoreApplication::processEvents();
+    QQuickItem *back = ed.item(QStringLiteral("nestedShowBack"));
+    QVERIFY(back);
+    QVERIFY2(back->property("label").toString().contains(ed.show->name()), qPrintable(back->property("label").toString()));
+    if (!kDiagArtifacts.isEmpty())
+        ed.rig.app->grabWindow().save(kDiagArtifacts + QStringLiteral("/nested-clip-%1-opened.png").arg(then));
+    if (then == "other")
+    {
+        auto *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ed.rig.manager->setCurrentShowID(int(other->id()));
+        QCoreApplication::processEvents();
+        QVERIFY(ed.item(QStringLiteral("nestedShowBack")) == nullptr);
+        return;
+    }
+    ed.click(back);
+    QCOMPARE(ed.rig.manager->currentShowID(), int(ed.show->id()));
+    QVERIFY(ed.item(QStringLiteral("nestedShowBack")) == nullptr);
+}
+
 void ShowCommandRecorder_Test::timeline_localKeysDoNotReachVc_data()
 {
     QTest::addColumn<bool>("transfer");

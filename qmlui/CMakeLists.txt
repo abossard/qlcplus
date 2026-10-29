@@ -57,6 +57,7 @@ set(SRC_FILES
     sceneeditor.cpp sceneeditor.h
     scripteditor.cpp scripteditor.h
     showmanager.cpp showmanager.h
+    showclipeditor.cpp showclipeditor.h
     showcommandrecorder.cpp showcommandrecorder.h
     showcontrolaction.cpp showcontrolaction.h
     showeventmodel.cpp showeventmodel.h
