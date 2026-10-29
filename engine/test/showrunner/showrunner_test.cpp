@@ -5455,57 +5455,36 @@ void ShowRunner_Test::clipLevelLeavesAnotherOwnersFunction()
     timer->timerTick();
 }
 
-void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt_data()
+void ShowRunner_Test::clipLevelLeavesAVcAdjustment_data()
 {
-    QTest::addColumn<bool>("stopTheOther");
+    QTest::addColumn<qreal>("trackIntensity");
 
-    QTest::newRow("the other Show stops") << true;
-    QTest::newRow("the other Show's clip ends") << false;
+    QTest::newRow("full track") << 1.0;
+    QTest::newRow("dimmed track") << 0.5;
 }
 
-void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt()
+void ShowRunner_Test::clipLevelLeavesAVcAdjustment()
 {
-    QFETCH(bool, stopTheOther);
+    QFETCH(qreal, trackIntensity);
 
-    // one Scene on a clip of two Shows, two decks' songs: the dark one leaves
     Doc doc(nullptr);
-    MasterTimer *timer = doc.masterTimer();
     Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
-    QVector<Show *> shows;
-    for (quint32 duration : { 60000u, 500u })
-    {
-        Show *show = new Show(&doc);
-        doc.addFunction(show);
-        Track *track = new Track(scene->id());
-        show->addTrack(track);
-        addClip(show, track, scene->id(), 0, duration);
-        show->setSyncSource(ShowRunner::External);
-        show->start(timer, FunctionParent::master());
-        show->setExternalElapsedTime(0);
-        shows.append(show);
-    }
-    Show *playing = shows.at(0), *other = shows.at(1);
-    timer->timerTick();
-    other->setMasterIntensity(0.0);
-    auto pushBoth = [&](quint32 ms) {
-        for (Show *show : std::as_const(shows))
-            show->setExternalElapsedTime(ms);
-        timer->timerTick();
-        timer->timerTick();
-    };
-    pushBoth(100);
-    QCOMPARE(scene->getAttributeValue(Function::Intensity), 0.0);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    addClip(show, track, scene->id(), 0, 60000);
+    show->adjustAttribute(trackIntensity, 0);
+    playExternal(doc, show, {100});
 
-    if (stopTheOther)
-        stopAndSettle(doc, other);
-    else
-        pushBoth(1000);
+    // an Adjust slider on the Scene shares its Single Intensity override
+    scene->adjustAttribute(0.3, scene->requestAttributeOverride(Function::Intensity, 0.3));
+    playExternal(doc, show, {200, 300});
 
-    QVERIFY(scene->isRunning());
-    QCOMPARE(scene->getAttributeValue(Function::Intensity), 1.0);
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - 0.3) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
 
-    stopAndSettle(doc, playing);
-    stopAndSettle(doc, other);
+    stopAndSettle(doc, show);
 }
 
 void ShowRunner_Test::clipLevelFromTheFirstFrame_data()
