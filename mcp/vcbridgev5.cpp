@@ -21,6 +21,7 @@
 #include "app.h"
 #include "djmanager.h"
 #include "vdjbridge.h"
+#include "djsetrecorder.h"
 #include "virtualconsole.h"
 #include "vcpage.h"
 #include "vcframe.h"
@@ -46,6 +47,8 @@
 #include "showcommandrecorder.h"
 #include "showcontrolaction.h"
 #include "show.h"
+#include "showrunner.h"
+#include "mastertimer.h"
 #include "scenevalue.h"
 #include "grandmaster.h"
 #include "inputoutputmap.h"
@@ -509,7 +512,31 @@ QVariantMap VCBridgeV5::djState() const
             {QStringLiteral("title"), deck.song.title},
             {QStringLiteral("artist"), deck.song.artist},
             {QStringLiteral("bpm"), deck.song.bpm},
-            {QStringLiteral("elapsedMs"), deck.elapsedMs}
+            {QStringLiteral("elapsedMs"), deck.elapsedMs},
+            {QStringLiteral("weight"), deck.weight}
+        });
+    }
+    // every Show Perform drives, as the engine plays it
+    QVariantList drivenShows;
+    for (const PerformFsm::Drive &drive : bridge->performFsm()->snapshot().drives)
+    {
+        const Show *show = qobject_cast<Show *>(m_doc->function(drive.showId));
+        if (!show)
+            continue;
+        const QString transport = show->isRunning() ? (show->isPaused() ? QStringLiteral("paused")
+                                                                        : QStringLiteral("running"))
+            : m_doc->masterTimer()->isStartQueued(show) && !show->stopped() ? QStringLiteral("queued")
+                                                                             : QStringLiteral("stopped");
+        drivenShows.append(QVariantMap{
+            {QStringLiteral("showId"), drive.showId},
+            {QStringLiteral("name"), show->name()},
+            {QStringLiteral("deck"), drive.deck},
+            {QStringLiteral("state"), PerformFsm::stateToString(drive.state)},
+            {QStringLiteral("dominant"), show->isDominant()},
+            {QStringLiteral("masterIntensity"), show->masterIntensity()},
+            {QStringLiteral("transport"), transport},
+            {QStringLiteral("external"), show->syncSource() == ShowRunner::External},
+            {QStringLiteral("positionMs"), show->externalElapsedTime()}
         });
     }
     const quint32 showId = bridge->performFsm()->activeShowId();
@@ -518,7 +545,8 @@ QVariantMap VCBridgeV5::djState() const
         {QStringLiteral("performState"), PerformFsm::stateToString(bridge->performState())},
         {QStringLiteral("activeShowId"), showId == Function::invalidId() ? QVariant() : QVariant(showId)},
         {QStringLiteral("activeDeck"), fsm->activeDeck()},
-        {QStringLiteral("decks"), decks}
+        {QStringLiteral("decks"), decks},
+        {QStringLiteral("drivenShows"), drivenShows}
     };
 }
 
@@ -536,6 +564,14 @@ QVariantMap VCBridgeV5::setRecording(bool on)
         return result;
     }
     return recordingState();
+}
+
+bool VCBridgeV5::showRecorded(quint32 showId) const
+{
+    if (!hasMatchingAuthoringContext())
+        return false;
+    const DjSetRecorder *recorder = m_authoringApp->findChild<DjSetRecorder *>();
+    return recorder != nullptr && recorder->isRecording() && recorder->setShowId() == showId;
 }
 
 QVariantMap VCBridgeV5::recordingState() const

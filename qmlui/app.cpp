@@ -72,6 +72,7 @@
 #include "vdjbridge.h"
 #include "showfactory.h"
 #include "djmanager.h"
+#include "djsetrecorder.h"
 #include "stagewizard.h"
 #include "consolepagecreator.h"
 
@@ -319,6 +320,11 @@ void App::startup()
             m_showCommandRecorder, &ShowCommandRecorder::releasePerform);
     connect(m_vdjBridge, &VdjBridge::performShowSelected,
             m_showManager, &ShowManager::setCurrentShowID);
+
+    // Perform records the DJ set
+    m_djSetRecorder = new DjSetRecorder(m_doc, m_vdjBridge->djFsm(), m_vdjBridge->showFactory(), this);
+    connect(m_vdjBridge, &VdjBridge::performModeChanged, m_djSetRecorder,
+            [this]() { m_djSetRecorder->setRecording(m_vdjBridge->performMode()); });
 
     // DJ Manager — standalone view for VDJ status + auto-created Shows.
     m_djManager = new DjManager(this, m_doc, m_vdjBridge,
@@ -835,7 +841,8 @@ bool App::closingNeedsConfirmation() const
     if (m_forceQuit)
         return false;
 
-    return m_doc->isModified() || (m_showCommandRecorder != nullptr && m_showCommandRecorder->isRecording());
+    return m_doc->isModified() || (m_showCommandRecorder != nullptr && m_showCommandRecorder->isRecording())
+           || (m_djSetRecorder != nullptr && m_djSetRecorder->hasWaitingClips());
 }
 
 void App::slotSceneGraphInitialized()
@@ -1642,6 +1649,13 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
 QFile::FileError App::saveXML(const QString& fileName, SaveOrigin origin)
 {
     const bool autosave = origin == Autosave;
+
+    // a saved DJ set holds every song played
+    if (origin == WorkspaceSave && m_djSetRecorder != nullptr && m_djSetRecorder->hasWaitingClips())
+    {
+        setSaveError(tr("A song of the DJ set waits for the set to stop playing. Stop the set, then save."), autosave);
+        return QFile::AbortError;
+    }
 
     /* A save stores the recording's accepted input and ends its Shows at their
        content; recording and playback go on. The Doc is marked unmodified

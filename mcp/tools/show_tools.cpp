@@ -25,6 +25,7 @@
 #include "showfunction.h"
 #include "track.h"
 #include "mastertimer.h"
+#include "vcbridge.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -41,11 +42,48 @@ Json coded(Json record, const char *code)
     return record;
 }
 
+// Perform writes the set it records: read-only, as the Show Manager shows it
+Json recordingRefusal(Json record, const Show *show)
+{
+    record["error"] = "Show " + std::to_string(show->id()) + " is the set Perform records: read-only until Perform is off";
+    return coded(record, "recording");
+}
+
 double millisecondsPerUnit(const Function *function, const Show *show)
 {
     if (!function || function->tempoType() == Function::Time)
         return 1.0;
     return show->timeDivisionBPM() > 0 ? 60.0 / show->timeDivisionBPM() : 0.0;
+}
+
+/** The milliseconds per unit of a clip's song positions: a nested Show runs
+ *  them on its own millisecond clock, other functions in the clip's unit */
+double songMillisecondsPerUnit(const Function *function, double scale)
+{
+    return function && function->type() == Function::ShowType ? 1.0 : scale;
+}
+
+/** How a clip plays its function, in milliseconds from the clip start
+ *  (beat items at the show BPM, like their start and duration) */
+Json clipAutomationToJson(const ShowClipAutomation &automation, double scale, double songScale)
+{
+    Json segments = Json::array();
+    for (const ShowClipSegment &segment : automation.segments())
+        segments.push_back({{"clipMs", qRound64(segment.clipMs * scale)},
+                            {"songMs", qRound64(segment.songMs * songScale)},
+                            {"rate", segment.rate}});
+    Json envelope = Json::array();
+    for (const ShowClipLevel &keyframe : automation.envelope())
+        envelope.push_back({{"clipMs", qRound64(keyframe.clipMs * scale)}, {"level", keyframe.level}});
+    Json dominance = Json::array();
+    for (const ShowClipDominance &step : automation.dominance())
+        dominance.push_back({{"clipMs", qRound64(step.clipMs * scale)}, {"dominant", step.dominant}});
+    return Json{
+        {"inPoint", qRound64(automation.inPoint() * songScale)},
+        {"segments", segments},
+        {"envelope", envelope},
+        {"dominance", dominance}
+    };
 }
 
 Json trackToJson(const Track *track, const Doc *doc, const Show *show)
@@ -59,14 +97,18 @@ Json trackToJson(const Track *track, const Doc *doc, const Show *show)
         const double scale = millisecondsPerUnit(fn, show);
         if (scale == 0)
             return {{"error", "beat items require a positive show BPM"}};
-        items.push_back({
+        Json item = {
             {"id", (int)sf->id()},
             {"functionID", (int)sf->functionID()},
             {"functionName", fn ? fn->name().toStdString() : std::string()},
             {"startTime", qRound64(sf->startTime() * scale)},
             {"duration", qRound64(sf->duration() * scale)},
             {"locked", sf->isLocked()}
-        });
+        };
+        const ShowClipAutomation automation = sf->clipAutomation();
+        if (!automation.isEmpty())
+            item["clipAutomation"] = clipAutomationToJson(automation, scale, songMillisecondsPerUnit(fn, scale));
+        items.push_back(item);
     }
     return Json{
         {"id", (int)track->id()},
@@ -105,7 +147,7 @@ Function *functionByName(const Doc *doc, const QString &name, bool &ambiguous)
 
 }
 
-void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
+void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge)
 {
     using Tool = fastmcpp::tools::Tool;
 
@@ -128,7 +170,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
-        [doc](const Json &args) -> Json {
+        [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
@@ -186,6 +228,11 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 MasterTimer *timer = doc->masterTimer();
                 Show *show = qobject_cast<Show*>(mcp::findFunction(doc, name, Function::ShowType));
                 const bool isNew = show == NULL;
+                if (!isNew && vcBridge != nullptr && vcBridge->showRecorded(show->id()))
+                {
+                    results.push_back(recordingRefusal(mcp::itemError(index, std::string()), show));
+                    continue;
+                }
                 MasterTimer::EditAdmission admission(timer, isNew ? timer->beginRegistryEdit() : timer->beginFunctionEdit(show));
                 if (!admission)
                 {
@@ -337,7 +384,12 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
         }
     )
     .set_description("List Shows with their tracks and timeline items (start time and duration in "
-                     "milliseconds, converting beat items at the show's BPM).")
+                     "milliseconds, converting beat items at the show's BPM). An item that carries clip "
+                     "automation reports it as clipAutomation, in milliseconds from the clip start: "
+                     "inPoint, segments {clipMs, songMs, rate} (the function position from clipMs on; a "
+                     "loop wrap or seek starts a segment, a pause is rate 0), envelope {clipMs, level} "
+                     "(linear, held outside) and dominance {clipMs, dominant} (steps; dominant before "
+                     "the first). A nested Show's songMs and inPoint are milliseconds of that Show.")
     .set_annotations(mcp::kAnnotReadOnly));
 
     // add_show_items — place functions on a track's timeline
@@ -353,11 +405,15 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 {"startTime", {{"type", "integer"}, {"minimum", 0},
                                {"description", "Start on the timeline, in milliseconds"}}},
                 {"duration", {{"type", "integer"}, {"minimum", 1},
-                              {"description", "Length in milliseconds. Defaults to the function's own duration."}}}
+                              {"description", "Length in milliseconds. Defaults to the function's own duration."}}},
+                {"inPoint", {{"type", "integer"}, {"minimum", 0},
+                             {"description", "Where the clip starts its function, in milliseconds of the "
+                                             "function's own time (e.g. mid-song for a song Show). Stored "
+                                             "as a one-segment position map; 0 stores none."}}}
             }}, {"required", {"startTime"}}}}}}
         }}, {"required", {"trackName", "items"}}},
         Json{},
-        [doc](const Json &args) -> Json {
+        [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"showID", "showName", "trackName", "items"});
             if (!err.empty()) return err;
@@ -397,7 +453,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             Json results = Json::array();
             for (auto &item : args.at("items"))
             {
-                auto itemErr = validateFields(item, {"functionID", "functionName", "startTime", "duration"});
+                auto itemErr = validateFields(item, {"functionID", "functionName", "startTime", "duration", "inPoint"});
                 if (!itemErr.empty()) { results.push_back(Json::parse(itemErr)); continue; }
 
                 Function *function = NULL;
@@ -428,14 +484,8 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (function == NULL)
                 { results.push_back({{"error", "function not found"}}); continue; }
 
-                // A Show cannot contain itself, and nesting a Show inside a Show
-                // is not something the timeline supports.
-                if (function->id() == show->id() || function->type() == Function::ShowType)
-                {
-                    results.push_back({{"functionID", (int)function->id()},
-                                       {"error", "a show cannot be placed on a show timeline"}});
-                    continue;
-                }
+                // A nested Show plays on the timeline; one that contains this
+                // Show, or this Show itself, would be a containment cycle.
                 const std::string cycle = mcp::functionCycleError(doc, show->id(), {function->id()});
                 if (!cycle.empty())
                 {
@@ -468,6 +518,20 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 { results.push_back({{"error", "item timing is outside the representable range"}}); continue; }
                 if (qRound64(itemStart * scale) != startTime || qRound64(itemDuration * scale) != duration)
                 { results.push_back({{"error", "item timing cannot round-trip in milliseconds at the show BPM"}}); continue; }
+
+                qint64 inPoint = 0;
+                qint64 itemInPoint = 0;
+                if (item.contains("inPoint"))
+                {
+                    const auto value = mcp::jsonInteger(item.at("inPoint"), 0, std::numeric_limits<quint32>::max());
+                    if (!value)
+                    { results.push_back({{"error", "inPoint must be a non-negative integer"}}); continue; }
+                    inPoint = *value;
+                    const double songScale = songMillisecondsPerUnit(function, scale);
+                    itemInPoint = qRound64(inPoint / songScale);
+                    if (itemInPoint > std::numeric_limits<quint32>::max() || qRound64(itemInPoint * songScale) != inPoint)
+                    { results.push_back({{"error", "inPoint cannot round-trip in milliseconds at the show BPM"}}); continue; }
+                }
 
                 // Overlaps on one track are not representable: the runner would
                 // have two functions owning the same instant on the same track.
@@ -506,6 +570,11 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
 
+                if (vcBridge != nullptr && vcBridge->showRecorded(show->id()))
+                {
+                    results.push_back(recordingRefusal({{"functionID", (int)function->id()}}, show));
+                    continue;
+                }
                 MasterTimer *timer = doc->masterTimer();
                 MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(show));
                 if (!admission)
@@ -534,15 +603,26 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 sf->setStartTime(itemStart);
                 sf->setDuration(itemDuration);
                 sf->setColor(ShowFunction::defaultColor(function->type()));
+                if (itemInPoint > 0)
+                {
+                    ShowClipSegment segment;
+                    segment.songMs = quint32(itemInPoint);
+                    ShowClipAutomation automation;
+                    automation.setSegments({segment});
+                    sf->setClipAutomation(automation);
+                }
                 admission.end();
                 doc->setModified();
 
-                results.push_back({{"id", (int)sf->id()},
-                                   {"functionID", (int)function->id()},
-                                   {"functionName", function->name().toStdString()},
-                                   {"startTime", (int)startTime},
-                                   {"duration", (int)duration},
-                                   {"outcome", "added"}, {"status", "ok"}});
+                Json added = {{"id", (int)sf->id()},
+                              {"functionID", (int)function->id()},
+                              {"functionName", function->name().toStdString()},
+                              {"startTime", (int)startTime},
+                              {"duration", (int)duration},
+                              {"outcome", "added"}, {"status", "ok"}};
+                if (item.contains("inPoint"))
+                    added["inPoint"] = inPoint;
+                results.push_back(added);
             }
             return mcp::indexedRecords(results).dump();
             });
@@ -552,7 +632,9 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                      "are converted at the show's positive BPM without changing function tempo. Timing "
                      "that cannot round-trip in milliseconds is rejected before mutation. The track "
                      "is created if it does not exist. An item overlapping one already on the same "
-                     "track is refused, with the conflicting item reported. Batch: {\"items\": [...]}.")
+                     "track is refused, with the conflicting item reported. A Show plays nested, "
+                     "unless it contains this Show. inPoint starts any clip's function past its "
+                     "beginning. Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_show_items — remove timeline items, or whole tracks
@@ -566,7 +648,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                             {"description", "Whole tracks to remove, with everything on them"}}}
         }}, {"required", {"showID"}}},
         Json{},
-        [doc](const Json &args) -> Json {
+        [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"showID", "itemIDs", "trackNames"});
             if (!err.empty()) return err;
@@ -606,12 +688,14 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             Json results = Json::array();
             MasterTimer *timer = doc->masterTimer();
-            MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(show));
+            const bool recorded = vcBridge != nullptr && vcBridge->showRecorded(show->id());
+            MasterTimer::EditAdmission admission(timer, recorded == false && timer->beginFunctionEdit(show));
             if (!admission)
             {
-                const Json refused = {{"code", "running"},
-                                      {"error", "Show " + std::to_string(show->id()) +
-                                                " or a function using it is running, starting or flashing"}};
+                const Json refused = recorded ? recordingRefusal(Json::object(), show)
+                                              : Json{{"code", "running"},
+                                                     {"error", "Show " + std::to_string(show->id()) +
+                                                               " or a function using it is running, starting or flashing"}};
                 for (quint32 id : itemIDs)
                 {
                     Json rec = refused;

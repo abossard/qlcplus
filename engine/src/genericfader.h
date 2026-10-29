@@ -28,6 +28,7 @@
 
 #include "universe.h"
 #include "scenevalue.h"
+#include "mixlayer.h"
 
 class FadeChannel;
 
@@ -170,6 +171,9 @@ public:
     /** Remove the Crossfade flag from every fader handled by this class */
     void resetCrossfade();
 
+    /** The LTP mix layer of this fader, see MixLayer (defined in mixlayer.cpp) */
+    QSharedPointer<MixLayer> mixLayer() const;
+
 signals:
     /** Signal emitted when monitoring is enabled.
      *  Data is preGM and includes the whole universe */
@@ -191,6 +195,7 @@ private:
     Universe::BlendMode m_blendMode;
     bool m_monitoring;
     QHash<quint32, QSharedPointer<FadeChannel>> m_channelCache;
+    const QSharedPointer<MixLayer> m_mixLayer = QSharedPointer<MixLayer>::create();
 
     FadeChannel &channelFaderLocked(const Doc *doc, Universe *universe, quint32 fixtureID, quint32 channel);
 };

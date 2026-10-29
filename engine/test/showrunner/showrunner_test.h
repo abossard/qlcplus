@@ -167,6 +167,53 @@ private slots:
     void commandBackwardRollsBackOwnLegacyEffects_data();
     void commandBackwardRollsBackOwnLegacyEffects();
 
+    // DJSET: a clip plays its Function through its automation; a nested Show
+    // follows the clip's clock, level and dominance
+    void nestedShowFollowsThePositionMap_data();
+    void nestedShowFollowsThePositionMap();
+    void nestedShowGetsItsSettingsBack_data();
+    void nestedShowGetsItsSettingsBack();
+    void parentSeekOnlyMovesTheNestedClock_data();
+    void parentSeekOnlyMovesTheNestedClock();
+    void parentJumpIntoAnotherClipKeepsTheNestedShow_data();
+    void parentJumpIntoAnotherClipKeepsTheNestedShow();
+    void nestedShowLevelAndDominance_data();
+    void nestedShowLevelAndDominance();
+    void laterClipTakesOverTheNestedShow_data();
+    void laterClipTakesOverTheNestedShow();
+    void masterIntensityScalesEveryTrack_data();
+    void masterIntensityScalesEveryTrack();
+    void nonDominantShowReplaysNoCommands_data();
+    void nonDominantShowReplaysNoCommands();
+    void otherClipsStartAtTheInPoint_data();
+    void otherClipsStartAtTheInPoint();
+    void envelopeDrivesOtherClipsIntensity_data();
+    void envelopeDrivesOtherClipsIntensity();
+    void clipLevelSurvivesBackToBackRestart_data();
+    void clipLevelSurvivesBackToBackRestart();
+    void clipLevelLeavesAnotherOwnersFunction_data();
+    void clipLevelLeavesAnotherOwnersFunction();
+    void clipLevelLeavesAVcAdjustment_data();
+    void clipLevelLeavesAVcAdjustment();
+    void clipLevelFromTheFirstFrame_data();
+    void clipLevelFromTheFirstFrame();
+    void commandIntensityMultipliesTheClipLevel_data();
+    void commandIntensityMultipliesTheClipLevel();
+    void commandIntensityOfOtherOwners_data();
+    void commandIntensityOfOtherOwners();
+    void regainPutsBackTheTrackState_data();
+    void regainPutsBackTheTrackState();
+    void regainCollapsesCrossedStartStop_data();
+    void regainCollapsesCrossedStartStop();
+    void nestedAudioFollowsTheParentSetting_data();
+    void nestedAudioFollowsTheParentSetting();
+    void nestedShowAnotherOwnerRestartedIsLeftAlone_data();
+    void nestedShowAnotherOwnerRestartedIsLeftAlone();
+    void nestedShowCommandStartedThenClippedAgain();
+    void nestedShowTakenOverKeepsEveryClip();
+    void commandIntensityAcrossClipBoundaries_data();
+    void commandIntensityAcrossClipBoundaries();
+
 private:
     Scene *createScene();
     Show *createShow(quint32 fid1, quint32 start1, quint32 fid2, quint32 start2, bool sameTrack);

@@ -57,6 +57,7 @@ set(SRC_FILES
     sceneeditor.cpp sceneeditor.h
     scripteditor.cpp scripteditor.h
     showmanager.cpp showmanager.h
+    showclipeditor.cpp showclipeditor.h
     showcommandrecorder.cpp showcommandrecorder.h
     showcontrolaction.cpp showcontrolaction.h
     showeventmodel.cpp showeventmodel.h
@@ -75,6 +76,7 @@ set(SRC_FILES
     showfactory.cpp showfactory.h
     audiobpmtag.cpp audiobpmtag.h
     djmanager.cpp djmanager.h
+    djsetrecorder.cpp djsetrecorder.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h
     waveformimageprovider.cpp waveformimageprovider.h

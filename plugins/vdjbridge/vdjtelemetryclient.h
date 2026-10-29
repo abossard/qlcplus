@@ -24,6 +24,7 @@
 #include <QTcpSocket>
 #include <QByteArray>
 #include <QObject>
+#include <QTimer>
 
 /**
  * TCP server implementing the DMXDesktop telemetry protocol for VirtualDJ.
@@ -50,6 +51,9 @@ public:
 
     static const int kDefaultFrequency = 25;
     static const int kDeckCount = 4;
+    /** Quiet after a complete object that ends a write (ms): a read can end
+     *  inside a write, a LAN splits one; the next write's start ends it sooner */
+    static const int kSettleMs = 10;
 
     explicit VdjTelemetryClient(QObject *parent = nullptr);
     ~VdjTelemetryClient() override;
@@ -72,12 +76,17 @@ public:
     void parseLine(const QByteArray &line);
 
     /** One chunk as the socket delivers it. VDJ makes one write per tick: its
-     *  changed triggers joined by newlines; writes sit adjacent ("}{"); a chunk
-     *  may hold several writes and may end inside an object. Objects are cut
-     *  by brace depth, so a "}{" inside a title is text. tickEnded() follows
-     *  the objects of each write (an adjacent "{", or the data's end after a
-     *  complete object). Exposed so tests replay captures without a socket. */
+     *  changed triggers joined by newlines; writes sit adjacent ("}{"), also
+     *  across chunks; a chunk may hold several writes and may end inside a
+     *  write or an object. Objects are cut by brace depth, so a "}{" inside a
+     *  title is text. tickEnded() follows the objects of each write: at the
+     *  next write's adjacent "{", or kSettleMs after data that ended after a
+     *  complete object. Exposed so tests replay captures without a socket. */
     void feed(const QByteArray &chunk);
+
+    /** Ends the write whose data ended after a complete object now, as
+     *  kSettleMs without data does; replays call it where the socket went quiet */
+    void settle();
 
 signals:
     /** Per-deck trigger update. deckIndex is 0-based (0–3). */
@@ -107,6 +116,11 @@ private:
     QTcpServer m_server;
     QTcpSocket *m_client = nullptr;
     QByteArray m_buffer;
+    /** Objects dispatched since the last write boundary */
+    bool m_writeOpen = false;
+    /** The buffer starts right after the last of them: a "{" there is the next write */
+    bool m_afterObject = false;
+    QTimer m_settleTimer;
     /** The connection's first "subscribed" object (the snapshot) is in: its
      *  beats are live, the ones before it are VDJ's backlog */
     bool m_subscriptionAnswered = false;

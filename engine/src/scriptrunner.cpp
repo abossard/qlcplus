@@ -260,6 +260,8 @@ bool ScriptRunner::write(MasterTimer *timer, QList<Universe *> universes)
                 continue;
             //fader->adjustIntensity(getAttributeValue(Intensity));
             //fader->setBlendMode(blendMode());
+            if (m_script != NULL)
+                fader->mixLayer()->follow(m_script->mixLayer());
 
             QMutexLocker locker(&m_mutex);
             m_fadersMap[val.m_universe] = fader;

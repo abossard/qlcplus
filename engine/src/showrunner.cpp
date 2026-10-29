@@ -35,14 +35,6 @@
 
 #define TIMER_INTERVAL 50
 
-/** The Intensity override a command sets: the Single override's own value */
-static qreal intensityOf(const Function *function)
-{
-    const Attribute intensity = function->attributes().at(Function::Intensity);
-    return intensity.m_isOverridden && intensity.m_value > 0.0
-           ? intensity.m_overrideValue / intensity.m_value : 1.0;
-}
-
 static bool compareShowFunctions(const ShowFunction *sf1, const ShowFunction *sf2)
 {
     if (sf1->startTime() < sf2->startTime())
@@ -65,6 +57,7 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
     , m_totalRunTime(0)
     , m_totalRunBeats(0)
     , m_commandRevision(std::numeric_limits<quint64>::max())
+    , m_clips(doc, showID)
 {
     Q_ASSERT(m_doc != NULL);
     Q_ASSERT(showID != Show::invalidId());
@@ -174,6 +167,9 @@ void ShowRunner::setPause(bool enable)
         Function *f = m_runningQueue.at(i).first;
         if (keepAudioPaused && isAudioFunction(f))
             continue;
+        // a song Show live Perform drives follows its deck
+        if (ShowClipDriver::performed(f))
+            continue;
         f->setPause(enable);
     }
 }
@@ -210,10 +206,20 @@ void ShowRunner::stop()
         m_commandTraversal = m_show->commandTraversalRestarted(m_commandTraversal, false);
 
     m_runningQueue.clear();
+    m_clips.releaseAll();
     m_seekRestartFunctions.clear();
     m_deferredTimeAudioFunctionIds.clear();
     m_deferredBeatAudioFunctionIds.clear();
     qDebug() << "ShowRunner stopped";
+}
+
+const ShowFunction *ShowRunner::activeClip(const Function *f, quint32 at) const
+{
+    const ShowFunction *active = nullptr;
+    for (const ShowFunction *sf : f->tempoType() == Function::Time ? m_timeFunctions : m_beatFunctions)
+        if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->startTime() + sf->duration(m_doc))
+            active = sf;
+    return active;
 }
 
 FunctionParent ShowRunner::functionParent() const
@@ -240,10 +246,11 @@ void ShowRunner::startShowFunction(ShowFunction *sf, Function *f, quint32 startT
     // and it will be stopped when the last of its items ends
     if (isQueued(f) == false)
     {
-        applyTrackIntensity(sf, f);
-        f->start(m_doc->masterTimer(), functionParent(), startTime);
+        m_clips.start(sf, f, startTime, m_intensityMap);
         noteEngineStart(f);
     }
+    else
+        m_clips.join(sf, f);
 
     m_runningQueue.append(QPair<Function *, quint32>(f, sf->startTime() + sf->duration(m_doc)));
 }
@@ -370,8 +377,21 @@ void ShowRunner::write(MasterTimer *timer)
             // and stop it, unless another item still needs it running
             if (isQueued(func) == false)
             {
+                // a nested Show another of its clips makes active keeps running: its clock moves
+                const ShowFunction *next = ShowClipDriver::keepsThroughSeek(func) ? activeClip(func, currTime) : nullptr;
+                if (next != nullptr && func->hasSource(functionParent()))
+                {
+                    m_runningQueue.append(QPair<Function *, quint32>(func, next->startTime() + next->duration(m_doc)));
+                    m_clips.join(next, func);
+                    continue;
+                }
                 func->stop(functionParent());
                 noteEngineStop(func);
+            }
+            // another of its clips still plays it: that one drives it from now on
+            else if (const ShowFunction *other = activeClip(func, currTime))
+            {
+                m_clips.join(other, func);
             }
         }
     }
@@ -423,6 +443,7 @@ void ShowRunner::write(MasterTimer *timer)
             // kept running through a seek
             if (isFunctionScheduled(f, functionStopTime))
             {
+                m_clips.join(sf, f);
                 m_currentTimeFunctionIndex++;
                 continue;
             }
@@ -475,6 +496,7 @@ void ShowRunner::write(MasterTimer *timer)
         {
             if (isFunctionScheduled(f, functionStopTime))
             {
+                m_clips.join(sf, f);
                 m_currentBeatFunctionIndex++;
                 continue;
             }
@@ -489,6 +511,8 @@ void ShowRunner::write(MasterTimer *timer)
         else
             startFunctionsDone = true;
     }
+
+    m_clips.drive(m_elapsedTime, m_elapsedBeats, m_intensityMap, m_runningQueue);
 
     // Phase 3. Apply the commands this position is due for. They run after the
     // clip phases, so for the same millisecond a command is the newer intent.
@@ -596,20 +620,18 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
 
     // a Scene one of its clips makes active at newTime keeps running, while this
     // Show still owns it: its output reads no elapsed time once its faders
-    // exist. Every other Function holds its position, so it starts again there.
+    // exist. So does a nested Show: its clip pushes the clock. Every other
+    // Function holds its position, so it starts again there.
     m_seekRestartFunctions.clear();
     for (int i = m_runningQueue.count() - 1; i >= 0; i--)
     {
         Function *f = m_runningQueue.at(i).first;
-        const bool time = f->tempoType() == Function::Time;
-        const quint32 at = time ? m_elapsedTime : m_elapsedBeats;
-        const ShowFunction *active = nullptr;
-        for (const ShowFunction *sf : time ? m_timeFunctions : m_beatFunctions)
-            if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->startTime() + sf->duration(m_doc))
-                active = sf;
-        if (active != nullptr && f->type() == Function::SceneType && f->hasSource(functionParent()))
+        const ShowFunction *active = activeClip(f, f->tempoType() == Function::Time ? m_elapsedTime : m_elapsedBeats);
+        if (active != nullptr && (f->type() == Function::SceneType || ShowClipDriver::keepsThroughSeek(f)) &&
+            f->hasSource(functionParent()))
         {
             m_runningQueue[i].second = active->startTime() + active->duration(m_doc);
+            m_clips.join(active, f);
             continue;
         }
         f->stop(functionParent());
@@ -708,15 +730,35 @@ void ShowRunner::processCommands(bool traversalStalled)
     if (traversalStalled)
         return;
 
+    // a Show that is not dominant replays nothing; once dominant again its
+    // controls take the state its track gives them, played like a forward jump
+    if (m_show->isDominant() == false)
+    {
+        m_commandsWithheld = true;
+        m_controlsRegained = false;
+        return;
+    }
+    const bool regained = std::exchange(m_commandsWithheld, false);
+    const bool controlsRegained = std::exchange(m_controlsRegained, false);
+    if (regained)
+        m_commandJumpPending = true;
+
     m_commandStartedThisTick.clear();
 
     if (std::exchange(m_commandJumpPending, false) && commandCatchUp())
         m_commandCatchUp = true;
 
     m_commandState.playing = true;
-    const ShowCommandTransition played =
-            ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
+    ShowCommandTransition played =
+            regained ? ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime)
+                     : ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
     m_commandState = played.state;
+    // the controls took their state while paused, a DJ may have moved them
+    // since; the ones the clock crossed after that play
+    if (regained && controlsRegained)
+        played.effects.removeIf([this](const ShowCommand &cmd) {
+            return ShowCommand::isControlAction(cmd.action) && cmd.time <= m_controlsRegainedAt;
+        });
 
     dispatchCommandEffects(played.effects);
 }
@@ -896,12 +938,12 @@ void ShowRunner::applyCommandEffect(const ShowCommand &cmd)
     // what this effect finds and leaves, so a backward move can undo it
     const bool journaled = cmd.action == ShowCommandAction::Start || cmd.action == ShowCommandAction::Stop ||
                            cmd.action == ShowCommandAction::SetIntensity;
-    LegacyEffect effect{ cmd.time, cmd.functionId, commandTargetActive(f), false, intensityOf(f), 0.0 };
+    LegacyEffect effect{ cmd.time, cmd.functionId, commandTargetActive(f), false, commandIntensityOf(f), 0.0 };
     const auto journal = qScopeGuard([&]() {
         if (journaled == false)
             return;
         effect.runningAfter = commandTargetActive(f);
-        effect.intensityAfter = intensityOf(f);
+        effect.intensityAfter = commandIntensityOf(f);
         m_legacyJournal.append(effect);
     });
 
@@ -988,10 +1030,28 @@ void ShowRunner::drainCommands()
         m_heldControlBatch = 0;
         m_settlingFunction = ShowCommand::InvalidId;
     }
+    else if (m_show->isDominant() == false)
+    {
+        m_commandsWithheld = true;
+        m_controlsRegained = false;
+    }
     else
     {
         m_commandStartedThisTick.clear();
-        dispatchCommandEffects(QVector<ShowCommand>());
+        // dominant again while paused: the controls take their track state
+        // now, the whole regain plays once the clock runs
+        QVector<ShowCommand> controls;
+        if (m_commandsWithheld && std::exchange(m_controlsRegained, true) == false)
+        {
+            m_controlsRegainedAt = m_elapsedTime;
+            const ShowCommandTransition regained = ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime);
+            for (const ShowCommand &cmd : regained.effects)
+            {
+                if (ShowCommand::isControlAction(cmd.action))
+                    controls.append(cmd);
+            }
+        }
+        dispatchCommandEffects(controls);
     }
     publishCommandWork();
 }
@@ -1001,16 +1061,18 @@ void ShowRunner::publishCommandWork()
     if (m_show == NULL)
         return;
 
-    const bool settling = m_settlingFunction != ShowCommand::InvalidId;
-    const bool owed = settling || m_heldControlBatch != 0 || m_commandRemainder.isEmpty() == false;
+    // a Show that is not dominant owes nothing until it is again
+    const bool withheld = m_show->isDominant() == false;
+    const bool settling = withheld == false && m_settlingFunction != ShowCommand::InvalidId;
+    const bool owed = settling || (withheld == false && (m_heldControlBatch != 0 || m_commandRemainder.isEmpty() == false));
     if (owed == false && m_commandWorkPublished == false)
         return;
 
-    QVector<ShowCommand> work = m_commandRemainder;
+    QVector<ShowCommand> work = withheld ? QVector<ShowCommand>() : m_commandRemainder;
     if (settling)
         work.prepend(m_settlingStart ? ShowCommand::start(ShowCommand::InvalidId, 0, m_settlingFunction)
                                      : ShowCommand::stop(ShowCommand::InvalidId, 0, m_settlingFunction));
-    m_show->setCommandWork(m_commandRun, m_commandTraversal, m_heldControlBatch, work);
+    m_show->setCommandWork(m_commandRun, m_commandTraversal, withheld ? 0 : m_heldControlBatch, work);
     m_commandWorkPublished = owed;
 }
 
@@ -1046,6 +1108,11 @@ void ShowRunner::prepareCommandStart(Function *f)
     chaser->setAction(action);
 }
 
+qreal ShowRunner::commandIntensityOf(const Function *function) const
+{
+    return m_clips.commandIntensity(function).value_or(ShowClipDriver::intensityOverride(function));
+}
+
 bool ShowRunner::commandTargetActive(const Function *function) const
 {
     /** Queued during this very tick: the timer starts it at the end of the
@@ -1063,6 +1130,10 @@ void ShowRunner::applyCommandIntensity(Function *f, qreal value)
 {
     // a value on a stopped target does nothing, and never starts it
     if (commandTargetActive(f) == false)
+        return;
+
+    // a clip multiplies its own level into it
+    if (m_clips.setCommandIntensity(f, value, m_intensityMap))
         return;
 
     /** The native Intensity override is Single: requesting it returns the one
@@ -1145,7 +1216,7 @@ void ShowRunner::rollBackLegacyEffects(quint32 time)
     for (const LegacyEffect &effect : std::as_const(first))
     {
         Function *f = m_doc->function(effect.functionId);
-        if (f != NULL && effect.runningBefore && intensityOf(f) != effect.intensityBefore)
+        if (f != NULL && effect.runningBefore && commandIntensityOf(f) != effect.intensityBefore)
             applyCommandIntensity(f, effect.intensityBefore);
     }
 }
@@ -1286,19 +1357,6 @@ void ShowRunner::stopRunningAudioFunctions()
     }
 }
 
-void ShowRunner::applyTrackIntensity(ShowFunction *sf, Function *f)
-{
-    foreach (Track *track, m_show->tracks())
-    {
-        if (track->showFunctions().contains(sf))
-        {
-            int intOverrideId = f->requestAttributeOverride(Function::Intensity, m_intensityMap[track->id()]);
-            sf->setIntensityOverrideId(intOverrideId);
-            break;
-        }
-    }
-}
-
 /************************************************************************
  * Intensity
  ************************************************************************/
@@ -1310,18 +1368,5 @@ void ShowRunner::adjustIntensity(qreal fraction, const Track *track)
 
     qDebug() << Q_FUNC_INFO << "Track ID: " << track->id() << ", val:" << fraction;
     m_intensityMap[track->id()] = fraction;
-
-    foreach (ShowFunction *sf, track->showFunctions())
-    {
-        Function *f = m_doc->function(sf->functionID());
-        if (f == NULL)
-            continue;
-
-        for (int i = 0; i < m_runningQueue.count(); i++)
-        {
-            Function *rf = m_runningQueue.at(i).first;
-            if (f == rf)
-                f->adjustAttribute(fraction, sf->intensityOverrideId());
-        }
-    }
+    m_clips.applyLevels(m_intensityMap);
 }

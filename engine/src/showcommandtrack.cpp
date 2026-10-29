@@ -1958,6 +1958,76 @@ ShowCommandTransition ShowCommandFsm::advance(const ShowCommandTrack &track,
     return result;
 }
 
+ShowCommandTransition ShowCommandFsm::regain(const ShowCommandTrack &track,
+                                             const ShowCommandState &state, quint32 positionMs)
+{
+    ShowCommandTransition result = advance(track, state, positionMs);
+    if (!state.playing || positionMs < state.position)
+        return result;
+
+    // by place in the track; an intensity that comes before its Start goes right after it
+    QMap<double, ShowCommand> kept;
+
+    // the last record per control facet the track has at or before the position,
+    // applied in track order
+    QHash<QString, int> facets;
+    const QVector<ShowCommand> &commands = track.commands();
+    for (int i = 0; i < commands.count() && commands.at(i).time <= result.state.position; i++)
+    {
+        const ShowCommand &cmd = commands.at(i);
+        if (ShowCommand::isControlAction(cmd.action) == false)
+            continue;
+        // an XY pad has one active preset, whichever kind
+        ShowCommandAction action = cmd.action;
+        if (action == ShowCommandAction::SetXYPadFunctionPreset || action == ShowCommandAction::SetXYPadGroupPreset)
+            action = ShowCommandAction::SetXYPadPositionPreset;
+        // a Matrix color slot: the whole color, and each knob set after it
+        int part = -1;
+        if (const auto *color = std::get_if<ShowCommandMatrixColor>(&cmd.payload.value))
+            part = color->index * 4 +
+                   (color->operation == ShowCommandMatrixColor::Operation::Component ? color->component + 1 : 0);
+        const auto facet = [&cmd, part](ShowCommandAction kind) {
+            return QStringLiteral("%1/%2/%3/%4/%5").arg(cmd.controlId.toString()).arg(int(cmd.role))
+                .arg(cmd.attribute).arg(int(kind)).arg(part);
+        };
+        facets.insert(facet(action), i);
+        // a Position preset also moves the pad
+        if (cmd.action == ShowCommandAction::SetXYPadPositionPreset)
+            facets.insert(facet(ShowCommandAction::SetXYPadPosition), i);
+    }
+    for (const int i : std::as_const(facets))
+        kept.insert(i, commands.at(i));
+
+    // the crossed Function commands: per Function the last Start or Stop, and
+    // the last intensity no Stop followed
+    QHash<quint32, int> runs;
+    QHash<quint32, int> intensities;
+    for (const ShowCommand &cmd : std::as_const(result.effects))
+    {
+        if (ShowCommand::isControlAction(cmd.action))
+            continue;
+        const int place = track.indexOfId(cmd.id);
+        if (cmd.action == ShowCommandAction::SetIntensity)
+        {
+            intensities.insert(cmd.functionId, place);
+            continue;
+        }
+        runs.insert(cmd.functionId, place);
+        if (cmd.action == ShowCommandAction::Stop)
+            intensities.remove(cmd.functionId);
+    }
+    for (auto it = runs.cbegin(); it != runs.cend(); ++it)
+        kept.insert(it.value(), commands.at(it.value()));
+    for (auto it = intensities.cbegin(); it != intensities.cend(); ++it)
+    {
+        const int run = runs.value(it.key(), -1);
+        kept.insert(it.value() > run ? double(it.value()) : run + 0.5, commands.at(it.value()));
+    }
+
+    result.effects = kept.values();
+    return result;
+}
+
 ShowCommandState ShowCommandFsm::seek(const ShowCommandState &state, quint32 positionMs)
 {
     ShowCommandState next = state;

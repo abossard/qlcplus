@@ -23,6 +23,7 @@
 #include "showcommandtrack.h"
 
 Q_DECLARE_METATYPE(ShowCommand)
+Q_DECLARE_METATYPE(QVector<ShowCommand>)
 Q_DECLARE_METATYPE(ShowCommandOrigin)
 Q_DECLARE_METATYPE(ShowCommandAction)
 Q_DECLARE_METATYPE(ShowCommandPayload)
@@ -1965,6 +1966,130 @@ void ShowCommandTrack_Test::loadRecoversFromNestedTrackNames()
         QCOMPARE(reader.attributes().value(QStringLiteral("ID")).toString(), QStringLiteral("4"));
         QVERIFY(!reader.hasError());
     }
+}
+
+void ShowCommandTrack_Test::regainRestoresTheTrackStateAtThePosition_data()
+{
+    QTest::addColumn<QVector<ShowCommand>>("commands");
+    QTest::addColumn<QString>("effects");
+
+    // the Show lost dominance at 150 and regains it at 500
+    QTest::newRow("every control the track set before gets its last state")
+        << QVector<ShowCommand>{ShowCommand::setButtonState(1, 100, kControlA, true),
+                                ShowCommand::setButtonState(2, 200, kControlB, true),
+                                ShowCommand::setButtonState(3, 300, kControlA, false),
+                                ShowCommand::setButtonState(4, 900, kControlB, false)}
+        << "2,3";
+    QTest::newRow("a slider keeps position and reset apart")
+        << QVector<ShowCommand>{ShowCommand::setSliderPosition(1, 50, kControlA, ShowControlRole::LevelSlider,
+                                                               QString(), 0.2),
+                                ShowCommand::setSliderReset(2, 120, kControlA, ShowControlRole::LevelSlider, QString()),
+                                ShowCommand::setSliderPosition(3, 400, kControlA, ShowControlRole::LevelSlider,
+                                                               QString(), 0.7)}
+        << "2,3";
+    const auto color = [](quint32 id, quint32 time, int index) {
+        ShowCommand cmd;
+        cmd.id = id;
+        cmd.time = time;
+        cmd.controlId = kControlA;
+        cmd.action = ShowCommandAction::SetAnimationColor;
+        cmd.role = ShowControlRole::AnimationFader;
+        ShowCommandMatrixColor value;
+        value.index = index;
+        value.color.red = quint8(10 * id);
+        cmd.payload.value = value;
+        return cmd;
+    };
+    QTest::newRow("each animation color slot keeps its own")
+        << QVector<ShowCommand>{color(1, 100, 0), color(2, 200, 1), color(3, 300, 0)} << "2,3";
+    const auto component = [](quint32 id, quint32 time, int knob, int value) {
+        ShowCommand cmd;
+        cmd.id = id;
+        cmd.time = time;
+        cmd.controlId = kControlA;
+        cmd.action = ShowCommandAction::SetAnimationColor;
+        cmd.role = ShowControlRole::AnimationFader;
+        ShowCommandMatrixColor knobValue;
+        knobValue.index = 0;
+        knobValue.operation = ShowCommandMatrixColor::Operation::Component;
+        knobValue.component = knob;
+        knobValue.value = value;
+        cmd.payload.value = knobValue;
+        return cmd;
+    };
+    QTest::newRow("each knob of a color slot keeps its own, after the whole color")
+        << QVector<ShowCommand>{component(1, 50, 0, 10), color(2, 100, 0), component(3, 200, 0, 200),
+                                component(4, 300, 1, 50), component(5, 400, 0, 30)}
+        << "2,4,5";
+    const auto preset = [](quint32 id, quint32 time, ShowCommandAction action, int choice) {
+        ShowCommand cmd;
+        cmd.id = id;
+        cmd.time = time;
+        cmd.controlId = kControlA;
+        cmd.action = action;
+        cmd.role = ShowControlRole::XYPad;
+        ShowCommandChoice value;
+        value.choice = choice;
+        value.active = true;
+        if (action == ShowCommandAction::SetXYPadPositionPreset)
+            value.point = ShowCommandPanTilt{10, 20};
+        cmd.payload.value = value;
+        return cmd;
+    };
+    ShowCommand position;
+    position.id = 1;
+    position.time = 50;
+    position.controlId = kControlA;
+    position.action = ShowCommandAction::SetXYPadPosition;
+    position.role = ShowControlRole::XYPad;
+    position.payload.value = ShowCommandPanTilt{30, 40};
+    QTest::newRow("a Position preset is also where the pad stands")
+        << QVector<ShowCommand>{position, preset(2, 100, ShowCommandAction::SetXYPadPositionPreset, 1),
+                                preset(3, 200, ShowCommandAction::SetXYPadGroupPreset, 2)}
+        << "2,3";
+    QTest::newRow("an XY pad has one active preset")
+        << QVector<ShowCommand>{preset(1, 100, ShowCommandAction::SetXYPadFunctionPreset, 1),
+                                preset(2, 200, ShowCommandAction::SetXYPadPositionPreset, 2),
+                                preset(3, 300, ShowCommandAction::SetXYPadGroupPreset, 3),
+                                preset(4, 400, ShowCommandAction::SetXYPadPositionPreset, 4)}
+        << "4";
+    QTest::newRow("a Start and Stop crossed meanwhile is their net Stop")
+        << QVector<ShowCommand>{ShowCommand::start(1, 200, 7), ShowCommand::stop(2, 300, 7)} << "2";
+    QTest::newRow("a Stop and Start crossed meanwhile is their net Start")
+        << QVector<ShowCommand>{ShowCommand::stop(1, 200, 7), ShowCommand::start(2, 300, 7)} << "2";
+    QTest::newRow("the intensity follows the Start it belongs to")
+        << QVector<ShowCommand>{ShowCommand::start(1, 120, 7), ShowCommand::setIntensity(2, 200, 7, 0.5),
+                                ShowCommand::start(3, 300, 7)}
+        << "3,2";
+    QTest::newRow("a Stop drops an earlier intensity")
+        << QVector<ShowCommand>{ShowCommand::setIntensity(1, 200, 7, 0.5), ShowCommand::stop(2, 250, 7),
+                                ShowCommand::start(3, 300, 7)}
+        << "3";
+    QTest::newRow("Function commands before the loss are history")
+        << QVector<ShowCommand>{ShowCommand::start(1, 100, 7), ShowCommand::setButtonState(2, 120, kControlA, true),
+                                ShowCommand::start(3, 400, 8)}
+        << "2,3";
+    QTest::newRow("in time order across controls and Functions")
+        << QVector<ShowCommand>{ShowCommand::start(1, 200, 7), ShowCommand::setButtonState(2, 300, kControlA, true),
+                                ShowCommand::stop(3, 400, 8)}
+        << "1,2,3";
+}
+
+void ShowCommandTrack_Test::regainRestoresTheTrackStateAtThePosition()
+{
+    QFETCH(QVector<ShowCommand>, commands);
+    QFETCH(QString, effects);
+
+    ShowCommandTrack track;
+    for (const ShowCommand &cmd : std::as_const(commands))
+        QVERIFY2(track.insert(cmd), qPrintable(ShowCommand::validate(cmd)));
+    const ShowCommandState lost = ShowCommandFsm::advance(track, playingState(), 150).state;
+
+    const ShowCommandTransition regained = ShowCommandFsm::regain(track, lost, 500);
+
+    QCOMPARE(idsOf(regained.effects), effects);
+    // the cursor moves on exactly like an advance
+    QCOMPARE(regained.state, ShowCommandFsm::advance(track, lost, 500).state);
 }
 
 void ShowCommandTrack_Test::advanceAppliesDueCommandsOnce()

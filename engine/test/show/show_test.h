@@ -61,6 +61,14 @@ private slots:
     void commandTrackCopyReusesOneClonePerTarget();
     void commandRecordingAndPosition();
 
+    // DJSET: a parent clip sets a nested Show's mix, never stored
+    void masterIntensityAndDominance_data();
+    void masterIntensityAndDominance();
+    void clipAutomationSurvivesCopyAndXml_data();
+    void clipAutomationSurvivesCopyAndXml();
+    void nestedAudioSuppressedIsSaved_data();
+    void nestedAudioSuppressedIsSaved();
+
 private:
     Doc *m_doc;
 };

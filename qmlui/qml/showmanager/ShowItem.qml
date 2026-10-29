@@ -487,6 +487,18 @@ Item
         }
     }
 
+    ShowClipOverlay
+    {
+        z: 3
+        x: showItemBody.x
+        y: showItemBody.y
+        width: itemRoot.width
+        height: itemRoot.height
+        sfRef: itemRoot.sfRef
+        pixelsPerUnit: itemRoot.timeValueToPixels(1000) / 1000
+        shift: horLeftHdlMa.pressed ? horLeftHdlMa.origItemX - itemRoot.x : 0
+    }
+
     /* Body mouse area (covers the whole item) */
     MouseArea
     {
@@ -688,7 +700,11 @@ Item
                 }
         }
 
-        onDoubleClicked: functionManager.setEditorFunction(sfRef.functionID, true, false)
+        onDoubleClicked:
+        {
+            if (!showClipEditor.openNested(sfRef))
+                functionManager.setEditorFunction(sfRef.functionID, true, false)
+        }
 
         onCanceled:
         {
@@ -766,6 +782,9 @@ Item
             property real pressX: 0
             property real origItemX: 0
             property real origItemW: 0
+            // a clip whose left edge is its in-point stops at its song start
+            property int extendLimit: -1
+            property bool atLimit: false
 
             onPressed: (mouse) =>
             {
@@ -775,6 +794,8 @@ Item
                 pressX = mapToItem(itemRoot.parent, mouse.x, mouse.y).x
                 origItemX = itemRoot.x
                 origItemW = itemRoot.width
+                extendLimit = showClipEditor.startExtensionLimit(sfRef)
+                atLimit = false
             }
 
             onPositionChanged: (mouse) =>
@@ -814,6 +835,9 @@ Item
                 var maxX = origItemX + origItemW - horLeftHandler.width
                 if (newX > maxX)
                     newX = maxX
+                atLimit = extendLimit >= 0 && newX <= origItemX - timeValueToPixels(extendLimit)
+                if (atLimit)
+                    newX = origItemX - timeValueToPixels(extendLimit)
 
                 itemRoot.width = origItemW + (origItemX - newX)
                 itemRoot.x = newX
@@ -873,12 +897,18 @@ Item
                         }
                     }
 
-                    if (showManager.setShowItemStartTime(sfRef, newStartTime) === true)
+                    if (showClipEditor.trimsInPoint(sfRef))
+                    {
+                        if (showClipEditor.trimStart(sfRef, atLimit ? sfRef.startTime - extendLimit : newStartTime) === false)
+                            updateGeometry()
+                    }
+                    else if (showManager.setShowItemStartTime(sfRef, newStartTime) === true)
                         showManager.setShowItemDuration(sfRef, newDuration)
                     else
                         updateGeometry()
 
-                    if (funcRef && showManager.stretchFunctions === true)
+                    // a function played from an in-point keeps its length
+                    if (funcRef && showManager.stretchFunctions === true && !showClipEditor.trimsInPoint(sfRef))
                         funcRef.totalDuration = sfRef.duration
 
                     prCanvas.requestPaint()

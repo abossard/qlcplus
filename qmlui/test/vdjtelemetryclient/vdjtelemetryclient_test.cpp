@@ -231,14 +231,17 @@ void VdjTelemetryClient_Test::subscriptionTriggerCount_data()
     // what DjFsm, VdjBridge and the DJ Manager read
     for (const char *t : { "get_filepath", "loaded", "get_time", "get_time elapsed absolute", "get_beatpos",
                            "get_title", "get_artist", "get_title_artist", "get_album", "get_genre", "get_bpm",
-                           "get_key", "get_firstbeat", "get_time total", "play", "volume", "masterdeck" })
+                           "get_key", "get_firstbeat", "get_time total", "play", "volume", "masterdeck",
+                           "leftcross", "rightcross" })
         row(QStringLiteral("deck 4 %1").arg(QLatin1String(t)), true);
-    row("get_decks", true);
+    for (const char *t : { "get_decks", "crossfader", "crossfader_hamster", "crossfader_disable" })
+        row(QString::fromLatin1(t), true);
     // read by nothing
     for (const char *t : { "get_position", "get_vu_meter", "level", "eq_high", "eq_med", "eq_low", "gain",
-                           "loop", "get_loop" })
+                           "loop", "get_loop", "get_volume" })
         row(QStringLiteral("deck 1 %1").arg(QLatin1String(t)), false);
-    for (const char *t : { "master_volume", "crossfader", "headphone_volume", "masterdeck",
+    // the crossfader result is one balance of decks 1 and 2, not a gain per deck
+    for (const char *t : { "master_volume", "headphone_volume", "masterdeck",
                            "get_crossfader_result full", "mixer_order", "get_vu_meter" })
         row(QString::fromLatin1(t), false);
 }
@@ -254,8 +257,8 @@ void VdjTelemetryClient_Test::subscriptionTriggerCount()
     for (const QJsonValue &v : doc.object().value("trigger").toArray())
         triggerStrings.append(v.toString());
 
-    // 4 decks x 17 per-deck triggers + get_decks
-    QCOMPARE(triggerStrings.size(), 69);
+    // 4 decks x 19 per-deck triggers + get_decks and the crossfader's three
+    QCOMPARE(triggerStrings.size(), 80);
     QCOMPARE(triggerStrings.contains(trigger), subscribed);
 
     // VDJ streams a tick's changes in this order: a track change must reach
@@ -629,6 +632,63 @@ void VdjTelemetryClient_Test::bridgeGlobalTriggerRouting()
     plugin.closeInput(0, 0);
 }
 
+void VdjTelemetryClient_Test::bridgeCrossfaderRouting_data()
+{
+    QTest::addColumn<QByteArray>("mixer");  // global objects of the write
+    QTest::addColumn<double>("deck1");
+    QTest::addColumn<double>("deck2");
+
+    QTest::newRow("crossfader left")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})") << 1.0 << 0.0;
+    QTest::newRow("three quarters")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0.75})") << 0.5 << 1.0;
+    QTest::newRow("hamster at the left")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})" "\n"
+                      R"({"evt":"subscribed","trigger":"crossfader_hamster","value":"on"})") << 0.0 << 1.0;
+    QTest::newRow("disabled at the left")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})" "\n"
+                      R"({"evt":"subscribed","trigger":"crossfader_disable","value":"on"})") << 1.0 << 1.0;
+}
+
+void VdjTelemetryClient_Test::bridgeCrossfaderRouting()
+{
+    QFETCH(QByteArray, mixer);
+    QFETCH(double, deck1);
+    QFETCH(double, deck2);
+
+    VdjBridge bridge;
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("hostPort"), 18077);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("bonjourEnabled"), false);
+    bridge.attachVdjPlugin(&plugin);
+    QVERIFY(plugin.openInput(0, 0));
+
+    QTcpSocket fakeClient;
+    fakeClient.connectToHost("127.0.0.1", 18077);
+    QVERIFY(fakeClient.waitForConnected(2000));
+    QTRY_VERIFY_WITH_TIMEOUT(fakeClient.bytesAvailable() > 0, 2000);
+    fakeClient.readAll();
+
+    // one write in subscription order: the decks' faders and sides, then the mixer
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 volume","value":1})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 1 leftcross","value":"on"})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 1 rightcross","value":"off"})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 2 volume","value":1})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 2 leftcross","value":"off"})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 2 rightcross","value":"on"})" "\n"
+                     + mixer);
+    fakeClient.flush();
+
+    DjFsm *fsm = bridge.djFsm();
+    // the write may reach the client in more than one read
+    QTRY_VERIFY_WITH_TIMEOUT(fsm->deckAt(0).weight == deck1 && fsm->deckAt(1).weight == deck2, 2000);
+
+    fakeClient.disconnectFromHost();
+    plugin.closeInput(0, 0);
+}
+
 void VdjTelemetryClient_Test::bridgeClientDisconnectResetsDeckState_data()
 {
     QTest::addColumn<bool>("closeInput");
@@ -678,32 +738,40 @@ void VdjTelemetryClient_Test::framing_data()
 {
     QTest::addColumn<QStringList>("chunks");
     QTest::addColumn<QStringList>("objects");  // "deck:trigger" per deck object, in order
-    QTest::addColumn<int>("ticks");
+    QTest::addColumn<QList<int>>("ticksAt");   // deck objects dispatched when each tick ends
 
     const QString a = R"({"evt":"subscribed","trigger":"deck 1 play","value":"off"})";
     const QString b = R"({"evt":"subscribed","trigger":"deck 2 masterdeck","value":"on"})";
     const QString beat = R"({"evt":"beat","pos":1,"bpm":120,"strength":1,"change":false})";
     QTest::newRow("one write, newline-joined, no trailing newline") << QStringList{ a + "\n" + b }
-                                                                      << QStringList({ "1:play", "2:masterdeck" }) << 1;
+                                                                      << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
     QTest::newRow("a beat write adjacent to a tick write") << QStringList{ beat + a + "\n" + b }
-                                                              << QStringList({ "1:play", "2:masterdeck" }) << 2;
+                                                              << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 0, 2 };
     QTest::newRow("an object cut across chunks") << QStringList({ a.left(20), a.mid(20) + "\n" + b })
-                                                   << QStringList({ "1:play", "2:masterdeck" }) << 1;
+                                                   << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
     QTest::newRow("a title with braces and an escaped quote")
         << QStringList{ R"({"evt":"subscribed","trigger":"deck 1 get_title","value":"a\"b}{c\\d"})" }
-        << QStringList{ "1:get_title" } << 1;
-    QTest::newRow("two writes in one chunk") << QStringList{ a + b } << QStringList({ "1:play", "2:masterdeck" }) << 2;
+        << QStringList{ "1:get_title" } << QList<int>{ 1 };
+    QTest::newRow("two writes in one chunk") << QStringList{ a + b } << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 1, 2 };
+    // a read can end inside a write (over the LAN): only the next write's start or the settle timeout ends it
+    QTest::newRow("a write split right after a complete object") << QStringList({ a, "\n" + b })
+                                                                  << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
+    QTest::newRow("a write split after the newline joining its objects") << QStringList({ a + "\n", b })
+                                                                          << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 2 };
+    QTest::newRow("the next write at the start of the next read") << QStringList({ a, b })
+                                                                   << QStringList({ "1:play", "2:masterdeck" }) << QList<int>{ 1, 2 };
 }
 
 void VdjTelemetryClient_Test::framing()
 {
     QFETCH(QStringList, chunks);
     QFETCH(QStringList, objects);
-    QFETCH(int, ticks);
+    QFETCH(QList<int>, ticksAt);
 
     VdjTelemetryClient client;
     QSignalSpy deckSpy(&client, &VdjTelemetryClient::deckTriggerReceived);
-    QSignalSpy tickSpy(&client, &VdjTelemetryClient::tickEnded);
+    QList<int> seenAtTicks;
+    connect(&client, &VdjTelemetryClient::tickEnded, this, [&]() { seenAtTicks << int(deckSpy.count()); });
     for (const QString &chunk : chunks)
         client.feed(chunk.toUtf8());
 
@@ -711,7 +779,10 @@ void VdjTelemetryClient_Test::framing()
     for (const QList<QVariant> &args : deckSpy)
         seen << QStringLiteral("%1:%2").arg(args[0].toInt() + 1).arg(args[1].toString());
     QCOMPARE(seen, objects);
-    QCOMPARE(tickSpy.count(), ticks);
+    // the last write ends after the settle timeout, and nothing ends after it
+    QTRY_COMPARE_WITH_TIMEOUT(seenAtTicks.size(), ticksAt.size(), 1000);
+    QTest::qWait(5 * VdjTelemetryClient::kSettleMs);
+    QCOMPARE(seenAtTicks, ticksAt);
     if (objects.first() == QLatin1String("1:get_title"))
         QCOMPARE(deckSpy[0][2].toString(), QStringLiteral("a\"b}{c\\d"));
 }

@@ -796,6 +796,7 @@ QString Script::handleSetFixture(const QList<QStringList>& tokens, QList<Univers
                     fader->adjustIntensity(getAttributeValue(Intensity));
                     fader->setBlendMode(blendMode());
                     fader->setParentFunctionID(this->id());
+                    fader->mixLayer()->follow(mixLayer());
                     fader->setName(name());
                     m_fadersMap[universe] = fader;
                 }

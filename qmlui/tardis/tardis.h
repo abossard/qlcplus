@@ -189,6 +189,9 @@ public:
         ShowManagerItemSetTrack,
         /** One Recordings editor step: an ID-addressed ShowCommandEdit of objID */
         ShowManagerCommandEdit,
+        /** Start, duration and clip automation of ShowFunction objID in the
+         *  Show its ShowClipEditor XML names */
+        ShowManagerItemSetClip,
 
         /* Simple Desk actions */
         SimpleDeskSetChannel = 0xC000,

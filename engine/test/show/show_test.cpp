@@ -25,6 +25,7 @@
 #include "mastertimer.h"
 #undef private
 #include "showcommandtrack.h"
+#include "showfunction.h"
 #include "show_test.h"
 #include "show.h"
 
@@ -871,6 +872,138 @@ void Show_Test::commandRecordingAndPosition()
     QSignalSpy changed(show, &Show::commandTrackChanged);
     QVERIFY(show->setCommandTrack(track));
     QCOMPARE(changed.count(), 1);
+
+    m_doc->deleteFunction(show->id());
+}
+
+/*****************************************************************************
+ * Clip mix
+ *****************************************************************************/
+
+void Show_Test::masterIntensityAndDominance_data()
+{
+    QTest::addColumn<qreal>("master");
+    QTest::addColumn<bool>("dominant");
+    QTest::addColumn<qreal>("expectedMaster");
+
+    QTest::newRow("defaults") << 1.0 << true << 1.0;
+    QTest::newRow("half, not dominant") << 0.5 << false << 0.5;
+    QTest::newRow("above 1 is full") << 1.5 << true << 1.0;
+    QTest::newRow("below 0 is off") << -0.2 << false << 0.0;
+}
+
+void Show_Test::masterIntensityAndDominance()
+{
+    QFETCH(qreal, master);
+    QFETCH(bool, dominant);
+    QFETCH(qreal, expectedMaster);
+
+    Show *show = new Show(m_doc);
+    m_doc->addFunction(show);
+    QCOMPARE(show->masterIntensity(), 1.0);
+    QCOMPARE(show->isDominant(), true);
+    const QString before = saveShow(*show);
+
+    // set from another thread, as a parent runner does on the timer thread
+    QThread *setter = QThread::create([show, master, dominant]() {
+        show->setMasterIntensity(master);
+        show->setDominant(dominant);
+    });
+    setter->start();
+    QVERIFY(setter->wait(5000));
+    delete setter;
+
+    QCOMPARE(show->masterIntensity(), expectedMaster);
+    QCOMPARE(show->isDominant(), dominant);
+    // runtime state: neither the attributes nor the workspace carry it
+    QCOMPARE(show->attributes().count(), 0);
+    QCOMPARE(saveShow(*show), before);
+
+    m_doc->deleteFunction(show->id());
+}
+
+void Show_Test::clipAutomationSurvivesCopyAndXml_data()
+{
+    QTest::addColumn<bool>("viaXml");
+
+    QTest::newRow("copied Show") << false;
+    QTest::newRow("saved and loaded Show") << true;
+}
+
+void Show_Test::clipAutomationSurvivesCopyAndXml()
+{
+    QFETCH(bool, viaXml);
+
+    Show *song = new Show(m_doc);
+    m_doc->addFunction(song);
+    Show *set = new Show(m_doc);
+    m_doc->addFunction(set);
+    Track *track = new Track(Function::invalidId(), set);
+    set->addTrack(track);
+    ShowFunction *clip = track->createShowFunction(song->id());
+    clip->setStartTime(4000);
+    clip->setDuration(90000);
+    ShowClipSegment in;
+    in.songMs = 30000;
+    ShowClipSegment wrap;
+    wrap.clipMs = 1900;
+    wrap.songMs = 30000;
+    ShowClipLevel fadeIn;
+    fadeIn.level = 0.0;
+    ShowClipLevel full;
+    full.clipMs = 1000;
+    ShowClipDominance handover;
+    handover.clipMs = 500;
+    handover.dominant = false;
+    ShowClipAutomation automation;
+    QVERIFY(automation.setSegments({in, wrap}));
+    QVERIFY(automation.setEnvelope({fadeIn, full}));
+    QVERIFY(automation.setDominance({handover}));
+    clip->setClipAutomation(automation);
+
+    Show copy(m_doc);
+    if (viaXml)
+        QVERIFY(loadShow(copy, saveShow(*set)));
+    else
+        QVERIFY(copy.copyFrom(set));
+
+    QCOMPARE(copy.tracks().count(), 1);
+    QCOMPARE(copy.tracks().first()->showFunctions().count(), 1);
+    const ShowFunction *copied = copy.tracks().first()->showFunctions().first();
+    QCOMPARE(copied->startTime(), quint32(4000));
+    QVERIFY(copied->clipAutomation() == automation);
+
+    m_doc->deleteFunction(set->id());
+    m_doc->deleteFunction(song->id());
+}
+
+void Show_Test::nestedAudioSuppressedIsSaved_data()
+{
+    QTest::addColumn<bool>("suppressed");
+
+    QTest::newRow("default keeps nested audio") << false;
+    QTest::newRow("a set that suppresses nested audio") << true;
+}
+
+void Show_Test::nestedAudioSuppressedIsSaved()
+{
+    QFETCH(bool, suppressed);
+
+    Show *show = new Show(m_doc);
+    m_doc->addFunction(show);
+    QCOMPARE(show->nestedAudioSuppressed(), false);
+    show->setNestedAudioSuppressed(suppressed);
+    QCOMPARE(show->nestedAudioSuppressed(), suppressed);
+
+    const QString xml = saveShow(*show);
+    // written only when set, so upstream and older workspaces read the same
+    QCOMPARE(xml.contains("NestedAudioSuppressed"), suppressed);
+    Show loaded(m_doc);
+    QVERIFY(loadShow(loaded, xml));
+    QCOMPARE(loaded.nestedAudioSuppressed(), suppressed);
+    Show copy(m_doc);
+    QVERIFY(copy.copyFrom(show));
+    QCOMPARE(copy.nestedAudioSuppressed(), suppressed);
 
     m_doc->deleteFunction(show->id());
 }

@@ -39,6 +39,8 @@ private slots:
     void bridgeTelemetryStatusProperty();
     void bridgeDeckTriggerRouting();
     void bridgeGlobalTriggerRouting();
+    void bridgeCrossfaderRouting_data();
+    void bridgeCrossfaderRouting();
     void bridgeClientDisconnectResetsDeckState_data();
     void bridgeClientDisconnectResetsDeckState();
     void stopDropsTheClient();

@@ -27,6 +27,8 @@
 
 #include "showrunner.h"
 #include "function.h"
+#include "mixlayer.h"
+#include "qlcfile.h"
 #include "show.h"
 #include "doc.h"
 
@@ -129,6 +131,7 @@ struct ShowReceiptState
 #define KXMLQLCShowTimeDivision QStringLiteral("TimeDivision")
 #define KXMLQLCShowTimeType     QStringLiteral("Type")
 #define KXMLQLCShowTimeBPM      QStringLiteral("BPM")
+#define KXMLQLCShowNestedAudioSuppressed QStringLiteral("NestedAudioSuppressed")
 
 /*****************************************************************************
  * Initialization
@@ -213,6 +216,7 @@ bool Show::copyFrom(const Function* function)
 
     m_timeDivisionType = show->m_timeDivisionType;
     m_timeDivisionBPM = show->m_timeDivisionBPM;
+    setNestedAudioSuppressed(show->nestedAudioSuppressed());
     m_latestTrackId = show->m_latestTrackId;
     m_latestShowFunctionID = show->m_latestShowFunctionID;
 
@@ -263,6 +267,7 @@ bool Show::copyFrom(const Function* function)
                 showFunc->setDuration(sfunc->duration());
                 showFunc->setColor(sfunc->color());
                 showFunc->setLocked(sfunc->isLocked());
+                showFunc->setClipAutomation(sfunc->clipAutomation());
             }
         }
     }
@@ -457,6 +462,33 @@ void Show::stopRequested()
 void Show::setPerformAudioSuppressed(bool suppress)
 {
     m_performAudioSuppressed.store(suppress, std::memory_order_relaxed);
+}
+
+void Show::setMasterIntensity(qreal level)
+{
+    m_masterIntensity.store(qBound(0.0, level, 1.0), std::memory_order_relaxed);
+}
+
+void Show::setNestedAudioSuppressed(bool suppressed)
+{
+    m_nestedAudioSuppressed.store(suppressed, std::memory_order_relaxed);
+}
+
+void Show::setDominant(bool dominant)
+{
+    const bool was = m_dominant.exchange(dominant);
+    // a Show that stops or rests keeps its layer: its clips fade out losing
+    // (or winning) LTP as they played; its next start takes the new one
+    if (isRunning() && stopped() == false)
+        mixLayer()->setLayer(dominant ? 0 : -1);
+    if (was == false || dominant)
+        return;
+    // the VC work crossed and not yet done is no longer this Show's
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        cancelControlWork();
+    }
+    emit commandTraversalCancelled();
 }
 
 /*****************************************************************************
@@ -998,6 +1030,8 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
 
     /* Common attributes */
     saveXMLCommon(doc);
+    if (nestedAudioSuppressed())
+        doc->writeAttribute(KXMLQLCShowNestedAudioSuppressed, KXMLQLCTrue);
 
     doc->writeStartElement(KXMLQLCShowTimeDivision);
     doc->writeAttribute(KXMLQLCShowTimeType, tempoToString(m_timeDivisionType));
@@ -1036,6 +1070,7 @@ bool Show::loadXML(QXmlStreamReader &root)
                    << "is not a show";
         return false;
     }
+    setNestedAudioSuppressed(root.attributes().value(KXMLQLCShowNestedAudioSuppressed) == KXMLQLCTrue);
 
     while (root.readNextStartElement())
     {
@@ -1141,6 +1176,7 @@ void Show::preRun(MasterTimer* timer)
     m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
     m_commandPosition.store(elapsed(), std::memory_order_relaxed);
     Function::preRun(timer);
+    mixLayer()->setLayer(isDominant() ? 0 : -1);
     m_runningChildren.clear();
     if (m_runner != NULL)
     {
@@ -1204,9 +1240,11 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         m_runner->setPause(paused);
     }
 
-    // paused: finish what was already crossed, without clock, clips or seeks
+    // paused: finish what was already crossed, without clock or seeks; a
+    // deck's weight still moves the clips' levels
     if (paused)
     {
+        m_runner->applyClipLevels();
         m_runner->drainCommands();
         return;
     }

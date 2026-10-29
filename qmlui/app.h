@@ -55,6 +55,7 @@ class ConsolePageCreator;
 class Tardis;
 class VdjBridge;
 class DjManager;
+class DjSetRecorder;
 class QLCIOPlugin;
 class QMouseEvent;
 
@@ -296,6 +297,7 @@ private:
     FlowConsole *m_flowConsole;
     VdjBridge *m_vdjBridge;
     DjManager *m_djManager = nullptr;
+    DjSetRecorder *m_djSetRecorder = nullptr;
 
     /*********************************************************************
      * Doc

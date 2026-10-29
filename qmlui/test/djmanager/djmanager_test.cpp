@@ -566,7 +566,7 @@ void DjManager_Test::performOffStopsRunningShow()
     delete doc;
 }
 
-void DjManager_Test::performLoadsAndSwitchesActiveShow()
+void DjManager_Test::performRunsEveryDeckAndMovesDominance()
 {
     Doc *doc = createDoc();
     QQuickView view;
@@ -604,19 +604,21 @@ void DjManager_Test::performLoadsAndSwitchesActiveShow()
 
     doc->masterTimer()->start();
 
-    // Active deck 1 + Perform ON → show A loads/runs; show B is not the active
-    // show so it is not actively running.
+    // Active deck 1 + Perform ON → both playing decks run their shows; show A,
+    // the active deck's, is dominant.
     master(bridge, 0);
     mgr.setPerformMode(true);
     QTest::qWait(60);
     QVERIFY(showA->isRunning() && !showA->isPaused());
-    QVERIFY(!(showB->isRunning() && !showB->isPaused()));
+    QVERIFY(showB->isRunning() && !showB->isPaused());
+    QVERIFY(showA->isDominant() && !showB->isDominant());
 
-    // Active deck changes to deck 2 → show B is loaded immediately, show A stopped.
+    // Active deck changes to deck 2 → show B becomes dominant, show A plays on.
     master(bridge, 1);
     QTest::qWait(60);
     QVERIFY(showB->isRunning() && !showB->isPaused());
-    QVERIFY(!showA->isRunning());
+    QVERIFY(showA->isRunning() && !showA->isPaused());
+    QVERIFY(showB->isDominant() && !showA->isDominant());
 
     doc->masterTimer()->stop();
     delete doc;
@@ -861,6 +863,73 @@ void DjManager_Test::deckTablePositionReflectsActiveDeck()
     fsm->onDeckTrigger(2, "get_time elapsed absolute", 42.0);
     QCOMPARE(mgr.activeElapsedMs(), 7602);      // still deck 1's position
     QCOMPARE(posSpy.count(), activeEmits);      // no active-position emission
+
+    delete doc;
+}
+
+void DjManager_Test::deckTableShowsTheMixWeight_data()
+{
+    QTest::addColumn<double>("crossfader");
+    QTest::addColumn<QString>("disable");
+    QTest::addColumn<double>("volume1");
+    QTest::addColumn<double>("weight1");
+    QTest::addColumn<double>("weight2");
+
+    // deck 1 on the left, deck 2 on the right, deck 2's fader full
+    QTest::newRow("crossfader left") << 0.0 << "off" << 1.0 << 1.0 << 0.0;
+    QTest::newRow("three quarters, deck 1 at half") << 0.75 << "off" << 0.5 << 0.25 << 1.0;
+    QTest::newRow("disabled: the faders alone") << 0.75 << "on" << 0.5 << 0.5 << 1.0;
+}
+
+void DjManager_Test::deckTableShowsTheMixWeight()
+{
+    QFETCH(double, crossfader);
+    QFETCH(QString, disable);
+    QFETCH(double, volume1);
+    QFETCH(double, weight1);
+    QFETCH(double, weight2);
+
+    Doc *doc = createDoc();
+    QQuickView view;
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+
+    DjManager mgr(&view, doc, &bridge, bridge.showFactory());
+    mgr.setDeckCount(2);
+    QAbstractItemModel *deckModel = mgr.deckModel();
+    QCOMPARE(deckModel->roleNames().value(DjDeckModel::WeightRole), QByteArray("weight"));
+
+    auto deck = [&](int index0, const char *trigger, const QVariant &value) {
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, index0),
+                                  Q_ARG(QString, QString::fromLatin1(trigger)), Q_ARG(QVariant, value));
+    };
+    auto global = [&](const char *trigger, const QVariant &value) {
+        QMetaObject::invokeMethod(&bridge, "onGlobalTrigger", Q_ARG(QString, QString::fromLatin1(trigger)),
+                                  Q_ARG(QVariant, value));
+    };
+    QSignalSpy dataSpy(deckModel, &QAbstractItemModel::dataChanged);
+    // one write as VDJ streams it: the decks, then the mixer
+    deck(0, "volume", volume1);
+    deck(0, "leftcross", "on");
+    deck(1, "volume", 1.0);
+    deck(1, "rightcross", "on");
+    global("crossfader", crossfader);
+    global("crossfader_disable", disable);
+    QMetaObject::invokeMethod(&bridge, "onTickEnded");
+
+    QCOMPARE(deckModel->data(deckModel->index(0, 0), DjDeckModel::WeightRole).toDouble(), weight1);
+    QCOMPARE(deckModel->data(deckModel->index(1, 0), DjDeckModel::WeightRole).toDouble(), weight2);
+    // QML hears of each row whose weight moved
+    QList<int> rows;
+    for (const QList<QVariant> &args : dataSpy)
+        if (args[2].value<QList<int>>().contains(DjDeckModel::WeightRole))
+            rows << args[0].toModelIndex().row();
+    QList<int> moved;
+    if (weight1 != 0.0)
+        moved << 0;
+    if (weight2 != 0.0)
+        moved << 1;
+    QCOMPARE(rows, moved);
 
     delete doc;
 }

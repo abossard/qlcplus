@@ -174,6 +174,7 @@ public:
         RemainingRole,
         IsActiveRole,
         IsPlayingRole,
+        WeightRole,
     };
 
     explicit DjDeckModel(DjFsm *fsm, QObject *parent = nullptr);
@@ -187,6 +188,9 @@ public:
 
     /** Refresh only the position columns of a deck row (1-based). */
     void refreshDeckPosition(int deck);
+
+    /** Refresh only the mix weight of a deck row (1-based). */
+    void refreshDeckWeight(int deck);
 
     /** Reset the whole table (e.g. after the deck count changes). */
     void refreshAll();

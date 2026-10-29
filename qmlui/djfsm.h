@@ -47,6 +47,14 @@
  *
  * The active deck is the lowest tracked deck whose master flag is on,
  * recomputed at every write boundary and when the deck count moves.
+ *
+ * A deck's mix weight is its fader times its crossfader gain, full at the
+ * middle: min(1, 2(1 - x)) on the left side, min(1, 2x) on the right (hamster
+ * swaps the sides), 1 for a deck on neither side or both, under a disabled
+ * crossfader or before VDJ sent its position. It is settled at every write
+ * boundary, with the deck's view, and at once for the decks a deck count
+ * change between writes starts tracking; an empty deck keeps the weight of
+ * its fader, which VDJ does not resend.
  */
 class DjFsm : public QObject
 {
@@ -84,6 +92,7 @@ public:
         DeckSong  song;
         bool      playing = false;
         double    volume  = 0.0;                 //!< current fader volume
+        double    weight  = 0.0;                 //!< mix weight: fader x crossfader gain, settled per write
 
         // --- Play position (continuous) ---
         double    beatPos = 0.0;                 //!< current beat position (get_beatpos)
@@ -106,18 +115,27 @@ public:
     // --- Event inputs (deck is 1-based) ---
 
     /** Mirror a per-deck telemetry trigger. Ignored when the deck number
-     *  exceeds deckCount, except "masterdeck", kept for every deck so get_decks
-     *  finds the master whichever way the count moves. */
+     *  exceeds deckCount, except "masterdeck" and the mix inputs ("volume",
+     *  "leftcross", "rightcross"), kept for every deck: the snapshot sends
+     *  them before get_decks. The mix inputs also survive a smaller deck
+     *  count, since VDJ resends them only when they change. */
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
+
+    /** Mirror a global telemetry trigger: the crossfader's ("crossfader",
+     *  0 left .. 1 right, "crossfader_hamster", "crossfader_disable") apply at
+     *  the write boundary; any other (get_decks) only belongs to the write. */
+    void onGlobalTrigger(const QString &trigger, const QVariant &value);
 
     /** The objects of one VDJ write are in: every deck settles its view, then the
      *  master, then the write's notifications go out, the master's first.
-     *  activeDeckChanged, activeSongChanged, songChanged, songUpdated and the
-     *  deckChanged sent here see the whole write settled; a volume's deckChanged
-     *  and positionChanged go out mid-write, from onDeckTrigger. */
+     *  activeDeckChanged, activeSongChanged, songChanged, songUpdated, the
+     *  deckChanged sent here and weightChanged see the whole write settled; a
+     *  volume's deckChanged and positionChanged go out mid-write, from
+     *  onDeckTrigger. */
     void onTickEnded();
 
-    /** VDJ socket dropped: no active deck first, then every deck empty. */
+    /** VDJ socket dropped: no active deck first, then every deck empty and
+     *  the crossfader unknown (the next connection's snapshot sends it). */
     void onDisconnected();
 
     // --- State access ---
@@ -145,6 +163,14 @@ signals:
     void activeDeckChanged(int deck);
     /** The active deck's song, title or artist changed */
     void activeSongChanged();
+    /** A deck's mix weight changed: at most once per write, after the deck's
+     *  deckChanged; also when a disconnect or a smaller deck count zeroes it,
+     *  and after deckCountChanged when a count change between writes tracks
+     *  a deck with a weight */
+    void weightChanged(int deck);
+    /** The decks' view is whole: last at the end of every write, of a
+     *  disconnect and of a deck count change between writes */
+    void settled();
 
 private:
     /** A deck's song fields VDJ sent since their last commit */
@@ -172,6 +198,8 @@ private:
         bool     loadedOnSeen = false;
         bool     perFileSeen = false;    //!< the write under way carried a per-file field other than title and bpm
         bool     wasPlaying = false;     //!< distinguishes Paused from Loaded
+        bool     leftCross = false;      //!< VDJ's per-deck "leftcross"
+        bool     rightCross = false;     //!< VDJ's per-deck "rightcross"; neither or both: through
         int      posEmitSecond = -1;     //!< last elapsed second a positionChanged was emitted for
         int      posEmitBeatQ  = -1000;  //!< last quarter-beat a positionChanged was emitted for
     };
@@ -182,11 +210,17 @@ private:
     void recomputeActiveDeck();
     void maybeEmitPosition(Slot &s, int deck1);
     void recomputeActiveSong();
+    /** A deck's fader times its crossfader gain */
+    double weightOf(const Slot &s) const;
 
     std::array<Slot, MaxDecks> m_slots;
     int     m_deckCount  = DefaultDecks;
     int     m_activeDeck = 0;       //!< 1-based; 0 = none
     QString m_activeSongKey;        //!< the active song as announced: filepath, title and artist
+    std::optional<double> m_crossfader;   //!< VDJ's "crossfader", 0 left .. 1 right; none until sent
+    bool    m_crossfaderInverted = false; //!< VDJ's "crossfader_hamster"
+    bool    m_crossfaderDisabled = false; //!< VDJ's "crossfader_disable"
+    bool    m_writeOpen = false;          //!< telemetry arrived since the last onTickEnded
 };
 
 Q_DECLARE_METATYPE(DjFsm::DeckSong)

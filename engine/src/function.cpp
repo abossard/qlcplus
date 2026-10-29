@@ -1355,6 +1355,7 @@ void Function::start(MasterTimer* timer, FunctionParent source, quint32 startTim
         if (m_sources.contains(source))
             return;
         m_sources.append(source);
+        MixLayer::followSources(this, m_sources);
         if (m_sources.size() > 1)
             return;
     }
@@ -1405,6 +1406,7 @@ void Function::stop(FunctionParent source, bool preserveAttributes)
         {
             m_sources.removeAll(source);
         }
+        MixLayer::followSources(this, m_sources);
 
         if (m_sources.size() != 0)
             return;
@@ -1423,6 +1425,7 @@ void Function::stopSource(FunctionParent source, bool preserveAttributes)
         QMutexLocker sourcesLocker(&m_sourcesMutex);
 
         const int removed = m_sources.removeAll(source);
+        MixLayer::followSources(this, m_sources);
         if (removed == 0 || m_sources.size() != 0)
             return;
 

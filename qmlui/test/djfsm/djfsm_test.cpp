@@ -943,4 +943,320 @@ void DjFsm_Test::capture_ejectReload()
     QVERIFY(!fsm.deckAt(deck - 1).playing);
 }
 
+// Feed VDJ mixer writes: "trigger=value;..." objects of one write, '|' ends
+// the write (onTickEnded), a last write without '|' stays open. x (crossfader),
+// hamster, disable, vN (deck N volume), lN / rN (deck N leftcross / rightcross),
+// ejectN / reloadN (deck N's eject and same-file reload), count=N (setDeckCount:
+// the UI's count at the start of a write, get_decks' after another of its
+// triggers), disconnect.
+static void mix(DjFsm &fsm, const QString &writes)
+{
+    const QStringList list = writes.split('|');
+    for (int w = 0; w < list.size(); ++w)
+    {
+        for (const QString &step : list[w].split(';', Qt::SkipEmptyParts))
+        {
+            const QString key = step.section('=', 0, 0), value = step.section('=', 1);
+            const int deck = key.right(1).toInt();
+            bool number = false;
+            const double d = value.toDouble(&number);
+            if (key == "x")
+                fsm.onGlobalTrigger("crossfader", number ? QVariant(d) : QVariant(value));
+            else if (key == "hamster")
+                fsm.onGlobalTrigger("crossfader_hamster", value);
+            else if (key == "disable")
+                fsm.onGlobalTrigger("crossfader_disable", value);
+            else if (key == "count")
+                fsm.setDeckCount(value.toInt());
+            else if (key == "disconnect")
+                fsm.onDisconnected();
+            else if (key.startsWith("eject"))
+            {
+                fsm.onDeckTrigger(deck, "get_title", "Drag a song on this deck to load it");
+                fsm.onDeckTrigger(deck, "get_bpm", 120.0);
+                fsm.onDeckTrigger(deck, "loaded", "off");
+            }
+            else if (key.startsWith("reload"))
+            {
+                fsm.onDeckTrigger(deck, "get_title", "Song");
+                fsm.onDeckTrigger(deck, "get_bpm", 125.0);
+                fsm.onDeckTrigger(deck, "loaded", "on");
+            }
+            else if (key.startsWith('v'))
+                fsm.onDeckTrigger(deck, "volume", d);
+            else if (key.startsWith('l'))
+                fsm.onDeckTrigger(deck, "leftcross", value);
+            else if (key.startsWith('r'))
+                fsm.onDeckTrigger(deck, "rightcross", value);
+        }
+        if (w < list.size() - 1)
+            fsm.onTickEnded();
+    }
+}
+
+// Every deck's mix weight, three decimals: "d1 d2 d3 d4"
+static QString weights(const DjFsm &fsm)
+{
+    QStringList out;
+    for (int i = 0; i < DjFsm::MaxDecks; ++i)
+        out << QString::number(fsm.deckAt(i).weight, 'f', 3);
+    return out.join(' ');
+}
+
+void DjFsm_Test::mixWeight_data()
+{
+    QTest::addColumn<QString>("writes");
+    QTest::addColumn<QString>("expected");
+
+    const QString lr = "l1=on;r1=off;l2=off;r2=on;";
+    QTest::newRow("the fader alone before any crossfader") << "v1=0.8;v2=0.6|" << "0.800 0.600 0.000 0.000";
+    QTest::newRow("a side before any crossfader: the fader") << lr + "v1=0.8;v2=0.6|" << "0.800 0.600 0.000 0.000";
+    QTest::newRow("a deck on no side ignores the crossfader") << "x=0;v1=1;v2=1|" << "1.000 1.000 0.000 0.000";
+    QTest::newRow("both full at the middle") << lr + "x=0.5;v1=1;v2=1|" << "1.000 1.000 0.000 0.000";
+    QTest::newRow("one deck at the middle: its fader") << lr + "x=0.5;v1=0.7;v2=0|" << "0.700 0.000 0.000 0.000";
+    QTest::newRow("crossfader left") << lr + "x=0;v1=1;v2=1|" << "1.000 0.000 0.000 0.000";
+    QTest::newRow("crossfader right") << lr + "x=1;v1=1;v2=1|" << "0.000 1.000 0.000 0.000";
+    QTest::newRow("the far side fades, times its fader") << lr + "x=0.25;v1=0.8;v2=0.8|" << "0.800 0.400 0.000 0.000";
+    QTest::newRow("past the middle the left fades") << lr + "x=0.75;v1=1;v2=1|" << "0.500 1.000 0.000 0.000";
+    QTest::newRow("hamster inverts") << lr + "x=0;hamster=on;v1=1;v2=1|" << "0.000 1.000 0.000 0.000";
+    QTest::newRow("hamster mirrors the curve") << lr + "x=0.25;hamster=on;v1=1;v2=1|" << "0.500 1.000 0.000 0.000";
+    QTest::newRow("hamster off again") << lr + "x=0;hamster=on;v1=1;v2=1|hamster=off|" << "1.000 0.000 0.000 0.000";
+    QTest::newRow("disabled: the faders alone") << lr + "x=0;disable=on;v1=0.8;v2=0.6|" << "0.800 0.600 0.000 0.000";
+    QTest::newRow("both sides: through") << lr + "r1=on;x=1;v1=1;v2=1|" << "1.000 1.000 0.000 0.000";
+    QTest::newRow("two decks on the left") << lr + "l2=on;r2=off;x=0.75;v1=1;v2=1|" << "0.500 0.500 0.000 0.000";
+    QTest::newRow("four decks") << "count=4;" + lr + "l3=on;r4=on;x=0.25;v1=1;v2=1;v3=1;v4=0.5|"
+                                << "1.000 0.500 1.000 0.250";
+    QTest::newRow("past the end clamps") << lr + "x=1.5;v1=1;v2=1|" << "0.000 1.000 0.000 0.000";
+    QTest::newRow("a non-number keeps the crossfader") << lr + "x=0.25;v1=1;v2=1|x=left|" << "1.000 0.500 0.000 0.000";
+    QTest::newRow("the write settles it, not the trigger") << lr + "x=0.25;v1=1;v2=1|x=1" << "1.000 0.500 0.000 0.000";
+    // VDJ resends neither fader, side nor crossfader after an eject
+    QTest::newRow("an eject keeps the weight") << lr + "x=0.25;v1=1;v2=1|eject2|" << "1.000 0.500 0.000 0.000";
+    QTest::newRow("a reload keeps the weight") << lr + "x=0.25;v1=1;v2=1|eject2|reload2|"
+                                               << "1.000 0.500 0.000 0.000";
+    // the snapshot streams every deck's fader and side before get_decks, then the crossfader
+    QTest::newRow("an untracked deck's fader and side count once tracked") << "v3=1;r3=on;count=4;x=0.25|"
+                                                                           << "0.000 0.000 0.500 0.000";
+    QTest::newRow("an untracked deck has no weight") << "count=4;l3=on;v3=1;x=0|count=2|"
+                                                     << "0.000 0.000 0.000 0.000";
+    QTest::newRow("a shrink and grow keep the fader") << "count=4;l3=on;v3=1;x=0|count=2|count=4|"
+                                                      << "0.000 0.000 1.000 0.000";
+    QTest::newRow("a shrink and grow keep the side") << "count=4;l3=on;v3=1;x=0|count=2|count=4;x=0.75|"
+                                                     << "0.000 0.000 0.500 0.000";
+    // the next connection's snapshot sends the mixer again
+    QTest::newRow("a disconnect forgets the mixer") << lr + "x=0;v1=1;v2=1|disconnect|v1=1;v2=1|"
+                                                    << "1.000 1.000 0.000 0.000";
+}
+
+void DjFsm_Test::mixWeight()
+{
+    QFETCH(QString, writes);
+    QFETCH(QString, expected);
+
+    DjFsm fsm;
+    mix(fsm, writes);
+    QCOMPARE(weights(fsm), expected);
+}
+
+void DjFsm_Test::weightNotifiesOncePerSettledWrite_data()
+{
+    QTest::addColumn<QString>("before");
+    QTest::addColumn<QString>("write");     // left open until the test ends it
+    QTest::addColumn<QList<int>>("notified");
+
+    const QString lr = "l1=on;r1=off;l2=off;r2=on;";
+    const QString middle = lr + "x=0.5;v1=1;v2=1|";
+    const QString quarter = lr + "x=0.25;v1=1;v2=1|";
+    QTest::newRow("the crossfader moves both sides") << quarter << "x=0.75" << QList<int>{ 1, 2 };
+    QTest::newRow("inside its full half a side keeps quiet") << middle << "x=0.25" << QList<int>{ 2 };
+    QTest::newRow("fader and crossfader: once each") << quarter << "x=0.75;v1=0.5" << QList<int>{ 1, 2 };
+    QTest::newRow("several crossfader values: once each") << quarter << "x=0.8;x=0.75" << QList<int>{ 1, 2 };
+    QTest::newRow("a fader moves its deck only") << middle << "v2=0.5" << QList<int>{ 2 };
+    QTest::newRow("a deck through ignores the crossfader") << "l1=on;x=1;v1=1;v2=1|" << "x=0" << QList<int>{ 1 };
+    QTest::newRow("hamster swaps the sides") << quarter << "hamster=on" << QList<int>{ 1, 2 };
+    QTest::newRow("a side change at the middle keeps the weight") << middle << "l2=on;r2=off" << QList<int>{};
+    QTest::newRow("a deck leaves the crossfader") << quarter << "r2=off" << QList<int>{ 2 };
+    QTest::newRow("the same values again") << middle << "x=0.5;v1=1" << QList<int>{};
+    QTest::newRow("a fader under a closed side") << lr + "x=0;v1=1;v2=1|" << "v2=0.5" << QList<int>{};
+    QTest::newRow("disable lets both through") << lr + "x=0;v1=1;v2=1|" << "disable=on" << QList<int>{ 2 };
+    // the snapshot's get_decks: the write's end settles the newly tracked deck
+    QTest::newRow("a deck count inside a write waits for its end") << "l3=on;v3=1|" << "x=0.75;count=4"
+                                                                   << QList<int>{ 3 };
+}
+
+void DjFsm_Test::weightNotifiesOncePerSettledWrite()
+{
+    QFETCH(QString, before);
+    QFETCH(QString, write);
+    QFETCH(QList<int>, notified);
+
+    DjFsm fsm;
+    mix(fsm, before);
+    QList<int> decks;
+    QStringList seen;
+    connect(&fsm, &DjFsm::weightChanged, &fsm, [&](int deck) {
+        decks << deck;
+        seen << QString::number(fsm.deckAt(deck - 1).weight, 'f', 3);
+    });
+    mix(fsm, write);
+    QCOMPARE(decks, QList<int>());  // nothing mid-write
+    fsm.onTickEnded();
+    QCOMPARE(decks, notified);
+    // the notification reads the settled weight
+    QStringList settled;
+    for (int deck : notified)
+        settled << QString::number(fsm.deckAt(deck - 1).weight, 'f', 3);
+    QCOMPARE(seen, settled);
+}
+
+void DjFsm_Test::droppedDecksZeroTheirWeights_data()
+{
+    QTest::addColumn<QString>("drop");
+    QTest::addColumn<QList<int>>("notified");
+    QTest::addColumn<QString>("expected");
+
+    // deck 2 is at zero already
+    QTest::newRow("a disconnect") << "disconnect" << QList<int>{ 1, 3, 4 } << "0.000 0.000 0.000 0.000";
+    QTest::newRow("a smaller deck count") << "count=2" << QList<int>{ 3, 4 } << "1.000 0.000 0.000 0.000";
+}
+
+void DjFsm_Test::droppedDecksZeroTheirWeights()
+{
+    QFETCH(QString, drop);
+    QFETCH(QList<int>, notified);
+    QFETCH(QString, expected);
+
+    DjFsm fsm;
+    mix(fsm, "count=4;l1=on;r2=on;l3=on;x=0;v1=1;v2=1;v3=1;v4=0.5|");
+    QSignalSpy spy(&fsm, &DjFsm::weightChanged);
+    mix(fsm, drop);
+    QList<int> decks;
+    for (const QList<QVariant> &args : spy)
+        decks << args[0].toInt();
+    QCOMPARE(decks, notified);
+    QCOMPARE(weights(fsm), expected);
+}
+
+void DjFsm_Test::deckCountBetweenWritesSettlesAtOnce_data()
+{
+    QTest::addColumn<QString>("before");
+    QTest::addColumn<QString>("change");
+    QTest::addColumn<QStringList>("notified");  // in order, the weight as read at the notification
+
+    QTest::newRow("a grown deck") << "l3=on;v3=1;x=0.75|" << "count=3" << QStringList{ "count", "3=0.500" };
+    QTest::newRow("two grown decks") << "l3=on;r4=on;v3=1;v4=1;x=0.75|" << "count=4"
+                                     << QStringList{ "count", "3=0.500", "4=1.000" };
+    QTest::newRow("a grown deck at zero keeps quiet") << "l3=on;r4=on;v3=1;x=0.75|" << "count=4"
+                                                      << QStringList{ "count", "3=0.500" };
+    QTest::newRow("a shrink and grow") << "count=4;l3=on;v3=1;x=0.75|count=2|" << "count=4"
+                                       << QStringList{ "count", "3=0.500" };
+}
+
+void DjFsm_Test::deckCountBetweenWritesSettlesAtOnce()
+{
+    QFETCH(QString, before);
+    QFETCH(QString, change);
+    QFETCH(QStringList, notified);
+
+    DjFsm fsm;
+    mix(fsm, before);
+    QStringList seen;
+    connect(&fsm, &DjFsm::deckCountChanged, &fsm, [&]() { seen << "count"; });
+    connect(&fsm, &DjFsm::weightChanged, &fsm, [&](int deck) {
+        seen << QString("%1=%2").arg(deck).arg(fsm.deckAt(deck - 1).weight, 0, 'f', 3);
+    });
+    // the UI's count, no VDJ write open
+    mix(fsm, change);
+    QCOMPARE(seen, notified);
+    // VDJ's next write finds them settled
+    fsm.onTickEnded();
+    QCOMPARE(seen, notified);
+}
+
+void DjFsm_Test::capture_weights_data()
+{
+    QTest::addColumn<QString>("capture");
+    QTest::addColumn<int>("deck");  // 1-based
+    QTest::addColumn<QStringList>("notified");
+    QTest::addColumn<QList<int>>("active");
+
+    // synthetic: sweep left to right, hamster on and off, middle, deck 1's fader
+    // at 50%, disable on and off, deck 2 ejected and reloaded, deck 2 through;
+    // both sides are full at the middle, so disable and through change nothing
+    QTest::newRow("crossfader sweep, deck 1")
+        << "crossfader_moves" << 1
+        << QStringList{ "1.00", "0.80", "0.60", "0.40", "0.20", "0.00", "1.00", "0.00", "1.00", "0.50" }
+        << QList<int>{ 1, 2 };
+    QTest::newRow("crossfader sweep, deck 2")
+        << "crossfader_moves" << 2
+        << QStringList{ "0.20", "0.40", "0.60", "0.80", "1.00", "0.00", "1.00" }
+        << QList<int>{ 1, 2 };
+    // real: the subscription of the day had no sides, so its crossfader move
+    // (0 to 50%) lets every deck through; deck 1's fader 66/33/0/100%
+    QTest::newRow("handover, deck 1") << "master_handover" << 1
+                                      << QStringList{ "1.00", "0.66", "0.33", "0.00", "1.00" } << QList<int>{ 1, 2, 1 };
+    QTest::newRow("handover, deck 2") << "master_handover" << 2 << QStringList{ "1.00" } << QList<int>{ 1, 2, 1 };
+    QTest::newRow("connect snapshot, deck 1") << "connect_snapshot_playing" << 1 << QStringList{ "1.00" }
+                                              << QList<int>{};
+}
+
+void DjFsm_Test::capture_weights()
+{
+    QFETCH(QString, capture);
+    QFETCH(int, deck);
+    QFETCH(QStringList, notified);
+    QFETCH(QList<int>, active);
+
+    DjFsm fsm;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, fsm);
+    QStringList seen;
+    QList<int> activeSeen;
+    connect(&fsm, &DjFsm::weightChanged, &fsm, [&](int changed) {
+        if (changed == deck)
+            seen << QString::number(fsm.deckAt(deck - 1).weight, 'f', 2);
+    });
+    connect(&fsm, &DjFsm::activeDeckChanged, &fsm, [&](int now) { activeSeen << now; });
+    QVERIFY(VdjCapture::replay(client, capture.toLatin1().constData()) > 0);
+
+    QCOMPARE(seen, notified);
+    QCOMPARE(activeSeen, active);
+}
+
+void DjFsm_Test::settledEndsEveryWholeView_data()
+{
+    QTest::addColumn<QString>("change");  // mix() steps on two settled decks
+    QTest::addColumn<int>("settled");
+
+    QTest::newRow("a write") << "v1=0.5|" << 1;
+    QTest::newRow("an empty write") << "|" << 1;
+    QTest::newRow("two writes") << "v1=0.5|v2=0.5|" << 2;
+    QTest::newRow("a write under way") << "v1=0.5;x=0.5" << 0;
+    QTest::newRow("a disconnect") << "disconnect" << 1;
+    QTest::newRow("a deck count between writes") << "count=4" << 1;
+    QTest::newRow("the same deck count") << "count=2" << 0;
+    // the snapshot's get_decks: the write's end only
+    QTest::newRow("a deck count inside a write") << "x=0.5;count=4|" << 1;
+}
+
+void DjFsm_Test::settledEndsEveryWholeView()
+{
+    QFETCH(QString, change);
+    QFETCH(int, settled);
+
+    DjFsm fsm;
+    fsm.onDeckTrigger(1, "masterdeck", "on");
+    mix(fsm, "l1=on;r2=on;x=0;v1=1;v2=1|");
+    QStringList seen;
+    connect(&fsm, &DjFsm::deckChanged, &fsm, [&]() { seen << "deck"; });
+    connect(&fsm, &DjFsm::weightChanged, &fsm, [&]() { seen << "weight"; });
+    connect(&fsm, &DjFsm::activeDeckChanged, &fsm, [&]() { seen << "active"; });
+    connect(&fsm, &DjFsm::deckCountChanged, &fsm, [&]() { seen << "count"; });
+    connect(&fsm, &DjFsm::settled, &fsm, [&]() { seen << "settled"; });
+    mix(fsm, change);
+    QCOMPARE(seen.count("settled"), settled);
+    // nothing of the change comes after it
+    if (settled > 0)
+        QCOMPARE(seen.last(), QString("settled"));
+}
+
 QTEST_MAIN(DjFsm_Test)

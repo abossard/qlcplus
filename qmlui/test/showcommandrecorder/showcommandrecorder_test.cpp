@@ -219,6 +219,16 @@ using Json = nlohmann::json;
 namespace
 {
 bool loadRecordingId(VCWidget *widget, const QUuid &id);
+
+/** Perform's inputs with deck 1 active and holding this, the other decks empty */
+PerformFsm::Inputs activeDeck(const PerformFsm::DeckInputs &deck)
+{
+    PerformFsm::Inputs inputs;
+    inputs.activeDeck = 1;
+    inputs.decks[0] = deck;
+    return inputs;
+}
+
 /** The production widgets talk to Tardis on every value change and are reached
  *  through the real VirtualConsole/VCPage dispatch, so the recorder has to be
  *  tested against that same graph. */
@@ -2338,6 +2348,8 @@ void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch_data()
     QTest::newRow("gui seek") << QStringLiteral("gui seek");
     QTest::newRow("function stop") << QStringLiteral("function stop");
     QTest::newRow("stop, then manual tick") << QStringLiteral("stop, then manual tick");
+    // another deck's Show became the active one: its own state comes back on regaining
+    QTest::newRow("demotion") << QStringLiteral("demotion");
 }
 
 void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch()
@@ -2382,6 +2394,11 @@ void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch()
     {
         // before the timer ran it
         static_cast<Function *>(show)->stop(FunctionParent::master());
+        QCoreApplication::processEvents();
+    }
+    else if (cancel == QStringLiteral("demotion"))
+    {
+        show->setDominant(false);
         QCoreApplication::processEvents();
     }
     else
@@ -17277,13 +17294,13 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
     // the failing row is a live handover: Perform starts the next Show itself
     if (change == QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setInputs({ b->id() });
+        fsm->setInputs(activeDeck({ b->id() }));
         QCOMPARE(recorder->boundShowId(), a->id());
         QCOMPARE(manager->currentShowID(), int(a->id()));
     }
     else
     {
-        fsm->setInputs({ a->id(), failing });
+        fsm->setInputs(activeDeck({ a->id(), failing }));
     }
     QSignalSpy reported(recorder, &ShowCommandRecorder::lastErrorChanged);
     fsm->setPerformEnabled(true);
@@ -17294,11 +17311,11 @@ void ShowCommandRecorder_Test::appPerform_handsRecordingOver()
         QCOMPARE(recorder->phaseValue(), int(ShowRecordPhase::Armed));
         QVERIFY(recorder->isRecording());
         QVERIFY(!a->commandRecording());
-        fsm->setInputs({ c->id() });
+        fsm->setInputs(activeDeck({ c->id() }));
     }
     else if (change != QLatin1String("engaged on an unchanged deck"))
     {
-        fsm->setInputs({ b->id(), failing });
+        fsm->setInputs(activeDeck({ b->id(), failing }));
     }
     Show *next = change == QLatin1String("through a gap") ? c : b;
 
@@ -18322,7 +18339,7 @@ void ShowCommandRecorder_Test::appPerform_selectionOfTheResolvedShowPassesTheGat
     QCOMPARE(rig.manager->currentShowID(), int(a->id()));
 
     QSignalSpy states(rig.recorder, &ShowCommandRecorder::stateChanged);
-    fsm->setInputs({ b->id() });
+    fsm->setInputs(activeDeck({ b->id() }));
     fsm->setPerformEnabled(true);
     QCOMPARE(rig.recorder->boundShowId(), b->id());
     QCOMPARE(rig.manager->currentShowID(), int(b->id()));
@@ -18364,7 +18381,7 @@ void ShowCommandRecorder_Test::appPerformEnd_selectionResolvesAgain()
 
     rig.manager->setCurrentShowID(int(a->id()));
     QVERIFY(rig.recorder->setRecording(rec));
-    fsm->setInputs({ a->id() });
+    fsm->setInputs(activeDeck({ a->id() }));
     fsm->setPerformEnabled(true);
     QCOMPARE(rig.recorder->boundShowId(), rec ? a->id() : quint32(Function::invalidId()));
     if (gap)
@@ -23186,6 +23203,74 @@ void ShowCommandRecorder_Test::timeline_clipSelectionTakesKeyboardFocus()
     QVERIFY2(played, "Space must play after a pointer switches from a recording to an ordinary clip");
     QVERIFY(selected);
     QVERIFY(!group->state().selected);
+}
+
+void ShowCommandRecorder_Test::timeline_nestedShowOpensAndGoesBack_data()
+{
+    QTest::addColumn<QString>("then");
+    QTest::newRow("back button") << "back";
+    QTest::newRow("another show forgets the way back") << "other";
+    QTest::newRow("read-only (Perform) still navigates") << "read-only";
+}
+
+void ShowCommandRecorder_Test::timeline_nestedShowOpensAndGoesBack()
+{
+    QFETCH(QString, then);
+    EditorRig ed;
+    QVERIFY(ed.setUp());
+    auto *song = new Show(ed.rig.doc);
+    song->setName(QStringLiteral("Song"));
+    QVERIFY(ed.rig.doc->addFunction(song));
+    song->addTrack(new Track(Function::invalidId(), song));
+    auto *area = ed.item(QStringLiteral("showItemsArea"));
+    QVERIFY(area);
+    auto *content = qvariant_cast<QQuickItem *>(area->property("contentItem"));
+    QVERIFY(content);
+    ed.rig.manager->setTimeScale(1.0);
+    ed.rig.manager->addItems(content, -1, 0, {song->id()});
+    ShowFunction *clip = ed.show->tracks().first()->showFunctions().first();
+    clip->setDuration(20000);
+    // a recorded play: a loop wrap, a seek, a fade in and out, two handovers
+    ShowClipAutomation automation;
+    automation.setSegments({{0, 30000, 1.0}, {6000, 32000, 1.0}, {12000, 60000, 1.0}});
+    automation.setEnvelope({{0, 0.0}, {4000, 1.0}, {16000, 1.0}, {20000, 0.0}});
+    automation.setDominance({{0, false}, {3000, true}, {17000, false}});
+    clip->setClipAutomation(automation);
+    QCoreApplication::processEvents();
+    QQuickItem *item = nullptr;
+    for (auto *child : content->childItems())
+        if (child->property("sfRef").value<ShowFunction *>() == clip)
+            item = child;
+    QVERIFY(item);
+    auto *overlay = findVisualItem(item, QStringLiteral("clipAutomationOverlay"));
+    QVERIFY(overlay && overlay->isVisible());
+    QVERIFY(ed.item(QStringLiteral("nestedShowBack")) == nullptr);
+    if (!kDiagArtifacts.isEmpty())
+        ed.rig.app->grabWindow().save(kDiagArtifacts + QStringLiteral("/nested-clip-%1-parent.png").arg(then));
+    if (then == "read-only")
+        ed.rig.manager->setReadOnly(true);
+
+    QTest::mouseDClick(ed.rig.app.get(), Qt::LeftButton, Qt::NoModifier, ed.centerOf(item));
+
+    QTRY_COMPARE(ed.rig.manager->currentShowID(), int(song->id()));
+    QCoreApplication::processEvents();
+    QQuickItem *back = ed.item(QStringLiteral("nestedShowBack"));
+    QVERIFY(back);
+    QVERIFY2(back->property("label").toString().contains(ed.show->name()), qPrintable(back->property("label").toString()));
+    if (!kDiagArtifacts.isEmpty())
+        ed.rig.app->grabWindow().save(kDiagArtifacts + QStringLiteral("/nested-clip-%1-opened.png").arg(then));
+    if (then == "other")
+    {
+        auto *other = new Show(ed.rig.doc);
+        QVERIFY(ed.rig.doc->addFunction(other));
+        ed.rig.manager->setCurrentShowID(int(other->id()));
+        QCoreApplication::processEvents();
+        QVERIFY(ed.item(QStringLiteral("nestedShowBack")) == nullptr);
+        return;
+    }
+    ed.click(back);
+    QCOMPARE(ed.rig.manager->currentShowID(), int(ed.show->id()));
+    QVERIFY(ed.item(QStringLiteral("nestedShowBack")) == nullptr);
 }
 
 void ShowCommandRecorder_Test::timeline_localKeysDoNotReachVc_data()
@@ -34086,7 +34171,7 @@ void ShowCommandRecorder_Test::timeline_goToSelectionStartExternal()
     QVERIFY(navEnabled(ed, false));
     fsm->setPerformEnabled(true);
     if (perform != QLatin1String("armed"))
-        fsm->setInputs({ ed.show->id(), perform == QLatin1String("live") });
+        fsm->setInputs(activeDeck({ ed.show->id(), perform == QLatin1String("live") }));
     if (perform == QLatin1String("off-again"))
         fsm->setPerformEnabled(false);
     QCoreApplication::processEvents();
@@ -34200,7 +34285,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationExternalBoundary()
             tickAndDeliver(ed.rig.doc, 4);
         });
         fsm->setPerformEnabled(true);
-        fsm->setInputs({ ed.show->id(), true });
+        fsm->setInputs(activeDeck({ ed.show->id(), true }));
         QCOMPARE(ed.show->syncSource(), int(ShowRunner::External));
         fsm->setPerformEnabled(false);
         QCoreApplication::processEvents();
@@ -34258,7 +34343,7 @@ void ShowCommandRecorder_Test::timeline_selectionNavigationKeyboard()
         {
             auto *fsm = qobject_cast<VdjBridge *>(ed.rig.context("vdjBridge"))->performFsm();
             fsm->setPerformEnabled(true);
-            fsm->setInputs({ ed.show->id() });
+            fsm->setInputs(activeDeck({ ed.show->id() }));
             QCoreApplication::processEvents();
             selectRecorded(ed, {6});
         }

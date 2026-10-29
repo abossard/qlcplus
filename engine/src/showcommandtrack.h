@@ -635,6 +635,16 @@ namespace ShowCommandFsm
      *  crossed interval. */
     ShowCommandState seek(const ShowCommandState &state, quint32 positionMs);
 
+    /** Dominance regained at positionMs: the cursor moves on like advance().
+     *  Effects: every VC control the track sets at or before positionMs gets
+     *  its last state there, one record per control, role, attribute and
+     *  action (one for the three XY pad presets, one per Matrix color slot and
+     *  per knob set after it); the Function commands crossed since consumedThrough
+     *  collapse to their net effect, per Function its last Start or Stop and
+     *  then the last intensity no Stop followed. In time order. */
+    ShowCommandTransition regain(const ShowCommandTrack &track,
+                                 const ShowCommandState &state, quint32 positionMs);
+
     /** Offer real user input while REC is bound. Authors at most one command at the
      *  authoritative position and marks that occurrence, its id at its time, as
      *  consumed, so the freshly authored command cannot echo back through

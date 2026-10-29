@@ -1,0 +1,888 @@
+{"t":0.0,"ev":"meta","description":"Synthetic, not captured: deck 1 plays song A from 30 s, loops 4 beats at 126 BPM three times, seeks forward, is pitched +6%; deck 2 starts song B under a closed crossfader, the crossfader sweeps to deck 2, the master follows at the middle; deck 1 pauses, is cued while paused, ejected, loads song C, plays it from 5 s, and the crossfader comes back to the middle. Wire format and delta semantics of the VDJ 8.5.9307 captures, elapsed only (no beatpos or remaining); arrival jitter 0..8 ms, every 97th write 24 ms late. The last meta record holds the model's expectations in set time (from deck 1's first play), every 100 ms and 60 ms on both sides of each change: [setMs, deck, song, songMs, level, dominant, running, label]. Generator: gen_djset_mix.py in the DJSET notes.","note":"t = ms; rx data is raw, unparsed"}
+{"t":1000.0,"ev":"meta","state":[["get_decks",2],["crossfader",0],["deck 1 get_filepath","/music/track-21.mp3"],["deck 1 get_title","Title 21"],["deck 1 get_artist","Artist 21"],["deck 1 get_bpm",126],["deck 1 get_time total",240000],["deck 1 loaded","on"],["deck 1 get_time elapsed absolute",30000],["deck 1 play","off"],["deck 1 volume",1],["deck 1 leftcross","on"],["deck 1 rightcross","off"],["deck 1 masterdeck","on"],["deck 2 get_filepath","/music/track-22.mp3"],["deck 2 get_title","Title 22"],["deck 2 get_artist","Artist 22"],["deck 2 get_bpm",126],["deck 2 get_time total",210000],["deck 2 loaded","on"],["deck 2 get_time elapsed absolute",10000],["deck 2 play","off"],["deck 2 volume",1],["deck 2 leftcross","off"],["deck 2 rightcross","on"],["deck 2 masterdeck","off"]]}
+{"t":1500.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 play\",\"value\":\"on\"}"}
+{"t":1538.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30033}"}
+{"t":1571.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30067}"}
+{"t":1605.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30100}"}
+{"t":1635.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30133}"}
+{"t":1675.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30167}"}
+{"t":1707.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30200}"}
+{"t":1739.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30233}"}
+{"t":1772.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30267}"}
+{"t":1808.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30300}"}
+{"t":1836.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30333}"}
+{"t":1871.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30367}"}
+{"t":1907.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30400}"}
+{"t":1940.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30433}"}
+{"t":1967.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30467}"}
+{"t":2008.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30500}"}
+{"t":2038.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30533}"}
+{"t":2072.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30567}"}
+{"t":2106.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30600}"}
+{"t":2141.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30633}"}
+{"t":2174.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30667}"}
+{"t":2205.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30700}"}
+{"t":2239.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30733}"}
+{"t":2274.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30767}"}
+{"t":2304.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30800}"}
+{"t":2341.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30833}"}
+{"t":2368.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30867}"}
+{"t":2403.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30900}"}
+{"t":2440.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30933}"}
+{"t":2474.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":30967}"}
+{"t":2502.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31000}"}
+{"t":2540.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31033}"}
+{"t":2571.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31067}"}
+{"t":2605.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31100}"}
+{"t":2640.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31133}"}
+{"t":2673.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31167}"}
+{"t":2702.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31200}"}
+{"t":2741.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31233}"}
+{"t":2767.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31267}"}
+{"t":2802.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31300}"}
+{"t":2841.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31333}"}
+{"t":2867.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31367}"}
+{"t":2902.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31400}"}
+{"t":2939.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31433}"}
+{"t":2972.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31467}"}
+{"t":3004.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31500}"}
+{"t":3037.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31533}"}
+{"t":3069.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31567}"}
+{"t":3104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31600}"}
+{"t":3133.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31633}"}
+{"t":3169.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31667}"}
+{"t":3206.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31700}"}
+{"t":3241.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31733}"}
+{"t":3272.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31767}"}
+{"t":3300.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31800}"}
+{"t":3336.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31833}"}
+{"t":3369.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31867}"}
+{"t":3404.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31900}"}
+{"t":3437.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31933}"}
+{"t":3469.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":31967}"}
+{"t":3500.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32000}"}
+{"t":3537.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32033}"}
+{"t":3574.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32067}"}
+{"t":3602.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32100}"}
+{"t":3635.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32133}"}
+{"t":3667.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32167}"}
+{"t":3708.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32200}"}
+{"t":3741.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32233}"}
+{"t":3773.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32267}"}
+{"t":3804.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32300}"}
+{"t":3834.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32333}"}
+{"t":3875.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32367}"}
+{"t":3905.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32400}"}
+{"t":3940.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32433}"}
+{"t":3968.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32467}"}
+{"t":4000.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32500}"}
+{"t":4033.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32533}"}
+{"t":4071.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32567}"}
+{"t":4102.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32600}"}
+{"t":4137.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32633}"}
+{"t":4169.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32667}"}
+{"t":4201.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32700}"}
+{"t":4235.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32733}"}
+{"t":4268.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32767}"}
+{"t":4305.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32800}"}
+{"t":4341.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32833}"}
+{"t":4368.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32867}"}
+{"t":4408.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32900}"}
+{"t":4441.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32933}"}
+{"t":4472.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":32967}"}
+{"t":4501.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33000}"}
+{"t":4538.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33033}"}
+{"t":4571.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33067}"}
+{"t":4602.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33100}"}
+{"t":4638.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33133}"}
+{"t":4675.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33167}"}
+{"t":4703.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33200}"}
+{"t":4757.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33233}"}
+{"t":4768.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33267}"}
+{"t":4807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33300}"}
+{"t":4836.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33333}"}
+{"t":4872.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33367}"}
+{"t":4900.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33400}"}
+{"t":4937.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33433}"}
+{"t":4970.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33467}"}
+{"t":5004.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33500}"}
+{"t":5041.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33533}"}
+{"t":5067.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33567}"}
+{"t":5100.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33600}"}
+{"t":5137.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33633}"}
+{"t":5175.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33667}"}
+{"t":5205.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33700}"}
+{"t":5241.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33733}"}
+{"t":5271.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33767}"}
+{"t":5301.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33800}"}
+{"t":5334.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33833}"}
+{"t":5368.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33867}"}
+{"t":5402.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33900}"}
+{"t":5435.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33933}"}
+{"t":5472.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":33967}"}
+{"t":5501.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34000}"}
+{"t":5541.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34033}"}
+{"t":5574.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34067}"}
+{"t":5607.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34100}"}
+{"t":5633.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34133}"}
+{"t":5672.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34167}"}
+{"t":5707.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34200}"}
+{"t":5739.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34233}"}
+{"t":5768.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34267}"}
+{"t":5805.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34300}"}
+{"t":5837.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34333}"}
+{"t":5868.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34367}"}
+{"t":5901.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34400}"}
+{"t":5940.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34433}"}
+{"t":5975.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34467}"}
+{"t":6007.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34500}"}
+{"t":6036.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34533}"}
+{"t":6071.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34567}"}
+{"t":6108.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34600}"}
+{"t":6134.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34633}"}
+{"t":6173.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34667}"}
+{"t":6208.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34700}"}
+{"t":6238.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34733}"}
+{"t":6270.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34767}"}
+{"t":6308.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34800}"}
+{"t":6338.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34833}"}
+{"t":6371.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34867}"}
+{"t":6407.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34900}"}
+{"t":6439.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34933}"}
+{"t":6468.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34967}"}
+{"t":6507.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35000}"}
+{"t":6533.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35033}"}
+{"t":6570.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35067}"}
+{"t":6602.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35100}"}
+{"t":6639.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35133}"}
+{"t":6675.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35167}"}
+{"t":6701.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35200}"}
+{"t":6737.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35233}"}
+{"t":6771.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35267}"}
+{"t":6802.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35300}"}
+{"t":6841.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35333}"}
+{"t":6872.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35367}"}
+{"t":6907.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35400}"}
+{"t":6934.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35433}"}
+{"t":6971.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35467}"}
+{"t":7001.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35500}"}
+{"t":7035.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35533}"}
+{"t":7068.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35567}"}
+{"t":7102.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35600}"}
+{"t":7140.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35633}"}
+{"t":7174.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35667}"}
+{"t":7200.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35700}"}
+{"t":7236.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35733}"}
+{"t":7270.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35767}"}
+{"t":7301.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35800}"}
+{"t":7337.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35833}"}
+{"t":7373.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35867}"}
+{"t":7407.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35900}"}
+{"t":7437.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34028}"}
+{"t":7471.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34062}"}
+{"t":7507.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34095}"}
+{"t":7537.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34128}"}
+{"t":7567.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34162}"}
+{"t":7602.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34195}"}
+{"t":7641.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34228}"}
+{"t":7673.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34262}"}
+{"t":7704.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34295}"}
+{"t":7735.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34328}"}
+{"t":7768.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34362}"}
+{"t":7807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34395}"}
+{"t":7836.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34428}"}
+{"t":7870.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34462}"}
+{"t":7906.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34495}"}
+{"t":7940.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34528}"}
+{"t":7991.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34562}"}
+{"t":8008.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34595}"}
+{"t":8036.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34628}"}
+{"t":8075.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34662}"}
+{"t":8100.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34695}"}
+{"t":8141.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34728}"}
+{"t":8175.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34762}"}
+{"t":8201.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34795}"}
+{"t":8235.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34828}"}
+{"t":8267.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34862}"}
+{"t":8300.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34895}"}
+{"t":8333.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34928}"}
+{"t":8369.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34962}"}
+{"t":8402.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34995}"}
+{"t":8440.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35028}"}
+{"t":8473.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35062}"}
+{"t":8502.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35095}"}
+{"t":8538.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35128}"}
+{"t":8569.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35162}"}
+{"t":8604.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35195}"}
+{"t":8634.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35228}"}
+{"t":8673.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35262}"}
+{"t":8706.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35295}"}
+{"t":8738.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35328}"}
+{"t":8773.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35362}"}
+{"t":8801.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35395}"}
+{"t":8836.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35428}"}
+{"t":8872.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35462}"}
+{"t":8904.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35495}"}
+{"t":8936.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35528}"}
+{"t":8971.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35562}"}
+{"t":9007.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35595}"}
+{"t":9040.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35628}"}
+{"t":9067.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35662}"}
+{"t":9102.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35695}"}
+{"t":9133.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35728}"}
+{"t":9169.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35762}"}
+{"t":9204.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35795}"}
+{"t":9234.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35828}"}
+{"t":9271.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35862}"}
+{"t":9304.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35895}"}
+{"t":9341.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34023}"}
+{"t":9371.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34057}"}
+{"t":9404.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34090}"}
+{"t":9433.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34123}"}
+{"t":9471.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34157}"}
+{"t":9508.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34190}"}
+{"t":9535.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34223}"}
+{"t":9567.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34257}"}
+{"t":9607.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34290}"}
+{"t":9637.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34323}"}
+{"t":9674.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34357}"}
+{"t":9708.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34390}"}
+{"t":9735.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34423}"}
+{"t":9773.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34457}"}
+{"t":9804.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34490}"}
+{"t":9838.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34523}"}
+{"t":9869.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34557}"}
+{"t":9905.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34590}"}
+{"t":9939.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34623}"}
+{"t":9968.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34657}"}
+{"t":10007.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34690}"}
+{"t":10039.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34723}"}
+{"t":10072.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34757}"}
+{"t":10104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34790}"}
+{"t":10135.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34823}"}
+{"t":10167.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34857}"}
+{"t":10203.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34890}"}
+{"t":10237.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34923}"}
+{"t":10268.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34957}"}
+{"t":10306.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34990}"}
+{"t":10335.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35023}"}
+{"t":10370.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35057}"}
+{"t":10403.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35090}"}
+{"t":10436.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35123}"}
+{"t":10475.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35157}"}
+{"t":10504.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35190}"}
+{"t":10534.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35223}"}
+{"t":10567.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35257}"}
+{"t":10607.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35290}"}
+{"t":10633.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35323}"}
+{"t":10673.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35357}"}
+{"t":10704.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35390}"}
+{"t":10737.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35423}"}
+{"t":10773.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35457}"}
+{"t":10802.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35490}"}
+{"t":10839.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35523}"}
+{"t":10871.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35557}"}
+{"t":10904.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35590}"}
+{"t":10940.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35623}"}
+{"t":10974.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35657}"}
+{"t":11008.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35690}"}
+{"t":11041.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35723}"}
+{"t":11073.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35757}"}
+{"t":11104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35790}"}
+{"t":11137.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35823}"}
+{"t":11173.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35857}"}
+{"t":11224.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35890}"}
+{"t":11233.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34018}"}
+{"t":11267.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34052}"}
+{"t":11304.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34085}"}
+{"t":11333.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34118}"}
+{"t":11374.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34152}"}
+{"t":11403.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34185}"}
+{"t":11435.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34218}"}
+{"t":11471.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34252}"}
+{"t":11501.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34285}"}
+{"t":11536.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34318}"}
+{"t":11574.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34352}"}
+{"t":11600.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34385}"}
+{"t":11641.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34418}"}
+{"t":11670.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34452}"}
+{"t":11700.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34485}"}
+{"t":11735.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34518}"}
+{"t":11770.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34552}"}
+{"t":11807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34585}"}
+{"t":11835.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34618}"}
+{"t":11868.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34652}"}
+{"t":11901.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34685}"}
+{"t":11938.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34718}"}
+{"t":11970.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34752}"}
+{"t":12005.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34785}"}
+{"t":12037.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34818}"}
+{"t":12074.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34852}"}
+{"t":12104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34885}"}
+{"t":12139.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34918}"}
+{"t":12173.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34952}"}
+{"t":12204.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":34985}"}
+{"t":12238.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35018}"}
+{"t":12269.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35052}"}
+{"t":12301.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35085}"}
+{"t":12336.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35118}"}
+{"t":12372.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35152}"}
+{"t":12408.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35185}"}
+{"t":12437.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35218}"}
+{"t":12467.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35252}"}
+{"t":12505.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35285}"}
+{"t":12538.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35318}"}
+{"t":12570.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35352}"}
+{"t":12600.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35385}"}
+{"t":12637.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35418}"}
+{"t":12672.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35452}"}
+{"t":12700.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35485}"}
+{"t":12739.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35518}"}
+{"t":12771.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35552}"}
+{"t":12804.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35585}"}
+{"t":12835.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35618}"}
+{"t":12874.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35652}"}
+{"t":12904.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35685}"}
+{"t":12941.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35718}"}
+{"t":12971.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35752}"}
+{"t":13008.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35785}"}
+{"t":13041.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35818}"}
+{"t":13075.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35852}"}
+{"t":13100.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35885}"}
+{"t":13136.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35918}"}
+{"t":13170.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35952}"}
+{"t":13205.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":35985}"}
+{"t":13239.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36018}"}
+{"t":13270.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36052}"}
+{"t":13306.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36085}"}
+{"t":13339.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36118}"}
+{"t":13374.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36152}"}
+{"t":13402.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36185}"}
+{"t":13441.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36218}"}
+{"t":13467.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36252}"}
+{"t":13507.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36285}"}
+{"t":13534.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36318}"}
+{"t":13573.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36352}"}
+{"t":13601.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36385}"}
+{"t":13639.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36418}"}
+{"t":13668.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36452}"}
+{"t":13700.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36485}"}
+{"t":13739.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36518}"}
+{"t":13774.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36552}"}
+{"t":13807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36585}"}
+{"t":13835.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36618}"}
+{"t":13875.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36652}"}
+{"t":13904.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36685}"}
+{"t":13938.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36718}"}
+{"t":13975.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":36752}"}
+{"t":14005.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60000}"}
+{"t":14036.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60033}"}
+{"t":14073.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60067}"}
+{"t":14106.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60100}"}
+{"t":14141.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60133}"}
+{"t":14167.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60167}"}
+{"t":14206.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60200}"}
+{"t":14240.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60233}"}
+{"t":14269.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60267}"}
+{"t":14302.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60300}"}
+{"t":14336.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60333}"}
+{"t":14373.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60367}"}
+{"t":14402.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60400}"}
+{"t":14457.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60433}"}
+{"t":14469.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60467}"}
+{"t":14503.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60500}"}
+{"t":14539.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60533}"}
+{"t":14573.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60567}"}
+{"t":14601.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60600}"}
+{"t":14636.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60633}"}
+{"t":14672.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60667}"}
+{"t":14703.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60700}"}
+{"t":14741.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60733}"}
+{"t":14769.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60767}"}
+{"t":14803.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60800}"}
+{"t":14834.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60833}"}
+{"t":14871.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60867}"}
+{"t":14907.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60900}"}
+{"t":14934.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60933}"}
+{"t":14972.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":60967}"}
+{"t":15007.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61000}"}
+{"t":15033.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61033}"}
+{"t":15069.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61067}"}
+{"t":15103.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61100}"}
+{"t":15135.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61133}"}
+{"t":15170.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61167}"}
+{"t":15200.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61200}"}
+{"t":15234.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61233}"}
+{"t":15271.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61267}"}
+{"t":15308.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61300}"}
+{"t":15333.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61333}"}
+{"t":15370.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61367}"}
+{"t":15402.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61400}"}
+{"t":15441.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61433}"}
+{"t":15469.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61467}"}
+{"t":15508.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61500}"}
+{"t":15535.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61533}"}
+{"t":15574.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61567}"}
+{"t":15602.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61600}"}
+{"t":15639.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61633}"}
+{"t":15668.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61667}"}
+{"t":15706.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61700}"}
+{"t":15735.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61733}"}
+{"t":15773.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61767}"}
+{"t":15805.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61800}"}
+{"t":15837.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61833}"}
+{"t":15868.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61867}"}
+{"t":15908.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61900}"}
+{"t":15939.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61933}"}
+{"t":15970.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":61967}"}
+{"t":16008.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62000}"}
+{"t":16033.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62035}"}
+{"t":16072.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62071}"}
+{"t":16106.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62106}"}
+{"t":16136.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62141}"}
+{"t":16167.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62177}"}
+{"t":16203.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62212}"}
+{"t":16235.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62247}"}
+{"t":16269.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62283}"}
+{"t":16305.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62318}"}
+{"t":16338.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62353}"}
+{"t":16373.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62389}"}
+{"t":16401.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62424}"}
+{"t":16435.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62459}"}
+{"t":16467.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62495}"}
+{"t":16507.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62530}"}
+{"t":16538.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62565}"}
+{"t":16573.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62601}"}
+{"t":16600.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62636}"}
+{"t":16641.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62671}"}
+{"t":16675.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62707}"}
+{"t":16701.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62742}"}
+{"t":16738.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62777}"}
+{"t":16767.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62813}"}
+{"t":16801.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62848}"}
+{"t":16840.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62883}"}
+{"t":16874.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62919}"}
+{"t":16902.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62954}"}
+{"t":16936.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":62989}"}
+{"t":16968.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63025}"}
+{"t":17008.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63060}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 play\",\"value\":\"on\"}"}
+{"t":17039.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63095}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10033}"}
+{"t":17070.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63131}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10067}"}
+{"t":17105.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63166}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10100}"}
+{"t":17134.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63201}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10133}"}
+{"t":17172.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63237}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10167}"}
+{"t":17207.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63272}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10200}"}
+{"t":17239.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63307}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10233}"}
+{"t":17269.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63343}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10267}"}
+{"t":17308.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63378}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10300}"}
+{"t":17334.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63413}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10333}"}
+{"t":17371.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63449}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10367}"}
+{"t":17408.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63484}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10400}"}
+{"t":17438.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63519}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10433}"}
+{"t":17472.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63555}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10467}"}
+{"t":17500.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63590}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10500}"}
+{"t":17541.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63625}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10533}"}
+{"t":17574.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63661}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10567}"}
+{"t":17606.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63696}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10600}"}
+{"t":17633.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63731}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10633}"}
+{"t":17691.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63767}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10667}"}
+{"t":17708.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63802}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10700}"}
+{"t":17741.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63837}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10733}"}
+{"t":17769.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63873}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10767}"}
+{"t":17805.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63908}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10800}"}
+{"t":17835.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63943}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10833}"}
+{"t":17871.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":63979}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10867}"}
+{"t":17902.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64014}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10900}"}
+{"t":17938.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64049}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10933}"}
+{"t":17973.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64085}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":10967}"}
+{"t":18008.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64120}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11000}"}
+{"t":18036.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64155}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11033}"}
+{"t":18075.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64191}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11067}"}
+{"t":18104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64226}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11100}"}
+{"t":18140.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64261}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11133}"}
+{"t":18172.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64297}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11167}"}
+{"t":18202.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64332}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11200}"}
+{"t":18239.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64367}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11233}"}
+{"t":18270.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64403}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11267}"}
+{"t":18300.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64438}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11300}"}
+{"t":18337.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64473}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11333}"}
+{"t":18371.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64509}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11367}"}
+{"t":18400.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64544}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11400}"}
+{"t":18441.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64579}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11433}"}
+{"t":18472.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64615}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11467}"}
+{"t":18505.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64650}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11500}"}
+{"t":18534.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64685}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11533}"}
+{"t":18568.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64721}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11567}"}
+{"t":18608.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64756}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11600}"}
+{"t":18636.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64791}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11633}"}
+{"t":18667.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64827}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11667}"}
+{"t":18705.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64862}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11700}"}
+{"t":18735.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64897}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11733}"}
+{"t":18769.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64933}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11767}"}
+{"t":18800.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":64968}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11800}"}
+{"t":18835.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65003}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11833}"}
+{"t":18874.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65039}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11867}"}
+{"t":18902.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65074}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11900}"}
+{"t":18936.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65109}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11933}"}
+{"t":18967.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65145}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":11967}"}
+{"t":19002.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65180}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12000}"}
+{"t":19037.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65215}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12033}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.008}"}
+{"t":19074.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65251}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12067}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.017}"}
+{"t":19107.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65286}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12100}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.025}"}
+{"t":19134.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65321}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12133}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.033}"}
+{"t":19172.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65357}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12167}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.042}"}
+{"t":19207.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65392}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12200}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.05}"}
+{"t":19237.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65427}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12233}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.058}"}
+{"t":19270.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65463}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12267}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.067}"}
+{"t":19304.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65498}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12300}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.075}"}
+{"t":19334.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65533}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12333}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.083}"}
+{"t":19369.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65569}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12367}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.092}"}
+{"t":19402.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65604}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12400}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.1}"}
+{"t":19441.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65639}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12433}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.108}"}
+{"t":19474.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65675}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12467}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.117}"}
+{"t":19508.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65710}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12500}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.125}"}
+{"t":19535.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65745}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12533}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.133}"}
+{"t":19571.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65781}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12567}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.142}"}
+{"t":19606.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65816}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12600}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.15}"}
+{"t":19634.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65851}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12633}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.158}"}
+{"t":19673.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65887}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12667}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.167}"}
+{"t":19706.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65922}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12700}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.175}"}
+{"t":19739.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65957}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12733}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.183}"}
+{"t":19774.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":65993}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12767}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.192}"}
+{"t":19807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66028}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12800}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.2}"}
+{"t":19839.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66063}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12833}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.208}"}
+{"t":19870.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66099}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12867}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.217}"}
+{"t":19905.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66134}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12900}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.225}"}
+{"t":19940.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66169}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12933}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.233}"}
+{"t":19969.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66205}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":12967}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.242}"}
+{"t":20001.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66240}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13000}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.25}"}
+{"t":20036.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66275}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13033}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.258}"}
+{"t":20070.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66311}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13067}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.267}"}
+{"t":20106.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66346}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13100}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.275}"}
+{"t":20137.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66381}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13133}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.283}"}
+{"t":20173.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66417}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13167}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.292}"}
+{"t":20205.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66452}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13200}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.3}"}
+{"t":20235.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66487}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13233}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.308}"}
+{"t":20274.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66523}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13267}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.317}"}
+{"t":20300.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66558}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13300}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.325}"}
+{"t":20333.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66593}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13333}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.333}"}
+{"t":20373.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66629}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13367}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.342}"}
+{"t":20406.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66664}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13400}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.35}"}
+{"t":20435.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66699}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13433}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.358}"}
+{"t":20470.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66735}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13467}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.367}"}
+{"t":20502.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66770}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13500}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.375}"}
+{"t":20535.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66805}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13533}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.383}"}
+{"t":20572.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66841}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13567}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.392}"}
+{"t":20606.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66876}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13600}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.4}"}
+{"t":20640.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66911}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13633}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.408}"}
+{"t":20675.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66947}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13667}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.417}"}
+{"t":20705.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":66982}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13700}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.425}"}
+{"t":20733.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67017}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13733}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.433}"}
+{"t":20768.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67053}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13767}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.442}"}
+{"t":20804.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67088}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13800}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.45}"}
+{"t":20835.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67123}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13833}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.458}"}
+{"t":20870.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67159}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13867}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.467}"}
+{"t":20924.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67194}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13900}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.475}"}
+{"t":20933.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67229}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13933}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.483}"}
+{"t":20972.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67265}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":13967}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.492}"}
+{"t":21002.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67300}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14000}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.5}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 masterdeck\",\"value\":\"off\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 masterdeck\",\"value\":\"on\"}"}
+{"t":21034.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67335}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14033}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.508}"}
+{"t":21069.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67371}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14067}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.517}"}
+{"t":21104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67406}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14100}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.525}"}
+{"t":21137.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67441}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14133}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.533}"}
+{"t":21172.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67477}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14167}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.542}"}
+{"t":21200.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67512}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14200}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.55}"}
+{"t":21241.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67547}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14233}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.558}"}
+{"t":21275.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67583}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14267}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.567}"}
+{"t":21303.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67618}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14300}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.575}"}
+{"t":21334.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67653}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14333}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.583}"}
+{"t":21368.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67689}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14367}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.592}"}
+{"t":21408.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67724}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14400}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.6}"}
+{"t":21434.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67759}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14433}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.608}"}
+{"t":21471.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67795}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14467}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.617}"}
+{"t":21508.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67830}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14500}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.625}"}
+{"t":21535.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67865}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14533}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.633}"}
+{"t":21567.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67901}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14567}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.642}"}
+{"t":21607.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67936}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14600}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.65}"}
+{"t":21640.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":67971}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14633}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.658}"}
+{"t":21670.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68007}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14667}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.667}"}
+{"t":21703.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68042}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14700}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.675}"}
+{"t":21735.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68077}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14733}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.683}"}
+{"t":21769.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68113}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14767}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.692}"}
+{"t":21807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68148}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14800}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.7}"}
+{"t":21838.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68183}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14833}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.708}"}
+{"t":21872.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68219}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14867}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.717}"}
+{"t":21901.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68254}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14900}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.725}"}
+{"t":21933.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68289}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14933}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.733}"}
+{"t":21973.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68325}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":14967}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.742}"}
+{"t":22004.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68360}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15000}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.75}"}
+{"t":22034.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68395}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15033}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.758}"}
+{"t":22069.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68431}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15067}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.767}"}
+{"t":22106.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68466}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15100}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.775}"}
+{"t":22134.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68501}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15133}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.783}"}
+{"t":22173.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68537}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15167}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.792}"}
+{"t":22205.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68572}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15200}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.8}"}
+{"t":22240.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68607}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15233}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.808}"}
+{"t":22272.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68643}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15267}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.817}"}
+{"t":22305.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68678}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15300}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.825}"}
+{"t":22336.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68713}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15333}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.833}"}
+{"t":22371.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68749}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15367}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.842}"}
+{"t":22408.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68784}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15400}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.85}"}
+{"t":22437.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68819}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15433}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.858}"}
+{"t":22474.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68855}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15467}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.867}"}
+{"t":22503.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68890}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15500}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.875}"}
+{"t":22539.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68925}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15533}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.883}"}
+{"t":22572.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68961}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15567}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.892}"}
+{"t":22606.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":68996}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15600}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.9}"}
+{"t":22635.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69031}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15633}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.908}"}
+{"t":22672.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69067}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15667}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.917}"}
+{"t":22705.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69102}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15700}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.925}"}
+{"t":22733.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69137}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15733}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.933}"}
+{"t":22767.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69173}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15767}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.942}"}
+{"t":22804.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69208}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15800}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.95}"}
+{"t":22838.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69243}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15833}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.958}"}
+{"t":22867.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69279}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15867}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.967}"}
+{"t":22902.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69314}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15900}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.975}"}
+{"t":22939.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69349}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15933}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.983}"}
+{"t":22968.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69385}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":15967}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.992}"}
+{"t":23000.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69420}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16000}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":1.0}"}
+{"t":23038.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69455}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16033}"}
+{"t":23069.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69491}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16067}"}
+{"t":23100.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69526}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16100}"}
+{"t":23134.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69561}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16133}"}
+{"t":23168.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69597}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16167}"}
+{"t":23208.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69632}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16200}"}
+{"t":23239.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69667}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16233}"}
+{"t":23267.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69703}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16267}"}
+{"t":23301.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69738}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16300}"}
+{"t":23338.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69773}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16333}"}
+{"t":23367.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69809}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16367}"}
+{"t":23405.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69844}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16400}"}
+{"t":23433.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69879}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16433}"}
+{"t":23472.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69915}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16467}"}
+{"t":23505.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69950}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16500}"}
+{"t":23538.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":69985}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16533}"}
+{"t":23573.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70021}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16567}"}
+{"t":23608.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70056}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16600}"}
+{"t":23635.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70091}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16633}"}
+{"t":23668.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70127}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16667}"}
+{"t":23707.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70162}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16700}"}
+{"t":23741.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70197}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16733}"}
+{"t":23767.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70233}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16767}"}
+{"t":23805.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70268}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16800}"}
+{"t":23834.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70303}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16833}"}
+{"t":23875.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70339}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16867}"}
+{"t":23900.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70374}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16900}"}
+{"t":23936.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70409}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16933}"}
+{"t":23974.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70445}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":16967}"}
+{"t":24003.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":70480}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 play\",\"value\":\"off\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17000}"}
+{"t":24034.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17033}"}
+{"t":24068.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17067}"}
+{"t":24107.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17100}"}
+{"t":24157.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17133}"}
+{"t":24174.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17167}"}
+{"t":24202.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17200}"}
+{"t":24235.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17233}"}
+{"t":24272.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17267}"}
+{"t":24302.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17300}"}
+{"t":24333.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17333}"}
+{"t":24367.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17367}"}
+{"t":24404.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17400}"}
+{"t":24440.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17433}"}
+{"t":24474.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17467}"}
+{"t":24503.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17500}"}
+{"t":24540.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17533}"}
+{"t":24572.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17567}"}
+{"t":24607.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17600}"}
+{"t":24637.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17633}"}
+{"t":24673.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17667}"}
+{"t":24706.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17700}"}
+{"t":24733.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17733}"}
+{"t":24771.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17767}"}
+{"t":24807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17800}"}
+{"t":24833.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17833}"}
+{"t":24867.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17867}"}
+{"t":24905.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17900}"}
+{"t":24939.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17933}"}
+{"t":24969.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":17967}"}
+{"t":25004.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":50000}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18000}"}
+{"t":25037.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18033}"}
+{"t":25072.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18067}"}
+{"t":25102.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18100}"}
+{"t":25134.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18133}"}
+{"t":25173.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18167}"}
+{"t":25202.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18200}"}
+{"t":25241.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18233}"}
+{"t":25275.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18267}"}
+{"t":25307.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18300}"}
+{"t":25336.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18333}"}
+{"t":25375.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18367}"}
+{"t":25403.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18400}"}
+{"t":25433.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18433}"}
+{"t":25467.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18467}"}
+{"t":25501.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18500}"}
+{"t":25539.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18533}"}
+{"t":25571.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18567}"}
+{"t":25604.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18600}"}
+{"t":25641.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18633}"}
+{"t":25672.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18667}"}
+{"t":25705.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18700}"}
+{"t":25739.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18733}"}
+{"t":25770.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18767}"}
+{"t":25805.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18800}"}
+{"t":25834.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18833}"}
+{"t":25875.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18867}"}
+{"t":25903.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18900}"}
+{"t":25933.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18933}"}
+{"t":25974.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":18967}"}
+{"t":26000.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_title\",\"value\":\"Drag a song on this deck to load it\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_bpm\",\"value\":120}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 loaded\",\"value\":\"off\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19000}"}
+{"t":26038.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19033}"}
+{"t":26074.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19067}"}
+{"t":26107.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19100}"}
+{"t":26140.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19133}"}
+{"t":26167.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19167}"}
+{"t":26200.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19200}"}
+{"t":26234.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19233}"}
+{"t":26269.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19267}"}
+{"t":26307.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19300}"}
+{"t":26335.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19333}"}
+{"t":26375.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19367}"}
+{"t":26401.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19400}"}
+{"t":26434.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19433}"}
+{"t":26467.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19467}"}
+{"t":26506.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19500}"}
+{"t":26534.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19533}"}
+{"t":26569.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19567}"}
+{"t":26601.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19600}"}
+{"t":26637.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19633}"}
+{"t":26674.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19667}"}
+{"t":26701.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19700}"}
+{"t":26741.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19733}"}
+{"t":26768.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19767}"}
+{"t":26805.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19800}"}
+{"t":26841.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19833}"}
+{"t":26867.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19867}"}
+{"t":26906.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19900}"}
+{"t":26938.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19933}"}
+{"t":26970.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":19967}"}
+{"t":27005.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_filepath\",\"value\":\"/music/track-23.mp3\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_title\",\"value\":\"Title 23\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_artist\",\"value\":\"Artist 23\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_bpm\",\"value\":128}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time total\",\"value\":200000}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 loaded\",\"value\":\"on\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":0}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20000}"}
+{"t":27039.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20033}"}
+{"t":27068.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20067}"}
+{"t":27103.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20100}"}
+{"t":27135.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20133}"}
+{"t":27167.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20167}"}
+{"t":27201.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20200}"}
+{"t":27235.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20233}"}
+{"t":27274.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20267}"}
+{"t":27300.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20300}"}
+{"t":27334.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20333}"}
+{"t":27391.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20367}"}
+{"t":27407.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20400}"}
+{"t":27436.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20433}"}
+{"t":27469.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20467}"}
+{"t":27508.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5000}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20500}"}
+{"t":27540.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20533}"}
+{"t":27572.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20567}"}
+{"t":27608.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20600}"}
+{"t":27640.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20633}"}
+{"t":27672.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20667}"}
+{"t":27708.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20700}"}
+{"t":27733.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20733}"}
+{"t":27770.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20767}"}
+{"t":27804.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20800}"}
+{"t":27836.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20833}"}
+{"t":27875.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20867}"}
+{"t":27902.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20900}"}
+{"t":27935.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20933}"}
+{"t":27970.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":20967}"}
+{"t":28003.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 play\",\"value\":\"on\"}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21000}"}
+{"t":28037.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5033}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21033}"}
+{"t":28067.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5067}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21067}"}
+{"t":28104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5100}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21100}"}
+{"t":28138.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5133}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21133}"}
+{"t":28172.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5167}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21167}"}
+{"t":28204.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5200}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21200}"}
+{"t":28239.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5233}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21233}"}
+{"t":28268.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5267}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21267}"}
+{"t":28303.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5300}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21300}"}
+{"t":28337.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5333}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21333}"}
+{"t":28372.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5367}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21367}"}
+{"t":28408.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5400}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21400}"}
+{"t":28433.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5433}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21433}"}
+{"t":28470.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5467}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21467}"}
+{"t":28505.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5500}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21500}"}
+{"t":28534.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5533}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21533}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.992}"}
+{"t":28568.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5567}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21567}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.983}"}
+{"t":28601.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5600}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21600}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.975}"}
+{"t":28633.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5633}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21633}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.967}"}
+{"t":28667.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5667}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21667}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.958}"}
+{"t":28704.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5700}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21700}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.95}"}
+{"t":28741.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5733}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21733}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.942}"}
+{"t":28769.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5767}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21767}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.933}"}
+{"t":28807.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5800}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21800}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.925}"}
+{"t":28838.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5833}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21833}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.917}"}
+{"t":28875.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5867}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21867}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.908}"}
+{"t":28908.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5900}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21900}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.9}"}
+{"t":28939.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5933}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21933}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.892}"}
+{"t":28973.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":5967}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":21967}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.883}"}
+{"t":29002.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6000}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22000}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.875}"}
+{"t":29037.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6033}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22033}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.867}"}
+{"t":29073.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6067}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22067}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.858}"}
+{"t":29104.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6100}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22100}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.85}"}
+{"t":29134.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6133}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22133}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.842}"}
+{"t":29168.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6167}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22167}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.833}"}
+{"t":29208.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6200}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22200}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.825}"}
+{"t":29235.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6233}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22233}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.817}"}
+{"t":29268.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6267}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22267}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.808}"}
+{"t":29301.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6300}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22300}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.8}"}
+{"t":29333.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6333}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22333}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.792}"}
+{"t":29368.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6367}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22367}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.783}"}
+{"t":29402.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6400}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22400}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.775}"}
+{"t":29437.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6433}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22433}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.767}"}
+{"t":29473.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6467}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22467}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.758}"}
+{"t":29500.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6500}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22500}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.75}"}
+{"t":29535.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6533}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22533}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.742}"}
+{"t":29568.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6567}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22567}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.733}"}
+{"t":29600.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6600}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22600}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.725}"}
+{"t":29639.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6633}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22633}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.717}"}
+{"t":29672.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6667}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22667}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.708}"}
+{"t":29701.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6700}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22700}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.7}"}
+{"t":29740.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6733}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22733}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.692}"}
+{"t":29774.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6767}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22767}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.683}"}
+{"t":29800.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6800}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22800}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.675}"}
+{"t":29835.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6833}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22833}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.667}"}
+{"t":29875.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6867}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22867}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.658}"}
+{"t":29905.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6900}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22900}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.65}"}
+{"t":29934.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6933}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22933}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.642}"}
+{"t":29967.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":6967}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":22967}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.633}"}
+{"t":30007.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7000}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23000}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.625}"}
+{"t":30038.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7033}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23033}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.617}"}
+{"t":30068.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7067}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23067}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.608}"}
+{"t":30105.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7100}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23100}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.6}"}
+{"t":30137.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7133}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23133}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.592}"}
+{"t":30173.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7167}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23167}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.583}"}
+{"t":30202.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7200}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23200}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.575}"}
+{"t":30241.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7233}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23233}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.567}"}
+{"t":30270.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7267}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23267}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.558}"}
+{"t":30305.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7300}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23300}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.55}"}
+{"t":30334.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7333}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23333}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.542}"}
+{"t":30373.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7367}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23367}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.533}"}
+{"t":30406.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7400}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23400}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.525}"}
+{"t":30441.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7433}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23433}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.517}"}
+{"t":30468.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7467}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23467}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.508}"}
+{"t":30506.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7500}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23500}\n{\"evt\":\"subscribed\",\"trigger\":\"crossfader\",\"value\":0.5}"}
+{"t":30540.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7533}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23533}"}
+{"t":30573.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7567}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23567}"}
+{"t":30624.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7600}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23600}"}
+{"t":30635.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7633}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23633}"}
+{"t":30669.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7667}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23667}"}
+{"t":30701.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7700}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23700}"}
+{"t":30735.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7733}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23733}"}
+{"t":30770.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7767}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23767}"}
+{"t":30804.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7800}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23800}"}
+{"t":30836.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7833}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23833}"}
+{"t":30874.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7867}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23867}"}
+{"t":30904.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7900}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23900}"}
+{"t":30936.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7933}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23933}"}
+{"t":30971.0,"ev":"rx","data":"{\"evt\":\"subscribed\",\"trigger\":\"deck 1 get_time elapsed absolute\",\"value\":7967}\n{\"evt\":\"subscribed\",\"trigger\":\"deck 2 get_time elapsed absolute\",\"value\":23967}"}
+{"t":31000.0,"ev":"meta","songs":{"A":"/music/track-21.mp3","B":"/music/track-22.mp3","C":"/music/track-23.mp3"},"performOff":31000,"expect":[[60,1,"A",30060,1.0,1,1,"in-point"],[200,1,"A",30200,1.0,1,1,"in-point"],[300,1,"A",30300,1.0,1,1,"in-point"],[400,1,"A",30400,1.0,1,1,"in-point"],[500,1,"A",30500,1.0,1,1,"in-point"],[600,1,"A",30600,1.0,1,1,"in-point"],[700,1,"A",30700,1.0,1,1,"in-point"],[800,1,"A",30800,1.0,1,1,"in-point"],[900,1,"A",30900,1.0,1,1,"in-point"],[1000,1,"A",31000,1.0,1,1,"in-point"],[1100,1,"A",31100,1.0,1,1,"in-point"],[1200,1,"A",31200,1.0,1,1,"in-point"],[1300,1,"A",31300,1.0,1,1,"in-point"],[1400,1,"A",31400,1.0,1,1,"in-point"],[1500,1,"A",31500,1.0,1,1,"in-point"],[1600,1,"A",31600,1.0,1,1,"in-point"],[1700,1,"A",31700,1.0,1,1,"in-point"],[1800,1,"A",31800,1.0,1,1,"in-point"],[1900,1,"A",31900,1.0,1,1,"in-point"],[2000,1,"A",32000,1.0,1,1,"in-point"],[2100,1,"A",32100,1.0,1,1,"in-point"],[2200,1,"A",32200,1.0,1,1,"in-point"],[2300,1,"A",32300,1.0,1,1,"in-point"],[2400,1,"A",32400,1.0,1,1,"in-point"],[2500,1,"A",32500,1.0,1,1,"in-point"],[2600,1,"A",32600,1.0,1,1,"in-point"],[2700,1,"A",32700,1.0,1,1,"in-point"],[2800,1,"A",32800,1.0,1,1,"in-point"],[2900,1,"A",32900,1.0,1,1,"in-point"],[3000,1,"A",33000,1.0,1,1,"in-point"],[3100,1,"A",33100,1.0,1,1,"in-point"],[3200,1,"A",33200,1.0,1,1,"in-point"],[3300,1,"A",33300,1.0,1,1,"in-point"],[3400,1,"A",33400,1.0,1,1,"in-point"],[3500,1,"A",33500,1.0,1,1,"in-point"],[3600,1,"A",33600,1.0,1,1,"in-point"],[3700,1,"A",33700,1.0,1,1,"in-point"],[3800,1,"A",33800,1.0,1,1,"in-point"],[3900,1,"A",33900,1.0,1,1,"in-point"],[4000,1,"A",34000,1.0,1,1,"loop wraps"],[4100,1,"A",34100,1.0,1,1,"loop wraps"],[4200,1,"A",34200,1.0,1,1,"loop wraps"],[4300,1,"A",34300,1.0,1,1,"loop wraps"],[4400,1,"A",34400,1.0,1,1,"loop wraps"],[4500,1,"A",34500,1.0,1,1,"loop wraps"],[4600,1,"A",34600,1.0,1,1,"loop wraps"],[4700,1,"A",34700,1.0,1,1,"loop wraps"],[4800,1,"A",34800,1.0,1,1,"loop wraps"],[4900,1,"A",34900,1.0,1,1,"loop wraps"],[5000,1,"A",35000,1.0,1,1,"loop wraps"],[5100,1,"A",35100,1.0,1,1,"loop wraps"],[5200,1,"A",35200,1.0,1,1,"loop wraps"],[5300,1,"A",35300,1.0,1,1,"loop wraps"],[5400,1,"A",35400,1.0,1,1,"loop wraps"],[5500,1,"A",35500,1.0,1,1,"loop wraps"],[5600,1,"A",35600,1.0,1,1,"loop wraps"],[5700,1,"A",35700,1.0,1,1,"loop wraps"],[5845,1,"A",35845,1.0,1,1,"loop wraps"],[5965,1,"A",34060,1.0,1,1,"loop wraps"],[6100,1,"A",34195,1.0,1,1,"loop wraps"],[6200,1,"A",34295,1.0,1,1,"loop wraps"],[6300,1,"A",34395,1.0,1,1,"loop wraps"],[6400,1,"A",34495,1.0,1,1,"loop wraps"],[6500,1,"A",34595,1.0,1,1,"loop wraps"],[6600,1,"A",34695,1.0,1,1,"loop wraps"],[6700,1,"A",34795,1.0,1,1,"loop wraps"],[6800,1,"A",34895,1.0,1,1,"loop wraps"],[6900,1,"A",34995,1.0,1,1,"loop wraps"],[7000,1,"A",35095,1.0,1,1,"loop wraps"],[7100,1,"A",35195,1.0,1,1,"loop wraps"],[7200,1,"A",35295,1.0,1,1,"loop wraps"],[7300,1,"A",35395,1.0,1,1,"loop wraps"],[7400,1,"A",35495,1.0,1,1,"loop wraps"],[7500,1,"A",35595,1.0,1,1,"loop wraps"],[7600,1,"A",35695,1.0,1,1,"loop wraps"],[7750,1,"A",35845,1.0,1,1,"loop wraps"],[7870,1,"A",34060,1.0,1,1,"loop wraps"],[8000,1,"A",34190,1.0,1,1,"loop wraps"],[8100,1,"A",34290,1.0,1,1,"loop wraps"],[8200,1,"A",34390,1.0,1,1,"loop wraps"],[8300,1,"A",34490,1.0,1,1,"loop wraps"],[8400,1,"A",34590,1.0,1,1,"loop wraps"],[8500,1,"A",34690,1.0,1,1,"loop wraps"],[8600,1,"A",34790,1.0,1,1,"loop wraps"],[8700,1,"A",34890,1.0,1,1,"loop wraps"],[8800,1,"A",34990,1.0,1,1,"loop wraps"],[8900,1,"A",35090,1.0,1,1,"loop wraps"],[9000,1,"A",35190,1.0,1,1,"loop wraps"],[9100,1,"A",35290,1.0,1,1,"loop wraps"],[9200,1,"A",35390,1.0,1,1,"loop wraps"],[9300,1,"A",35490,1.0,1,1,"loop wraps"],[9400,1,"A",35590,1.0,1,1,"loop wraps"],[9500,1,"A",35690,1.0,1,1,"loop wraps"],[9655,1,"A",35845,1.0,1,1,"loop wraps"],[9775,1,"A",34060,1.0,1,1,"loop wraps"],[9900,1,"A",34185,1.0,1,1,"loop wraps"],[10000,1,"A",34285,1.0,1,1,"loop wraps"],[10100,1,"A",34385,1.0,1,1,"loop wraps"],[10200,1,"A",34485,1.0,1,1,"loop wraps"],[10300,1,"A",34585,1.0,1,1,"loop wraps"],[10400,1,"A",34685,1.0,1,1,"loop wraps"],[10500,1,"A",34785,1.0,1,1,"loop wraps"],[10600,1,"A",34885,1.0,1,1,"loop wraps"],[10700,1,"A",34985,1.0,1,1,"loop wraps"],[10800,1,"A",35085,1.0,1,1,"seek"],[10900,1,"A",35185,1.0,1,1,"seek"],[11000,1,"A",35285,1.0,1,1,"seek"],[11100,1,"A",35385,1.0,1,1,"seek"],[11200,1,"A",35485,1.0,1,1,"seek"],[11300,1,"A",35585,1.0,1,1,"seek"],[11400,1,"A",35685,1.0,1,1,"seek"],[11500,1,"A",35785,1.0,1,1,"seek"],[11600,1,"A",35885,1.0,1,1,"seek"],[11700,1,"A",35985,1.0,1,1,"seek"],[11800,1,"A",36085,1.0,1,1,"seek"],[11900,1,"A",36185,1.0,1,1,"seek"],[12000,1,"A",36285,1.0,1,1,"seek"],[12100,1,"A",36385,1.0,1,1,"seek"],[12200,1,"A",36485,1.0,1,1,"seek"],[12300,1,"A",36585,1.0,1,1,"seek"],[12440,1,"A",36725,1.0,1,1,"seek"],[12560,1,"A",60060,1.0,1,1,"seek"],[12700,1,"A",60200,1.0,1,1,"seek"],[12800,1,"A",60300,1.0,1,1,"seek"],[12900,1,"A",60400,1.0,1,1,"seek"],[13000,1,"A",60500,1.0,1,1,"seek"],[13100,1,"A",60600,1.0,1,1,"seek"],[13200,1,"A",60700,1.0,1,1,"seek"],[13300,1,"A",60800,1.0,1,1,"seek"],[13400,1,"A",60900,1.0,1,1,"seek"],[13500,1,"A",61000,1.0,1,1,"seek"],[13600,1,"A",61100,1.0,1,1,"seek"],[13700,1,"A",61200,1.0,1,1,"seek"],[13800,1,"A",61300,1.0,1,1,"seek"],[13900,1,"A",61400,1.0,1,1,"seek"],[14000,1,"A",61500,1.0,1,1,"seek"],[14100,1,"A",61600,1.0,1,1,"seek"],[14200,1,"A",61700,1.0,1,1,"seek"],[14300,1,"A",61800,1.0,1,1,"seek"],[14700,1,"A",62212,1.0,1,1,"pitch"],[14800,1,"A",62318,1.0,1,1,"pitch"],[14900,1,"A",62424,1.0,1,1,"pitch"],[15000,1,"A",62530,1.0,1,1,"pitch"],[15100,1,"A",62636,1.0,1,1,"pitch"],[15200,1,"A",62742,1.0,1,1,"pitch"],[15300,1,"A",62848,1.0,1,1,"pitch"],[15400,1,"A",62954,1.0,1,1,"pitch"],[15440,2,"B",0,0,0,0,"deck 2"],[15500,1,"A",63060,1.0,1,1,"pitch"],[15560,2,"B",10060,0.0,0,1,"deck 2"],[15600,1,"A",63166,1.0,1,1,"pitch"],[15700,1,"A",63272,1.0,1,1,"pitch"],[15700,2,"B",10200,0.0,0,1,"deck 2"],[15800,1,"A",63378,1.0,1,1,"pitch"],[15800,2,"B",10300,0.0,0,1,"deck 2"],[15900,1,"A",63484,1.0,1,1,"pitch"],[15900,2,"B",10400,0.0,0,1,"deck 2"],[16000,1,"A",63590,1.0,1,1,"pitch"],[16000,2,"B",10500,0.0,0,1,"deck 2"],[16100,1,"A",63696,1.0,1,1,"pitch"],[16100,2,"B",10600,0.0,0,1,"deck 2"],[16200,1,"A",63802,1.0,1,1,"pitch"],[16200,2,"B",10700,0.0,0,1,"deck 2"],[16300,1,"A",63908,1.0,1,1,"pitch"],[16300,2,"B",10800,0.0,0,1,"deck 2"],[16400,1,"A",64014,1.0,1,1,"pitch"],[16400,2,"B",10900,0.0,0,1,"deck 2"],[16500,1,"A",64120,1.0,1,1,"pitch"],[16500,2,"B",11000,0.0,0,1,"deck 2"],[16600,1,"A",64226,1.0,1,1,"pitch"],[16600,2,"B",11100,0.0,0,1,"deck 2"],[16700,1,"A",64332,1.0,1,1,"pitch"],[16700,2,"B",11200,0.0,0,1,"deck 2"],[16800,1,"A",64438,1.0,1,1,"pitch"],[16800,2,"B",11300,0.0,0,1,"deck 2"],[16900,1,"A",64544,1.0,1,1,"pitch"],[16900,2,"B",11400,0.0,0,1,"deck 2"],[17000,1,"A",64650,1.0,1,1,"pitch"],[17000,2,"B",11500,0.0,0,1,"deck 2"],[17100,1,"A",64756,1.0,1,1,"pitch"],[17100,2,"B",11600,0.0,0,1,"deck 2"],[17200,1,"A",64862,1.0,1,1,"pitch"],[17200,2,"B",11700,0.0,0,1,"deck 2"],[17300,1,"A",64968,1.0,1,1,"pitch"],[17300,2,"B",11800,0.0,0,1,"deck 2"],[17400,1,"A",65074,1.0,1,1,"pitch"],[17400,2,"B",11900,0.0,0,1,"deck 2"],[17500,1,"A",65180,1.0,1,1,"crossfade"],[17500,2,"B",12000,0.0,0,1,"crossfade"],[17600,1,"A",65286,1.0,1,1,"crossfade"],[17600,2,"B",12100,0.05,0,1,"crossfade"],[17700,1,"A",65392,1.0,1,1,"crossfade"],[17700,2,"B",12200,0.1,0,1,"crossfade"],[17800,1,"A",65498,1.0,1,1,"crossfade"],[17800,2,"B",12300,0.15,0,1,"crossfade"],[17900,1,"A",65604,1.0,1,1,"crossfade"],[17900,2,"B",12400,0.2,0,1,"crossfade"],[18000,1,"A",65710,1.0,1,1,"crossfade"],[18000,2,"B",12500,0.25,0,1,"crossfade"],[18100,1,"A",65816,1.0,1,1,"crossfade"],[18100,2,"B",12600,0.3,0,1,"crossfade"],[18200,1,"A",65922,1.0,1,1,"crossfade"],[18200,2,"B",12700,0.35,0,1,"crossfade"],[18300,1,"A",66028,1.0,1,1,"crossfade"],[18300,2,"B",12800,0.4,0,1,"crossfade"],[18400,1,"A",66134,1.0,1,1,"crossfade"],[18400,2,"B",12900,0.45,0,1,"crossfade"],[18500,1,"A",66240,1.0,1,1,"crossfade"],[18500,2,"B",13000,0.5,0,1,"crossfade"],[18600,1,"A",66346,1.0,1,1,"crossfade"],[18600,2,"B",13100,0.55,0,1,"crossfade"],[18700,1,"A",66452,1.0,1,1,"crossfade"],[18700,2,"B",13200,0.6,0,1,"crossfade"],[18800,1,"A",66558,1.0,1,1,"crossfade"],[18800,2,"B",13300,0.65,0,1,"crossfade"],[18900,1,"A",66664,1.0,1,1,"crossfade"],[18900,2,"B",13400,0.7,0,1,"crossfade"],[19000,1,"A",66770,1.0,1,1,"crossfade"],[19000,2,"B",13500,0.75,0,1,"crossfade"],[19100,1,"A",66876,1.0,1,1,"active deck switch"],[19100,2,"B",13600,0.8,0,1,"active deck switch"],[19200,1,"A",66982,1.0,1,1,"active deck switch"],[19200,2,"B",13700,0.85,0,1,"active deck switch"],[19300,1,"A",67088,1.0,1,1,"active deck switch"],[19300,2,"B",13800,0.9,0,1,"active deck switch"],[19440,1,"A",67236,1.0,1,1,"active deck switch"],[19440,2,"B",13940,0.97,0,1,"active deck switch"],[19560,1,"A",67364,0.97,0,1,"active deck switch"],[19560,2,"B",14060,1.0,1,1,"active deck switch"],[19700,1,"A",67512,0.9,0,1,"active deck switch"],[19700,2,"B",14200,1.0,1,1,"active deck switch"],[19800,1,"A",67618,0.85,0,1,"active deck switch"],[19800,2,"B",14300,1.0,1,1,"active deck switch"],[19900,1,"A",67724,0.8,0,1,"active deck switch"],[19900,2,"B",14400,1.0,1,1,"active deck switch"],[20000,1,"A",67830,0.75,0,1,"crossfade"],[20000,2,"B",14500,1.0,1,1,"crossfade"],[20100,1,"A",67936,0.7,0,1,"crossfade"],[20100,2,"B",14600,1.0,1,1,"crossfade"],[20200,1,"A",68042,0.65,0,1,"crossfade"],[20200,2,"B",14700,1.0,1,1,"crossfade"],[20300,1,"A",68148,0.6,0,1,"crossfade"],[20300,2,"B",14800,1.0,1,1,"crossfade"],[20400,1,"A",68254,0.55,0,1,"crossfade"],[20400,2,"B",14900,1.0,1,1,"crossfade"],[20500,1,"A",68360,0.5,0,1,"crossfade"],[20500,2,"B",15000,1.0,1,1,"crossfade"],[20600,1,"A",68466,0.45,0,1,"crossfade"],[20600,2,"B",15100,1.0,1,1,"crossfade"],[20700,1,"A",68572,0.4,0,1,"crossfade"],[20700,2,"B",15200,1.0,1,1,"crossfade"],[20800,1,"A",68678,0.35,0,1,"crossfade"],[20800,2,"B",15300,1.0,1,1,"crossfade"],[20900,1,"A",68784,0.3,0,1,"crossfade"],[20900,2,"B",15400,1.0,1,1,"crossfade"],[21000,1,"A",68890,0.25,0,1,"crossfade"],[21000,2,"B",15500,1.0,1,1,"crossfade"],[21100,1,"A",68996,0.2,0,1,"crossfade"],[21100,2,"B",15600,1.0,1,1,"crossfade"],[21200,1,"A",69102,0.15,0,1,"crossfade"],[21200,2,"B",15700,1.0,1,1,"crossfade"],[21300,1,"A",69208,0.1,0,1,"crossfade"],[21300,2,"B",15800,1.0,1,1,"crossfade"],[21400,1,"A",69314,0.05,0,1,"crossfade"],[21400,2,"B",15900,1.0,1,1,"crossfade"],[21500,1,"A",69420,0.0,0,1,"pause"],[21500,2,"B",16000,1.0,1,1,"deck 2"],[21600,1,"A",69526,0.0,0,1,"pause"],[21600,2,"B",16100,1.0,1,1,"deck 2"],[21700,1,"A",69632,0.0,0,1,"pause"],[21700,2,"B",16200,1.0,1,1,"deck 2"],[21800,1,"A",69738,0.0,0,1,"pause"],[21800,2,"B",16300,1.0,1,1,"deck 2"],[21900,1,"A",69844,0.0,0,1,"pause"],[21900,2,"B",16400,1.0,1,1,"deck 2"],[22000,1,"A",69950,0.0,0,1,"pause"],[22000,2,"B",16500,1.0,1,1,"deck 2"],[22100,1,"A",70056,0.0,0,1,"pause"],[22100,2,"B",16600,1.0,1,1,"deck 2"],[22200,1,"A",70162,0.0,0,1,"pause"],[22200,2,"B",16700,1.0,1,1,"deck 2"],[22300,1,"A",70268,0.0,0,1,"pause"],[22300,2,"B",16800,1.0,1,1,"deck 2"],[22400,2,"B",16900,1.0,1,1,"deck 2"],[22440,1,"A",70416,0.0,0,1,"pause"],[22500,2,"B",17000,1.0,1,1,"deck 2"],[22560,1,"A",70480,0.0,0,1,"pause"],[22600,2,"B",17100,1.0,1,1,"deck 2"],[22700,1,"A",70480,0.0,0,1,"pause"],[22700,2,"B",17200,1.0,1,1,"deck 2"],[22800,1,"A",70480,0.0,0,1,"pause"],[22800,2,"B",17300,1.0,1,1,"deck 2"],[22900,1,"A",70480,0.0,0,1,"pause"],[22900,2,"B",17400,1.0,1,1,"deck 2"],[23000,1,"A",70480,0.0,0,1,"pause"],[23000,2,"B",17500,1.0,1,1,"deck 2"],[23100,1,"A",70480,0.0,0,1,"pause"],[23100,2,"B",17600,1.0,1,1,"deck 2"],[23200,1,"A",70480,0.0,0,1,"pause"],[23200,2,"B",17700,1.0,1,1,"deck 2"],[23300,1,"A",70480,0.0,0,1,"pause"],[23300,2,"B",17800,1.0,1,1,"deck 2"],[23400,2,"B",17900,1.0,1,1,"deck 2"],[23440,1,"A",70480,0.0,0,1,"cue while paused"],[23500,2,"B",18000,1.0,1,1,"deck 2"],[23560,1,"A",50000,0.0,0,1,"cue while paused"],[23600,2,"B",18100,1.0,1,1,"deck 2"],[23700,1,"A",50000,0.0,0,1,"cue while paused"],[23700,2,"B",18200,1.0,1,1,"deck 2"],[23800,1,"A",50000,0.0,0,1,"cue while paused"],[23800,2,"B",18300,1.0,1,1,"deck 2"],[23900,1,"A",50000,0.0,0,1,"cue while paused"],[23900,2,"B",18400,1.0,1,1,"deck 2"],[24000,1,"A",50000,0.0,0,1,"cue while paused"],[24000,2,"B",18500,1.0,1,1,"deck 2"],[24100,1,"A",50000,0.0,0,1,"cue while paused"],[24100,2,"B",18600,1.0,1,1,"deck 2"],[24200,1,"A",50000,0.0,0,1,"cue while paused"],[24200,2,"B",18700,1.0,1,1,"deck 2"],[24300,1,"A",50000,0.0,0,1,"cue while paused"],[24300,2,"B",18800,1.0,1,1,"deck 2"],[24400,2,"B",18900,1.0,1,1,"deck 2"],[24440,1,"A",50000,0.0,0,1,"between songs"],[24500,2,"B",19000,1.0,1,1,"deck 2"],[24560,1,"A",0,0,0,0,"between songs"],[24560,1,"C",0,0,0,0,"between songs"],[24600,2,"B",19100,1.0,1,1,"deck 2"],[24700,1,"A",0,0,0,0,"between songs"],[24700,1,"C",0,0,0,0,"between songs"],[24700,2,"B",19200,1.0,1,1,"deck 2"],[24800,1,"A",0,0,0,0,"between songs"],[24800,1,"C",0,0,0,0,"between songs"],[24800,2,"B",19300,1.0,1,1,"deck 2"],[24900,1,"A",0,0,0,0,"between songs"],[24900,1,"C",0,0,0,0,"between songs"],[24900,2,"B",19400,1.0,1,1,"deck 2"],[25000,1,"A",0,0,0,0,"between songs"],[25000,1,"C",0,0,0,0,"between songs"],[25000,2,"B",19500,1.0,1,1,"deck 2"],[25100,1,"A",0,0,0,0,"between songs"],[25100,1,"C",0,0,0,0,"between songs"],[25100,2,"B",19600,1.0,1,1,"deck 2"],[25200,1,"A",0,0,0,0,"between songs"],[25200,1,"C",0,0,0,0,"between songs"],[25200,2,"B",19700,1.0,1,1,"deck 2"],[25300,1,"A",0,0,0,0,"between songs"],[25300,1,"C",0,0,0,0,"between songs"],[25300,2,"B",19800,1.0,1,1,"deck 2"],[25400,1,"A",0,0,0,0,"between songs"],[25400,1,"C",0,0,0,0,"between songs"],[25400,2,"B",19900,1.0,1,1,"deck 2"],[25500,1,"A",0,0,0,0,"between songs"],[25500,1,"C",0,0,0,0,"between songs"],[25500,2,"B",20000,1.0,1,1,"deck 2"],[25600,1,"A",0,0,0,0,"between songs"],[25600,1,"C",0,0,0,0,"between songs"],[25600,2,"B",20100,1.0,1,1,"deck 2"],[25700,1,"A",0,0,0,0,"between songs"],[25700,1,"C",0,0,0,0,"between songs"],[25700,2,"B",20200,1.0,1,1,"deck 2"],[25800,1,"A",0,0,0,0,"between songs"],[25800,1,"C",0,0,0,0,"between songs"],[25800,2,"B",20300,1.0,1,1,"deck 2"],[25900,1,"A",0,0,0,0,"between songs"],[25900,1,"C",0,0,0,0,"between songs"],[25900,2,"B",20400,1.0,1,1,"deck 2"],[26000,1,"A",0,0,0,0,"between songs"],[26000,1,"C",0,0,0,0,"between songs"],[26000,2,"B",20500,1.0,1,1,"deck 2"],[26100,1,"A",0,0,0,0,"between songs"],[26100,1,"C",0,0,0,0,"between songs"],[26100,2,"B",20600,1.0,1,1,"deck 2"],[26200,1,"A",0,0,0,0,"between songs"],[26200,1,"C",0,0,0,0,"between songs"],[26200,2,"B",20700,1.0,1,1,"deck 2"],[26300,1,"A",0,0,0,0,"between songs"],[26300,1,"C",0,0,0,0,"between songs"],[26300,2,"B",20800,1.0,1,1,"deck 2"],[26400,2,"B",20900,1.0,1,1,"deck 2"],[26440,1,"A",0,0,0,0,"song after eject"],[26440,1,"C",0,0,0,0,"song after eject"],[26500,2,"B",21000,1.0,1,1,"deck 2"],[26560,1,"C",5060,0.0,0,1,"song after eject"],[26600,2,"B",21100,1.0,1,1,"deck 2"],[26700,1,"C",5200,0.0,0,1,"song after eject"],[26700,2,"B",21200,1.0,1,1,"deck 2"],[26800,1,"C",5300,0.0,0,1,"song after eject"],[26800,2,"B",21300,1.0,1,1,"deck 2"],[26900,1,"C",5400,0.0,0,1,"song after eject"],[26900,2,"B",21400,1.0,1,1,"deck 2"],[27000,1,"C",5500,0.0,0,1,"song after eject"],[27000,2,"B",21500,1.0,1,1,"deck 2"],[27100,1,"C",5600,0.05,0,1,"song after eject"],[27100,2,"B",21600,1.0,1,1,"deck 2"],[27200,1,"C",5700,0.1,0,1,"song after eject"],[27200,2,"B",21700,1.0,1,1,"deck 2"],[27300,1,"C",5800,0.15,0,1,"song after eject"],[27300,2,"B",21800,1.0,1,1,"deck 2"],[27400,1,"C",5900,0.2,0,1,"song after eject"],[27400,2,"B",21900,1.0,1,1,"deck 2"],[27500,1,"C",6000,0.25,0,1,"song after eject"],[27500,2,"B",22000,1.0,1,1,"deck 2"],[27600,1,"C",6100,0.3,0,1,"song after eject"],[27600,2,"B",22100,1.0,1,1,"deck 2"],[27700,1,"C",6200,0.35,0,1,"song after eject"],[27700,2,"B",22200,1.0,1,1,"deck 2"],[27800,1,"C",6300,0.4,0,1,"song after eject"],[27800,2,"B",22300,1.0,1,1,"deck 2"],[27900,1,"C",6400,0.45,0,1,"song after eject"],[27900,2,"B",22400,1.0,1,1,"deck 2"],[28000,1,"C",6500,0.5,0,1,"song after eject"],[28000,2,"B",22500,1.0,1,1,"deck 2"],[28100,1,"C",6600,0.55,0,1,"song after eject"],[28100,2,"B",22600,1.0,1,1,"deck 2"],[28200,1,"C",6700,0.6,0,1,"song after eject"],[28200,2,"B",22700,1.0,1,1,"deck 2"],[28300,1,"C",6800,0.65,0,1,"song after eject"],[28300,2,"B",22800,1.0,1,1,"deck 2"],[28400,1,"C",6900,0.7,0,1,"song after eject"],[28400,2,"B",22900,1.0,1,1,"deck 2"],[28500,1,"C",7000,0.75,0,1,"song after eject"],[28500,2,"B",23000,1.0,1,1,"deck 2"],[28600,1,"C",7100,0.8,0,1,"song after eject"],[28600,2,"B",23100,1.0,1,1,"deck 2"],[28700,1,"C",7200,0.85,0,1,"song after eject"],[28700,2,"B",23200,1.0,1,1,"deck 2"],[28800,1,"C",7300,0.9,0,1,"song after eject"],[28800,2,"B",23300,1.0,1,1,"deck 2"],[28900,1,"C",7400,0.95,0,1,"song after eject"],[28900,2,"B",23400,1.0,1,1,"deck 2"],[29000,1,"C",7500,1.0,0,1,"song after eject"],[29000,2,"B",23500,1.0,1,1,"deck 2"],[29100,1,"C",7600,1.0,0,1,"song after eject"],[29100,2,"B",23600,1.0,1,1,"deck 2"],[29200,1,"C",7700,1.0,0,1,"song after eject"],[29200,2,"B",23700,1.0,1,1,"deck 2"],[29300,1,"C",7800,1.0,0,1,"song after eject"],[29300,2,"B",23800,1.0,1,1,"deck 2"]]}

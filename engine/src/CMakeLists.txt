@@ -40,6 +40,7 @@ add_library(${module_name} ${QLC_LIB_TYPE}
     ioplugincache.cpp ioplugincache.h
     keypadparser.cpp keypadparser.h
     mastertimer.cpp mastertimer.h
+    mixlayer.cpp mixlayer.h
     monitorproperties.cpp monitorproperties.h
     outputpatch.cpp outputpatch.h
     qlccapability.cpp qlccapability.h
@@ -77,6 +78,8 @@ add_library(${module_name} ${QLC_LIB_TYPE}
     sequence.cpp sequence.h
     serviceloader.cpp serviceloader.h
     show.cpp show.h
+    showclipautomation.cpp showclipautomation.h
+    showclipdriver.cpp showclipdriver.h
     showcommandtrack.cpp showcommandtrack.h
     showeventlog.cpp showeventlog.h
     showfunction.cpp showfunction.h

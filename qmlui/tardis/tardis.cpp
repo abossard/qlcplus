@@ -30,6 +30,7 @@
 #include "functionmanager.h"
 #include "contextmanager.h"
 #include "showcommandrecorder.h"
+#include "showclipeditor.h"
 #include "showmanager.h"
 #include "mainview2d.h"
 #include "mainview3d.h"
@@ -1462,7 +1463,8 @@ int Tardis::processAction(TardisAction &action, bool undo)
             if (show != nullptr)
             {
                 ShowFunction *sf = show->showFunction(action.m_objID);
-                sf->setStartTime(undo ? action.m_oldValue.toUInt() : action.m_newValue.toUInt());
+                if (sf != nullptr)
+                    sf->setStartTime(undo ? action.m_oldValue.toUInt() : action.m_newValue.toUInt());
             }
         }
         break;
@@ -1473,9 +1475,16 @@ int Tardis::processAction(TardisAction &action, bool undo)
             if (show != nullptr)
             {
                 ShowFunction *sf = show->showFunction(action.m_objID);
-                sf->setDuration(undo ? action.m_oldValue.toUInt() : action.m_newValue.toUInt());
+                if (sf != nullptr)
+                    sf->setDuration(undo ? action.m_oldValue.toUInt() : action.m_newValue.toUInt());
             }
         }
+        break;
+
+        case ShowManagerItemSetClip:
+            if (ShowClipEditor::applyClip(m_doc, action.m_objID, value->toString(), m_replayingHistory) ==
+                ShowClipEditor::ClipEdit::Waits)
+                return -1;
         break;
 
         case ShowManagerItemSetTrack:

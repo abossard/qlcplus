@@ -312,6 +312,8 @@
     <file alias="ShowCommandList.qml">qml/showmanager/ShowCommandList.qml</file>
     <file alias="ShowRecordingLane.qml">qml/showmanager/ShowRecordingLane.qml</file>
     <file alias="WheelRouter.qml">qml/showmanager/WheelRouter.qml</file>
+    <file alias="ShowClipOverlay.qml">qml/showmanager/ShowClipOverlay.qml</file>
+    <file alias="NestedShowBack.qml">qml/showmanager/NestedShowBack.qml</file>
 
     <!-- Fixture Definition Editor -->
     <file alias="FixtureEditor.qml">qml/fixtureeditor/FixtureEditor.qml</file>

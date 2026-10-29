@@ -27,6 +27,7 @@
 #include "audio.h"
 #include "sequence.h"
 #include "showcommandrecorder.h"
+#include "showclipeditor.h"
 #include "tardis.h"
 #include "chaser.h"
 #include "scene.h"
@@ -73,6 +74,8 @@ ShowManager::ShowManager(QQuickView *view, Doc *doc, QObject *parent)
         if (m_currentShow != nullptr && m_currentShow->id() == id)
             selectShow(Function::invalidId());
     });
+
+    new ShowClipEditor(view, doc, this);
 
     setContextResource("qrc:/ShowManager.qml");
     setContextTitle(tr("Show Manager"));
@@ -798,6 +801,10 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
         if (func == nullptr)
             continue;
 
+        // a Function that plays this Show would play it inside itself
+        if (func->contains(m_currentShow->id()))
+            continue;
+
         const bool showIsBeats = !timeBasedDivision();
         const bool funcIsBeats = func->tempoType() == Function::Beats;
         if (showIsBeats != funcIsBeats && bpmNumber() <= 0)
@@ -861,6 +868,7 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
             showFunc->setDuration(pastedDuration);
             showFunc->setColor(sourceFunc->color());
             showFunc->setLocked(sourceFunc->isLocked());
+            showFunc->setClipAutomation(sourceFunc->clipAutomation());
         }
 
         Tardis::instance()->enqueueAction(
