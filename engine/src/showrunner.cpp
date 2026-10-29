@@ -739,6 +739,7 @@ void ShowRunner::processCommands(bool traversalStalled)
         return;
     }
     const bool regained = std::exchange(m_commandsWithheld, false);
+    const bool controlsRegained = std::exchange(m_controlsRegained, false);
     if (regained)
         m_commandJumpPending = true;
 
@@ -748,10 +749,13 @@ void ShowRunner::processCommands(bool traversalStalled)
         m_commandCatchUp = true;
 
     m_commandState.playing = true;
-    const ShowCommandTransition played =
+    ShowCommandTransition played =
             regained ? ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime)
                      : ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
     m_commandState = played.state;
+    // the controls took their state while paused: a DJ may have moved them since
+    if (regained && controlsRegained)
+        played.effects.removeIf([](const ShowCommand &cmd) { return ShowCommand::isControlAction(cmd.action); });
 
     dispatchCommandEffects(played.effects);
 }

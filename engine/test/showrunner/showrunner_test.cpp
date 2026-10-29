@@ -5652,6 +5652,15 @@ void ShowRunner_Test::regainPutsBackTheTrackState()
         expected.insert(1);
     QCOMPARE(replayed(), expected);
 
+    // resumed: the controls keep what they took, a DJ may have moved them since
+    if (paused)
+    {
+        show->setPause(false);
+        timer->timerTick();
+        timer->timerTick();
+        QCOMPARE(replayed(), QSet<quint32>());
+    }
+
     stopAndSettle(doc, show);
 }
 
