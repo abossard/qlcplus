@@ -182,13 +182,7 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
         drive.at = clock > driving.clip->startTime() ? clock - driving.clip->startTime() : 0;
 
         if (drive.nested != nullptr)
-        {
             drive.nested->setExternalElapsedTime(driving.automation.songPositionAt(drive.at));
-            // its deck paused: the song's Show pauses, as live Perform pauses it
-            drive.paused = driving.automation.rateAt(drive.at) == 0.0;
-            if (drive.nested->isPaused() != drive.paused)
-                drive.nested->setPause(drive.paused);
-        }
         applyLevel(drive, trackIntensities);
         ++it;
     }
@@ -267,8 +261,6 @@ void ShowClipDriver::release(const Drive &drive)
         drive.nested->setPerformAudioSuppressed(drive.saved.audioSuppressed);
     drive.nested->setMasterIntensity(drive.saved.masterIntensity);
     drive.nested->setDominant(drive.saved.dominant);
-    if (drive.paused)
-        drive.nested->setPause(false);
 }
 
 void ShowClipDriver::releaseAll()

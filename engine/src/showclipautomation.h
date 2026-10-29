@@ -113,9 +113,6 @@ public:
      *  t without segments. */
     quint32 songPositionAt(quint32 clipMs) const;
 
-    /** The rate of that segment (0: the deck paused), 1.0 without segments */
-    qreal rateAt(quint32 clipMs) const;
-
     /** Where the clip starts its function: the first segment's songMs, 0 without */
     quint32 inPoint() const;
 

@@ -4849,16 +4849,15 @@ void ShowRunner_Test::nestedShowFollowsThePositionMap_data()
     QTest::addColumn<ClipSegments>("segments");
     QTest::addColumn<quint32>("setMs");
     QTest::addColumn<quint32>("songMs");
-    QTest::addColumn<bool>("paused");  // as live Perform pauses a paused deck's Show
 
     // the clip starts at 1000 on the set's timeline
-    QTest::newRow("no map plays from the clip start") << ClipSegments() << 1500u << 500u << false;
-    QTest::newRow("in-point") << ClipSegments{clipSegment(0, 30000, 1.0)} << 1500u << 30500u << false;
+    QTest::newRow("no map plays from the clip start") << ClipSegments() << 1500u << 500u;
+    QTest::newRow("in-point") << ClipSegments{clipSegment(0, 30000, 1.0)} << 1500u << 30500u;
     QTest::newRow("after a loop wrap")
-        << ClipSegments{clipSegment(0, 1000, 1.0), clipSegment(1900, 1000, 1.0)} << 3000u << 1100u << false;
+        << ClipSegments{clipSegment(0, 1000, 1.0), clipSegment(1900, 1000, 1.0)} << 3000u << 1100u;
     QTest::newRow("paused deck")
-        << ClipSegments{clipSegment(0, 500, 1.0), clipSegment(1000, 1500, 0.0)} << 4000u << 1500u << true;
-    QTest::newRow("pitched deck") << ClipSegments{clipSegment(0, 0, 1.08)} << 2000u << 1080u << false;
+        << ClipSegments{clipSegment(0, 500, 1.0), clipSegment(1000, 1500, 0.0)} << 4000u << 1500u;
+    QTest::newRow("pitched deck") << ClipSegments{clipSegment(0, 0, 1.08)} << 2000u << 1080u;
 }
 
 void ShowRunner_Test::nestedShowFollowsThePositionMap()
@@ -4866,7 +4865,6 @@ void ShowRunner_Test::nestedShowFollowsThePositionMap()
     QFETCH(ClipSegments, segments);
     QFETCH(quint32, setMs);
     QFETCH(quint32, songMs);
-    QFETCH(bool, paused);
 
     Doc doc(nullptr);
     NestedSet n = makeNestedSet(doc);
@@ -4879,42 +4877,6 @@ void ShowRunner_Test::nestedShowFollowsThePositionMap()
     QCOMPARE(n.song->externalElapsedTime(), songMs);
     QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
     QVERIFY(n.scene->isRunning());
-    QCOMPARE(n.song->isPaused(), paused);
-    QCOMPARE(n.scene->isPaused(), paused);
-
-    stopAndSettle(doc, n.set);
-}
-
-void ShowRunner_Test::nestedShowPausesWithItsDeck_data()
-{
-    QTest::addColumn<quint32>("duration");
-    QTest::addColumn<QList<quint32>>("positions");
-    QTest::addColumn<bool>("running");
-    QTest::addColumn<bool>("paused");
-
-    // the clip at 1000 plays the song from 500, pauses at 1500 for 1.5 s, plays on
-    QTest::newRow("in the pause") << 60000u << QList<quint32>{2500} << true << true;
-    QTest::newRow("played again") << 60000u << QList<quint32>{2500, 4000} << true << false;
-    QTest::newRow("the clip ends in the pause") << 2000u << QList<quint32>{2500, 3500} << false << false;
-}
-
-void ShowRunner_Test::nestedShowPausesWithItsDeck()
-{
-    QFETCH(quint32, duration);
-    QFETCH(QList<quint32>, positions);
-    QFETCH(bool, running);
-    QFETCH(bool, paused);
-
-    Doc doc(nullptr);
-    NestedSet n = makeNestedSet(doc);
-    addClip(n.set, n.track, n.song->id(), 1000, duration,
-            clipAutomation({clipSegment(0, 500, 1.0), clipSegment(1000, 1500, 0.0), clipSegment(2500, 1500, 1.0)}));
-
-    playExternal(doc, n.set, positions);
-
-    QCOMPARE(n.song->isRunning(), running);
-    QCOMPARE(n.song->isPaused(), paused);
-    QCOMPARE(n.scene->isPaused(), paused);
 
     stopAndSettle(doc, n.set);
 }
