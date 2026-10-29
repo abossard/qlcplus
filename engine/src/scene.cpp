@@ -746,6 +746,7 @@ void Scene::processValue(MasterTimer *timer, QList<Universe*> ua, uint fadeIn, c
         fader->setBlendMode(blendMode());
         fader->setName(name());
         fader->setParentFunctionID(id());
+        fader->mixLayer()->follow(mixLayer());
         fader->setParentIntensity(getAttributeValue(ParentIntensity));
         fader->setHandleSecondary(true);
         m_fadersMap[universe->id()] = fader;

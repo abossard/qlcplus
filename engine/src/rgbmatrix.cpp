@@ -923,6 +923,7 @@ QSharedPointer<GenericFader> RGBMatrix::getFader(Universe *universe)
         fader->setBlendMode(blendMode());
         fader->setName(name());
         fader->setParentFunctionID(id());
+        fader->mixLayer()->follow(mixLayer());
         m_fadersMap[universe->id()] = fader;
     }
 

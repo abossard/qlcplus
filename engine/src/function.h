@@ -36,6 +36,7 @@
 
 #include "universe.h"
 #include "functionparent.h"
+#include "mixlayer.h"
 
 class QXmlStreamReader;
 
@@ -1081,6 +1082,17 @@ public:
 
 private:
     Universe::BlendMode m_blendMode;
+
+    /*************************************************************************
+     * Mix layer
+     *************************************************************************/
+public:
+    /** The LTP mix layer of this Function, followed by its faders and by the
+     *  Functions it starts. See MixLayer (defined in mixlayer.cpp) */
+    QSharedPointer<MixLayer> mixLayer() const;
+
+private:
+    const QSharedPointer<MixLayer> m_mixLayer = QSharedPointer<MixLayer>::create();
 };
 
 /** @} */

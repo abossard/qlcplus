@@ -21,7 +21,6 @@
 #include <QXmlStreamWriter>
 #include <QElapsedTimer>
 #include <QDebug>
-#include <algorithm>
 #include <math.h>
 
 #include "channelmodifier.h"
@@ -387,11 +386,9 @@ void Universe::processFaders(uint elapsedMs)
         }
     }
 
-    // Sort by priority so overlay blend modes (Mask/Subtractive) write after base faders
-    std::stable_sort(activeFaders.begin(), activeFaders.end(),
-        [](const QSharedPointer<GenericFader> &a, const QSharedPointer<GenericFader> &b) {
-            return a->priority() < b->priority();
-        });
+    // Sort by priority so overlay blend modes (Mask/Subtractive) write after base faders,
+    // then by mix layer so a higher layer wins LTP channels
+    MixLayer::sortForWrite(activeFaders);
 
     foreach (const QSharedPointer<GenericFader> &fader, activeFaders)
         fader->write(this, elapsedMs);

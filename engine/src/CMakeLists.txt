@@ -40,6 +40,7 @@ add_library(${module_name} ${QLC_LIB_TYPE}
     ioplugincache.cpp ioplugincache.h
     keypadparser.cpp keypadparser.h
     mastertimer.cpp mastertimer.h
+    mixlayer.cpp mixlayer.h
     monitorproperties.cpp monitorproperties.h
     outputpatch.cpp outputpatch.h
     qlccapability.cpp qlccapability.h
