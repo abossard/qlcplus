@@ -420,6 +420,7 @@ QHash<int, QByteArray> DjDeckModel::roleNames() const
         { RemainingRole,  "remainingMs" },
         { IsActiveRole,   "isActive" },
         { IsPlayingRole,  "isPlaying" },
+        { WeightRole,     "weight" },
     };
 }
 
@@ -445,6 +446,7 @@ QVariant DjDeckModel::data(const QModelIndex &index, int role) const
     case RemainingRole:  return deck.remainingMs;
     case IsActiveRole:   return deck.number == m_activeDeck;
     case IsPlayingRole:  return deck.playing;
+    case WeightRole:     return deck.weight;
     default:             return {};
     }
 }
@@ -463,6 +465,14 @@ void DjDeckModel::refreshDeckPosition(int deck)
         return;
     QModelIndex mi = index(deck - 1);
     emit dataChanged(mi, mi, { BeatPosRole, ElapsedRole, RemainingRole });
+}
+
+void DjDeckModel::refreshDeckWeight(int deck)
+{
+    if (!m_fsm || deck < 1 || deck > m_fsm->deckCount())
+        return;
+    QModelIndex mi = index(deck - 1);
+    emit dataChanged(mi, mi, { WeightRole });
 }
 
 void DjDeckModel::refreshAll()
@@ -527,6 +537,7 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
                 [this](int, const DjFsm::DeckSong &song) { m_model->upsertSong(song); });
         connect(m_fsm, &DjFsm::deckChanged, this, &DjManager::onDeckChanged);
         connect(m_fsm, &DjFsm::positionChanged, this, &DjManager::onDeckPositionChanged);
+        connect(m_fsm, &DjFsm::weightChanged, m_deckModel, &DjDeckModel::refreshDeckWeight);
         connect(m_fsm, &DjFsm::activeDeckChanged, this, &DjManager::onActiveDeckChanged);
         connect(m_fsm, &DjFsm::activeSongChanged, this, &DjManager::onActiveSongChanged);
         connect(m_fsm, &DjFsm::deckCountChanged, this, &DjManager::onDeckCountChanged);

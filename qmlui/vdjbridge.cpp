@@ -181,7 +181,10 @@ void VdjBridge::onTickEnded()
 void VdjBridge::onGlobalTrigger(const QString &trigger, const QVariant &value)
 {
     if (trigger != QLatin1String("get_decks"))
+    {
+        m_fsm->onGlobalTrigger(trigger, value);
         return;
+    }
     // VirtualDJ reports the real number of decks. Decks beyond this are
     // phantom mirrors of its default deck, so drive the tracked deck count
     // from it; DjFsm::setDeckCount clamps, non-numeric values are ignored.

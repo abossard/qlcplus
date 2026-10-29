@@ -30,7 +30,8 @@
  * the OSC polls of that capture observed; it is fed but not counted. Captures
  * were taken on VDJ 8.5.9307 and anonymized: paths are /music/track-N.mp3,
  * titles "Title N", artists "Artist N"; timings and structure are the
- * originals.
+ * originals. crossfader_moves is synthetic, in the same format; its meta
+ * record names what was not captured.
  */
 namespace VdjCapture
 {
@@ -91,6 +92,8 @@ inline void wire(VdjTelemetryClient &client, DjFsm &fsm)
                      [&fsm](const QString &trigger, const QVariant &value) {
                          if (trigger == QLatin1String("get_decks"))
                              fsm.setDeckCount(value.toInt());
+                         else
+                             fsm.onGlobalTrigger(trigger, value);
                      });
     QObject::connect(&client, &VdjTelemetryClient::tickEnded, &fsm, &DjFsm::onTickEnded);
 }

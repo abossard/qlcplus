@@ -76,14 +76,25 @@ void DjFsm::setDeckCount(int count)
     const int prev = m_deckCount;
     m_deckCount = clamped;
 
+    std::array<double, MaxDecks> weightBefore{};
     for (int d = clamped; d < prev; ++d)
     {
-        m_slots[d] = Slot();
-        m_slots[d].deck.number = d + 1;
+        // the mixer inputs stay: VDJ resends them only when they change
+        Slot kept;
+        kept.deck.number = d + 1;
+        kept.deck.volume = m_slots[d].deck.volume;
+        kept.leftCross = m_slots[d].leftCross;
+        kept.rightCross = m_slots[d].rightCross;
+        weightBefore[d] = m_slots[d].deck.weight;
+        m_slots[d] = kept;
     }
     recomputeActiveDeck();
     for (int d = clamped; d < prev; ++d)
+    {
         emit deckChanged(d + 1);
+        if (weightBefore[d] != 0.0)
+            emit weightChanged(d + 1);
+    }
     emit deckCountChanged(m_deckCount);
 }
 
@@ -99,6 +110,28 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
     if (trigger == QLatin1String("masterdeck"))
     {
         s.master = triggerIsOn(value);
+        return;
+    }
+    if (trigger == QLatin1String("leftcross"))
+    {
+        s.leftCross = triggerIsOn(value);
+        return;
+    }
+    if (trigger == QLatin1String("rightcross"))
+    {
+        s.rightCross = triggerIsOn(value);
+        return;
+    }
+    if (trigger == QLatin1String("volume"))
+    {
+        bool ok = false;
+        const double v = value.toDouble(&ok);
+        if (!ok)
+            return;
+        const bool visible = deck <= m_deckCount && std::abs(v - s.deck.volume) >= 0.01;
+        s.deck.volume = v;
+        if (visible)
+            emit deckChanged(deck);
         return;
     }
     if (deck > m_deckCount)
@@ -145,17 +178,6 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
         s.perFileSeen = true;
     else if (trigger == QLatin1String("play"))
         s.play = triggerIsOn(value);
-    else if (trigger == QLatin1String("volume"))
-    {
-        bool ok = false;
-        const double v = value.toDouble(&ok);
-        if (!ok)
-            return;
-        const bool visible = std::abs(v - s.deck.volume) >= 0.01;
-        s.deck.volume = v;
-        if (visible)
-            emit deckChanged(deck);
-    }
     else if (trigger == QLatin1String("get_beatpos"))
     {
         bool ok = false;
@@ -187,6 +209,21 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
     }
 }
 
+void DjFsm::onGlobalTrigger(const QString &trigger, const QVariant &value)
+{
+    if (trigger == QLatin1String("crossfader"))
+    {
+        bool ok = false;
+        const double x = value.toDouble(&ok);
+        if (ok && std::isfinite(x))
+            m_crossfader = std::clamp(x, 0.0, 1.0);
+    }
+    else if (trigger == QLatin1String("crossfader_hamster"))
+        m_crossfaderInverted = triggerIsOn(value);
+    else if (trigger == QLatin1String("crossfader_disable"))
+        m_crossfaderDisabled = triggerIsOn(value);
+}
+
 void DjFsm::onTickEnded()
 {
     // every deck's view, then the master, then the write's notifications, the
@@ -209,6 +246,8 @@ void DjFsm::onTickEnded()
             emit songUpdated(d + 1, now.song);
         if (songMoved || was.state != now.state || was.playing != now.playing)
             emit deckChanged(d + 1);
+        if (was.weight != now.weight)
+            emit weightChanged(d + 1);
     }
 }
 
@@ -257,6 +296,7 @@ void DjFsm::settle(Slot &s)
                      : s.wasPlaying                ? DeckState::Paused
                                                    : DeckState::Loaded;
     }
+    s.deck.weight = weightOf(s);
     s.positionSeen = s.loadedOnSeen = s.perFileSeen = false;
 }
 
@@ -283,11 +323,16 @@ void DjFsm::onDisconnected()
         emit activeDeckChanged(0);
         recomputeActiveSong();
     }
+    m_crossfader.reset();
+    m_crossfaderInverted = m_crossfaderDisabled = false;
     for (int i = 0; i < MaxDecks; ++i)
     {
+        const bool hadWeight = m_slots[i].deck.weight != 0.0;
         m_slots[i] = Slot();
         m_slots[i].deck.number = i + 1;
         emit deckChanged(i + 1);
+        if (hadWeight)
+            emit weightChanged(i + 1);
     }
 }
 
@@ -338,6 +383,18 @@ void DjFsm::maybeEmitPosition(Slot &s, int deck1)
     s.posEmitSecond = second;
     s.posEmitBeatQ  = beatQ;
     emit positionChanged(deck1);
+}
+
+double DjFsm::weightOf(const Slot &s) const
+{
+    // linear: the left side fades out as the crossfader goes right
+    double gain = 1.0;
+    if (m_crossfader && !m_crossfaderDisabled && s.leftCross != s.rightCross)
+    {
+        const double right = m_crossfaderInverted ? 1.0 - *m_crossfader : *m_crossfader;
+        gain = s.leftCross ? 1.0 - right : right;
+    }
+    return std::clamp(s.deck.volume * gain, 0.0, 1.0);
 }
 
 void DjFsm::recomputeActiveSong()
