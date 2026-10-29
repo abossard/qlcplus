@@ -28,6 +28,7 @@
 #include "showrunner.h"
 #include "function.h"
 #include "mixlayer.h"
+#include "qlcfile.h"
 #include "show.h"
 #include "doc.h"
 
@@ -130,6 +131,7 @@ struct ShowReceiptState
 #define KXMLQLCShowTimeDivision QStringLiteral("TimeDivision")
 #define KXMLQLCShowTimeType     QStringLiteral("Type")
 #define KXMLQLCShowTimeBPM      QStringLiteral("BPM")
+#define KXMLQLCShowNestedAudioSuppressed QStringLiteral("NestedAudioSuppressed")
 
 /*****************************************************************************
  * Initialization
@@ -214,6 +216,7 @@ bool Show::copyFrom(const Function* function)
 
     m_timeDivisionType = show->m_timeDivisionType;
     m_timeDivisionBPM = show->m_timeDivisionBPM;
+    setNestedAudioSuppressed(show->nestedAudioSuppressed());
     m_latestTrackId = show->m_latestTrackId;
     m_latestShowFunctionID = show->m_latestShowFunctionID;
 
@@ -464,6 +467,11 @@ void Show::setPerformAudioSuppressed(bool suppress)
 void Show::setMasterIntensity(qreal level)
 {
     m_masterIntensity.store(qBound(0.0, level, 1.0), std::memory_order_relaxed);
+}
+
+void Show::setNestedAudioSuppressed(bool suppressed)
+{
+    m_nestedAudioSuppressed.store(suppressed, std::memory_order_relaxed);
 }
 
 void Show::setDominant(bool dominant)
@@ -1011,6 +1019,8 @@ bool Show::saveXML(QXmlStreamWriter *doc) const
 
     /* Common attributes */
     saveXMLCommon(doc);
+    if (nestedAudioSuppressed())
+        doc->writeAttribute(KXMLQLCShowNestedAudioSuppressed, KXMLQLCTrue);
 
     doc->writeStartElement(KXMLQLCShowTimeDivision);
     doc->writeAttribute(KXMLQLCShowTimeType, tempoToString(m_timeDivisionType));
@@ -1049,6 +1059,7 @@ bool Show::loadXML(QXmlStreamReader &root)
                    << "is not a show";
         return false;
     }
+    setNestedAudioSuppressed(root.attributes().value(KXMLQLCShowNestedAudioSuppressed) == KXMLQLCTrue);
 
     while (root.readNextStartElement())
     {

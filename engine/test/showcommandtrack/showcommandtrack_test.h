@@ -85,6 +85,8 @@ private slots:
     // playback transitions
     void advanceAppliesDueCommandsOnce();
     void advanceIgnoresPausedAndBackwardTransport();
+    void regainRestoresTheTrackStateAtThePosition_data();
+    void regainRestoresTheTrackStateAtThePosition();
     void seekRepositionsOnly_data();
     void seekRepositionsOnly();
     void forwardJumpPlaysCrossedInterval_data();

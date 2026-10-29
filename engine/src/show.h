@@ -184,15 +184,23 @@ public:
     qreal masterIntensity() const { return m_masterIntensity.load(std::memory_order_relaxed); }
 
     /** Any thread: a Show that is not dominant replays none of its command
-     *  track; once dominant again it plays what it crossed meanwhile, like a
-     *  forward jump. Its clips lose LTP to a dominant Show's (mix layer -1).
-     *  Dominant unless a parent Show's clip says otherwise. Not persisted. */
+     *  track; once dominant again every control its track sets at or before
+     *  the position takes that state, and the Function commands crossed
+     *  meanwhile play their net effect. Its clips lose LTP to a dominant
+     *  Show's (mix layer -1). Dominant unless a parent Show's clip says
+     *  otherwise. Not persisted. */
     void setDominant(bool dominant);
     bool isDominant() const { return m_dominant.load(std::memory_order_relaxed); }
+
+    /** Any thread: this Show plays its nested Show clips with their Audio
+     *  suppressed (a DJSET: VirtualDJ plays the songs). Saved, off by default */
+    void setNestedAudioSuppressed(bool suppressed);
+    bool nestedAudioSuppressed() const { return m_nestedAudioSuppressed.load(std::memory_order_relaxed); }
 
 private:
     std::atomic<double> m_masterIntensity{1.0};
     std::atomic_bool m_dominant{true};
+    std::atomic_bool m_nestedAudioSuppressed{false};
     std::atomic<int> m_syncSource{0};  // stored as int to avoid header dependency on ShowRunner enum
     std::atomic<quint32> m_externalElapsedTime{0};
     std::atomic_bool m_performAudioSuppressed;

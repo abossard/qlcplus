@@ -50,24 +50,39 @@ ShowClipDriver::Clip ShowClipDriver::clipOf(const ShowFunction *clip) const
     return c;
 }
 
-void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at,
-                           const QMap<quint32, qreal> &trackIntensities)
+ShowClipDriver::Drive &ShowClipDriver::adopt(const ShowFunction *clip, Function *f, quint32 at)
 {
     Drive drive;
     drive.function = f;
     drive.clips.append(clipOf(clip));
     drive.at = at;
     drive.nested = f->type() == Function::ShowType ? qobject_cast<Show *>(f) : nullptr;
-    const ShowClipAutomation &automation = drive.clips.first().automation;
+    // a clip of it that ended this tick has not given anything back yet
+    const auto ended = m_drives.constFind(f->id());
+    const bool restarting = f->isRunning() && f->stopped();
+    if (ended != m_drives.constEnd() && restarting)
+    {
+        // a clip right behind one that just ended keeps what commands set,
+        // while this Show was the one playing it
+        for (const Clip &before : ended->clips)
+        {
+            if (ended->owned && before.clip->startTime() + before.clip->duration(m_doc) == clip->startTime())
+                drive.command = ended->command;
+        }
+    }
+    // what this Show's commands set on a Function they already play stays,
+    // multiplied by the clip
+    else if (drive.nested == nullptr && f->isRunning() && f->hasSource(parent()))
+    {
+        drive.command = intensityOverride(f);
+    }
 
-    quint32 startTime = automation.inPoint() + at;
     if (drive.nested != nullptr)
     {
-        // a clip of it that ended this tick has not given its settings back yet
-        const auto ended = m_drives.constFind(f->id());
         if (ended != m_drives.constEnd() && ended->nested != nullptr)
         {
             drive.saved = ended->saved;
+            drive.audioSuppressed = ended->audioSuppressed;
         }
         else
         {
@@ -77,22 +92,43 @@ void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at,
             drive.saved.dominant = drive.nested->isDominant();
         }
         drive.nested->setSyncSource(ShowRunner::External);
-        drive.nested->setPerformAudioSuppressed(true);
-        startTime = automation.songPositionAt(at);
+        // a set whose songs VirtualDJ plays, or a Show Perform plays itself
+        if (m_show->nestedAudioSuppressed() || m_show->performAudioSuppressed())
+        {
+            drive.audioSuppressed = true;
+            drive.nested->setPerformAudioSuppressed(true);
+        }
     }
 
-    Drive &stored = m_drives.insert(f->id(), drive).value();
-    applyLevel(stored, trackIntensities);
+    return m_drives.insert(f->id(), drive).value();
+}
+
+void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at,
+                           const QMap<quint32, qreal> &trackIntensities)
+{
+    // the timer restarts it at the end of this tick: the level survives that
+    const bool nested = f->type() == Function::ShowType;
+    if (nested == false && f->isRunning() && f->stopped())
+        f->stop(parent(), true);
+
+    Drive &drive = adopt(clip, f, at);
+    applyLevel(drive, trackIntensities);
+    const ShowClipAutomation &automation = drive.clips.first().automation;
     // the clock follows in drive(), after every clip of this tick joined: the
     // first sample after the start is where the nested traversal begins
-    f->start(m_doc->masterTimer(), FunctionParent(FunctionParent::Function, m_show->id()), startTime);
+    f->start(m_doc->masterTimer(), parent(), nested ? automation.songPositionAt(at) : automation.inPoint() + at);
 }
 
 void ShowClipDriver::join(const ShowFunction *clip, Function *f)
 {
     auto it = m_drives.find(f->id());
+    // one this Show plays again, through a command, after somebody else stopped it
     if (it == m_drives.end())
+    {
+        if (f->hasSource(parent()))
+            adopt(clip, f, 0);
         return;
+    }
 
     for (const Clip &c : std::as_const(it->clips))
     {
@@ -112,7 +148,9 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
     for (auto it = m_drives.begin(); it != m_drives.end(); )
     {
         Drive &drive = it.value();
-        if (queued.contains(drive.function) == false)
+        // a nested Show somebody else stopped is theirs from now on
+        if (queued.contains(drive.function) == false ||
+            (drive.nested != nullptr && drive.nested->hasSource(parent()) == false))
         {
             release(drive);
             it = m_drives.erase(it);
@@ -131,6 +169,7 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
         }
         if (latest >= 0)
             drive.driving = latest;
+        drive.owned = drive.function->stopped() == false && drive.function->hasSource(parent());
         const Clip &driving = drive.clips.at(drive.driving);
         drive.at = clock > driving.clip->startTime() ? clock - driving.clip->startTime() : 0;
 
@@ -139,6 +178,32 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
         applyLevel(drive, trackIntensities);
         ++it;
     }
+}
+
+bool ShowClipDriver::setCommandIntensity(Function *f, qreal value, const QMap<quint32, qreal> &trackIntensities)
+{
+    auto it = m_drives.find(f->id());
+    // one somebody else restarted plays it apart from the clip
+    if (it == m_drives.end() || f->hasSource(parent()) == false)
+        return false;
+
+    it->command = value;
+    applyLevel(it.value(), trackIntensities);
+    return true;
+}
+
+std::optional<qreal> ShowClipDriver::commandIntensity(const Function *f) const
+{
+    const auto it = m_drives.constFind(f->id());
+    if (it == m_drives.constEnd() || f->hasSource(parent()) == false)
+        return std::nullopt;
+    return it->command;
+}
+
+qreal ShowClipDriver::intensityOverride(const Function *f)
+{
+    const Attribute intensity = f->attributes().at(Function::Intensity);
+    return intensity.m_isOverridden && intensity.m_value > 0.0 ? intensity.m_overrideValue / intensity.m_value : 1.0;
 }
 
 void ShowClipDriver::applyLevels(const QMap<quint32, qreal> &trackIntensities)
@@ -151,7 +216,7 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
 {
     const Clip &driving = drive.clips.at(drive.driving);
     const qreal level = trackIntensities.value(driving.trackId, 1.0) * m_show->masterIntensity() *
-                        driving.automation.levelAt(drive.at);
+                        driving.automation.levelAt(drive.at) * drive.command;
 
     if (drive.nested != nullptr)
     {
@@ -168,8 +233,7 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
     // only while this Show plays it, a start still queued too: one somebody
     // else restarted keeps its own level
     const bool starting = drive.level < 0.0;
-    const bool playing = drive.function->stopped() == false &&
-                         drive.function->hasSource(FunctionParent(FunctionParent::Function, m_show->id()));
+    const bool playing = drive.function->stopped() == false && drive.function->hasSource(parent());
     if (starting == false && playing == false)
         return;
     drive.function->requestAttributeOverride(Function::Intensity, level);
@@ -182,7 +246,8 @@ void ShowClipDriver::release(const Drive &drive)
         return;
 
     drive.nested->setSyncSource(drive.saved.syncSource);
-    drive.nested->setPerformAudioSuppressed(drive.saved.audioSuppressed);
+    if (drive.audioSuppressed)
+        drive.nested->setPerformAudioSuppressed(drive.saved.audioSuppressed);
     drive.nested->setMasterIntensity(drive.saved.masterIntensity);
     drive.nested->setDominant(drive.saved.dominant);
 }
@@ -192,6 +257,11 @@ void ShowClipDriver::releaseAll()
     for (const Drive &drive : std::as_const(m_drives))
         release(drive);
     m_drives.clear();
+}
+
+FunctionParent ShowClipDriver::parent() const
+{
+    return FunctionParent(FunctionParent::Function, m_show->id());
 }
 
 bool ShowClipDriver::keepsThroughSeek(const Function *f)

@@ -35,14 +35,6 @@
 
 #define TIMER_INTERVAL 50
 
-/** The Intensity override a command sets: the Single override's own value */
-static qreal intensityOf(const Function *function)
-{
-    const Attribute intensity = function->attributes().at(Function::Intensity);
-    return intensity.m_isOverridden && intensity.m_value > 0.0
-           ? intensity.m_overrideValue / intensity.m_value : 1.0;
-}
-
 static bool compareShowFunctions(const ShowFunction *sf1, const ShowFunction *sf2)
 {
     if (sf1->startTime() < sf2->startTime())
@@ -393,6 +385,11 @@ void ShowRunner::write(MasterTimer *timer)
                 func->stop(functionParent());
                 noteEngineStop(func);
             }
+            // another of its clips still plays it: that one drives it from now on
+            else if (const ShowFunction *other = activeClip(func, currTime))
+            {
+                m_clips.join(other, func);
+            }
         }
     }
 
@@ -730,14 +727,15 @@ void ShowRunner::processCommands(bool traversalStalled)
     if (traversalStalled)
         return;
 
-    // a Show that is not dominant replays nothing; once dominant again it
-    // plays what it crossed meanwhile, like a forward jump
+    // a Show that is not dominant replays nothing; once dominant again its
+    // controls take the state its track gives them, played like a forward jump
     if (m_show->isDominant() == false)
     {
         m_commandsWithheld = true;
         return;
     }
-    if (std::exchange(m_commandsWithheld, false))
+    const bool regained = std::exchange(m_commandsWithheld, false);
+    if (regained)
         m_commandJumpPending = true;
 
     m_commandStartedThisTick.clear();
@@ -747,7 +745,8 @@ void ShowRunner::processCommands(bool traversalStalled)
 
     m_commandState.playing = true;
     const ShowCommandTransition played =
-            ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
+            regained ? ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime)
+                     : ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
     m_commandState = played.state;
 
     dispatchCommandEffects(played.effects);
@@ -928,12 +927,12 @@ void ShowRunner::applyCommandEffect(const ShowCommand &cmd)
     // what this effect finds and leaves, so a backward move can undo it
     const bool journaled = cmd.action == ShowCommandAction::Start || cmd.action == ShowCommandAction::Stop ||
                            cmd.action == ShowCommandAction::SetIntensity;
-    LegacyEffect effect{ cmd.time, cmd.functionId, commandTargetActive(f), false, intensityOf(f), 0.0 };
+    LegacyEffect effect{ cmd.time, cmd.functionId, commandTargetActive(f), false, commandIntensityOf(f), 0.0 };
     const auto journal = qScopeGuard([&]() {
         if (journaled == false)
             return;
         effect.runningAfter = commandTargetActive(f);
-        effect.intensityAfter = intensityOf(f);
+        effect.intensityAfter = commandIntensityOf(f);
         m_legacyJournal.append(effect);
     });
 
@@ -1080,6 +1079,11 @@ void ShowRunner::prepareCommandStart(Function *f)
     chaser->setAction(action);
 }
 
+qreal ShowRunner::commandIntensityOf(const Function *function) const
+{
+    return m_clips.commandIntensity(function).value_or(ShowClipDriver::intensityOverride(function));
+}
+
 bool ShowRunner::commandTargetActive(const Function *function) const
 {
     /** Queued during this very tick: the timer starts it at the end of the
@@ -1097,6 +1101,10 @@ void ShowRunner::applyCommandIntensity(Function *f, qreal value)
 {
     // a value on a stopped target does nothing, and never starts it
     if (commandTargetActive(f) == false)
+        return;
+
+    // a clip multiplies its own level into it
+    if (m_clips.setCommandIntensity(f, value, m_intensityMap))
         return;
 
     /** The native Intensity override is Single: requesting it returns the one
@@ -1179,7 +1187,7 @@ void ShowRunner::rollBackLegacyEffects(quint32 time)
     for (const LegacyEffect &effect : std::as_const(first))
     {
         Function *f = m_doc->function(effect.functionId);
-        if (f != NULL && effect.runningBefore && intensityOf(f) != effect.intensityBefore)
+        if (f != NULL && effect.runningBefore && commandIntensityOf(f) != effect.intensityBefore)
             applyCommandIntensity(f, effect.intensityBefore);
     }
 }
