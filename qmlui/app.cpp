@@ -837,7 +837,8 @@ bool App::closingNeedsConfirmation() const
     if (m_forceQuit)
         return false;
 
-    return m_doc->isModified() || (m_showCommandRecorder != nullptr && m_showCommandRecorder->isRecording());
+    return m_doc->isModified() || (m_showCommandRecorder != nullptr && m_showCommandRecorder->isRecording())
+           || (m_djSetRecorder != nullptr && m_djSetRecorder->hasWaitingClips());
 }
 
 void App::slotSceneGraphInitialized()
@@ -1644,6 +1645,13 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
 QFile::FileError App::saveXML(const QString& fileName, SaveOrigin origin)
 {
     const bool autosave = origin == Autosave;
+
+    // a saved DJ set holds every song played
+    if (origin == WorkspaceSave && m_djSetRecorder != nullptr && m_djSetRecorder->hasWaitingClips())
+    {
+        setSaveError(tr("A song of the DJ set waits for the set to stop playing. Stop the set, then save."), autosave);
+        return QFile::AbortError;
+    }
 
     /* A save stores the recording's accepted input and ends its Shows at their
        content; recording and playback go on. The Doc is marked unmodified

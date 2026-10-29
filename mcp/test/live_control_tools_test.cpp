@@ -29,6 +29,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QTcpServer>
@@ -417,6 +418,71 @@ void McpLiveControlTools_Test::aRecordingSetIsReadOnly()
     // complete once Perform is off
     invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
     QCOMPARE(QString::fromStdString(edit()), QString());
+}
+
+void McpLiveControlTools_Test::aClipWaitingForThePlayingSetHoldsTheSave_data()
+{
+    QTest::addColumn<bool>("performOff");  // the waiting clip closed
+
+    QTest::newRow("its song still plays") << false;
+    QTest::newRow("Perform went off") << true;
+}
+
+void McpLiveControlTools_Test::aClipWaitingForThePlayingSetHoldsTheSave()
+{
+    QFETCH(bool, performOff);
+    Doc *doc = m_app->doc();
+    auto *bridge = m_app->findChild<VdjBridge *>();
+    auto *recorder = m_app->findChild<DjSetRecorder *>();
+    QVERIFY(bridge);
+    QVERIFY(recorder);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    Show *set = nullptr;
+    const auto clear = qScopeGuard([&]() {
+        invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+        bridge->djFsm()->onDisconnected();
+        if (set != nullptr && set->isRunning())
+            set->stopAndWait();
+        doc->masterTimer()->stop();
+    });
+    const auto send = [&](int deck, const QString &key, const QVariant &value) {
+        return QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, deck - 1), Q_ARG(QString, key),
+                                        Q_ARG(QVariant, value));
+    };
+    const auto play = [&](int deck) {
+        QVERIFY(send(deck, "get_filepath", QStringLiteral("/music/p7-wait%1.mp3").arg(deck)));
+        QVERIFY(send(deck, "get_title", QStringLiteral("Wait song %1").arg(deck)));
+        QVERIFY(send(deck, "loaded", "on"));
+        QVERIFY(send(deck, "masterdeck", deck == 1 ? "on" : "off"));
+        QVERIFY(send(deck, "play", "on"));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+        QVERIFY(send(deck, "get_time elapsed absolute", 1500));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    };
+    play(1);
+    const Json on = invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", true}});
+    QVERIFY2(!on.contains("error"), on.dump().c_str());
+    QVERIFY(send(1, "get_time elapsed absolute", 1600));
+    QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    set = qobject_cast<Show *>(doc->function(recorder->setShowId()));
+    QVERIFY(set);
+    // somebody plays the set while it records: deck 2's song waits for it to stop
+    doc->masterTimer()->start();
+    set->setSyncSource(ShowRunner::External);
+    set->setExternalElapsedTime(0);
+    set->start(doc->masterTimer(), FunctionParent::master());
+    QTRY_VERIFY(set->isRunning());
+    play(2);
+    if (performOff)
+        invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+    QCOMPARE(set->tracks().at(1)->showFunctions().count(), 0);
+
+    // a saved set holds every song played
+    QVERIFY(!m_app->saveWorkspace(dir.filePath(QStringLiteral("waiting.qxw"))));
+    set->stopAndWait();
+    QTRY_COMPARE_WITH_TIMEOUT(set->tracks().at(1)->showFunctions().count(), 1, 2000);
+    QVERIFY(m_app->saveWorkspace(dir.filePath(QStringLiteral("complete.qxw"))));
 }
 
 void McpLiveControlTools_Test::drivenShows_data()

@@ -98,6 +98,19 @@ void DjSetRecorder::setClock(const Clock &clock)
     m_clock = clock;
 }
 
+bool DjSetRecorder::hasWaitingClips() const
+{
+    // a closed clip stays only while it waits; an open one is in the set at once otherwise
+    if (m_closed.isEmpty() == false)
+        return true;
+    for (const std::optional<DeckClip> &clip : m_clips)
+    {
+        if (clip && clip->uid == std::nullopt)
+            return true;
+    }
+    return false;
+}
+
 qint64 DjSetRecorder::now() const
 {
     return m_clock();

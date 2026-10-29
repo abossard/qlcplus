@@ -83,6 +83,9 @@ public:
     /** The set under way, Function::invalidId() for none */
     quint32 setShowId() const { return m_setId; }
 
+    /** A song's clip waits for its playing set to stop: a save now misses it */
+    bool hasWaitingClips() const;
+
     /** "Set yyyy-MM-dd HH:mm" */
     static QString setName(const QDateTime &start);
 
