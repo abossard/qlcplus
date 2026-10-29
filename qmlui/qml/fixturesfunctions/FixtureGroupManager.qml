@@ -221,6 +221,25 @@ Rectangle
 
                 IconButton
                 {
+                    id: consolePageButton
+                    objectName: "consolePageButton"
+                    visible: allowEditing
+                    enabled: contextManager.selectedFixturesCount > 0
+                    z: 2
+                    width: height
+                    height: topBar.height - 2
+                    imgSource: "qrc:/virtualconsole.svg"
+                    tooltip: qsTr("Create Virtual Console pages for the selected fixtures")
+                    onClicked:
+                    {
+                        var page = consolePageCreator.createPages(contextManager.selectedFixtureIDVariantList())
+                        if (page >= 0)
+                            virtualConsole.selectedPage = page
+                    }
+                }
+
+                IconButton
+                {
                     id: delItemButton
                     visible: allowEditing
                     z: 2
