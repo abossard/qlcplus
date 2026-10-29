@@ -108,6 +108,10 @@ set(SRC_FILES
     stagewizard/stagewizard_colors.cpp
     stagewizard/stagewizard_vc.cpp
     stagewizard/stagewizard_controller.cpp
+    fixturecontrols.cpp fixturecontrols.h
+    pageplanner.cpp pageplanner.h
+    pagebuilder.cpp pagebuilder.h
+    consolepagecreator.cpp consolepagecreator.h
 )
 
 # This is most of the Android deployment code

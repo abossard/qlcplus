@@ -113,6 +113,9 @@ private slots:
     void recordingId_malformedLoadRejectedAndPreserved_data();
     void recordingId_malformedLoadRejectedAndPreserved();
     void recordingId_malformedControlDroppedFromFrame();
+
+    void sliderClickAndGo_colourChannelLevels_data();
+    void sliderClickAndGo_colourChannelLevels();
 };
 
 #endif // VCBUTTON_TEST_H

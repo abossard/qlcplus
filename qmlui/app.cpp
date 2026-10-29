@@ -73,6 +73,7 @@
 #include "showfactory.h"
 #include "djmanager.h"
 #include "stagewizard.h"
+#include "consolepagecreator.h"
 
 #include "qlcfixturedefcache.h"
 #include "audioplugincache.h"
@@ -125,6 +126,7 @@ App::App()
     , m_networkManager(nullptr)
     , m_uiManager(nullptr)
     , m_stageWizard(nullptr)
+    , m_consolePageCreator(nullptr)
     , m_flowConsole(nullptr)
     , m_vdjBridge(nullptr)
     , m_doc(nullptr)
@@ -342,6 +344,8 @@ void App::startup()
     m_stageWizard = new StageWizard(m_doc, m_fixtureManager, m_functionManager,
                                     m_virtualConsole, m_contextManager, this);
     rootContext()->setContextProperty("stageWizard", m_stageWizard);
+    m_consolePageCreator = new ConsolePageCreator(m_doc, m_virtualConsole, this, this);
+    rootContext()->setContextProperty("consolePageCreator", m_consolePageCreator);
 
     m_contextManager->registerContext(m_virtualConsole);
     m_contextManager->registerContext(m_flowConsole);

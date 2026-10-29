@@ -245,6 +245,10 @@ VCWidgetItem
             property int cngType: sliderObj ? sliderObj.clickAndGoType : VCSlider.CnGNone
             property string cngResource: sliderObj ? sliderObj.cngPresetResource : ""
 
+            // until a colour or picture is picked, show what the button opens instead of a black box
+            imgSource: colorPreviewBox.visible || presetPreviewBox.visible ? ""
+                       : cngType === VCSlider.CnGPreset ? "qrc:/palette.svg" : "qrc:/color.svg"
+
             onCngTypeChanged:
             {
                 switch(cngType)
@@ -284,6 +288,7 @@ VCWidgetItem
             MultiColorBox
             {
                 id: colorPreviewBox
+                visible: sliderObj ? sliderObj.cngPrimaryColor.valid : false
                 anchors.fill: parent
                 anchors.margins: 5
                 primary: sliderObj ? sliderObj.cngPrimaryColor : "black"

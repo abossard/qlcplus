@@ -51,6 +51,7 @@ class VideoProvider;
 class FixtureEditor;
 class FlowConsole;
 class StageWizard;
+class ConsolePageCreator;
 class Tardis;
 class VdjBridge;
 class DjManager;
@@ -290,6 +291,7 @@ private:
     NetworkManager *m_networkManager;
     UiManager *m_uiManager;
     StageWizard *m_stageWizard;
+    ConsolePageCreator *m_consolePageCreator;
     Tardis *m_tardis;
     FlowConsole *m_flowConsole;
     VdjBridge *m_vdjBridge;
