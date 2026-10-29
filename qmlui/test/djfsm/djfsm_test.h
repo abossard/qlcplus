@@ -58,6 +58,14 @@ private slots:
     void capture_connectSnapshot();
     void capture_ejectReload_data();
     void capture_ejectReload();
+    void mixWeight_data();
+    void mixWeight();
+    void weightNotifiesOncePerSettledWrite_data();
+    void weightNotifiesOncePerSettledWrite();
+    void droppedDecksZeroTheirWeights_data();
+    void droppedDecksZeroTheirWeights();
+    void capture_weights_data();
+    void capture_weights();
 };
 
 #endif // DJFSM_TEST_H

@@ -231,14 +231,17 @@ void VdjTelemetryClient_Test::subscriptionTriggerCount_data()
     // what DjFsm, VdjBridge and the DJ Manager read
     for (const char *t : { "get_filepath", "loaded", "get_time", "get_time elapsed absolute", "get_beatpos",
                            "get_title", "get_artist", "get_title_artist", "get_album", "get_genre", "get_bpm",
-                           "get_key", "get_firstbeat", "get_time total", "play", "volume", "masterdeck" })
+                           "get_key", "get_firstbeat", "get_time total", "play", "volume", "masterdeck",
+                           "leftcross", "rightcross" })
         row(QStringLiteral("deck 4 %1").arg(QLatin1String(t)), true);
-    row("get_decks", true);
+    for (const char *t : { "get_decks", "crossfader", "crossfader_hamster", "crossfader_disable" })
+        row(QString::fromLatin1(t), true);
     // read by nothing
     for (const char *t : { "get_position", "get_vu_meter", "level", "eq_high", "eq_med", "eq_low", "gain",
-                           "loop", "get_loop" })
+                           "loop", "get_loop", "get_volume" })
         row(QStringLiteral("deck 1 %1").arg(QLatin1String(t)), false);
-    for (const char *t : { "master_volume", "crossfader", "headphone_volume", "masterdeck",
+    // the crossfader result is one balance of decks 1 and 2, not a gain per deck
+    for (const char *t : { "master_volume", "headphone_volume", "masterdeck",
                            "get_crossfader_result full", "mixer_order", "get_vu_meter" })
         row(QString::fromLatin1(t), false);
 }
@@ -254,8 +257,8 @@ void VdjTelemetryClient_Test::subscriptionTriggerCount()
     for (const QJsonValue &v : doc.object().value("trigger").toArray())
         triggerStrings.append(v.toString());
 
-    // 4 decks x 17 per-deck triggers + get_decks
-    QCOMPARE(triggerStrings.size(), 69);
+    // 4 decks x 19 per-deck triggers + get_decks and the crossfader's three
+    QCOMPARE(triggerStrings.size(), 80);
     QCOMPARE(triggerStrings.contains(trigger), subscribed);
 
     // VDJ streams a tick's changes in this order: a track change must reach
@@ -624,6 +627,63 @@ void VdjTelemetryClient_Test::bridgeGlobalTriggerRouting()
 
     QTRY_COMPARE_WITH_TIMEOUT(fsm->deckCount(), 2, 2000);
     QTRY_COMPARE_WITH_TIMEOUT(fsm->activeDeck(), 2, 2000);
+
+    fakeClient.disconnectFromHost();
+    plugin.closeInput(0, 0);
+}
+
+void VdjTelemetryClient_Test::bridgeCrossfaderRouting_data()
+{
+    QTest::addColumn<QByteArray>("mixer");  // global objects of the write
+    QTest::addColumn<double>("deck1");
+    QTest::addColumn<double>("deck2");
+
+    QTest::newRow("crossfader left")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})") << 1.0 << 0.0;
+    QTest::newRow("a quarter")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0.25})") << 0.75 << 0.25;
+    QTest::newRow("hamster at the left")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})" "\n"
+                      R"({"evt":"subscribed","trigger":"crossfader_hamster","value":"on"})") << 0.0 << 1.0;
+    QTest::newRow("disabled at the left")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})" "\n"
+                      R"({"evt":"subscribed","trigger":"crossfader_disable","value":"on"})") << 1.0 << 1.0;
+}
+
+void VdjTelemetryClient_Test::bridgeCrossfaderRouting()
+{
+    QFETCH(QByteArray, mixer);
+    QFETCH(double, deck1);
+    QFETCH(double, deck2);
+
+    VdjBridge bridge;
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("hostPort"), 18077);
+    plugin.setParameter(0, 0, QLCIOPlugin::Input,
+                        QStringLiteral("bonjourEnabled"), false);
+    bridge.attachVdjPlugin(&plugin);
+    QVERIFY(plugin.openInput(0, 0));
+
+    QTcpSocket fakeClient;
+    fakeClient.connectToHost("127.0.0.1", 18077);
+    QVERIFY(fakeClient.waitForConnected(2000));
+    QTRY_VERIFY_WITH_TIMEOUT(fakeClient.bytesAvailable() > 0, 2000);
+    fakeClient.readAll();
+
+    // one write in subscription order: the decks' faders and sides, then the mixer
+    fakeClient.write(R"({"evt":"subscribed","trigger":"deck 1 volume","value":1})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 1 leftcross","value":"on"})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 1 rightcross","value":"off"})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 2 volume","value":1})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 2 leftcross","value":"off"})" "\n"
+                     R"({"evt":"subscribed","trigger":"deck 2 rightcross","value":"on"})" "\n"
+                     + mixer);
+    fakeClient.flush();
+
+    DjFsm *fsm = bridge.djFsm();
+    // the write may reach the client in more than one read
+    QTRY_VERIFY_WITH_TIMEOUT(fsm->deckAt(0).weight == deck1 && fsm->deckAt(1).weight == deck2, 2000);
 
     fakeClient.disconnectFromHost();
     plugin.closeInput(0, 0);

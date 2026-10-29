@@ -49,10 +49,15 @@ static const QStringList kDeckTriggers = {
     "get_title", "get_artist", "get_title_artist",
     "get_album", "get_genre", "get_bpm", "get_key", "get_firstbeat",
     "get_time total", "play", "volume", "masterdeck",
+    // the deck's crossfader side: neither is through
+    "leftcross", "rightcross",
 };
 
-// the real deck count; decks above it mirror VDJ's default deck
-static const QStringList kGlobalTriggers = { "get_decks" };
+// the real deck count (decks above it mirror VDJ's default deck), then the
+// crossfader: position 0 left .. 1 right, inverted, disabled
+static const QStringList kGlobalTriggers = {
+    "get_decks", "crossfader", "crossfader_hamster", "crossfader_disable",
+};
 
 VdjTelemetryClient::VdjTelemetryClient(QObject *parent)
     : QObject(parent)
@@ -346,7 +351,7 @@ void VdjTelemetryClient::parseLine(const QByteArray &line)
                 if (deckTrigger.startsWith("get_title") || deckTrigger.startsWith("get_artist") ||
                     deckTrigger.startsWith("get_filepath") || deckTrigger == "get_bpm" ||
                     deckTrigger == "get_key" || deckTrigger == "loaded" || deckTrigger == "play" ||
-                    deckTrigger == "masterdeck")
+                    deckTrigger == "masterdeck" || deckTrigger == "leftcross" || deckTrigger == "rightcross")
                     qDebug() << kLogTag << "Deck" << deckNum << deckTrigger << "=" << value;
                 emit deckTriggerReceived(deckNum - 1, deckTrigger, value);
                 return;

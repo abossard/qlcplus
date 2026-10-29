@@ -51,6 +51,8 @@ private slots:
     // Deck table / topology
     void deckTableReflectsFsmStateAndUpdates();
     void deckTablePositionReflectsActiveDeck();
+    void deckTableShowsTheMixWeight_data();
+    void deckTableShowsTheMixWeight();
     void getDecksDrivesDeckCount();
     void deckCountSettingLimitsTable();
     void perDeckMasterdeckSetsActiveDeck();

@@ -836,6 +836,38 @@ void VdjBridge_Test::activeDeckFollowsThePerDeckMasterdeck()
     QCOMPARE(fsm->activeDeck(), 2);
 }
 
+void VdjBridge_Test::capture_mixWeights_data()
+{
+    QTest::addColumn<QString>("capture");
+    QTest::addColumn<QString>("weights");  // decks 1 to 4 at the end
+    QTest::addColumn<int>("active");
+
+    // deck 1 at its 50% fader on the left at the middle, deck 2 through
+    QTest::newRow("crossfader sweep") << "crossfader_moves" << "0.250 1.000 0.000 0.000" << 2;
+    // no sides in the subscription of the day: the faders alone
+    QTest::newRow("handover") << "master_handover" << "1.000 1.000 0.000 0.000" << 1;
+}
+
+void VdjBridge_Test::capture_mixWeights()
+{
+    QFETCH(QString, capture);
+    QFETCH(QString, weights);
+    QFETCH(int, active);
+
+    // the bridge hands the mixer's global triggers to the FSM
+    PerformRig rig;
+    VdjTelemetryClient client;
+    VdjCapture::wire(client, &rig.bridge);
+    QVERIFY(VdjCapture::replay(client, capture.toLatin1().constData()) > 0);
+
+    const DjFsm *fsm = rig.bridge.djFsm();
+    QStringList seen;
+    for (int i = 0; i < DjFsm::MaxDecks; i++)
+        seen << QString::number(fsm->deckAt(i).weight, 'f', 3);
+    QCOMPARE(seen.join(' '), weights);
+    QCOMPARE(fsm->activeDeck(), active);
+}
+
 void VdjBridge_Test::deletedShowBindsAgainWhenItComesBack()
 {
     // Perform's Show is deleted and comes back (undo): the song index names it again
