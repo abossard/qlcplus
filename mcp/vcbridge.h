@@ -51,6 +51,8 @@ public:
     { return {{QStringLiteral("error"), QStringLiteral("Recording control is unavailable")}}; }
     virtual QVariantMap recordingState() const
     { return {{QStringLiteral("error"), QStringLiteral("Recording control is unavailable")}}; }
+    /** The set Perform records into: read-only, as the Show Manager shows it */
+    virtual bool showRecorded(quint32) const { return false; }
     virtual QVariantMap pressWidget(int, const QString &)
     { return {{QStringLiteral("error"), QStringLiteral("Live VC input is unavailable")}}; }
 
