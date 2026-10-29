@@ -24,6 +24,7 @@
 
 class Function;
 class Scene;
+class Show;
 class Doc;
 
 class MixLayer_Test final : public QObject
@@ -47,10 +48,13 @@ private slots:
     void manualStartCountsAsLayerZero();
     void flashIgnoresLastRunLayer_data();
     void flashIgnoresLastRunLayer();
+    void showDominanceDecidesLtp_data();
+    void showDominanceDecidesLtp();
 
 private:
     Scene *createScene(uchar ltp, uchar htp);
     Function *createParent(const QString &type, quint32 childId);
+    Show *createShow(quint32 childId);
     QByteArray writeUniverse();
 
 private:

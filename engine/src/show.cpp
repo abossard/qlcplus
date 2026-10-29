@@ -27,6 +27,7 @@
 
 #include "showrunner.h"
 #include "function.h"
+#include "mixlayer.h"
 #include "show.h"
 #include "doc.h"
 
@@ -468,6 +469,7 @@ void Show::setMasterIntensity(qreal level)
 void Show::setDominant(bool dominant)
 {
     m_dominant.store(dominant, std::memory_order_relaxed);
+    mixLayer()->setLayer(dominant ? 0 : -1);
 }
 
 /*****************************************************************************

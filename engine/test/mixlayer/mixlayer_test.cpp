@@ -32,10 +32,13 @@
 #include "genericfader.h"
 #include "fadechannel.h"
 #include "collection.h"
+#include "showfunction.h"
 #include "mixlayer.h"
 #include "qlcfile.h"
 #include "chaser.h"
 #include "scene.h"
+#include "track.h"
+#include "show.h"
 #include "doc.h"
 
 #include "../common/resource_paths.h"
@@ -70,6 +73,12 @@ void MixLayer_Test::init()
 
 void MixLayer_Test::cleanup()
 {
+    // a failed row can leave Functions running on the Doc's timer
+    MasterTimer *timer = m_doc->masterTimer();
+    timer->m_stopAllFunctions = true;
+    timer->timerTick();
+    timer->m_stopAllFunctions = false;
+
     m_doc->clearContents();
 
     Universe *universe = m_doc->inputOutputMap()->universes().at(0);
@@ -115,6 +124,20 @@ Function *MixLayer_Test::createParent(const QString &type, quint32 childId)
     }
 
     return parent;
+}
+
+Show *MixLayer_Test::createShow(quint32 childId)
+{
+    Show *show = new Show(m_doc);
+    m_doc->addFunction(show);
+    Track *track = new Track(childId);
+    ShowFunction *sf = new ShowFunction(show->getLatestShowFunctionId());
+    sf->setFunctionID(childId);
+    sf->setStartTime(0);
+    sf->setDuration(60000);
+    track->addShowFunction(sf);
+    show->addTrack(track);
+    return show;
 }
 
 QByteArray MixLayer_Test::writeUniverse()
@@ -450,6 +473,63 @@ void MixLayer_Test::flashIgnoresLastRunLayer()
     flashed->unFlash(&timer);
     other->unFlash(&timer);
     timer.timerTick();
+}
+
+void MixLayer_Test::showDominanceDecidesLtp_data()
+{
+    QTest::addColumn<bool>("olderDominant");
+    QTest::addColumn<bool>("newerDominant");
+    QTest::addColumn<int>("expectedLtp");
+    QTest::addColumn<bool>("flippedOlderDominant");
+    QTest::addColumn<bool>("flippedNewerDominant");
+    QTest::addColumn<int>("flippedLtp");
+
+    // The older Show's Scene sets LTP 100 and HTP 150, the newer Show's LTP 50 and HTP 200
+    QTest::newRow("both dominant, newest wins") << true << true << 50 << true << false << 100;
+    QTest::newRow("older dominant wins") << true << false << 100 << false << true << 50;
+    QTest::newRow("newer dominant wins") << false << true << 50 << true << false << 100;
+    QTest::newRow("neither dominant, newest wins") << false << false << 50 << true << false << 100;
+}
+
+void MixLayer_Test::showDominanceDecidesLtp()
+{
+    QFETCH(bool, olderDominant);
+    QFETCH(bool, newerDominant);
+    QFETCH(int, expectedLtp);
+    QFETCH(bool, flippedOlderDominant);
+    QFETCH(bool, flippedNewerDominant);
+    QFETCH(int, flippedLtp);
+
+    // ShowRunner starts its clips on the Doc's timer
+    MasterTimer *timer = m_doc->masterTimer();
+    Show *older = createShow(createScene(100, 150)->id());
+    Show *newer = createShow(createScene(50, 200)->id());
+    older->setDominant(olderDominant);
+    newer->setDominant(newerDominant);
+
+    older->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+    newer->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+
+    QByteArray values = writeUniverse();
+    QCOMPARE(uchar(values.at(kLtp)), uchar(expectedLtp));
+    QCOMPARE(uchar(values.at(kHtp)), uchar(200));
+
+    older->setDominant(flippedOlderDominant);
+    newer->setDominant(flippedNewerDominant);
+    timer->timerTick();
+
+    values = writeUniverse();
+    QCOMPARE(uchar(values.at(kLtp)), uchar(flippedLtp));
+    QCOMPARE(uchar(values.at(kHtp)), uchar(200));
+
+    older->stop(FunctionParent::master());
+    newer->stop(FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
 }
 
 QTEST_MAIN(MixLayer_Test)

@@ -185,8 +185,8 @@ public:
 
     /** Any thread: a Show that is not dominant replays none of its command
      *  track; once dominant again it plays what it crossed meanwhile, like a
-     *  forward jump. Dominant unless a parent Show's clip says otherwise.
-     *  Not persisted. */
+     *  forward jump. Its clips lose LTP to a dominant Show's (mix layer -1).
+     *  Dominant unless a parent Show's clip says otherwise. Not persisted. */
     void setDominant(bool dominant);
     bool isDominant() const { return m_dominant.load(std::memory_order_relaxed); }
 
