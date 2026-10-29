@@ -404,6 +404,9 @@ void VdjBridge::perform(const PerformFsm::Step &step)
         case Effect::AdoptShow:
             if (show && drive)
             {
+                // held: a set's clip playing it lets it go
+                if (show->isRunning() && show->stopped() == false)
+                    show->start(m_doc->masterTimer(), FunctionParent::master());
                 show->setPerformAudioSuppressed(true);
                 show->setSyncSource(ShowRunner::External);
                 show->setDominant(drive->dominant);

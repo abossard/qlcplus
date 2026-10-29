@@ -304,6 +304,69 @@ void VdjBridge_Test::handoverKeepsTheOldShowPlaying()
     QCOMPARE(bStarted.count(), 0);
 }
 
+void VdjBridge_Test::aSetLeavesPerformItsSongs_data()
+{
+    QTest::addColumn<QString>("order");
+    QTest::addColumn<QString>("expected");  // A's drive, without its clock
+
+    QTest::newRow("the set plays A, then Perform") << "set first" << "running ext muted dom 0.80";
+    QTest::newRow("Perform plays A, then the set") << "Perform first" << "running ext muted sub 0.80";
+    QTest::newRow("then A's deck ejects") << "eject" << "idle auto audible dom 1.00";
+}
+
+void VdjBridge_Test::aSetLeavesPerformItsSongs()
+{
+    QFETCH(QString, order);
+    QFETCH(QString, expected);
+
+    PerformRig rig;
+    Show *a = rig.addShow("A", "/music/a.mp3");
+    // a recorded set: its first second plays A
+    Show *set = new Show(&rig.doc);
+    rig.doc.addFunction(set);
+    set->setNestedAudioSuppressed(true);
+    Track *track = new Track(Function::invalidId(), set);
+    set->addTrack(track);
+    ShowFunction *clip = track->createShowFunction(a->id());
+    clip->setStartTime(0);
+    clip->setDuration(1000);
+    rig.load(0, "/music/a.mp3");
+    rig.deck(0, "volume", 0.8);
+    rig.play(0, true);
+    rig.elapsed(0, 40000);
+    if (order == "set first")
+    {
+        rig.master(0);
+        set->start(rig.doc.masterTimer(), FunctionParent::master());
+        rig.tick(2);
+        QVERIFY(a->isRunning());
+        rig.bridge.setPerformMode(true);
+        rig.tick();
+    }
+    else
+    {
+        // deck 2 is the active one
+        rig.addShow("B", "/music/b.mp3");
+        rig.load(1, "/music/b.mp3");
+        rig.play(1, true);
+        rig.master(1);
+        rig.bridge.setPerformMode(true);
+        rig.tick();
+        set->start(rig.doc.masterTimer(), FunctionParent::master());
+        rig.tick(2);
+        if (order == "eject")
+        {
+            rig.deck(0, "loaded", QVariant("off"));
+            rig.tick(2);
+        }
+    }
+    QCOMPARE(rig.drive(a).section(' ', 0, 4), expected);
+
+    // past the set's clip
+    rig.tick(60);
+    QCOMPARE(rig.drive(a).section(' ', 0, 4), expected);
+}
+
 void VdjBridge_Test::everyDeckDrivesItsShow_data()
 {
     QTest::addColumn<QString>("deck2");   // what deck 2 does with B's song

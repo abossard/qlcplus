@@ -110,6 +110,8 @@ void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at,
     const bool nested = f->type() == Function::ShowType;
     if (nested == false && f->isRunning() && f->stopped())
         f->stop(parent(), true);
+    if (nested && performed(f))
+        return;
 
     Drive &drive = adopt(clip, f, at);
     applyLevel(drive, trackIntensities);
@@ -148,6 +150,12 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
     for (auto it = m_drives.begin(); it != m_drives.end(); )
     {
         Drive &drive = it.value();
+        // with what they set on it
+        if (drive.nested != nullptr && performed(drive.nested))
+        {
+            it = m_drives.erase(it);
+            continue;
+        }
         // a nested Show somebody else stopped is theirs from now on
         if (queued.contains(drive.function) == false ||
             (drive.nested != nullptr && drive.nested->hasSource(parent()) == false))
@@ -270,4 +278,9 @@ FunctionParent ShowClipDriver::parent() const
 bool ShowClipDriver::keepsThroughSeek(const Function *f)
 {
     return f->type() == Function::ShowType;
+}
+
+bool ShowClipDriver::performed(const Function *f)
+{
+    return f->isRunning() && f->stopped() == false && f->hasSource(FunctionParent::master());
 }
