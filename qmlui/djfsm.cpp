@@ -96,6 +96,18 @@ void DjFsm::setDeckCount(int count)
             emit weightChanged(d + 1);
     }
     emit deckCountChanged(m_deckCount);
+
+    // a newly tracked deck's weight: an open write settles it at its end
+    if (m_writeOpen)
+        return;
+    for (int d = prev; d < clamped; ++d)
+    {
+        const double weight = weightOf(m_slots[d]);
+        if (weight == m_slots[d].deck.weight)
+            continue;
+        m_slots[d].deck.weight = weight;
+        emit weightChanged(d + 1);
+    }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -104,6 +116,7 @@ void DjFsm::setDeckCount(int count)
 
 void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &value)
 {
+    m_writeOpen = true;
     if (!indexValid(deck - 1))
         return;
     Slot &s = m_slots[deck - 1];
@@ -211,6 +224,7 @@ void DjFsm::onDeckTrigger(int deck, const QString &trigger, const QVariant &valu
 
 void DjFsm::onGlobalTrigger(const QString &trigger, const QVariant &value)
 {
+    m_writeOpen = true;
     if (trigger == QLatin1String("crossfader"))
     {
         bool ok = false;
@@ -229,6 +243,7 @@ void DjFsm::onTickEnded()
     // every deck's view, then the master, then the write's notifications, the
     // master's first: these see the whole write settled; a volume's deckChanged
     // and positionChanged went out mid-write, as their triggers arrived
+    m_writeOpen = false;
     std::array<Deck, MaxDecks> before;
     for (int d = 0; d < m_deckCount; ++d)
     {
@@ -324,7 +339,7 @@ void DjFsm::onDisconnected()
         recomputeActiveSong();
     }
     m_crossfader.reset();
-    m_crossfaderInverted = m_crossfaderDisabled = false;
+    m_crossfaderInverted = m_crossfaderDisabled = m_writeOpen = false;
     for (int i = 0; i < MaxDecks; ++i)
     {
         const bool hadWeight = m_slots[i].deck.weight != 0.0;
@@ -387,12 +402,12 @@ void DjFsm::maybeEmitPosition(Slot &s, int deck1)
 
 double DjFsm::weightOf(const Slot &s) const
 {
-    // linear: the left side fades out as the crossfader goes right
+    // full at the middle: a side fades out only past it, toward the other end
     double gain = 1.0;
     if (m_crossfader && !m_crossfaderDisabled && s.leftCross != s.rightCross)
     {
         const double right = m_crossfaderInverted ? 1.0 - *m_crossfader : *m_crossfader;
-        gain = s.leftCross ? 1.0 - right : right;
+        gain = std::min(1.0, 2.0 * (s.leftCross ? 1.0 - right : right));
     }
     return std::clamp(s.deck.volume * gain, 0.0, 1.0);
 }

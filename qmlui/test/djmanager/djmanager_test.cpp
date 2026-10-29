@@ -875,8 +875,8 @@ void DjManager_Test::deckTableShowsTheMixWeight_data()
 
     // deck 1 on the left, deck 2 on the right, deck 2's fader full
     QTest::newRow("crossfader left") << 0.0 << "off" << 1.0 << 1.0 << 0.0;
-    QTest::newRow("a quarter, deck 1 at half") << 0.25 << "off" << 0.5 << 0.375 << 0.25;
-    QTest::newRow("disabled: the faders alone") << 0.25 << "on" << 0.5 << 0.5 << 1.0;
+    QTest::newRow("three quarters, deck 1 at half") << 0.75 << "off" << 0.5 << 0.25 << 1.0;
+    QTest::newRow("disabled: the faders alone") << 0.75 << "on" << 0.5 << 0.5 << 1.0;
 }
 
 void DjManager_Test::deckTableShowsTheMixWeight()

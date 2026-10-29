@@ -842,10 +842,51 @@ void VdjBridge_Test::capture_mixWeights_data()
     QTest::addColumn<QString>("weights");  // decks 1 to 4 at the end
     QTest::addColumn<int>("active");
 
-    // deck 1 at its 50% fader on the left at the middle, deck 2 through
-    QTest::newRow("crossfader sweep") << "crossfader_moves" << "0.250 1.000 0.000 0.000" << 2;
+    // deck 1 at its 50% fader on the left at the middle (full), deck 2 through
+    // (full at the middle on its side as well: the djfsm rows cover through)
+    QTest::newRow("crossfader sweep") << "crossfader_moves" << "0.500 1.000 0.000 0.000" << 2;
     // no sides in the subscription of the day: the faders alone
     QTest::newRow("handover") << "master_handover" << "1.000 1.000 0.000 0.000" << 1;
+}
+
+void VdjBridge_Test::getDecksSettlesTheWeightWithItsWrite_data()
+{
+    QTest::addColumn<double>("crossfader");  // after get_decks in the same write, < 0 for none
+    QTest::addColumn<QStringList>("notified");
+
+    // deck 3 on the left at a full fader, the crossfader at three quarters
+    QTest::newRow("get_decks alone") << -1.0 << QStringList{ "3=0.50" };
+    QTest::newRow("get_decks, then the crossfader") << 0.25 << QStringList{ "3=1.00" };
+}
+
+void VdjBridge_Test::getDecksSettlesTheWeightWithItsWrite()
+{
+    QFETCH(double, crossfader);
+    QFETCH(QStringList, notified);
+
+    PerformRig rig;
+    const DjFsm *fsm = rig.bridge.djFsm();
+    auto global = [&](const char *trigger, const QVariant &value) {
+        QMetaObject::invokeMethod(&rig.bridge, "onGlobalTrigger", Q_ARG(QString, QString::fromLatin1(trigger)),
+                                  Q_ARG(QVariant, value));
+    };
+    rig.send(2, "volume", 1.0);
+    rig.send(2, "leftcross", QVariant("on"));
+    global("crossfader", 0.75);
+    rig.tickEnd();
+    QCOMPARE(fsm->deckCount(), 2);
+
+    QStringList seen;
+    connect(fsm, &DjFsm::weightChanged, &rig.bridge, [&](int deck) {
+        seen << QString("%1=%2").arg(deck).arg(fsm->deckAt(deck - 1).weight, 0, 'f', 2);
+    });
+    // get_decks opens a write like any trigger: its end settles the weight, once
+    global("get_decks", 4);
+    if (crossfader >= 0)
+        global("crossfader", crossfader);
+    QCOMPARE(seen, QStringList());
+    rig.tickEnd();
+    QCOMPARE(seen, notified);
 }
 
 void VdjBridge_Test::capture_mixWeights()

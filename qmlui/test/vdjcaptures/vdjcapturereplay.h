@@ -90,10 +90,9 @@ inline void wire(VdjTelemetryClient &client, DjFsm &fsm)
                      });
     QObject::connect(&client, &VdjTelemetryClient::globalTriggerReceived, &fsm,
                      [&fsm](const QString &trigger, const QVariant &value) {
+                         fsm.onGlobalTrigger(trigger, value);
                          if (trigger == QLatin1String("get_decks"))
                              fsm.setDeckCount(value.toInt());
-                         else
-                             fsm.onGlobalTrigger(trigger, value);
                      });
     QObject::connect(&client, &VdjTelemetryClient::tickEnded, &fsm, &DjFsm::onTickEnded);
 }
