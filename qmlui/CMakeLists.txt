@@ -76,6 +76,7 @@ set(SRC_FILES
     showfactory.cpp showfactory.h
     audiobpmtag.cpp audiobpmtag.h
     djmanager.cpp djmanager.h
+    djsetrecorder.cpp djsetrecorder.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h
     waveformimageprovider.cpp waveformimageprovider.h

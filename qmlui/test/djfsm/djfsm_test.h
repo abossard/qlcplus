@@ -68,6 +68,8 @@ private slots:
     void deckCountBetweenWritesSettlesAtOnce();
     void capture_weights_data();
     void capture_weights();
+    void settledEndsEveryWholeView_data();
+    void settledEndsEveryWholeView();
 };
 
 #endif // DJFSM_TEST_H
