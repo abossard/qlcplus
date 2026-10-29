@@ -120,6 +120,8 @@ private slots:
     void showClipCycleGuard();
     void nestedClipTrim_data();
     void nestedClipTrim();
+    void nestedClipTrimUndoSkipsARemovedClip_data();
+    void nestedClipTrimUndoSkipsARemovedClip();
     void nestedClipPaste_data();
     void nestedClipPaste();
     void nestedClipOpen_data();
@@ -5774,14 +5776,74 @@ void UpstreamIntegration_Test::nestedClipTrim()
         QVERIFY(sf->clipAutomation() == trimmed);
         // a network peer's edit is not history: it lands at once
         const QString peerEdit = ShowClipEditor::clipXml(set->id(), sf);
-        QVERIFY(!ShowClipEditor::applyClip(doc, sf->id(), peerEdit, true));
-        QVERIFY(ShowClipEditor::applyClip(doc, sf->id(), peerEdit, false));
+        QVERIFY(ShowClipEditor::applyClip(doc, sf->id(), peerEdit, true) == ShowClipEditor::ClipEdit::Waits);
+        QVERIFY(ShowClipEditor::applyClip(doc, sf->id(), peerEdit, false) == ShowClipEditor::ClipEdit::Applied);
         set->stopAndWait();
     }
     Tardis::instance()->undoAction();
     QCOMPARE(sf->startTime(), 4000u);
     QCOMPARE(sf->duration(), 8000u);
     QVERIFY(sf->clipAutomation() == before);
+}
+
+void UpstreamIntegration_Test::nestedClipTrimUndoSkipsARemovedClip_data()
+{
+    QTest::addColumn<bool>("trackRemoved");
+
+    // MCP removes items and tracks without history
+    QTest::newRow("the trimmed clip removed") << false;
+    QTest::newRow("its track removed") << true;
+}
+
+void UpstreamIntegration_Test::nestedClipTrimUndoSkipsARemovedClip()
+{
+    QFETCH(bool, trackRemoved);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    auto *editor = qobject_cast<ShowClipEditor*>(m_app->rootContext()->contextProperty("showClipEditor").value<QObject*>());
+    QVERIFY(manager);
+    QVERIFY(editor);
+    auto *set = new Show(doc);
+    QVERIFY(doc->addFunction(set));
+    set->setTimeDivision(Show::Time, 120);
+    auto *song = new Show(doc);
+    song->addTrack(new Track(Function::invalidId(), song));
+    QVERIFY(doc->addFunction(song));
+    auto *scene = new Scene(doc);
+    scene->setDuration(2000);
+    QVERIFY(doc->addFunction(scene));
+    manager->setCurrentShowID(set->id());
+    QQuickItem area(m_app->rootObject());
+    const auto reset = qScopeGuard([&]() {
+        manager->resetView();
+        manager->setCurrentShowID(Function::invalidId());
+    });
+    manager->addItems(&area, -1, 20000, {scene->id()});
+    manager->addItems(&area, -1, 4000, {song->id()});
+    QCOMPARE(set->tracks().count(), 2);
+    ShowFunction *earlier = set->tracks().first()->showFunctions().first();
+    Track *songTrack = set->tracks().last();
+    ShowFunction *sf = songTrack->showFunctions().first();
+    sf->setDuration(8000);
+    sf->setClipAutomation(recordedPlay(10000));
+
+    // an earlier step on another clip, then the trim
+    QTest::qWait(300);
+    const quint32 earlierDuration = earlier->duration();
+    QVERIFY(manager->setShowItemDuration(earlier, int(earlierDuration) + 1000));
+    QTest::qWait(300);
+    QVERIFY(editor->trimStart(sf, 5000));
+    QTest::qWait(300);
+    if (trackRemoved)
+        QVERIFY(set->removeTrack(songTrack->id()));
+    else
+        QVERIFY(songTrack->removeShowFunction(sf));
+
+    // the trim's step is passed, then the one before it undone
+    Tardis::instance()->undoAction();
+    QCOMPARE(earlier->duration(), earlierDuration + 1000);
+    Tardis::instance()->undoAction();
+    QCOMPARE(earlier->duration(), earlierDuration);
 }
 
 void UpstreamIntegration_Test::nestedClipPaste_data()

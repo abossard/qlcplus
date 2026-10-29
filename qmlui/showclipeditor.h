@@ -87,10 +87,11 @@ public:
 
     /** The undo payload: a clip's Show, start, duration and automation as
      *  XML. Applying it sets them on that clip in that Show, whichever Show
-     *  is shown; false when the Show or the clip is gone. History waits,
-     *  like a trim, while the Show plays */
+     *  is shown; Gone when the Show or the clip is (history passes the step).
+     *  History waits, like a trim, while the Show plays */
+    enum class ClipEdit { Applied, Waits, Gone };
     static QString clipXml(quint32 showId, const ShowFunction *sf);
-    static bool applyClip(Doc *doc, quint32 clipId, const QString &xml, bool history);
+    static ClipEdit applyClip(Doc *doc, quint32 clipId, const QString &xml, bool history);
 
 signals:
     void pathChanged();
