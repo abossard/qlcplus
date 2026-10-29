@@ -350,11 +350,12 @@ void ShowClipDriver::release(const Drive &drive)
             drive.function->requestAttributeOverride(Function::Intensity, back->second);
         return;
     }
+    // the pause is the clip's, whoever plays it on
+    drive.nested->setClipPaused(false);
     // Perform took it meanwhile, with its own settings
     if (performed(drive.nested))
         return;
 
-    drive.nested->setClipPaused(false);
     drive.nested->setSyncSource(drive.saved.syncSource);
     if (drive.audioSuppressed)
         drive.nested->setPerformAudioSuppressed(drive.saved.audioSuppressed);
