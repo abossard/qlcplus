@@ -168,6 +168,9 @@ signals:
      *  and after deckCountChanged when a count change between writes tracks
      *  a deck with a weight */
     void weightChanged(int deck);
+    /** The decks' view is whole: last at the end of every write, of a
+     *  disconnect and of a deck count change between writes */
+    void settled();
 
 private:
     /** A deck's song fields VDJ sent since their last commit */

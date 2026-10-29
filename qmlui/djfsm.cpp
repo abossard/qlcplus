@@ -108,6 +108,7 @@ void DjFsm::setDeckCount(int count)
         m_slots[d].deck.weight = weight;
         emit weightChanged(d + 1);
     }
+    emit settled();
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -264,6 +265,7 @@ void DjFsm::onTickEnded()
         if (was.weight != now.weight)
             emit weightChanged(d + 1);
     }
+    emit settled();
 }
 
 void DjFsm::settle(Slot &s)
@@ -349,6 +351,7 @@ void DjFsm::onDisconnected()
         if (hadWeight)
             emit weightChanged(i + 1);
     }
+    emit settled();
 }
 
 // ────────────────────────────────────────────────────────────────

@@ -1222,4 +1222,41 @@ void DjFsm_Test::capture_weights()
     QCOMPARE(activeSeen, active);
 }
 
+void DjFsm_Test::settledEndsEveryWholeView_data()
+{
+    QTest::addColumn<QString>("change");  // mix() steps on two settled decks
+    QTest::addColumn<int>("settled");
+
+    QTest::newRow("a write") << "v1=0.5|" << 1;
+    QTest::newRow("an empty write") << "|" << 1;
+    QTest::newRow("two writes") << "v1=0.5|v2=0.5|" << 2;
+    QTest::newRow("a write under way") << "v1=0.5;x=0.5" << 0;
+    QTest::newRow("a disconnect") << "disconnect" << 1;
+    QTest::newRow("a deck count between writes") << "count=4" << 1;
+    QTest::newRow("the same deck count") << "count=2" << 0;
+    // the snapshot's get_decks: the write's end only
+    QTest::newRow("a deck count inside a write") << "x=0.5;count=4|" << 1;
+}
+
+void DjFsm_Test::settledEndsEveryWholeView()
+{
+    QFETCH(QString, change);
+    QFETCH(int, settled);
+
+    DjFsm fsm;
+    fsm.onDeckTrigger(1, "masterdeck", "on");
+    mix(fsm, "l1=on;r2=on;x=0;v1=1;v2=1|");
+    QStringList seen;
+    connect(&fsm, &DjFsm::deckChanged, &fsm, [&]() { seen << "deck"; });
+    connect(&fsm, &DjFsm::weightChanged, &fsm, [&]() { seen << "weight"; });
+    connect(&fsm, &DjFsm::activeDeckChanged, &fsm, [&]() { seen << "active"; });
+    connect(&fsm, &DjFsm::deckCountChanged, &fsm, [&]() { seen << "count"; });
+    connect(&fsm, &DjFsm::settled, &fsm, [&]() { seen << "settled"; });
+    mix(fsm, change);
+    QCOMPARE(seen.count("settled"), settled);
+    // nothing of the change comes after it
+    if (settled > 0)
+        QCOMPARE(seen.last(), QString("settled"));
+}
+
 QTEST_MAIN(DjFsm_Test)

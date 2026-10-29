@@ -72,6 +72,7 @@
 #include "vdjbridge.h"
 #include "showfactory.h"
 #include "djmanager.h"
+#include "djsetrecorder.h"
 #include "stagewizard.h"
 
 #include "qlcfixturedefcache.h"
@@ -317,6 +318,11 @@ void App::startup()
             m_showCommandRecorder, &ShowCommandRecorder::releasePerform);
     connect(m_vdjBridge, &VdjBridge::performShowSelected,
             m_showManager, &ShowManager::setCurrentShowID);
+
+    // Perform records the DJ set
+    m_djSetRecorder = new DjSetRecorder(m_doc, m_vdjBridge->djFsm(), m_vdjBridge->showFactory(), this);
+    connect(m_vdjBridge, &VdjBridge::performModeChanged, m_djSetRecorder,
+            [this]() { m_djSetRecorder->setRecording(m_vdjBridge->performMode()); });
 
     // DJ Manager — standalone view for VDJ status + auto-created Shows.
     m_djManager = new DjManager(this, m_doc, m_vdjBridge,
