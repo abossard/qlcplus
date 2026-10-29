@@ -157,6 +157,23 @@ void ShowFunction::setIntensityOverrideId(int id)
     m_intensityOverrideId = id;
 }
 
+ShowClipAutomation ShowFunction::clipAutomation() const
+{
+    QMutexLocker locker(&m_clipAutomationMutex);
+    return m_clipAutomation;
+}
+
+void ShowFunction::setClipAutomation(const ShowClipAutomation &automation)
+{
+    {
+        QMutexLocker locker(&m_clipAutomationMutex);
+        if (automation == m_clipAutomation)
+            return;
+        m_clipAutomation = automation;
+    }
+    emit clipAutomationChanged();
+}
+
 /************************************************************************
  * Load & Save
  ***********************************************************************/
@@ -182,7 +199,22 @@ bool ShowFunction::loadXML(QXmlStreamReader &root)
     if (attrs.hasAttribute(KXMLShowFunctionLocked))
         setLocked(true);
 
-    root.skipCurrentElement();
+    while (root.readNextStartElement())
+    {
+        if (root.name() == KXMLShowClipAutomation)
+        {
+            ShowClipAutomation automation;
+            QString error;
+            // an unreadable automation is dropped: the clip stays
+            if (automation.loadXML(root, &error) == false)
+                qWarning() << Q_FUNC_INFO << "dropped an unreadable clip automation:" << error;
+            setClipAutomation(automation);
+        }
+        else
+        {
+            root.skipCurrentElement();
+        }
+    }
 
     return true;
 }
@@ -208,6 +240,10 @@ bool ShowFunction::saveXML(QXmlStreamWriter *doc, quint32 trackId) const
         doc->writeAttribute(KXMLShowFunctionColor, color().name());
     if (isLocked())
         doc->writeAttribute(KXMLShowFunctionLocked, QString::number(m_locked));
+
+    const ShowClipAutomation automation = clipAutomation();
+    if (automation.isEmpty() == false)
+        automation.saveXML(doc);
 
     doc->writeEndElement();
 

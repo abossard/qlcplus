@@ -798,6 +798,10 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
         if (func == nullptr)
             continue;
 
+        // a Function that plays this Show would play it inside itself
+        if (func->contains(m_currentShow->id()))
+            continue;
+
         const bool showIsBeats = !timeBasedDivision();
         const bool funcIsBeats = func->tempoType() == Function::Beats;
         if (showIsBeats != funcIsBeats && bpmNumber() <= 0)

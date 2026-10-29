@@ -428,14 +428,8 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 if (function == NULL)
                 { results.push_back({{"error", "function not found"}}); continue; }
 
-                // A Show cannot contain itself, and nesting a Show inside a Show
-                // is not something the timeline supports.
-                if (function->id() == show->id() || function->type() == Function::ShowType)
-                {
-                    results.push_back({{"functionID", (int)function->id()},
-                                       {"error", "a show cannot be placed on a show timeline"}});
-                    continue;
-                }
+                // A nested Show plays on the timeline; one that contains this
+                // Show, or this Show itself, would be a containment cycle.
                 const std::string cycle = mcp::functionCycleError(doc, show->id(), {function->id()});
                 if (!cycle.empty())
                 {
@@ -552,7 +546,8 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                      "are converted at the show's positive BPM without changing function tempo. Timing "
                      "that cannot round-trip in milliseconds is rejected before mutation. The track "
                      "is created if it does not exist. An item overlapping one already on the same "
-                     "track is refused, with the conflicting item reported. Batch: {\"items\": [...]}.")
+                     "track is refused, with the conflicting item reported. A Show plays nested, "
+                     "unless it contains this Show. Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_show_items — remove timeline items, or whole tracks

@@ -263,6 +263,7 @@ bool Show::copyFrom(const Function* function)
                 showFunc->setDuration(sfunc->duration());
                 showFunc->setColor(sfunc->color());
                 showFunc->setLocked(sfunc->isLocked());
+                showFunc->setClipAutomation(sfunc->clipAutomation());
             }
         }
     }
@@ -457,6 +458,16 @@ void Show::stopRequested()
 void Show::setPerformAudioSuppressed(bool suppress)
 {
     m_performAudioSuppressed.store(suppress, std::memory_order_relaxed);
+}
+
+void Show::setMasterIntensity(qreal level)
+{
+    m_masterIntensity.store(qBound(0.0, level, 1.0), std::memory_order_relaxed);
+}
+
+void Show::setDominant(bool dominant)
+{
+    m_dominant.store(dominant, std::memory_order_relaxed);
 }
 
 /*****************************************************************************
