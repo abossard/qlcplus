@@ -5487,6 +5487,68 @@ void ShowRunner_Test::clipLevelLeavesAVcAdjustment()
     stopAndSettle(doc, show);
 }
 
+void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt_data()
+{
+    QTest::addColumn<bool>("stopTheOther");
+    QTest::addColumn<bool>("adjusted");
+    QTest::addColumn<qreal>("intensity");
+
+    QTest::newRow("the other Show stops") << true << false << 1.0;
+    QTest::newRow("the other Show's clip ends") << false << false << 1.0;
+    // an Adjust slider moved after the other Show's level keeps its value
+    QTest::newRow("a VC adjustment after the other Show's level") << true << true << 0.3;
+}
+
+void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt()
+{
+    QFETCH(bool, stopTheOther);
+    QFETCH(bool, adjusted);
+    QFETCH(qreal, intensity);
+
+    // one Scene on a clip of two Shows, two decks' songs: the dark one leaves
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    QVector<Show *> shows;
+    for (quint32 duration : { 60000u, 500u })
+    {
+        Show *show = new Show(&doc);
+        doc.addFunction(show);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, duration);
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(0);
+        shows.append(show);
+    }
+    Show *playing = shows.at(0), *other = shows.at(1);
+    timer->timerTick();
+    other->setMasterIntensity(0.0);
+    auto pushBoth = [&](quint32 ms) {
+        for (Show *show : std::as_const(shows))
+            show->setExternalElapsedTime(ms);
+        timer->timerTick();
+        timer->timerTick();
+    };
+    pushBoth(100);
+    QCOMPARE(scene->getAttributeValue(Function::Intensity), 0.0);
+    if (adjusted)
+        scene->adjustAttribute(0.3, scene->requestAttributeOverride(Function::Intensity, 0.3));
+
+    if (stopTheOther)
+        stopAndSettle(doc, other);
+    else
+        pushBoth(1000);
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - intensity) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, playing);
+    stopAndSettle(doc, other);
+}
+
 void ShowRunner_Test::clipLevelFromTheFirstFrame_data()
 {
     QTest::addColumn<quint32>("laterDuration");

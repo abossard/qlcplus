@@ -27,6 +27,11 @@
 #include "show.h"
 #include "doc.h"
 
+namespace
+{
+const qreal kSameLevel = 1e-9;
+}
+
 ShowClipDriver::ShowClipDriver(const Doc *doc, quint32 showId)
     : m_doc(doc)
     , m_show(qobject_cast<Show *>(doc->function(showId)))
@@ -75,6 +80,12 @@ ShowClipDriver::Drive &ShowClipDriver::adopt(const ShowFunction *clip, Function 
     else if (drive.nested == nullptr && f->isRunning() && f->hasSource(parent()))
     {
         drive.command = intensityOverride(f);
+    }
+    // the level this Show's clips replaced stays theirs to give back
+    if (ended != m_drives.constEnd() && drive.nested == nullptr)
+    {
+        drive.wrote = ended->wrote;
+        drive.replaced = ended->replaced;
     }
 
     if (drive.nested != nullptr)
@@ -247,14 +258,31 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
     const bool playing = drive.function->stopped() == false && drive.function->hasSource(parent());
     if (starting == false && playing == false)
         return;
+    // what this write replaces, unless it is the clips' own last write
+    if (drive.function->attributes().at(Function::Intensity).m_isOverridden == false)
+        drive.replaced.reset();
+    else if (drive.wrote < 0.0 || qAbs(intensityOverride(drive.function) - drive.wrote) > kSameLevel)
+        drive.replaced = intensityOverride(drive.function);
     drive.function->requestAttributeOverride(Function::Intensity, level);
     drive.level = level;
+    drive.wrote = level;
 }
 
 void ShowClipDriver::release(const Drive &drive)
 {
+    if (drive.nested == nullptr)
+    {
+        // another owner plays it on: the level the clips replaced comes back,
+        // unless somebody wrote over theirs since
+        const Function *f = drive.function;
+        if (drive.replaced && f->isRunning() && f->stopped() == false && f->hasSource(parent()) == false &&
+            f->attributes().at(Function::Intensity).m_isOverridden &&
+            qAbs(intensityOverride(f) - drive.wrote) <= kSameLevel)
+            drive.function->requestAttributeOverride(Function::Intensity, *drive.replaced);
+        return;
+    }
     // Perform took it meanwhile, with its own settings
-    if (drive.nested == nullptr || performed(drive.nested))
+    if (performed(drive.nested))
         return;
 
     drive.nested->setSyncSource(drive.saved.syncSource);

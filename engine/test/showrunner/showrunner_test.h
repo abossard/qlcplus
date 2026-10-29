@@ -195,6 +195,8 @@ private slots:
     void clipLevelLeavesAnotherOwnersFunction();
     void clipLevelLeavesAVcAdjustment_data();
     void clipLevelLeavesAVcAdjustment();
+    void sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt_data();
+    void sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt();
     void clipLevelFromTheFirstFrame_data();
     void clipLevelFromTheFirstFrame();
     void commandIntensityMultipliesTheClipLevel_data();
