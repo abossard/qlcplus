@@ -25,7 +25,9 @@
 #include <QMap>
 #include <QPair>
 #include <QVector>
+#include <optional>
 
+#include "functionparent.h"
 #include "showclipautomation.h"
 
 class ShowFunction;
@@ -43,9 +45,12 @@ class Doc;
  * its track intensity x the envelope x the Show's master intensity. A nested
  * Show follows its clip every tick instead: External clock from the position
  * map, master intensity from that level, dominant when the clip and this
- * Show are. It plays with its Audio suppressed and gets its own settings
- * back once its clip ends. A Function plays once: of its clips active at a
- * time, the one that starts last drives it.
+ * Show are, with its Audio suppressed when this Show suppresses nested audio
+ * or its own.
+ * It gets its own settings back once its clip ends, or at once when somebody
+ * else stopped it. A Function plays once: of its clips active at a time, the
+ * one that starts last drives it. Commands multiply their intensity into the
+ * clip's level.
  */
 class ShowClipDriver final
 {
@@ -56,7 +61,8 @@ public:
      *  in the clock units of f */
     void start(const ShowFunction *clip, Function *f, quint32 at, const QMap<quint32, qreal> &trackIntensities);
 
-    /** clip, also active, plays f too */
+    /** clip, also active, plays f too; one this Show plays without a clip
+     *  driving it is taken over */
     void join(const ShowFunction *clip, Function *f);
 
     /** Each tick: what is still running takes the clock, level and dominance
@@ -67,6 +73,17 @@ public:
 
     /** A track intensity changed: the levels follow at once, paused too */
     void applyLevels(const QMap<quint32, qreal> &trackIntensities);
+
+    /** A command set f's intensity: false when no clip plays f, else the clip
+     *  multiplies it into its level, at once */
+    bool setCommandIntensity(Function *f, qreal value, const QMap<quint32, qreal> &trackIntensities);
+
+    /** The intensity commands set on f while a clip plays it for this Show,
+     *  none otherwise */
+    std::optional<qreal> commandIntensity(const Function *f) const;
+
+    /** The value of f's Intensity override (Single), 1.0 without one */
+    static qreal intensityOverride(const Function *f);
 
     /** Every nested Show gets its settings back */
     void releaseAll();
@@ -101,10 +118,19 @@ private:
         quint32 at = 0;
         /** Last level applied to a Function that is no Show */
         qreal level = -1.0;
+        /** What commands set, multiplied into the level */
+        qreal command = 1.0;
+        /** The last tick found this Show playing it */
+        bool owned = true;
         Show *nested = nullptr;
         Settings saved;
+        /** The clip suppressed the nested Show's Audio */
+        bool audioSuppressed = false;
     };
 
+    FunctionParent parent() const;
+    /** A new drive of f for clip at its clip time at, taking over a nested Show */
+    Drive &adopt(const ShowFunction *clip, Function *f, quint32 at);
     Clip clipOf(const ShowFunction *clip) const;
     void applyLevel(Drive &drive, const QMap<quint32, qreal> &trackIntensities);
     void release(const Drive &drive);

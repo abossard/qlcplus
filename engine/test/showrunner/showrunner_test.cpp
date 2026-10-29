@@ -4874,7 +4874,6 @@ void ShowRunner_Test::nestedShowFollowsThePositionMap()
 
     QVERIFY(n.song->isRunning());
     QCOMPARE(n.song->syncSource(), int(ShowRunner::External));
-    QVERIFY(n.song->performAudioSuppressed());
     QCOMPARE(n.song->externalElapsedTime(), songMs);
     QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
     QVERIFY(n.scene->isRunning());
@@ -4908,6 +4907,7 @@ void ShowRunner_Test::nestedShowGetsItsSettingsBack()
     Scene *other = makeScene(doc, makeFixture(doc, 1)->id(), 0, 100);
     addClip(n.set, keepAlive, other->id(), 0, 60000);
 
+    n.set->setNestedAudioSuppressed(true);
     const int sync = customized ? int(ShowRunner::External) : int(ShowRunner::Autonomous);
     const qreal master = customized ? 0.7 : 1.0;
     n.song->setSyncSource(sync);
@@ -5384,7 +5384,14 @@ void ShowRunner_Test::clipLevelSurvivesBackToBackRestart()
     show->adjustAttribute(trackIntensity, 0);
     show->setMasterIntensity(master);
 
-    playExternal(doc, show, {100, 300, 320});
+    playExternal(doc, show, {100});
+    // the frame the restart writes already has the level
+    show->setExternalElapsedTime(300);
+    doc.masterTimer()->timerTick();
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - 0.5) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+    playExternal(doc, show, {320});
 
     QVERIFY(scene->isRunning());
     QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - 0.5) < 1e-9,
@@ -5473,6 +5480,454 @@ void ShowRunner_Test::clipLevelFromTheFirstFrame()
              qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
 
     stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::commandIntensityMultipliesTheClipLevel_data()
+{
+    QTest::addColumn<bool>("nested");
+    QTest::addColumn<qreal>("trackIntensity");
+    QTest::addColumn<ClipLevels>("envelope");
+    QTest::addColumn<quint32>("clipStart");
+    QTest::addColumn<quint32>("secondClip"); // 0: one clip to 60000, else a first clip ending at 1000
+    QTest::addColumn<QList<quint32>>("positions");
+    QTest::addColumn<qreal>("intensity");
+
+    // the command track sets 0.4 at 200 on what the clip plays
+    QTest::newRow("held clip level") << false << 0.5 << ClipLevels() << 0u << 0u << QList<quint32>{300} << 0.2;
+    QTest::newRow("ramping clip level")
+        << false << 1.0 << ClipLevels{clipLevel(0, 0.5), clipLevel(1000, 1.0)} << 0u << 0u
+        << QList<quint32>{300, 600} << 0.32;
+    QTest::newRow("a clip starting on a commanded Function")
+        << false << 0.5 << ClipLevels() << 500u << 0u << QList<quint32>{300, 700} << 0.2;
+    QTest::newRow("a move back undoes the command only")
+        << false << 0.5 << ClipLevels() << 0u << 0u << QList<quint32>{300, 150} << 0.5;
+    QTest::newRow("a nested Show's master")
+        << true << 1.0 << ClipLevels{clipLevel(0, 0.5)} << 0u << 0u << QList<quint32>{300} << 0.2;
+    QTest::newRow("kept through a back-to-back restart")
+        << false << 0.5 << ClipLevels() << 0u << 1000u << QList<quint32>{300, 1100} << 0.2;
+    QTest::newRow("a gap ends it, jumped over")
+        << false << 0.5 << ClipLevels() << 0u << 1010u << QList<quint32>{300, 1020} << 0.5;
+    QTest::newRow("a gap ends it, sampled in it")
+        << false << 0.5 << ClipLevels() << 0u << 1010u << QList<quint32>{300, 1000, 1020} << 0.5;
+}
+
+void ShowRunner_Test::commandIntensityMultipliesTheClipLevel()
+{
+    QFETCH(bool, nested);
+    QFETCH(qreal, trackIntensity);
+    QFETCH(ClipLevels, envelope);
+    QFETCH(quint32, clipStart);
+    QFETCH(quint32, secondClip);
+    QFETCH(QList<quint32>, positions);
+    QFETCH(qreal, intensity);
+
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    Function *target = nested ? static_cast<Function *>(n.song) : n.scene;
+    addClip(n.set, n.track, target->id(), clipStart, secondClip ? 1000 : 60000, clipAutomation({}, envelope));
+    if (secondClip)
+        addClip(n.set, n.track, target->id(), secondClip, 60000, clipAutomation({}, envelope));
+    n.set->adjustAttribute(trackIntensity, 0);
+    ShowCommandTrack track;
+    if (clipStart > 0)
+        QVERIFY(track.insert(ShowCommand::start(1, 0, target->id())));
+    QVERIFY(track.insert(ShowCommand::setIntensity(2, 200, target->id(), 0.4)));
+    QVERIFY(track.setExtent(60000));
+    QVERIFY(n.set->setCommandTrack(track));
+
+    playExternal(doc, n.set, positions);
+
+    const qreal actual = nested ? n.song->masterIntensity() : n.scene->getAttributeValue(Function::Intensity);
+    QVERIFY2(qAbs(actual - intensity) < 1e-9, qPrintable(QString::number(actual)));
+    if (nested)
+        QCOMPARE(n.song->getAttributeValue(0), 1.0);
+
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::regainPutsBackTheTrackState_data()
+{
+    QTest::addColumn<quint32>("recordTime");
+    QTest::addColumn<bool>("putBack");
+
+    // the Show loses dominance at 200 and regains it at 3000
+    QTest::newRow("set before the loss") << 100u << true;
+    QTest::newRow("set while not dominant") << 1500u << true;
+    QTest::newRow("set after the position") << 5000u << false;
+}
+
+void ShowRunner_Test::regainPutsBackTheTrackState()
+{
+    QFETCH(quint32, recordTime);
+    QFETCH(bool, putBack);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    const QUuid control = QUuid::createUuid();
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, recordTime, control, true)));
+    QVERIFY(track.insert(ShowCommand::setButtonState(2, 2000, QUuid::createUuid(), true)));
+    QVERIFY(track.setExtent(10000));
+    QVERIFY(show->setCommandTrack(track));
+    show->attachControlExecutor(true);
+    const auto replayed = [&]() {
+        QSet<quint32> ids;
+        for (const ShowControlBatch &batch : show->takeControlBatches())
+        {
+            for (const ShowCommand &cmd : batch.commands)
+                ids.insert(cmd.id);
+            show->acknowledgeControlBatch(batch.traversal, batch.seq);
+        }
+        return ids;
+    };
+
+    playExternal(doc, show, {200});
+    replayed();
+    // another Show drives the controls meanwhile
+    show->setDominant(false);
+    playExternal(doc, show, {3000});
+    QVERIFY(replayed().isEmpty());
+
+    show->setDominant(true);
+    timer->timerTick();
+    timer->timerTick();
+
+    QSet<quint32> expected{2};
+    if (putBack)
+        expected.insert(1);
+    QCOMPARE(replayed(), expected);
+
+    stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::regainCollapsesCrossedStartStop_data()
+{
+    QTest::addColumn<bool>("executor");
+
+    QTest::newRow("no VC executor") << false;
+    QTest::newRow("VC executor catching up") << true;
+}
+
+void ShowRunner_Test::regainCollapsesCrossedStartStop()
+{
+    QFETCH(bool, executor);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::setButtonState(1, 50, QUuid::createUuid(), true)));
+    QVERIFY(track.insert(ShowCommand::start(2, 1500, scene->id())));
+    QVERIFY(track.insert(ShowCommand::stop(3, 1800, scene->id())));
+    QVERIFY(track.setExtent(10000));
+    QVERIFY(show->setCommandTrack(track));
+    if (executor)
+        show->attachControlExecutor(true);
+    const auto acknowledge = [&]() {
+        for (const ShowControlBatch &batch : show->takeControlBatches())
+            show->acknowledgeControlBatch(batch.traversal, batch.seq);
+    };
+
+    playExternal(doc, show, {200});
+    acknowledge();
+    show->setDominant(false);
+    playExternal(doc, show, {3000});
+    QSignalSpy started(scene, &Function::running);
+
+    show->setDominant(true);
+    for (int i = 0; i < 6; i++)
+    {
+        timer->timerTick();
+        acknowledge();
+    }
+
+    // the Start and Stop it crossed meanwhile leave the Scene as they found it
+    QCOMPARE(started.count(), 0);
+    QVERIFY(scene->isRunning() == false);
+
+    stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::nestedAudioFollowsTheParentSetting_data()
+{
+    QTest::addColumn<bool>("suppressNested");
+    QTest::addColumn<bool>("songSuppressed");
+    QTest::addColumn<bool>("performed");  // Perform plays the set with its Audio suppressed
+    QTest::addColumn<bool>("elsewhere");  // somebody else suppresses the song during the clip
+
+    QTest::newRow("a set that keeps nested audio") << false << false << false << false;
+    QTest::newRow("a set that suppresses nested audio") << true << false << false << false;
+    QTest::newRow("a song suppressed already") << false << true << false << false;
+    QTest::newRow("a set Perform suppresses") << false << false << true << false;
+    QTest::newRow("suppressed by somebody else during the clip") << false << false << false << true;
+}
+
+void ShowRunner_Test::nestedAudioFollowsTheParentSetting()
+{
+    QFETCH(bool, suppressNested);
+    QFETCH(bool, songSuppressed);
+    QFETCH(bool, performed);
+    QFETCH(bool, elsewhere);
+
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.song->id(), 0, 200);
+    n.set->setNestedAudioSuppressed(suppressNested);
+    n.set->setPerformAudioSuppressed(performed);
+    n.song->setPerformAudioSuppressed(songSuppressed);
+
+    playExternal(doc, n.set, {100});
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(n.song->performAudioSuppressed(), suppressNested || songSuppressed || performed);
+    if (elsewhere)
+        n.song->setPerformAudioSuppressed(true);
+
+    playExternal(doc, n.set, {300});
+    QVERIFY(n.song->isRunning() == false);
+    QCOMPARE(n.song->performAudioSuppressed(), songSuppressed || elsewhere);
+
+    if (n.set->isRunning())
+        stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::nestedShowAnotherOwnerRestartedIsLeftAlone_data()
+{
+    QTest::addColumn<bool>("restarted");
+
+    QTest::newRow("stopped by Master") << false;
+    QTest::newRow("stopped by Master, started from a VC button") << true;
+}
+
+void ShowRunner_Test::nestedShowAnotherOwnerRestartedIsLeftAlone()
+{
+    QFETCH(bool, restarted);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.song->id(), 0, 2000,
+            clipAutomation({clipSegment(0, 30000, 1.0)}, {clipLevel(0, 0.4)}, {clipStep(0, false)}));
+    n.set->setNestedAudioSuppressed(true);
+    playExternal(doc, n.set, {100});
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::External));
+
+    n.song->stop(FunctionParent::master());
+    timer->timerTick();
+    const FunctionParent button(FunctionParent::ManualVCWidget, 77);
+    if (restarted)
+    {
+        n.song->start(timer, button);
+        timer->timerTick();
+    }
+    playExternal(doc, n.set, {300});
+
+    // its own settings are back at once, and the clip pushes nothing more
+    QCOMPARE(n.song->isRunning(), restarted);
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::Autonomous));
+    QVERIFY(n.song->performAudioSuppressed() == false);
+    QCOMPARE(n.song->masterIntensity(), 1.0);
+    QVERIFY(n.song->isDominant());
+    n.song->setMasterIntensity(0.9);
+    playExternal(doc, n.set, {600, 2500});
+    QCOMPARE(n.song->masterIntensity(), 0.9);
+    QCOMPARE(n.song->isRunning(), restarted);
+
+    if (n.set->isRunning())
+        stopAndSettle(doc, n.set);
+    n.song->stop(button);
+    timer->timerTick();
+}
+
+void ShowRunner_Test::commandIntensityOfOtherOwners_data()
+{
+    QTest::addColumn<QString>("owner");
+    QTest::addColumn<qreal>("intensity");
+
+    // the clip plays the Scene on a 0.6 track
+    QTest::newRow("a VC button played it at half before the clip") << "before" << 0.6;
+    QTest::newRow("a VC button restarted it, then a command sets 0.4") << "restarted" << 0.4;
+}
+
+void ShowRunner_Test::commandIntensityOfOtherOwners()
+{
+    QFETCH(QString, owner);
+    QFETCH(qreal, intensity);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    addClip(show, track, scene->id(), 500, 60000);
+    show->adjustAttribute(0.6, 0);
+    ShowCommandTrack commands;
+    QVERIFY(commands.insert(ShowCommand::setIntensity(1, 1500, scene->id(), 0.4)));
+    QVERIFY(commands.setExtent(60000));
+    QVERIFY(show->setCommandTrack(commands));
+    const FunctionParent button(FunctionParent::ManualVCWidget, 77);
+
+    if (owner == "before")
+    {
+        scene->start(timer, button);
+        scene->requestAttributeOverride(Function::Intensity, 0.5);
+        timer->timerTick();
+        playExternal(doc, show, {700});
+    }
+    else
+    {
+        playExternal(doc, show, {700});
+        scene->stop(FunctionParent::master());
+        timer->timerTick();
+        scene->start(timer, button);
+        timer->timerTick();
+        playExternal(doc, show, {1600});
+    }
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - intensity) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, show);
+    scene->stop(button);
+    timer->timerTick();
+}
+
+void ShowRunner_Test::nestedShowCommandStartedThenClippedAgain()
+{
+    // somebody else stops the song in its first clip, the set's command track
+    // starts it again, and the set's next clip of it drives it once more
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.song->id(), 0, 1000, clipAutomation({clipSegment(0, 0, 1.0)}));
+    addClip(n.set, n.track, n.song->id(), 1000, 5000, clipAutomation({clipSegment(0, 40000, 1.0)}));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 600, n.song->id())));
+    QVERIFY(track.setExtent(6000));
+    QVERIFY(n.set->setCommandTrack(track));
+
+    playExternal(doc, n.set, {300});
+    n.song->stop(FunctionParent::master());
+    timer->timerTick();
+    playExternal(doc, n.set, {700});
+    QVERIFY(n.song->isRunning());
+
+    playExternal(doc, n.set, {1500});
+
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::External));
+    QCOMPARE(n.song->externalElapsedTime(), quint32(40500));
+
+    stopAndSettle(doc, n.set);
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::Autonomous));
+}
+
+void ShowRunner_Test::nestedShowTakenOverKeepsEveryClip()
+{
+    // the set's command track starts the song again after somebody else stopped
+    // it; a shorter clip on another track takes it over, and when that clip
+    // ends the long one drives it again
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    NestedSet n = makeNestedSet(doc);
+    Track *second = new Track(Function::invalidId());
+    n.set->addTrack(second);
+    addClip(n.set, n.track, n.song->id(), 0, 10000, clipAutomation({clipSegment(0, 0, 1.0)}));
+    addClip(n.set, second, n.song->id(), 3000, 2000, clipAutomation({clipSegment(0, 50000, 1.0)}));
+    ShowCommandTrack track;
+    QVERIFY(track.insert(ShowCommand::start(1, 600, n.song->id())));
+    QVERIFY(track.setExtent(10000));
+    QVERIFY(n.set->setCommandTrack(track));
+
+    playExternal(doc, n.set, {300});
+    n.song->stop(FunctionParent::master());
+    timer->timerTick();
+    playExternal(doc, n.set, {700, 3000});
+    QCOMPARE(n.song->externalElapsedTime(), quint32(50000));
+
+    playExternal(doc, n.set, {6000});
+
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(n.song->externalElapsedTime(), quint32(6000));
+
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::commandIntensityAcrossClipBoundaries_data()
+{
+    QTest::addColumn<bool>("overlapping");
+    QTest::addColumn<bool>("takenByAnotherShow");
+    QTest::addColumn<qreal>("intensity");
+
+    // a 0.5 track; the command track sets 0.4 at 200; the next clip starts at 1000
+    QTest::newRow("the clip ending there was not the driving one") << true << false << 0.2;
+    QTest::newRow("another Show had taken the Function") << false << true << 0.5;
+}
+
+void ShowRunner_Test::commandIntensityAcrossClipBoundaries()
+{
+    QFETCH(bool, overlapping);
+    QFETCH(bool, takenByAnotherShow);
+    QFETCH(qreal, intensity);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *other = new Show(&doc);
+    doc.addFunction(other);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    addClip(show, track, scene->id(), 0, 1000);
+    addClip(show, track, scene->id(), 1000, 60000);
+    if (overlapping)
+    {
+        Track *overlay = new Track(Function::invalidId());
+        show->addTrack(overlay);
+        addClip(show, overlay, scene->id(), 500, 400);
+    }
+    show->adjustAttribute(0.5, 0);
+    ShowCommandTrack commands;
+    QVERIFY(commands.insert(ShowCommand::setIntensity(1, 200, scene->id(), 0.4)));
+    QVERIFY(commands.setExtent(60000));
+    QVERIFY(show->setCommandTrack(commands));
+
+    // the other Show plays the Scene over [600, 1000), ahead in the timer
+    Track *otherTrack = new Track(scene->id());
+    other->addTrack(otherTrack);
+    if (takenByAnotherShow)
+        addClip(other, otherTrack, scene->id(), 600, 400);
+    other->setSyncSource(ShowRunner::External);
+    other->start(timer, FunctionParent::master());
+    other->setExternalElapsedTime(0);
+
+    playExternal(doc, show, {300});
+    if (takenByAnotherShow)
+    {
+        scene->stop(FunctionParent::master());
+        timer->timerTick();
+    }
+    for (quint32 ms : {700u, 800u, 1100u})
+    {
+        other->setExternalElapsedTime(ms);
+        show->setExternalElapsedTime(ms);
+        timer->timerTick();
+        timer->timerTick();
+    }
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - intensity) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, show);
+    stopAndSettle(doc, other);
 }
 
 QTEST_GUILESS_MAIN(ShowRunner_Test)

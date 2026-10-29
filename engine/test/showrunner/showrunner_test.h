@@ -195,6 +195,22 @@ private slots:
     void clipLevelLeavesAnotherOwnersFunction();
     void clipLevelFromTheFirstFrame_data();
     void clipLevelFromTheFirstFrame();
+    void commandIntensityMultipliesTheClipLevel_data();
+    void commandIntensityMultipliesTheClipLevel();
+    void commandIntensityOfOtherOwners_data();
+    void commandIntensityOfOtherOwners();
+    void regainPutsBackTheTrackState_data();
+    void regainPutsBackTheTrackState();
+    void regainCollapsesCrossedStartStop_data();
+    void regainCollapsesCrossedStartStop();
+    void nestedAudioFollowsTheParentSetting_data();
+    void nestedAudioFollowsTheParentSetting();
+    void nestedShowAnotherOwnerRestartedIsLeftAlone_data();
+    void nestedShowAnotherOwnerRestartedIsLeftAlone();
+    void nestedShowCommandStartedThenClippedAgain();
+    void nestedShowTakenOverKeepsEveryClip();
+    void commandIntensityAcrossClipBoundaries_data();
+    void commandIntensityAcrossClipBoundaries();
 
 private:
     Scene *createScene();

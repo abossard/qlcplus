@@ -215,6 +215,9 @@ private:
      *  stopped target is a no-op: commands never resurrect one. */
     void applyCommandIntensity(Function *f, qreal value);
 
+    /** The intensity commands set on f, without the level a clip multiplies in */
+    qreal commandIntensityOf(const Function *function) const;
+
     /** Drop a superseded ordinary clip end for this target, so it cannot
      *  terminate a later command activation */
     void retireClipDeadline(quint32 functionId);

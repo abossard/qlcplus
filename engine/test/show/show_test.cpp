@@ -977,4 +977,35 @@ void Show_Test::clipAutomationSurvivesCopyAndXml()
     m_doc->deleteFunction(song->id());
 }
 
+void Show_Test::nestedAudioSuppressedIsSaved_data()
+{
+    QTest::addColumn<bool>("suppressed");
+
+    QTest::newRow("default keeps nested audio") << false;
+    QTest::newRow("a set that suppresses nested audio") << true;
+}
+
+void Show_Test::nestedAudioSuppressedIsSaved()
+{
+    QFETCH(bool, suppressed);
+
+    Show *show = new Show(m_doc);
+    m_doc->addFunction(show);
+    QCOMPARE(show->nestedAudioSuppressed(), false);
+    show->setNestedAudioSuppressed(suppressed);
+    QCOMPARE(show->nestedAudioSuppressed(), suppressed);
+
+    const QString xml = saveShow(*show);
+    // written only when set, so upstream and older workspaces read the same
+    QCOMPARE(xml.contains("NestedAudioSuppressed"), suppressed);
+    Show loaded(m_doc);
+    QVERIFY(loadShow(loaded, xml));
+    QCOMPARE(loaded.nestedAudioSuppressed(), suppressed);
+    Show copy(m_doc);
+    QVERIFY(copy.copyFrom(show));
+    QCOMPARE(copy.nestedAudioSuppressed(), suppressed);
+
+    m_doc->deleteFunction(show->id());
+}
+
 QTEST_APPLESS_MAIN(Show_Test)
