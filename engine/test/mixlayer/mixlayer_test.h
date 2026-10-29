@@ -41,6 +41,12 @@ private slots:
     void sceneLayerFlipMidRun();
     void childFollowsParent_data();
     void childFollowsParent();
+    void sharedChildFollowsHighestParent_data();
+    void sharedChildFollowsHighestParent();
+    void manualStartCountsAsLayerZero_data();
+    void manualStartCountsAsLayerZero();
+    void flashIgnoresLastRunLayer_data();
+    void flashIgnoresLastRunLayer();
 
 private:
     Scene *createScene(uchar ltp, uchar htp);

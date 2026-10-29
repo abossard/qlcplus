@@ -283,17 +283,172 @@ void MixLayer_Test::childFollowsParent()
     QCOMPARE(uchar(values.at(kHtp)), uchar(200));
     QCOMPARE(child->mixLayer()->effective(), flippedParentLayer);
 
-    // Started on its own, the child no longer follows the parent
+    // Stopped, the child keeps the link for its fade out; started on its own, it drops it
     parent->stop(FunctionParent::master());
     for (int i = 0; i < 3; i++)
         timer.timerTick();
     QVERIFY(child->isRunning() == false);
+    QCOMPARE(child->mixLayer()->effective(), flippedParentLayer);
 
     child->start(&timer, FunctionParent::master());
     QCOMPARE(child->mixLayer()->effective(), 0);
 
     child->stop(FunctionParent::master());
     other->stop(FunctionParent::master());
+    timer.timerTick();
+}
+
+void MixLayer_Test::sharedChildFollowsHighestParent_data()
+{
+    QTest::addColumn<int>("firstLayer");
+    QTest::addColumn<int>("secondLayer");
+    QTest::addColumn<int>("expectedLtp");
+    QTest::addColumn<int>("expectedLtpAfterFirstStops");
+
+    // Two Collections run the same child Scene (LTP 100, HTP 150), the first one
+    // starts it; a newer standalone Scene sets LTP 50 and HTP 200
+    QTest::newRow("second parent above") << -1 << 1 << 100 << 100;
+    QTest::newRow("first parent above, then leaves") << 1 << -1 << 100 << 50;
+    QTest::newRow("both below") << -1 << -1 << 50 << 50;
+}
+
+void MixLayer_Test::sharedChildFollowsHighestParent()
+{
+    QFETCH(int, firstLayer);
+    QFETCH(int, secondLayer);
+    QFETCH(int, expectedLtp);
+    QFETCH(int, expectedLtpAfterFirstStops);
+
+    MasterTimer timer(m_doc);
+    Scene *child = createScene(100, 150);
+    Scene *other = createScene(50, 200);
+    Function *first = createParent("Collection", child->id());
+    Function *second = createParent("Collection", child->id());
+    first->mixLayer()->setLayer(firstLayer);
+    second->mixLayer()->setLayer(secondLayer);
+
+    first->start(&timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+    second->start(&timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+    other->start(&timer, FunctionParent::master());
+    timer.timerTick();
+
+    QByteArray values = writeUniverse();
+    QCOMPARE(uchar(values.at(kLtp)), uchar(expectedLtp));
+    QCOMPARE(uchar(values.at(kHtp)), uchar(200));
+
+    first->stop(FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+    QVERIFY(child->isRunning());
+
+    values = writeUniverse();
+    QCOMPARE(uchar(values.at(kLtp)), uchar(expectedLtpAfterFirstStops));
+    QCOMPARE(uchar(values.at(kHtp)), uchar(200));
+
+    second->stop(FunctionParent::master());
+    other->stop(FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+}
+
+void MixLayer_Test::manualStartCountsAsLayerZero_data()
+{
+    QTest::addColumn<int>("parentLayer");
+    QTest::addColumn<bool>("manualFirst");
+    QTest::addColumn<int>("expectedLtp");
+
+    // An older standalone Scene sets LTP 50 and HTP 200; the child Scene (LTP 100,
+    // HTP 150) is started manually and by a Collection, so it is the newest
+    QTest::newRow("manual first, parent below") << -1 << true << 100;
+    QTest::newRow("parent below first, then manual") << -1 << false << 100;
+    QTest::newRow("manual first, parent above") << 1 << true << 100;
+}
+
+void MixLayer_Test::manualStartCountsAsLayerZero()
+{
+    QFETCH(int, parentLayer);
+    QFETCH(bool, manualFirst);
+    QFETCH(int, expectedLtp);
+
+    MasterTimer timer(m_doc);
+    Scene *child = createScene(100, 150);
+    Scene *other = createScene(50, 200);
+    Function *parent = createParent("Collection", child->id());
+    parent->mixLayer()->setLayer(parentLayer);
+
+    other->start(&timer, FunctionParent::master());
+    timer.timerTick();
+
+    if (manualFirst)
+        child->start(&timer, FunctionParent(FunctionParent::ManualVCWidget, 0));
+    parent->start(&timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+    if (manualFirst == false)
+        child->start(&timer, FunctionParent(FunctionParent::ManualVCWidget, 0));
+    timer.timerTick();
+
+    QByteArray values = writeUniverse();
+    QCOMPARE(uchar(values.at(kLtp)), uchar(expectedLtp));
+    QCOMPARE(uchar(values.at(kHtp)), uchar(200));
+
+    parent->stop(FunctionParent::master());
+    child->stop(FunctionParent::master());
+    other->stop(FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+}
+
+void MixLayer_Test::flashIgnoresLastRunLayer_data()
+{
+    QTest::addColumn<int>("lastRunLayer");
+    QTest::addColumn<bool>("flashedLast");
+    QTest::addColumn<int>("expectedLtp");
+
+    // The flashed Scene sets LTP 100, the other one LTP 50; the newest flash wins
+    QTest::newRow("last run below, flashed last") << -1 << true << 100;
+    QTest::newRow("last run above, flashed first") << 1 << false << 50;
+}
+
+void MixLayer_Test::flashIgnoresLastRunLayer()
+{
+    QFETCH(int, lastRunLayer);
+    QFETCH(bool, flashedLast);
+    QFETCH(int, expectedLtp);
+
+    MasterTimer timer(m_doc);
+    Scene *flashed = createScene(100, 150);
+    Scene *other = createScene(50, 200);
+    Function *parent = createParent("Chaser", flashed->id());
+    parent->mixLayer()->setLayer(lastRunLayer);
+
+    parent->start(&timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+    QVERIFY(flashed->isRunning());
+    parent->stop(FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer.timerTick();
+    QVERIFY(flashed->isRunning() == false);
+
+    // Both flashes are on the same layer, so the newest one wins
+    Scene *older = flashedLast ? other : flashed;
+    Scene *newer = flashedLast ? flashed : other;
+    older->flash(&timer, false, false);
+    timer.timerTick();
+    newer->flash(&timer, false, false);
+    timer.timerTick();
+
+    QByteArray values = writeUniverse();
+    QCOMPARE(uchar(values.at(kLtp)), uchar(expectedLtp));
+    QCOMPARE(uchar(values.at(kHtp)), uchar(200));
+
+    flashed->unFlash(&timer);
+    other->unFlash(&timer);
     timer.timerTick();
 }
 

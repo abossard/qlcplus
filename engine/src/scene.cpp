@@ -698,7 +698,6 @@ void Scene::writeDMX(MasterTimer *timer, QList<Universe *> ua)
                     fader->setBlendMode(blendMode());
                     fader->setName(name());
                     fader->setParentFunctionID(id());
-                    fader->mixLayer()->follow(mixLayer());
                     m_fadersMap[universe] = fader;
                 }
 

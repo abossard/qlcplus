@@ -39,16 +39,21 @@ class Function;
  * Within one Universe::FaderPriority band, a Universe writes the faders of a
  * lower layer first, so a fader of a higher layer wins LTP channels regardless
  * of creation order. Faders on the same layer keep the creation order (the
- * newest wins). HTP merging does not depend on the order.
+ * newest wins). Normal HTP merging (the highest value) does not depend on the
+ * order.
  *
  * Every Function and every GenericFader owns one MixLayer. A node can follow
- * another node: its effective layer is its own layer plus the effective layer
- * of the followed node. A Function's faders follow the Function. A run started
- * by another Function (Chaser and Sequence steps, Collection members, Show
- * clips) follows the starter; a run started by anything else follows nothing.
- * A second start source of an already running Function changes nothing. So
- * setting the layer of a running Function moves its faders and the faders of
- * everything it started, from the next Universe write on.
+ * other nodes: its effective layer is its own layer plus the highest effective
+ * layer among them. A Function's faders follow the Function, except flash
+ * faders, which follow nothing. A running Function follows every Function
+ * among its start sources (Chaser and Sequence steps, Collection members, Show
+ * clips) and takes the highest; any other source (VC widget, Master, a Function
+ * no longer in the Doc) counts as layer 0, so a manual start never drops below
+ * today's order. When the last source leaves, the links stay until the next
+ * start, so a fade out keeps its layer. Setting the layer of a running Function
+ * moves its faders and the faders of everything it started, from the next
+ * Universe write on. Order dependent blend modes (Additive, Mask, Subtractive)
+ * compose from the lowest layer up.
  *
  * Example, a parent that runs a child with its own weight (the ShowRunner for
  * a DJSET clip): child->mixLayer()->setLayer(dominant ? 0 : -1);
@@ -66,27 +71,30 @@ public:
     int layer() const;
     void setLayer(int layer);
 
-    /** Follow $parent: add its effective layer to this node's own layer.
-     *  A null $parent, or one that already follows this node, removes the link */
+    /** Follow $parents instead of the current ones. Null parents, and parents
+     *  that already follow this node, are skipped */
+    void follow(const QList<QSharedPointer<const MixLayer>> &parents);
     void follow(const QSharedPointer<const MixLayer> &parent);
 
-    /** The own layer plus the effective layer of the followed node */
+    /** The own layer plus the highest effective layer of the followed nodes */
     int effective() const;
 
     /** Order $faders for writing: by FaderPriority, then by effective layer,
      *  keeping the current order for equal keys */
     static void sortForWrite(QList<QSharedPointer<GenericFader>> &faders);
 
-    /** Called by Function::start() when $source is the first start source of
-     *  $function: follow the starting Function, or nothing for other sources */
-    static void followStarter(Function *function, const FunctionParent &source);
+    /** Called by Function with its sources lock held after each update of
+     *  $sources: follow them, or keep the links when none is left */
+    static void followSources(Function *function, const QList<FunctionParent> &sources);
 
 private:
-    QSharedPointer<const MixLayer> parent() const;
+    QList<QSharedPointer<const MixLayer>> parents() const;
+    bool reaches(const MixLayer *node, int &budget) const;
+    int effective(int &budget) const;
 
     std::atomic<int> m_layer;
-    mutable QMutex m_parentMutex;
-    QSharedPointer<const MixLayer> m_parent;
+    mutable QMutex m_parentsMutex;
+    QList<QSharedPointer<const MixLayer>> m_parents;
 };
 
 /** @} */

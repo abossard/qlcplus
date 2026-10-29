@@ -25,9 +25,10 @@
 #include "function.h"
 #include "doc.h"
 
-/* A chain is a few nodes deep (fader, Scene, Chaser, Show). The cap only
-   bounds a cycle that two concurrent follow() calls could still close. */
-static const int kMaxChainDepth = 64;
+/* Bounds every walk over the follow graph. A real graph is a few nodes deep
+   (fader, Scene, Chaser, Show); the bound only stops a cycle that two
+   concurrent follow() calls could still close. */
+static const int kMaxVisits = 256;
 
 MixLayer::MixLayer(int layer)
     : m_layer(layer)
@@ -44,40 +45,67 @@ void MixLayer::setLayer(int layer)
     m_layer = layer;
 }
 
-void MixLayer::follow(const QSharedPointer<const MixLayer> &parent)
+void MixLayer::follow(const QList<QSharedPointer<const MixLayer>> &parents)
 {
-    QSharedPointer<const MixLayer> link = parent;
-    QSharedPointer<const MixLayer> node = parent;
-    for (int depth = 0; node != nullptr && depth < kMaxChainDepth; depth++)
+    QList<QSharedPointer<const MixLayer>> links;
+    for (const QSharedPointer<const MixLayer> &parent : parents)
     {
-        if (node.data() == this)
-        {
-            link.clear();
-            break;
-        }
-        node = node->parent();
+        int budget = kMaxVisits;
+        if (parent != nullptr && parent->reaches(this, budget) == false)
+            links.append(parent);
     }
 
-    QMutexLocker locker(&m_parentMutex);
-    m_parent = link;
+    QMutexLocker locker(&m_parentsMutex);
+    m_parents = links;
 }
 
-QSharedPointer<const MixLayer> MixLayer::parent() const
+void MixLayer::follow(const QSharedPointer<const MixLayer> &parent)
 {
-    QMutexLocker locker(&m_parentMutex);
-    return m_parent;
+    follow(QList<QSharedPointer<const MixLayer>>({ parent }));
+}
+
+QList<QSharedPointer<const MixLayer>> MixLayer::parents() const
+{
+    QMutexLocker locker(&m_parentsMutex);
+    return m_parents;
+}
+
+bool MixLayer::reaches(const MixLayer *node, int &budget) const
+{
+    if (this == node)
+        return true;
+    if (--budget <= 0)
+        return false;
+
+    for (const QSharedPointer<const MixLayer> &parent : parents())
+    {
+        if (parent->reaches(node, budget))
+            return true;
+    }
+    return false;
 }
 
 int MixLayer::effective() const
 {
-    int layer = m_layer;
-    QSharedPointer<const MixLayer> node = parent();
-    for (int depth = 0; node != nullptr && depth < kMaxChainDepth; depth++)
-    {
-        layer += node->m_layer;
-        node = node->parent();
-    }
-    return layer;
+    int budget = kMaxVisits;
+    return effective(budget);
+}
+
+int MixLayer::effective(int &budget) const
+{
+    const int layer = m_layer;
+    if (--budget <= 0)
+        return layer;
+
+    const QList<QSharedPointer<const MixLayer>> links = parents();
+    if (links.isEmpty())
+        return layer;
+
+    int highest = links.first()->effective(budget);
+    for (int i = 1; i < links.count(); i++)
+        highest = qMax(highest, links.at(i)->effective(budget));
+
+    return layer + highest;
 }
 
 void MixLayer::sortForWrite(QList<QSharedPointer<GenericFader>> &faders)
@@ -107,16 +135,28 @@ void MixLayer::sortForWrite(QList<QSharedPointer<GenericFader>> &faders)
         faders[i] = entries.at(i).fader;
 }
 
-void MixLayer::followStarter(Function *function, const FunctionParent &source)
+void MixLayer::followSources(Function *function, const QList<FunctionParent> &sources)
 {
-    Function *starter = nullptr;
-    if (source.type() == FunctionParent::Function && source.id() != function->id() &&
-        function->doc() != nullptr)
+    if (sources.isEmpty())
+        return;
+
+    // Any other source (VC widget, Master, a Function no longer in the Doc) counts as layer 0
+    static const QSharedPointer<const MixLayer> ground = QSharedPointer<const MixLayer>::create();
+
+    QList<QSharedPointer<const MixLayer>> starters;
+    Doc *doc = function->doc();
+    for (const FunctionParent &source : sources)
     {
-        starter = function->doc()->function(source.id());
+        Function *starter = nullptr;
+        if (doc != nullptr && source.type() == FunctionParent::Function && source.id() != function->id())
+            starter = doc->function(source.id());
+
+        QSharedPointer<const MixLayer> layer = starter != nullptr ? starter->mixLayer() : ground;
+        if (starters.contains(layer) == false)
+            starters.append(layer);
     }
 
-    function->mixLayer()->follow(starter != nullptr ? starter->mixLayer() : QSharedPointer<MixLayer>());
+    function->mixLayer()->follow(starters);
 }
 
 QSharedPointer<MixLayer> Function::mixLayer() const
