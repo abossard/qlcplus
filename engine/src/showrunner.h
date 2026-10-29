@@ -260,9 +260,10 @@ private:
     bool m_commandJumpPending = false;
     /** The Show was not dominant: what it crossed meanwhile plays like a forward jump */
     bool m_commandsWithheld = false;
-    /** Dominant again while paused: its controls took their track state, the
-     *  Function commands crossed wait for the clock to run */
+    /** Dominant again while paused: its controls took their track state at
+     *  m_controlsRegainedAt, the Function commands crossed wait for the clock */
     bool m_controlsRegained = false;
+    quint32 m_controlsRegainedAt = 0;
 
     /** What a legacy Start, Stop or SetIntensity found and left on its target */
     struct LegacyEffect

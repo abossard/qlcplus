@@ -5593,14 +5593,19 @@ void ShowRunner_Test::regainPutsBackTheTrackState_data()
     QTest::addColumn<quint32>("recordTime");
     QTest::addColumn<bool>("putBack");
     QTest::addColumn<bool>("paused");
+    QTest::addColumn<quint32>("resumeAt");          // 0: where it paused
+    QTest::addColumn<QList<quint32>>("afterResume"); // what the resume replays
 
     // the Show loses dominance at 200 and regains it at 3000
-    QTest::newRow("set before the loss") << 100u << true << false;
-    QTest::newRow("set while not dominant") << 1500u << true << false;
-    QTest::newRow("set after the position") << 5000u << false << false;
+    QTest::newRow("set before the loss") << 100u << true << false << 0u << QList<quint32>();
+    QTest::newRow("set while not dominant") << 1500u << true << false << 0u << QList<quint32>();
+    QTest::newRow("set after the position") << 5000u << false << false << 0u << QList<quint32>();
     // its deck paused, then became the active one
-    QTest::newRow("set before the loss, regained while paused") << 100u << true << true;
-    QTest::newRow("set after the position, regained while paused") << 5000u << false << true;
+    QTest::newRow("set before the loss, regained while paused") << 100u << true << true << 0u << QList<quint32>();
+    QTest::newRow("set after the position, regained while paused") << 5000u << false << true << 0u << QList<quint32>();
+    // a cue while paused: the resume crosses it
+    QTest::newRow("set after the position, regained while paused, resumed past it")
+        << 5000u << false << true << 6000u << QList<quint32>{1};
 }
 
 void ShowRunner_Test::regainPutsBackTheTrackState()
@@ -5608,6 +5613,8 @@ void ShowRunner_Test::regainPutsBackTheTrackState()
     QFETCH(quint32, recordTime);
     QFETCH(bool, putBack);
     QFETCH(bool, paused);
+    QFETCH(quint32, resumeAt);
+    QFETCH(QList<quint32>, afterResume);
 
     Doc doc(nullptr);
     MasterTimer *timer = doc.masterTimer();
@@ -5655,10 +5662,12 @@ void ShowRunner_Test::regainPutsBackTheTrackState()
     // resumed: the controls keep what they took, a DJ may have moved them since
     if (paused)
     {
+        if (resumeAt != 0)
+            show->setExternalElapsedTime(resumeAt);
         show->setPause(false);
         timer->timerTick();
         timer->timerTick();
-        QCOMPARE(replayed(), QSet<quint32>());
+        QCOMPARE(replayed(), QSet<quint32>(afterResume.cbegin(), afterResume.cend()));
     }
 
     stopAndSettle(doc, show);

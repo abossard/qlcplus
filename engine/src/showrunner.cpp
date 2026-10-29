@@ -753,9 +753,12 @@ void ShowRunner::processCommands(bool traversalStalled)
             regained ? ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime)
                      : ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
     m_commandState = played.state;
-    // the controls took their state while paused: a DJ may have moved them since
+    // the controls took their state while paused, a DJ may have moved them
+    // since; the ones the clock crossed after that play
     if (regained && controlsRegained)
-        played.effects.removeIf([](const ShowCommand &cmd) { return ShowCommand::isControlAction(cmd.action); });
+        played.effects.removeIf([this](const ShowCommand &cmd) {
+            return ShowCommand::isControlAction(cmd.action) && cmd.time <= m_controlsRegainedAt;
+        });
 
     dispatchCommandEffects(played.effects);
 }
@@ -1040,6 +1043,7 @@ void ShowRunner::drainCommands()
         QVector<ShowCommand> controls;
         if (m_commandsWithheld && std::exchange(m_controlsRegained, true) == false)
         {
+            m_controlsRegainedAt = m_elapsedTime;
             const ShowCommandTransition regained = ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime);
             for (const ShowCommand &cmd : regained.effects)
             {
