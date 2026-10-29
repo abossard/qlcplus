@@ -640,8 +640,8 @@ void VdjTelemetryClient_Test::bridgeCrossfaderRouting_data()
 
     QTest::newRow("crossfader left")
         << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})") << 1.0 << 0.0;
-    QTest::newRow("a quarter")
-        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0.25})") << 0.75 << 0.25;
+    QTest::newRow("three quarters")
+        << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0.75})") << 0.5 << 1.0;
     QTest::newRow("hamster at the left")
         << QByteArray(R"({"evt":"subscribed","trigger":"crossfader","value":0})" "\n"
                       R"({"evt":"subscribed","trigger":"crossfader_hamster","value":"on"})") << 0.0 << 1.0;

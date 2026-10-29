@@ -48,11 +48,13 @@
  * The active deck is the lowest tracked deck whose master flag is on,
  * recomputed at every write boundary and when the deck count moves.
  *
- * A deck's mix weight is its fader times its crossfader gain, linear: 1 - x on
- * the left side, x on the right (inverted by hamster), 1 for a deck on neither
- * side or both, under a disabled crossfader or before VDJ sent its position.
- * It is settled at every write boundary, with the deck's view; an empty deck
- * keeps the weight of its fader, which VDJ does not resend.
+ * A deck's mix weight is its fader times its crossfader gain, full at the
+ * middle: min(1, 2(1 - x)) on the left side, min(1, 2x) on the right (hamster
+ * swaps the sides), 1 for a deck on neither side or both, under a disabled
+ * crossfader or before VDJ sent its position. It is settled at every write
+ * boundary, with the deck's view, and at once for the decks a deck count
+ * change between writes starts tracking; an empty deck keeps the weight of
+ * its fader, which VDJ does not resend.
  */
 class DjFsm : public QObject
 {
@@ -119,9 +121,9 @@ public:
      *  count, since VDJ resends them only when they change. */
     void onDeckTrigger(int deck, const QString &trigger, const QVariant &value);
 
-    /** Mirror a global telemetry trigger of the crossfader: "crossfader"
-     *  (0 left .. 1 right), "crossfader_hamster", "crossfader_disable".
-     *  Others are ignored. Applies at the write boundary. */
+    /** Mirror a global telemetry trigger: the crossfader's ("crossfader",
+     *  0 left .. 1 right, "crossfader_hamster", "crossfader_disable") apply at
+     *  the write boundary; any other (get_decks) only belongs to the write. */
     void onGlobalTrigger(const QString &trigger, const QVariant &value);
 
     /** The objects of one VDJ write are in: every deck settles its view, then the
@@ -162,7 +164,9 @@ signals:
     /** The active deck's song, title or artist changed */
     void activeSongChanged();
     /** A deck's mix weight changed: at most once per write, after the deck's
-     *  deckChanged; also when a disconnect or a smaller deck count zeroes it */
+     *  deckChanged; also when a disconnect or a smaller deck count zeroes it,
+     *  and after deckCountChanged when a count change between writes tracks
+     *  a deck with a weight */
     void weightChanged(int deck);
 
 private:
@@ -213,6 +217,7 @@ private:
     std::optional<double> m_crossfader;   //!< VDJ's "crossfader", 0 left .. 1 right; none until sent
     bool    m_crossfaderInverted = false; //!< VDJ's "crossfader_hamster"
     bool    m_crossfaderDisabled = false; //!< VDJ's "crossfader_disable"
+    bool    m_writeOpen = false;          //!< telemetry arrived since the last onTickEnded
 };
 
 Q_DECLARE_METATYPE(DjFsm::DeckSong)

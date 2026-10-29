@@ -64,6 +64,8 @@ private slots:
     void weightNotifiesOncePerSettledWrite();
     void droppedDecksZeroTheirWeights_data();
     void droppedDecksZeroTheirWeights();
+    void deckCountBetweenWritesSettlesAtOnce_data();
+    void deckCountBetweenWritesSettlesAtOnce();
     void capture_weights_data();
     void capture_weights();
 };

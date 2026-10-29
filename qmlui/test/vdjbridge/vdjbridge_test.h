@@ -39,6 +39,8 @@ private slots:
     void ejectKeepsTheTempo_data();
     void ejectKeepsTheTempo();
     void activeDeckFollowsThePerDeckMasterdeck();
+    void getDecksSettlesTheWeightWithItsWrite_data();
+    void getDecksSettlesTheWeightWithItsWrite();
     void capture_mixWeights_data();
     void capture_mixWeights();
     void deletedShowBindsAgainWhenItComesBack();
