@@ -186,9 +186,10 @@ public:
     /** Any thread: a Show that is not dominant replays none of its command
      *  track; once dominant again every control its track sets at or before
      *  the position takes that state, and the Function commands crossed
-     *  meanwhile play their net effect. Its clips lose LTP to a dominant
-     *  Show's (mix layer -1). Dominant unless a parent Show's clip says
-     *  otherwise. Not persisted. */
+     *  meanwhile play their net effect. Losing dominance cancels the VC work
+     *  crossed and not yet done. Its clips lose LTP to a dominant Show's
+     *  (mix layer -1). Dominant unless a parent Show's clip says otherwise.
+     *  Not persisted. */
     void setDominant(bool dominant);
     bool isDominant() const { return m_dominant.load(std::memory_order_relaxed); }
 

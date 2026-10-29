@@ -476,8 +476,16 @@ void Show::setNestedAudioSuppressed(bool suppressed)
 
 void Show::setDominant(bool dominant)
 {
-    m_dominant.store(dominant, std::memory_order_relaxed);
+    const bool was = m_dominant.exchange(dominant, std::memory_order_relaxed);
     mixLayer()->setLayer(dominant ? 0 : -1);
+    if (was == false || dominant)
+        return;
+    // the VC work crossed and not yet done is no longer this Show's
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        cancelControlWork();
+    }
+    emit commandTraversalCancelled();
 }
 
 /*****************************************************************************
