@@ -51,6 +51,7 @@
 #include "efxfixture.h"
 #include "collection.h"
 #include "rgbmatrix.h"
+#include "rgbscriptscache.h"
 #include "chaser.h"
 #include "fixture.h"
 #include "scene.h"
@@ -370,6 +371,16 @@ void PagePlanner_Test::initTestCase()
                 break;
     }
     QVERIFY(cache->fixtureDef("Generic", "Generic RGB") != nullptr);
+
+    RGBScriptsCache *scripts = m_app->doc()->rgbScriptsCache();
+    if (!scripts->names().contains("Stripes"))
+    {
+        for (const QString &path : { QString(INTERNAL_SCRIPTDIR), QString("../../../../resources/rgbscripts/"),
+                                     QString("../../../../../resources/rgbscripts/") })
+            if (scripts->load(QDir(path)) && scripts->names().contains("Stripes"))
+                break;
+    }
+    QVERIFY(scripts->names().contains("Stripes"));
 
     QFile metrics(shotsDir().filePath("metrics.tsv"));
     QVERIFY(metrics.open(QIODevice::WriteOnly | QIODevice::Truncate));
@@ -1524,6 +1535,11 @@ void PagePlanner_Test::functionsRun()
     if (widget == "animation")
     {
         QCOMPARE(animations.size(), 1);
+        // a missing script still gives a matrix, one with an empty algorithm
+        const RGBMatrix *matrix = qobject_cast<const RGBMatrix *>(
+            m_app->doc()->function(animations.first()->functionID()));
+        QVERIFY(matrix && matrix->algorithm());
+        QCOMPARE(matrix->algorithm()->name(), QString("Stripes"));
         animations.first()->setFaderLevel(255);
         // the effect lights pixels and moves them
         QTRY_VERIFY(output().count(char(0)) < int(fixture->channels()));
