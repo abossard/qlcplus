@@ -26,7 +26,9 @@
 #include "showclipautomation.h"
 
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QRegularExpression>
+#include <QSignalSpy>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
@@ -49,20 +51,28 @@ struct DeckSim
     double position = 0.0;
     double rate = 1.0;
     bool playing = false;
+    int sent = -1;          //!< the position last written
 };
 
 /**
  * A Doc with a song Show per song letter, each playing its own Scene for ten
  * minutes, the decks at full fader, and the recorder on a clock the script
  * moves. Script steps, separated by ';':
- *   +N           N ms of playback, a write every kWriteMs with every playing deck's position
+ *   +N           N ms of playback, a write every kWriteMs with every playing deck's position that moved
+ *   ~N           N ms on the clock, no write
+ *   wait         the event loop runs for two update intervals, the clock stands still
  *   dK.load=X    song X on deck K (N has no Show), position 0
+ *   dK.song=X    song X on deck K without a position: its first sample comes with the next write
+ *   dK.half=X@P  the first half of a write loading X on deck K, position P first; the write stays open
+ *   dK.rest=X    the rest of that write
  *   dK.at=P      position P: written at once on a paused deck, else by the next write
  *   dK.send=P    position P in a write of its own, in the millisecond of the write before
  *   dK.play, dK.pause, dK.eject, dK.master (the only master flag on)
  *   dK.rate=R    pitch, dK.vol=V fader, dK.side=left|right
  *   x=V          crossfader; count=N deck count; disconnect
- *   perform=on|off, remove-set, remove-song=X, map-set=X (song X plays the set)
+ *   perform=on|off, remove-set, remove-song=X, map-set=X (song X plays the set),
+ *   map=X:Y (song X plays Y's Show), nest-set=X (X's Show holds the set),
+ *   save (the Doc as saved), load (another workspace with the same songs)
  */
 struct Rig
 {
@@ -75,14 +85,27 @@ struct Rig
     QHash<quint32, QString> letters;    //!< song Show -> letter
     QHash<QString, Show *> songs;       //!< letter -> song Show
 
-    explicit Rig(const QHash<QString, QString> &paths = { { "A", songPath("A") },
-                                                          { "B", songPath("B") },
-                                                          { "C", songPath("C") } })
+    QHash<QString, QString> paths;
+
+    explicit Rig(const QHash<QString, QString> &songPaths = { { "A", songPath("A") },
+                                                              { "B", songPath("B") },
+                                                              { "C", songPath("C") } })
         : doc(nullptr)
         , factory(&doc)
         , recorder(&doc, &fsm, &factory)
+        , paths(songPaths)
     {
         recorder.setClock([this]() { return now; });
+        addSongs();
+        for (int deck = 1; deck <= DjFsm::MaxDecks; ++deck)
+            fsm.onDeckTrigger(deck, "volume", 1.0);
+        fsm.onTickEnded();
+    }
+
+    void addSongs()
+    {
+        letters.clear();
+        songs.clear();
         Fixture *fixture = new Fixture(&doc);
         fixture->setUniverse(0);
         fixture->setAddress(0);
@@ -106,14 +129,18 @@ struct Rig
             letters.insert(song->id(), letter);
             songs.insert(letter, song);
         }
-        for (int deck = 1; deck <= DjFsm::MaxDecks; ++deck)
-            fsm.onDeckTrigger(deck, "volume", 1.0);
-        fsm.onTickEnded();
     }
 
     void write(int deck, const QString &trigger, const QVariant &value)
     {
         fsm.onDeckTrigger(deck, trigger, value);
+    }
+
+    void writePosition(int deck)
+    {
+        DeckSim &sim = sims[deck - 1];
+        sim.sent = qRound(sim.position);
+        write(deck, "get_time elapsed absolute", sim.sent);
     }
 
     void advance(int ms)
@@ -130,7 +157,10 @@ struct Rig
                 if (sim.playing == false)
                     continue;
                 sim.position += step * sim.rate;
-                write(d + 1, "get_time elapsed absolute", qRound(sim.position));
+                // VirtualDJ sends what changed
+                if (qRound(sim.position) == sim.sent)
+                    continue;
+                writePosition(d + 1);
                 wrote = true;
             }
             // VirtualDJ sends nothing while nothing changes
@@ -149,6 +179,17 @@ struct Rig
             DeckSim &sim = sims[qMax(0, deck - 1)];
             if (key.startsWith('+'))
                 advance(key.mid(1).toInt());
+            else if (key.startsWith('~'))
+                now += key.mid(1).toInt();
+            else if (key == "wait")
+                QTest::qWait(DjSetRecorder::kUpdateIntervalMs * 2);
+            else if (key == "save")
+                doc.resetModified();
+            else if (key == "load")
+            {
+                doc.clearContents();
+                addSongs();
+            }
             else if (key == "perform")
                 recorder.setRecording(value == "on");
             else if (key == "x")
@@ -169,30 +210,47 @@ struct Rig
                 doc.deleteFunction(songs.value(value)->id());
             else if (key == "map-set")
                 factory.registerMapping(songPath(value), recorder.setShowId());
-            else if (verb == "load")
+            else if (key == "map")
+                factory.registerMapping(songPath(value.section(':', 0, 0)), songs.value(value.section(':', 1))->id());
+            else if (key == "nest-set")
             {
-                sim.position = 0.0;
+                Show *song = songs.value(value);
+                Track *track = new Track(Function::invalidId(), song);
+                song->addTrack(track);
+                track->createShowFunction(recorder.setShowId())->setDuration(1000);
+            }
+            else if (verb == "load" || verb == "song" || verb == "rest")
+            {
+                if (verb != "rest")
+                    sim.position = 0.0;
                 write(deck, "get_filepath", songPath(value));
                 write(deck, "get_title", "Title " + value);
                 write(deck, "get_artist", "Artist " + value);
                 write(deck, "get_bpm", 126.0);
                 write(deck, "loaded", "on");
-                write(deck, "get_time elapsed absolute", 0);
+                if (verb == "load")
+                    writePosition(deck);
                 fsm.onTickEnded();
+            }
+            else if (verb == "half")
+            {
+                // VirtualDJ sends a new song's position before its filepath
+                sim.position = value.section('@', 1).toDouble();
+                writePosition(deck);
             }
             else if (verb == "at")
             {
                 sim.position = value.toDouble();
                 if (sim.playing == false)
                 {
-                    write(deck, "get_time elapsed absolute", qRound(sim.position));
+                    writePosition(deck);
                     fsm.onTickEnded();
                 }
             }
             else if (verb == "send")
             {
                 sim.position = value.toDouble();
-                write(deck, "get_time elapsed absolute", qRound(sim.position));
+                writePosition(deck);
                 fsm.onTickEnded();
             }
             else if (verb == "play" || verb == "pause")
@@ -453,8 +511,14 @@ void DjSetRecorder_Test::clipsFollowTheSongStays_data()
         << QStringList{ "Deck 1: A@0+1000 A@1500+500", "Deck 2:" };
     QTest::newRow("two decks") << "perform=on;d1.load=A;d2.load=B;d1.play;+1000;d2.play;+1000;perform=off"
                                << QStringList{ "Deck 1: A@0+2000", "Deck 2: B@1000+1000" };
-    QTest::newRow("Perform on while a deck plays starts at once")
-        << "d1.load=A;d1.play;+1000;perform=on;+1000;perform=off" << QStringList{ "Deck 1: A@0+1000", "Deck 2:" };
+    QTest::newRow("Perform on while a deck plays starts at its next write")
+        << "d1.load=A;d1.play;+1000;perform=on;+1000;perform=off" << QStringList{ "Deck 1: A@0+967", "Deck 2:" };
+    QTest::newRow("Perform on between the reads of a write")
+        << "d1.load=A;d1.play;+1000;d1.half=B@5000;~10;perform=on;~10;d1.rest=B;+500;perform=off"
+        << QStringList{ "Deck 1: B@0+500", "Deck 2:" };
+    QTest::newRow("a song waits for its own first sample")
+        << "perform=on;d1.load=A;d1.at=20000;d1.song=B;d1.play;+1000;perform=off"
+        << QStringList{ "Deck 1: B@0+967", "Deck 2:" };
     QTest::newRow("a disconnect ends every clip")
         << "perform=on;d1.load=A;d2.load=B;d1.play;d2.play;+1000;disconnect;+500;perform=off"
         << QStringList{ "Deck 1: A@0+1000", "Deck 2: B@0+1000" };
@@ -468,13 +532,22 @@ void DjSetRecorder_Test::clipsFollowTheSongStays_data()
     QTest::newRow("a song that plays the set itself records nothing")
         << "perform=on;d1.load=A;d1.play;+500;map-set=B;d2.load=B;d2.play;+500;perform=off"
         << QStringList{ "Deck 1: A@0+1000", "Deck 2:" };
+    QTest::newRow("a song whose Show holds the set records nothing")
+        << "perform=on;d1.load=A;d1.play;+500;nest-set=B;d2.load=B;d2.play;+500;perform=off"
+        << QStringList{ "Deck 1: A@0+1000", "Deck 2:" };
+    // as live Perform switches; the next write notices it
+    QTest::newRow("a reassigned song Show starts a new clip")
+        << "perform=on;d1.load=A;d1.play;+1000;map=A:C;+1000;perform=off"
+        << QStringList{ "Deck 1: A@0+1033 C@1033+967", "Deck 2:" };
+    QTest::newRow("another workspace: the playing deck starts a new set")
+        << "perform=on;d1.load=A;d1.play;+1000;load;+1000;perform=off" << QStringList{ "Deck 1: A@0+967", "Deck 2:" };
     // the next write starts it
     QTest::newRow("a removed set: the playing deck starts a new one")
         << "perform=on;d1.load=A;d1.play;+1000;remove-set;+1000;perform=off"
         << QStringList{ "Deck 1: A@0+967", "Deck 2:" };
     QTest::newRow("Perform again, a second set")
         << "perform=on;d1.load=A;d1.play;+1000;perform=off;+500;perform=on;+500;perform=off"
-        << QStringList{ "Deck 1: A@0+1000", "Deck 2:", "Deck 1: A@0+500", "Deck 2:" };
+        << QStringList{ "Deck 1: A@0+1000", "Deck 2:", "Deck 1: A@0+467", "Deck 2:" };
 }
 
 void DjSetRecorder_Test::clipsFollowTheSongStays()
@@ -496,8 +569,7 @@ void DjSetRecorder_Test::clipAutomationFollowsTheDeck_data()
     QTest::addColumn<QString>("levels");    // clip ms = level, within the level tolerance
     QTest::addColumn<QString>("dominance"); // clip ms = 1 or 0
 
-    QTest::newRow("in-point") << "d1.at=30000;d1.play;+2000" << 1 << 1 << "0=30000 1500=31500" << "0=1 1500=1"
-                              << "0=1 1500=1";
+    QTest::newRow("in-point") << "d1.at=30000;d1.play;+2000" << 1 << 1 << "0=30000 1500=31500" << "" << "";
     QTest::newRow("loop wraps") << "d1.at=34000;d1.play;+1905;d1.at=34000;+1905;d1.at=34000;+1000" << 1 << 3
                                 << "1000=35000 2500=34595 4300=34490" << "" << "";
     QTest::newRow("a seek") << "d1.at=30000;d1.play;+2000;d1.at=60000;+1000" << 1 << 2 << "1000=31000 2500=60500"
@@ -509,6 +581,12 @@ void DjSetRecorder_Test::clipAutomationFollowsTheDeck_data()
     QTest::newRow("a cue while paused")
         << "d1.at=30000;d1.play;+1000;d1.pause;+500;d1.at=20000;+500;d1.play;+500" << 1 << 4
         << "500=30500 1200=31000 1700=20000 2300=20300" << "" << "";
+    QTest::newRow("a held jog holds the position")
+        << "d2.load=B;d2.play;d1.at=30000;d1.play;+1000;d1.rate=0;+2000;d1.rate=1;+1000" << 1 << -1
+        << "500=30500 1500=31000 2500=31000 3500=31500" << "" << "";
+    QTest::newRow("the update timer between the reads of a write")
+        << "d1.at=30000;d1.play;+1000;d1.half=B@5000;~10;wait;~10;d1.rest=B;+500" << 1 << 1 << "1015=31015" << ""
+        << "";
     QTest::newRow("a seek in the millisecond of the write before")
         << "d1.at=30000;d1.play;+1000;d1.send=60000;+20" << 1 << 2 << "500=30500 1010=60010" << "" << "";
     QTest::newRow("two fader moves in one millisecond") << "d1.play;+1000;d1.vol=0.5;d1.vol=0.3;+1000" << 1 << -1
@@ -560,30 +638,101 @@ void DjSetRecorder_Test::clipAutomationFollowsTheDeck()
 
 void DjSetRecorder_Test::clipsReachTheSetAtABoundedRate_data()
 {
-    QTest::addColumn<QString>("script");  // after song A plays on deck 1 under Perform
-    QTest::addColumn<quint32>("grown");
+    QTest::addColumn<QString>("before");  // after song A plays on deck 1 under Perform
+    QTest::addColumn<QString>("step");    // repeated while the event loop runs
+    QTest::addColumn<quint32>("from");    // the song position after before
+    QTest::addColumn<bool>("moving");
 
-    QTest::newRow("a playing deck") << "+600" << 600u;
-    QTest::newRow("a paused deck: no write reaches the recorder") << "+300;d1.pause;+300" << 600u;
+    QTest::newRow("a playing deck seeks") << "d1.at=30000" << "+33" << 30000u << true;
+    QTest::newRow("a paused deck: no write reaches the recorder") << "d1.pause" << "~33" << 0u << false;
 }
 
 void DjSetRecorder_Test::clipsReachTheSetAtABoundedRate()
 {
-    QFETCH(QString, script);
-    QFETCH(quint32, grown);
+    QFETCH(QString, before);
+    QFETCH(QString, step);
+    QFETCH(quint32, from);
+    QFETCH(bool, moving);
 
     Rig rig;
-    rig.run("perform=on;d1.load=A;d1.play");
+    rig.run("perform=on;d1.load=A;d1.play;" + before);
     // the clip is in the set as it opens
     ShowFunction *clip = rig.clip(1, 0);
     QVERIFY(clip != nullptr);
     QCOMPARE(clip->duration(), 1u);
 
+    QSignalSpy updates(clip, &ShowFunction::durationChanged);
+    QElapsedTimer window;
+    window.start();
+    int steps = 0;
+    while (window.elapsed() < 1000)
+    {
+        rig.run(step);
+        steps++;
+        QTest::qWait(20);
+    }
+    // one update per interval at most, however many writes came in
+    const qint64 bound = window.elapsed() / DjSetRecorder::kUpdateIntervalMs + 1;
+    QVERIFY2(updates.count() >= 2 && updates.count() <= bound,
+             qPrintable(QString("%1 updates in %2 ms, %3 steps").arg(updates.count()).arg(window.elapsed()).arg(steps)));
+    QVERIFY(steps > 2 * updates.count());
+    // the last one reaches the clock, with what the deck did since the clip opened
+    QTRY_COMPARE_WITH_TIMEOUT(clip->duration(), quint32(rig.now), 2000);
+    const qint64 end = from + (moving ? rig.now : 0);
+    QVERIFY(qAbs(qint64(clip->clipAutomation().songPositionAt(clip->duration())) - end)
+            <= DjSetRecorder::kPositionToleranceMs);
+}
+
+void DjSetRecorder_Test::aClipWaitsForARunningSetToStop_data()
+{
+    QTest::addColumn<QString>("script");  // while the set plays deck 1's song
+
+    QTest::newRow("an eject") << "d2.load=B;d2.play;+500;d2.eject;+100";
+    QTest::newRow("Perform off") << "d2.load=B;d2.play;+500;perform=off;+100";
+    QTest::newRow("a newer set removed meanwhile")
+        << "d2.load=B;d2.play;+500;perform=off;perform=on;+100;remove-set;+100";
+}
+
+void DjSetRecorder_Test::aClipWaitsForARunningSetToStop()
+{
+    QFETCH(QString, script);
+
+    Rig rig;
+    rig.run("perform=on;d1.load=A;d1.play;+1000");
+    Show *set = rig.sets().first();
+    playExternal(rig.doc, set, 0);
+    rig.run(script + ";wait");
+    // a running set's clips are its runner's
+    QCOMPARE(rig.clips(2).count(), 0);
+
+    stopAndSettle(rig.doc, set);
+    QTRY_COMPARE_WITH_TIMEOUT(rig.clips(2).count(), 1, 2000);
+    ShowFunction *clip = rig.clip(2, 0);
+    QCOMPARE(rig.letters.value(clip->functionID()), QString("B"));
+    QCOMPARE(clip->startTime(), 1000u);
+    QCOMPARE(clip->duration(), 500u);
+}
+
+void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified_data()
+{
+    QTest::addColumn<QString>("script");  // after a save while song A plays on deck 1
+
+    QTest::newRow("a playing deck") << "+1000";
+    QTest::newRow("a paused deck") << "d1.pause;~1000";
+}
+
+void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified()
+{
+    QFETCH(QString, script);
+
+    Rig rig;
+    rig.run("perform=on;d1.load=A;d1.play;+300;save");
+    ShowFunction *clip = rig.clip(1, 0);
+    QVERIFY(clip != nullptr);
     rig.run(script);
-    // the writes in between do not reach the set
-    QCOMPARE(clip->duration(), 1u);
-    QTRY_COMPARE_WITH_TIMEOUT(clip->duration(), grown, 2000);
-    QVERIFY(clip->clipAutomation().segments().isEmpty() == false);
+    QTRY_COMPARE_WITH_TIMEOUT(clip->duration(), 1300u, 2000);
+    // the saved workspace lacks the growth
+    QVERIFY(rig.doc.isModified());
 }
 
 void DjSetRecorder_Test::performOffFinalizesTheSet_data()
@@ -724,18 +873,25 @@ void DjSetRecorder_Test::recordedSetSurvivesSaveAndLoad()
 
     QString xml;
     QXmlStreamWriter writer(&xml);
-    QVERIFY(set->saveXML(&writer));
-    Show loaded(&rig.doc);
+    writer.writeStartElement("Workspace");
+    QVERIFY(rig.doc.saveXML(&writer));
+    writer.writeEndElement();
+    Doc doc(nullptr);
     QXmlStreamReader reader(xml);
     reader.readNextStartElement();
-    QVERIFY(loaded.loadXML(reader));
+    reader.readNextStartElement();
+    QVERIFY(doc.loadXML(reader));
+    Show *loaded = qobject_cast<Show *>(doc.function(set->id()));
+    QVERIFY(loaded != nullptr);
 
-    QVERIFY(loaded.nestedAudioSuppressed());
-    QCOMPARE(loaded.tracks().count(), set->tracks().count());
+    QCOMPARE(loaded->name(), set->name());
+    QCOMPARE(loaded->path(true), kSetFolderPath);
+    QVERIFY(loaded->nestedAudioSuppressed());
+    QCOMPARE(loaded->tracks().count(), set->tracks().count());
     int clips = 0;
     for (int t = 0; t < set->tracks().count(); ++t)
     {
-        Track *saved = set->tracks().at(t), *read = loaded.tracks().at(t);
+        Track *saved = set->tracks().at(t), *read = loaded->tracks().at(t);
         QCOMPARE(read->name(), saved->name());
         QCOMPARE(read->showFunctions().count(), saved->showFunctions().count());
         for (int c = 0; c < saved->showFunctions().count(); ++c)

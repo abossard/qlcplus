@@ -25,6 +25,10 @@ private slots:
     void clipAutomationFollowsTheDeck();
     void clipsReachTheSetAtABoundedRate_data();
     void clipsReachTheSetAtABoundedRate();
+    void aClipWaitsForARunningSetToStop_data();
+    void aClipWaitsForARunningSetToStop();
+    void growthAfterASaveMarksTheWorkspaceModified_data();
+    void growthAfterASaveMarksTheWorkspaceModified();
     void performOffFinalizesTheSet_data();
     void performOffFinalizesTheSet();
     void replayReproducesTheSet_data();

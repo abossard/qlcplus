@@ -46,14 +46,15 @@ inline const QString kSetFolderPath = QStringLiteral("Sets");
  * named after its start, nested audio suppressed), created at the first
  * play, with one track per deck ("Deck N"). Every song stay on a deck is one
  * clip of the song's Show (ShowFactory): from its first play to a song
- * change, an eject or Perform off; a pause stays in the clip as rate 0. The
- * clip carries the deck's position map, its mix weight as envelope and the
- * active deck as dominance, compressed by the ShowClipAutomation builders.
+ * change, an eject, another Show for the song or Perform off; a pause stays
+ * in the clip as rate 0. The clip carries the deck's position map, its mix
+ * weight as envelope and the active deck as dominance, compressed by the
+ * ShowClipAutomation builders.
  *
- * The decks are read at every DjFsm::settled(), on a monotonic clock from
+ * The decks are read only at DjFsm::settled(), on a monotonic clock from
  * the set start. The open clips reach the set every kUpdateIntervalMs, at
- * once when one opens or closes. A set that leaves the Doc is not written
- * again: the next play starts a new one.
+ * once when one opens or closes, and mark the workspace modified. A set that
+ * leaves the Doc is not written again: the decks that play start a new one.
  */
 class DjSetRecorder final : public QObject
 {
@@ -73,8 +74,8 @@ public:
     /** The clock the set's times come from; a QElapsedTimer by default */
     void setClock(const Clock &clock);
 
-    /** Perform on records from the next play; off closes every clip and
-     *  finalizes the set */
+    /** Perform on records from the next settled view; off closes every
+     *  clip and finalizes the set */
     void setRecording(bool on);
     bool isRecording() const { return m_recording; }
 
@@ -109,9 +110,14 @@ private:
         DeckClip clip;
     };
 
-    /** Opens, samples and closes the clips from the decks as they are now;
-     *  true when one opened or closed */
-    bool follow();
+    /** At a settled view: opens, samples and closes the clips from the decks */
+    void follow();
+    /** The update timer: the open clips grow to the clock */
+    void grow();
+    void close(int deck, qint64 clock);
+    /** A clip is open or a closed one still to be written */
+    bool pending() const;
+    void updateTimer();
     void sample(DeckClip &clip, const DjFsm::Deck &deck, bool active, quint32 clipMs) const;
     /** The play run under way becomes segments */
     void closeRun(DeckClip &clip) const;
@@ -126,6 +132,7 @@ private:
     bool writeClip(quint32 setId, int deck, DeckClip &clip);
     /** The closed clips, then the open ones */
     void write();
+    /** The set left the Doc: its open clips go with it */
     void forgetSet();
 
     qint64 now() const;

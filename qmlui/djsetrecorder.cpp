@@ -79,20 +79,18 @@ DjSetRecorder::DjSetRecorder(Doc *doc, DjFsm *fsm, ShowFactory *factory, QObject
     m_clock = [started]() { return started->elapsed(); };
 
     m_updateTimer.setInterval(kUpdateIntervalMs);
-    connect(&m_updateTimer, &QTimer::timeout, this, [this]() {
-        follow();
-        write();
-    });
-    connect(m_fsm, &DjFsm::settled, this, [this]() {
-        // a clip's growth waits for the timer; an opened or closed one goes at once
-        if (follow())
-            write();
-    });
+    connect(&m_updateTimer, &QTimer::timeout, this, &DjSetRecorder::grow);
+    connect(m_fsm, &DjFsm::settled, this, &DjSetRecorder::follow);
+    // a workspace clear removes every Function too
     connect(m_doc, &Doc::functionRemoved, this, [this](quint32 id) {
+        // its clips go with it: the id can come back as another Function
+        m_closed.erase(std::remove_if(m_closed.begin(), m_closed.end(),
+                                      [id](const ClosedClip &closed) { return closed.setId == id; }),
+                       m_closed.end());
         if (id == m_setId)
             forgetSet();
+        updateTimer();
     });
-    connect(m_doc, &Doc::cleared, this, &DjSetRecorder::forgetSet);
 }
 
 void DjSetRecorder::setClock(const Clock &clock)
@@ -115,16 +113,25 @@ void DjSetRecorder::setRecording(bool on)
     if (on == m_recording)
         return;
     m_recording = on;
-    follow();
+    // the next settled view opens the playing decks' clips
+    if (on)
+        return;
+    const qint64 clock = now();
+    for (int i = 0; i < DjFsm::MaxDecks; ++i)
+    {
+        if (m_clips[i])
+            close(i, clock);
+    }
     write();
-    if (on || m_setId == Function::invalidId())
+    updateTimer();
+    if (m_setId == Function::invalidId())
         return;
     // the set is complete: the next Perform records another one
     m_setId = Function::invalidId();
     m_doc->setModified();
 }
 
-bool DjSetRecorder::follow()
+void DjSetRecorder::follow()
 {
     const qint64 clock = now();
     bool changed = false;
@@ -133,16 +140,14 @@ bool DjSetRecorder::follow()
         const DjFsm::Deck &deck = m_fsm->deckAt(i);
         const bool tracked = i < m_fsm->deckCount();
         const QString filepath = deck.song.isValid() ? ShowFactory::normalizePath(deck.song.filepath) : QString();
+        const quint32 showId = m_factory->showIdForFilepath(filepath);
         std::optional<DeckClip> &clip = m_clips[i];
 
-        // a song stay ends with its song, its Show, its deck or Perform
+        // a song stay ends with its song, the song's Show (as live Perform switches), its deck or Perform
         if (clip && (m_recording == false || tracked == false || filepath != clip->filepath
-                     || m_doc->function(clip->showId) == nullptr))
+                     || showId != clip->showId))
         {
-            clip->endMs = quint32(clock - clip->startClock);
-            closeRun(*clip);
-            m_closed.append({ m_setId, i, *clip });
-            clip.reset();
+            close(i, clock);
             changed = true;
         }
 
@@ -154,10 +159,8 @@ bool DjSetRecorder::follow()
         }
 
         // a stay starts at its song's play, from the song's own first sample
-        if (m_recording == false || tracked == false || deck.playing == false || deck.positionStale
-            || m_doc->loadStatus() == Doc::Loading)
+        if (m_recording == false || tracked == false || deck.playing == false || deck.positionStale)
             continue;
-        const quint32 showId = m_factory->showIdForFilepath(filepath);
         const Show *song = qobject_cast<Show *>(m_doc->function(showId));
         // a song that plays the set would hold the set in itself
         if (song == nullptr || (m_setId != Function::invalidId() && song->contains(m_setId))
@@ -177,13 +180,46 @@ bool DjSetRecorder::follow()
         changed = true;
     }
 
-    const bool pending = m_closed.isEmpty() == false
-                         || std::any_of(m_clips.begin(), m_clips.end(), [](const auto &c) { return c.has_value(); });
-    if (pending && m_updateTimer.isActive() == false)
+    // a clip's growth waits for the timer; an opened or closed one goes at once
+    if (changed)
+        write();
+    updateTimer();
+}
+
+void DjSetRecorder::grow()
+{
+    // the clock only: the decks are read at settled views
+    const qint64 clock = now();
+    for (std::optional<DeckClip> &clip : m_clips)
+    {
+        if (clip)
+            clip->endMs = quint32(clock - clip->startClock);
+    }
+    write();
+    updateTimer();
+}
+
+void DjSetRecorder::close(int deck, qint64 clock)
+{
+    DeckClip &clip = *m_clips[deck];
+    clip.endMs = quint32(clock - clip.startClock);
+    closeRun(clip);
+    m_closed.append({ m_setId, deck, clip });
+    m_clips[deck].reset();
+}
+
+bool DjSetRecorder::pending() const
+{
+    return m_closed.isEmpty() == false
+           || std::any_of(m_clips.begin(), m_clips.end(), [](const auto &c) { return c.has_value(); });
+}
+
+void DjSetRecorder::updateTimer()
+{
+    if (pending() && m_updateTimer.isActive() == false)
         m_updateTimer.start();
-    else if (pending == false)
+    else if (pending() == false)
         m_updateTimer.stop();
-    return changed;
 }
 
 void DjSetRecorder::sample(DeckClip &clip, const DjFsm::Deck &deck, bool active, quint32 clipMs) const
@@ -192,15 +228,10 @@ void DjSetRecorder::sample(DeckClip &clip, const DjFsm::Deck &deck, bool active,
     const quint32 position = quint32(qMax(0, deck.elapsedMs));
     if (deck.playing)
     {
-        // a resume starts a play run where the pause held
-        if (clip.playing == false)
-        {
-            clip.playing = true;
-            clip.run.append({ clipMs, position });
-        }
-        // the position moves with VirtualDJ's writes only
-        else if (position != clip.run.last().songMs)
-            appendSample(clip.run, ShowClipPositionSample{ clipMs, position });
+        // a resume starts a play run where the pause held; a still
+        // position while playing (a held jog) holds as well
+        clip.playing = true;
+        appendSample(clip.run, ShowClipPositionSample{ clipMs, position });
     }
     else if (clip.playing)
     {
@@ -325,7 +356,6 @@ bool DjSetRecorder::writeClip(quint32 setId, int deck, DeckClip &clip)
         sf->setStartTime(clip.startMs);
         sf->setColor(ShowFunction::defaultColor(Function::ShowType));
         clip.uid = sf->id();
-        m_doc->setModified();
     }
     // 0 would be the song Show's own duration
     sf->setDuration(qMax(1u, clip.endMs));
@@ -335,13 +365,12 @@ bool DjSetRecorder::writeClip(quint32 setId, int deck, DeckClip &clip)
 
 void DjSetRecorder::write()
 {
+    if (pending() == false)
+        return;
     for (auto it = m_closed.begin(); it != m_closed.end();)
     {
         if (writeClip(it->setId, it->deck, it->clip))
-        {
-            m_doc->setModified();
             it = m_closed.erase(it);
-        }
         else
             ++it;
     }
@@ -350,13 +379,14 @@ void DjSetRecorder::write()
         if (m_clips[i])
             writeClip(m_setId, i, *m_clips[i]);
     }
+    // the set changed since a save; a modified Doc keeps its autosave timer
+    if (m_doc->isModified() == false)
+        m_doc->setModified();
 }
 
 void DjSetRecorder::forgetSet()
 {
     m_setId = Function::invalidId();
-    m_closed.clear();
     for (std::optional<DeckClip> &clip : m_clips)
         clip.reset();
-    m_updateTimer.stop();
 }
