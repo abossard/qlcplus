@@ -329,6 +329,10 @@ public:
      */
     void adjustIntensity(qreal fraction, const Track *track);
 
+    /** The clips' levels follow the Show's master and its clips' automation
+     *  while the clock stands, paused too */
+    void applyClipLevels() { m_clips.applyLevels(m_intensityMap); }
+
 private:
     QMap<quint32, qreal> m_intensityMap;
     bool m_performAudioSuppressed = false;

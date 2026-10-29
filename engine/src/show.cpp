@@ -1228,9 +1228,11 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         m_runner->setPause(paused);
     }
 
-    // paused: finish what was already crossed, without clock, clips or seeks
+    // paused: finish what was already crossed, without clock or seeks; a
+    // deck's weight still moves the clips' levels
     if (paused)
     {
+        m_runner->applyClipLevels();
         m_runner->drainCommands();
         return;
     }

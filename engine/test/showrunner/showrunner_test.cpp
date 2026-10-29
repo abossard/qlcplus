@@ -5150,18 +5150,22 @@ void ShowRunner_Test::masterIntensityScalesEveryTrack_data()
 {
     QTest::addColumn<qreal>("master");
     QTest::addColumn<bool>("whilePlaying");
-    QTest::addColumn<qreal>("track0");
+    QTest::addColumn<bool>("paused");
+    QTest::addColumn<qreal>("track0");  // a track at 1.0 is never adjusted
     QTest::addColumn<qreal>("track1");
 
-    QTest::newRow("full master") << 1.0 << false << 1.0 << 0.5;
-    QTest::newRow("half before playing") << 0.5 << false << 1.0 << 0.5;
-    QTest::newRow("half while playing") << 0.5 << true << 0.8 << 1.0;
+    QTest::newRow("full master") << 1.0 << false << false << 1.0 << 0.5;
+    QTest::newRow("half before playing") << 0.5 << false << false << 1.0 << 0.5;
+    QTest::newRow("half while playing") << 0.5 << true << false << 0.8 << 1.0;
+    QTest::newRow("half while paused") << 0.5 << true << true << 0.8 << 1.0;
+    QTest::newRow("half while paused, tracks never adjusted") << 0.5 << true << true << 1.0 << 1.0;
 }
 
 void ShowRunner_Test::masterIntensityScalesEveryTrack()
 {
     QFETCH(qreal, master);
     QFETCH(bool, whilePlaying);
+    QFETCH(bool, paused);
     QFETCH(qreal, track0);
     QFETCH(qreal, track1);
 
@@ -5179,14 +5183,21 @@ void ShowRunner_Test::masterIntensityScalesEveryTrack()
         addClip(show, track, scene->id(), 0, 60000);
         scenes.append(scene);
     }
-    show->adjustAttribute(track0, 0);
-    show->adjustAttribute(track1, 1);
+    if (track0 != 1.0)
+        show->adjustAttribute(track0, 0);
+    if (track1 != 1.0)
+        show->adjustAttribute(track1, 1);
     if (whilePlaying == false)
         show->setMasterIntensity(master);
 
     show->start(timer, FunctionParent::master());
     timer->timerTick();
     timer->timerTick();
+    if (paused)
+    {
+        show->setPause(true);
+        timer->timerTick();
+    }
     if (whilePlaying)
     {
         show->setMasterIntensity(master);
@@ -5442,6 +5453,59 @@ void ShowRunner_Test::clipLevelLeavesAnotherOwnersFunction()
     stopAndSettle(doc, show);
     scene->stop(FunctionParent::master());
     timer->timerTick();
+}
+
+void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt_data()
+{
+    QTest::addColumn<bool>("stopTheOther");
+
+    QTest::newRow("the other Show stops") << true;
+    QTest::newRow("the other Show's clip ends") << false;
+}
+
+void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt()
+{
+    QFETCH(bool, stopTheOther);
+
+    // one Scene on a clip of two Shows, two decks' songs: the dark one leaves
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    QVector<Show *> shows;
+    for (quint32 duration : { 60000u, 500u })
+    {
+        Show *show = new Show(&doc);
+        doc.addFunction(show);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, duration);
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(0);
+        shows.append(show);
+    }
+    Show *playing = shows.at(0), *other = shows.at(1);
+    timer->timerTick();
+    other->setMasterIntensity(0.0);
+    auto pushBoth = [&](quint32 ms) {
+        for (Show *show : std::as_const(shows))
+            show->setExternalElapsedTime(ms);
+        timer->timerTick();
+        timer->timerTick();
+    };
+    pushBoth(100);
+    QCOMPARE(scene->getAttributeValue(Function::Intensity), 0.0);
+
+    if (stopTheOther)
+        stopAndSettle(doc, other);
+    else
+        pushBoth(1000);
+
+    QVERIFY(scene->isRunning());
+    QCOMPARE(scene->getAttributeValue(Function::Intensity), 1.0);
+
+    stopAndSettle(doc, playing);
+    stopAndSettle(doc, other);
 }
 
 void ShowRunner_Test::clipLevelFromTheFirstFrame_data()

@@ -227,8 +227,11 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
 
     // Intensity is a Single override: requesting it again never drives
     // whatever a stale identifier was recycled for. A Function the timer
-    // restarts at the end of the tick loses the first request there.
-    if (level == drive.level && drive.function->attributes().at(Function::Intensity).m_isOverridden)
+    // restarts at the end of the tick loses the first request there; one
+    // another Show's clip plays too takes this level back once that Show
+    // wrote its own (it stopped, or its clip ended)
+    if (level == drive.level && drive.function->attributes().at(Function::Intensity).m_isOverridden &&
+        qAbs(intensityOverride(drive.function) - level) < 1e-9)
         return;
     // only while this Show plays it, a start still queued too: one somebody
     // else restarted keeps its own level
