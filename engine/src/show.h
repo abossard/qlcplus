@@ -205,8 +205,16 @@ public:
     void setPerformDriven(bool driven) { m_performDriven.store(driven, std::memory_order_relaxed); }
     bool isPerformDriven() const { return m_performDriven.load(std::memory_order_relaxed); }
 
+    /** Any thread: the clock position its runner ended its last run at, none
+     *  since a start */
+    std::optional<quint32> finishedAt() const;
+
 private:
+    /** Timer thread: its runner ends it at ms */
+    void setFinishedAt(quint32 ms);
+
     std::atomic_bool m_performDriven{false};
+    std::atomic<quint64> m_finishedAt{NoSample};
     std::atomic<double> m_masterIntensity{1.0};
     std::atomic_bool m_dominant{true};
     std::atomic_bool m_nestedAudioSuppressed{false};

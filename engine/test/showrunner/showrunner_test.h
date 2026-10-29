@@ -215,6 +215,8 @@ private slots:
     void nestedShowTakenOverKeepsEveryClip();
     void commandIntensityAcrossClipBoundaries_data();
     void commandIntensityAcrossClipBoundaries();
+    void nestedShowEndedInItsClipPlaysAgain_data();
+    void nestedShowEndedInItsClipPlaysAgain();
 
 private:
     Scene *createScene();

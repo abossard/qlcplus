@@ -6063,4 +6063,46 @@ void ShowRunner_Test::commandIntensityAcrossClipBoundaries()
     stopAndSettle(doc, other);
 }
 
+void ShowRunner_Test::nestedShowEndedInItsClipPlaysAgain_data()
+{
+    QTest::addColumn<ClipSegments>("segments");
+    QTest::addColumn<quint32>("songMs");
+
+    // the song plays one Scene over [0, 1000) and ends itself before the set's 2000
+    QTest::newRow("a loop back to the song start")
+        << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(2000, 0, 1.0)} << 500u;
+    QTest::newRow("a seek back into the song")
+        << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(2000, 300, 1.0)} << 800u;
+}
+
+void ShowRunner_Test::nestedShowEndedInItsClipPlaysAgain()
+{
+    QFETCH(ClipSegments, segments);
+    QFETCH(quint32, songMs);
+
+    Doc doc(nullptr);
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *song = new Show(&doc);
+    doc.addFunction(song);
+    Track *songTrack = new Track(scene->id());
+    song->addTrack(songTrack);
+    addClip(song, songTrack, scene->id(), 0, 1000);
+    Show *set = new Show(&doc);
+    doc.addFunction(set);
+    Track *track = new Track(Function::invalidId());
+    set->addTrack(track);
+    addClip(set, track, song->id(), 0, 10000, clipAutomation(segments));
+
+    playExternal(doc, set, {500, 1500});
+    QVERIFY(song->isRunning() == false);
+
+    playExternal(doc, set, {2500});
+    QVERIFY(song->isRunning());
+    QCOMPARE(song->syncSource(), int(ShowRunner::External));
+    QCOMPARE(song->m_runner->m_elapsedTime, songMs);
+    QVERIFY(scene->isRunning());
+
+    stopAndSettle(doc, set);
+}
+
 QTEST_GUILESS_MAIN(ShowRunner_Test)

@@ -46,7 +46,9 @@ class Doc;
  * Show follows its clip every tick instead: External clock from the position
  * map, master intensity from that level, dominant when the clip and this
  * Show are, with its Audio suppressed when this Show suppresses nested audio
- * or its own.
+ * or its own. One that ends itself inside
+ * its clip plays again from where the map moves below its end, as live
+ * Perform plays it again.
  * It gets its own settings back once its clip ends, or at once when somebody
  * else stopped it. One live Perform drives is Perform's: a clip neither
  * starts it, nor drives it, nor gives it anything back.
@@ -69,8 +71,9 @@ public:
     void join(const ShowFunction *clip, Function *f);
 
     /** Each tick: what is still running takes the clock, level and dominance
-     *  of its driving clip at the Show's clocks; a nested Show that is not
-     *  running gets its settings back */
+     *  of its driving clip at the Show's clocks; a nested Show somebody else
+     *  stopped gets its settings back, one that ended itself keeps them to
+     *  its clip's end */
     void drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap<quint32, qreal> &trackIntensities,
                const QList<QPair<Function *, quint32>> &running);
 

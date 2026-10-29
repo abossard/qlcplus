@@ -548,7 +548,10 @@ void ShowRunner::write(MasterTimer *timer)
     if (timeDone && beatsDone)
     {
         if (m_show != NULL)
+        {
+            m_show->setFinishedAt(m_elapsedTime);
             m_show->stop(functionParent());
+        }
         emit showFinished();
         return;
     }

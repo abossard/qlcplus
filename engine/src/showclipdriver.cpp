@@ -167,9 +167,12 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
             it = m_drives.erase(it);
             continue;
         }
+        // one that ended itself inside its clip waits for the map to move below its end
+        const std::optional<quint32> ended = drive.nested != nullptr && drive.nested->hasSource(parent()) == false
+                                             ? drive.nested->finishedAt() : std::nullopt;
         // a nested Show somebody else stopped is theirs from now on
         if (queued.contains(drive.function) == false ||
-            (drive.nested != nullptr && drive.nested->hasSource(parent()) == false))
+            (drive.nested != nullptr && drive.nested->hasSource(parent()) == false && ended == std::nullopt))
         {
             release(drive);
             it = m_drives.erase(it);
@@ -193,7 +196,13 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
         drive.at = clock > driving.clip->startTime() ? clock - driving.clip->startTime() : 0;
 
         if (drive.nested != nullptr)
-            drive.nested->setExternalElapsedTime(driving.automation.songPositionAt(drive.at));
+        {
+            const quint32 position = driving.automation.songPositionAt(drive.at);
+            // a move below its end plays it again from there, as live Perform does
+            if (ended && position < *ended)
+                drive.nested->start(m_doc->masterTimer(), parent(), position);
+            drive.nested->setExternalElapsedTime(position);
+        }
         applyLevel(drive, trackIntensities);
         ++it;
     }

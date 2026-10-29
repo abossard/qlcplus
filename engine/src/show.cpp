@@ -710,6 +710,20 @@ bool Show::setCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &a
 void Show::startRequested()
 {
     m_playFirstSample.store(NoSample, std::memory_order_release);
+    m_finishedAt.store(NoSample, std::memory_order_release);
+}
+
+void Show::setFinishedAt(quint32 ms)
+{
+    m_finishedAt.store(ms, std::memory_order_release);
+}
+
+std::optional<quint32> Show::finishedAt() const
+{
+    const quint64 ms = m_finishedAt.load(std::memory_order_acquire);
+    if (ms == NoSample)
+        return std::nullopt;
+    return quint32(ms);
 }
 
 bool Show::publishCommandTrack(const ShowCommandTrack &track, const QSet<quint32> &alreadyApplied,
