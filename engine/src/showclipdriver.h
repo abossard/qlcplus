@@ -44,9 +44,9 @@ class Doc;
  * thread. A clip's Function starts at the clip's in-point, at the level of
  * its track intensity x the envelope x the Show's master intensity. A nested
  * Show follows its clip every tick instead: External clock from the position
- * map, master intensity from that level, dominant when the clip and this
- * Show are, with its Audio suppressed when this Show suppresses nested audio
- * or its own. One that ends itself inside
+ * map, paused by its clip in a deck pause, master intensity from that level,
+ * dominant when the clip and this Show are, with its Audio suppressed when
+ * this Show suppresses nested audio or its own. One that ends itself inside
  * its clip plays again from where the map moves below its end, as live
  * Perform plays it again.
  * It gets its own settings back once its clip ends, or at once when somebody

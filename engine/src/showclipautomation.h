@@ -34,12 +34,15 @@ class QXmlStreamWriter;
 #define KXMLShowClipAutomation QStringLiteral("ClipAutomation")
 
 /** From clipMs on, the clip plays its function from songMs at rate:
- *  a loop wrap or a seek starts a new segment, a pause is rate 0, pitch is the rate */
+ *  a loop wrap or a seek starts a new segment, a still position is rate 0,
+ *  pitch is the rate. A deck pause is paused as well: a held jog or a lead-in
+ *  stands still while its song plays on. */
 struct ShowClipSegment
 {
     quint32 clipMs = 0;
     quint32 songMs = 0;
     qreal rate = 1.0;
+    bool paused = false;
 
     bool operator==(const ShowClipSegment &other) const;
 };
@@ -96,8 +99,8 @@ public:
 
     /** Ordered by strictly rising clipMs */
     const QVector<ShowClipSegment> &segments() const;
-    /** Refused whole, leaving the map alone, unless clipMs rises strictly
-     *  and every rate is finite and not negative */
+    /** Refused whole, leaving the map alone, unless clipMs rises strictly,
+     *  every rate is finite and not negative and every pause is rate 0 */
     bool setSegments(const QVector<ShowClipSegment> &segments);
 
     const QVector<ShowClipLevel> &envelope() const;
@@ -112,6 +115,9 @@ public:
      *  last segment with clipMs <= t, the first one before it, never below 0.
      *  t without segments. */
     quint32 songPositionAt(quint32 clipMs) const;
+
+    /** The segment playing at clip time t, as songPositionAt() finds it, is a deck pause */
+    bool pausedAt(quint32 clipMs) const;
 
     /** Where the clip starts its function: the first segment's songMs, 0 without */
     quint32 inPoint() const;

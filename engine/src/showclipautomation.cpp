@@ -35,10 +35,11 @@
 #define KXMLShowClipRate         QStringLiteral("Rate")
 #define KXMLShowClipValue        QStringLiteral("Value")
 #define KXMLShowClipDominant     QStringLiteral("Dominant")
+#define KXMLShowClipPaused       QStringLiteral("Paused")
 
 bool ShowClipSegment::operator==(const ShowClipSegment &other) const
 {
-    return clipMs == other.clipMs && songMs == other.songMs && rate == other.rate;
+    return clipMs == other.clipMs && songMs == other.songMs && rate == other.rate && paused == other.paused;
 }
 
 bool ShowClipLevel::operator==(const ShowClipLevel &other) const
@@ -79,7 +80,7 @@ bool ShowClipAutomation::setSegments(const QVector<ShowClipSegment> &segments)
         return false;
     for (const ShowClipSegment &segment : segments)
     {
-        if (std::isfinite(segment.rate) == false || segment.rate < 0.0)
+        if (std::isfinite(segment.rate) == false || segment.rate < 0.0 || (segment.paused && segment.rate != 0.0))
             return false;
     }
     m_segments = segments;
@@ -140,6 +141,11 @@ quint32 ShowClipAutomation::songPositionAt(quint32 clipMs) const
     const double position = double(segment.songMs) +
                             (double(clipMs) - double(segment.clipMs)) * segment.rate;
     return quint32(qBound(0.0, std::round(position), double(std::numeric_limits<quint32>::max())));
+}
+
+bool ShowClipAutomation::pausedAt(quint32 clipMs) const
+{
+    return m_segments.isEmpty() == false && m_segments.at(governing(m_segments, clipMs)).paused;
 }
 
 quint32 ShowClipAutomation::inPoint() const
@@ -211,6 +217,7 @@ ShowClipAutomation ShowClipAutomation::withStartMoved(qint64 deltaMs) const
     const double position = double(playing.songMs) + (double(deltaMs) - double(playing.clipMs)) * playing.rate;
     ShowClipSegment head;
     head.rate = playing.rate;
+    head.paused = playing.paused;
     if (position >= 0.0)
     {
         head.songMs = roundedMs(position);
@@ -505,10 +512,13 @@ bool ShowClipAutomation::loadXML(QXmlStreamReader &root, QString *error)
         if (root.name() == KXMLShowClipSegment)
         {
             ShowClipSegment segment;
+            quint32 paused = 0;
             if (!readTime(attrs, KXMLShowClipTime, &segment.clipMs) ||
                 !readTime(attrs, KXMLShowClipSong, &segment.songMs) ||
-                !readReal(attrs, KXMLShowClipRate, &segment.rate))
+                !readReal(attrs, KXMLShowClipRate, &segment.rate) ||
+                (attrs.hasAttribute(KXMLShowClipPaused) && !readTime(attrs, KXMLShowClipPaused, &paused)) || paused > 1)
                 reason = QStringLiteral("unreadable Segment");
+            segment.paused = paused == 1;
             segments.append(segment);
         }
         else if (root.name() == KXMLShowClipLevel)
@@ -538,7 +548,7 @@ bool ShowClipAutomation::loadXML(QXmlStreamReader &root, QString *error)
 
     ShowClipAutomation loaded;
     if (reason.isEmpty() && loaded.setSegments(segments) == false)
-        reason = QStringLiteral("Segments need rising clip times and finite rates of at least 0");
+        reason = QStringLiteral("Segments need rising clip times, finite rates of at least 0 and pauses at rate 0");
     if (reason.isEmpty() && loaded.setEnvelope(envelope) == false)
         reason = QStringLiteral("Levels need rising clip times and values in [0, 1]");
     if (reason.isEmpty() && loaded.setDominance(dominance) == false)
@@ -564,6 +574,8 @@ void ShowClipAutomation::saveXML(QXmlStreamWriter *doc) const
         doc->writeAttribute(KXMLShowClipTime, QString::number(segment.clipMs));
         doc->writeAttribute(KXMLShowClipSong, QString::number(segment.songMs));
         doc->writeAttribute(KXMLShowClipRate, realToString(segment.rate));
+        if (segment.paused)
+            doc->writeAttribute(KXMLShowClipPaused, QStringLiteral("1"));
         doc->writeEndElement();
     }
     for (const ShowClipLevel &keyframe : m_envelope)

@@ -4752,6 +4752,14 @@ ShowClipSegment clipSegment(quint32 clipMs, quint32 songMs, qreal rate)
     return s;
 }
 
+/** The deck paused: its song stands at songMs */
+ShowClipSegment deckPause(quint32 clipMs, quint32 songMs)
+{
+    ShowClipSegment s = clipSegment(clipMs, songMs, 0.0);
+    s.paused = true;
+    return s;
+}
+
 ShowClipLevel clipLevel(quint32 clipMs, qreal level)
 {
     ShowClipLevel l;
@@ -6061,6 +6069,68 @@ void ShowRunner_Test::commandIntensityAcrossClipBoundaries()
 
     stopAndSettle(doc, show);
     stopAndSettle(doc, other);
+}
+
+void ShowRunner_Test::deckPauseHoldsTheNestedShow_data()
+{
+    QTest::addColumn<ClipSegments>("segments");
+    QTest::addColumn<QList<quint32>>("positions");
+    QTest::addColumn<bool>("restarted");  // the set stops and starts the song in one tick, as crossed commands do
+    QTest::addColumn<quint32>("songMs");
+    QTest::addColumn<bool>("cue");        // the song's Scene over [900, 1200) plays
+    QTest::addColumn<bool>("paused");
+
+    const ClipSegments pause{clipSegment(0, 0, 1.0), deckPause(1000, 1000)};
+    QTest::newRow("a deck pause") << pause << QList<quint32>{500, 3000} << false << 1000u << true << true;
+    QTest::newRow("a cue while paused")
+        << ClipSegments{clipSegment(0, 0, 1.0), deckPause(1000, 1000), deckPause(2000, 300)}
+        << QList<quint32>{500, 1500, 3000} << false << 300u << false << true;
+    // the song takes the position the pause holds first
+    QTest::newRow("a jump into a pause") << ClipSegments{clipSegment(0, 0, 1.0), deckPause(500, 1000)}
+                                         << QList<quint32>{400, 600, 700} << false << 1000u << true << true;
+    QTest::newRow("a deck pause, the set restarts the song")
+        << pause << QList<quint32>{500, 3000} << true << 1000u << true << true;
+    QTest::newRow("a held jog plays on") << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(1000, 1000, 0.0)}
+                                         << QList<quint32>{500, 3000} << false << 1000u << true << false;
+    QTest::newRow("a resume")
+        << ClipSegments{clipSegment(0, 0, 1.0), deckPause(1000, 1000), clipSegment(2000, 1000, 1.0)}
+        << QList<quint32>{500, 1500, 3000} << false << 2000u << false << false;
+}
+
+void ShowRunner_Test::deckPauseHoldsTheNestedShow()
+{
+    QFETCH(ClipSegments, segments);
+    QFETCH(QList<quint32>, positions);
+    QFETCH(bool, restarted);
+    QFETCH(quint32, songMs);
+    QFETCH(bool, cue);
+    QFETCH(bool, paused);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    NestedSet n = makeNestedSet(doc);
+    Track *cueTrack = new Track(Function::invalidId());
+    n.song->addTrack(cueTrack);
+    Scene *cueScene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 100);
+    addClip(n.song, cueTrack, cueScene->id(), 900, 300);
+    addClip(n.set, n.track, n.song->id(), 0, 60000, clipAutomation(segments));
+
+    playExternal(doc, n.set, positions);
+    if (restarted)
+    {
+        const FunctionParent set(FunctionParent::Function, n.set->id());
+        n.song->stop(set);
+        n.song->start(timer, set);
+        playExternal(doc, n.set, {positions.last()});
+    }
+
+    QVERIFY(n.song->isRunning());
+    QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
+    QCOMPARE(cueScene->isRunning(), cue);
+    // the song's Functions stand while its deck pauses
+    QCOMPARE(n.scene->isPaused(), paused);
+
+    stopAndSettle(doc, n.set);
 }
 
 void ShowRunner_Test::nestedShowEndedInItsClipPlaysAgain_data()

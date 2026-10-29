@@ -711,6 +711,7 @@ void Show::startRequested()
 {
     m_playFirstSample.store(NoSample, std::memory_order_release);
     m_finishedAt.store(NoSample, std::memory_order_release);
+    m_clipPaused.store(false, std::memory_order_relaxed);
 }
 
 void Show::setFinishedAt(quint32 ms)
@@ -1247,7 +1248,8 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         }
     }
 
-    const bool paused = isPaused();
+    // its clip pauses it once it played the clip's position: a move goes first
+    const bool paused = isPaused() || (isClipPaused() && m_runner->reached(externalElapsedTime()));
     if (paused != m_runnerPaused)
     {
         m_runnerPaused = paused;
@@ -1302,6 +1304,9 @@ void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
     m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
     if (m_runner != NULL)
     {
+        // a paused Function a next run starts in this tick takes a start, not a resume
+        if (m_runnerPaused)
+            m_runner->setPause(false);
         m_runner->stop();
         delete m_runner;
         m_runner = NULL;

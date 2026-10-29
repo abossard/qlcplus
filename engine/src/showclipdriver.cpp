@@ -161,9 +161,10 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
     for (auto it = m_drives.begin(); it != m_drives.end(); )
     {
         Drive &drive = it.value();
-        // with what they set on it
+        // with what they set on it, paused by no clip
         if (drive.nested != nullptr && performed(drive.nested))
         {
+            drive.nested->setClipPaused(false);
             it = m_drives.erase(it);
             continue;
         }
@@ -202,6 +203,7 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
             if (ended && position < *ended)
                 drive.nested->start(m_doc->masterTimer(), parent(), position);
             drive.nested->setExternalElapsedTime(position);
+            drive.nested->setClipPaused(driving.automation.pausedAt(drive.at));
         }
         applyLevel(drive, trackIntensities);
         ++it;
@@ -294,6 +296,7 @@ void ShowClipDriver::release(const Drive &drive)
     if (performed(drive.nested))
         return;
 
+    drive.nested->setClipPaused(false);
     drive.nested->setSyncSource(drive.saved.syncSource);
     if (drive.audioSuppressed)
         drive.nested->setPerformAudioSuppressed(drive.saved.audioSuppressed);

@@ -47,7 +47,7 @@ inline const QString kSetFolderPath = QStringLiteral("Sets");
  * play, with one track per deck ("Deck N"). Every song stay on a deck is one
  * clip of the song's Show (ShowFactory): from its first play to a song
  * change, an eject, another Show for the song or Perform off; a pause stays
- * in the clip as rate 0. The clip carries the deck's position map, its mix
+ * in the clip as a paused segment. The clip carries the deck's position map, its mix
  * weight as envelope and the active deck as dominance, compressed by the
  * ShowClipAutomation builders.
  *

@@ -512,6 +512,7 @@ void ShowRunner::write(MasterTimer *timer)
             startFunctionsDone = true;
     }
 
+    m_seekRestartPending = seekRestartPending;
     m_clips.drive(m_elapsedTime, m_elapsedBeats, m_intensityMap, m_runningQueue);
 
     // Phase 3. Apply the commands this position is due for. They run after the
@@ -609,6 +610,12 @@ void ShowRunner::setExternalElapsedTime(quint32 ms, quint64 anchor)
 void ShowRunner::requestSeek(quint32 ms, bool forward)
 {
     (forward ? m_requestedForwardTime : m_requestedSeekTime).store(ms, std::memory_order_release);
+}
+
+bool ShowRunner::reached(quint32 ms) const
+{
+    return m_syncSource == External && m_externalBaselinePending == false && m_elapsedTime == ms &&
+           m_seekRestartPending == false;
 }
 
 void ShowRunner::seekTo(quint32 newTime, bool forward)
