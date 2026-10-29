@@ -732,6 +732,7 @@ void ShowRunner::processCommands(bool traversalStalled)
     if (m_show->isDominant() == false)
     {
         m_commandsWithheld = true;
+        m_controlsRegained = false;
         return;
     }
     const bool regained = std::exchange(m_commandsWithheld, false);
@@ -1019,10 +1020,27 @@ void ShowRunner::drainCommands()
         m_heldControlBatch = 0;
         m_settlingFunction = ShowCommand::InvalidId;
     }
-    else if (m_show->isDominant())
+    else if (m_show->isDominant() == false)
+    {
+        m_commandsWithheld = true;
+        m_controlsRegained = false;
+    }
+    else
     {
         m_commandStartedThisTick.clear();
-        dispatchCommandEffects(QVector<ShowCommand>());
+        // dominant again while paused: the controls take their track state
+        // now, the whole regain plays once the clock runs
+        QVector<ShowCommand> controls;
+        if (m_commandsWithheld && std::exchange(m_controlsRegained, true) == false)
+        {
+            const ShowCommandTransition regained = ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime);
+            for (const ShowCommand &cmd : regained.effects)
+            {
+                if (ShowCommand::isControlAction(cmd.action))
+                    controls.append(cmd);
+            }
+        }
+        dispatchCommandEffects(controls);
     }
     publishCommandWork();
 }

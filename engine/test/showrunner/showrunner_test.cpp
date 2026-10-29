@@ -5613,17 +5613,22 @@ void ShowRunner_Test::regainPutsBackTheTrackState_data()
 {
     QTest::addColumn<quint32>("recordTime");
     QTest::addColumn<bool>("putBack");
+    QTest::addColumn<bool>("paused");
 
     // the Show loses dominance at 200 and regains it at 3000
-    QTest::newRow("set before the loss") << 100u << true;
-    QTest::newRow("set while not dominant") << 1500u << true;
-    QTest::newRow("set after the position") << 5000u << false;
+    QTest::newRow("set before the loss") << 100u << true << false;
+    QTest::newRow("set while not dominant") << 1500u << true << false;
+    QTest::newRow("set after the position") << 5000u << false << false;
+    // its deck paused, then became the active one
+    QTest::newRow("set before the loss, regained while paused") << 100u << true << true;
+    QTest::newRow("set after the position, regained while paused") << 5000u << false << true;
 }
 
 void ShowRunner_Test::regainPutsBackTheTrackState()
 {
     QFETCH(quint32, recordTime);
     QFETCH(bool, putBack);
+    QFETCH(bool, paused);
 
     Doc doc(nullptr);
     MasterTimer *timer = doc.masterTimer();
@@ -5653,6 +5658,11 @@ void ShowRunner_Test::regainPutsBackTheTrackState()
     show->setDominant(false);
     playExternal(doc, show, {3000});
     QVERIFY(replayed().isEmpty());
+    if (paused)
+    {
+        show->setPause(true);
+        timer->timerTick();
+    }
 
     show->setDominant(true);
     timer->timerTick();
