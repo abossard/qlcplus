@@ -5501,8 +5501,8 @@ void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt_dat
     QTest::addColumn<bool>("adjusted");
     QTest::addColumn<qreal>("intensity");
 
-    QTest::newRow("the other Show stops") << true << false << 1.0;
-    QTest::newRow("the other Show's clip ends") << false << false << 1.0;
+    QTest::newRow("the other Show stops") << true << false << 0.6;
+    QTest::newRow("the other Show's clip ends") << false << false << 0.6;
     // an Adjust slider moved after the other Show's level keeps its value
     QTest::newRow("a VC adjustment after the other Show's level") << true << true << 0.3;
 }
@@ -5532,6 +5532,7 @@ void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt()
     }
     Show *playing = shows.at(0), *other = shows.at(1);
     timer->timerTick();
+    playing->setMasterIntensity(0.6);
     other->setMasterIntensity(0.0);
     auto pushBoth = [&](quint32 ms) {
         for (Show *show : std::as_const(shows))
@@ -5555,6 +5556,67 @@ void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt()
 
     stopAndSettle(doc, playing);
     stopAndSettle(doc, other);
+}
+
+void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt_data()
+{
+    QTest::addColumn<QList<qreal>>("masters");  // one Show each, writing in this order
+    QTest::addColumn<QStringList>("steps");      // "master <show> <level>" or "stop <show>"
+    QTest::addColumn<qreal>("intensity");
+
+    QTest::newRow("the Show playing on wrote the same level last")
+        << QList<qreal>{1.0, 1.0} << QStringList{"master 1 0", "master 0 0", "stop 1"} << 0.0;
+    QTest::newRow("the middle Show leaves first")
+        << QList<qreal>{0.6, 0.0, 0.8} << QStringList{"stop 1", "stop 2"} << 0.6;
+    QTest::newRow("the latest Show leaves first")
+        << QList<qreal>{0.6, 0.0, 0.8} << QStringList{"stop 2", "stop 1"} << 0.6;
+}
+
+void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt()
+{
+    QFETCH(QList<qreal>, masters);
+    QFETCH(QStringList, steps);
+    QFETCH(qreal, intensity);
+
+    // one Scene on a clip of every Show, each Show one tick after the one before
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    QVector<Show *> shows;
+    for (qreal master : masters)
+    {
+        Show *show = new Show(&doc);
+        doc.addFunction(show);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, 60000);
+        show->setMasterIntensity(master);
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(100);
+        timer->timerTick();
+        timer->timerTick();
+        shows.append(show);
+    }
+
+    for (const QString &step : steps)
+    {
+        const QStringList words = step.split(' ');
+        Show *show = shows.at(words.at(1).toInt());
+        if (words.at(0) == "master")
+            show->setMasterIntensity(words.at(2).toDouble());
+        else
+            show->stop(FunctionParent::master());
+        timer->timerTick();
+        timer->timerTick();
+    }
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - intensity) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    for (Show *show : std::as_const(shows))
+        stopAndSettle(doc, show);
 }
 
 void ShowRunner_Test::clipLevelFromTheFirstFrame_data()

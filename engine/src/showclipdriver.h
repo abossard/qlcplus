@@ -54,13 +54,17 @@ class Doc;
  * starts it, nor drives it, nor gives it anything back.
  * A Function plays once: of its clips active at a time, the one that starts
  * last drives it. Commands multiply their intensity into the clip's level.
- * A Function another owner plays on gets back the level this Show's clip
- * replaced, unless somebody wrote over the clip's since.
+ * A Function several Shows' clips play takes the level of the one that wrote
+ * last: once that one lets it go, the one that wrote before it among those
+ * still playing it writes its level again, unless somebody wrote over the
+ * clip's level since.
  */
 class ShowClipDriver final
 {
 public:
     ShowClipDriver(const Doc *doc, quint32 showId);
+    ~ShowClipDriver();
+    Q_DISABLE_COPY(ShowClipDriver)
 
     /** Start f, not running for this Show yet, for clip at its clip time at,
      *  in the clock units of f */
@@ -127,10 +131,6 @@ private:
         quint32 at = 0;
         /** Last level applied to a Function that is no Show */
         qreal level = -1.0;
-        /** Last level this Show's clips wrote on it, also before a restart */
-        qreal wrote = -1.0;
-        /** The level the clips' writes replaced */
-        std::optional<qreal> replaced;
         /** What commands set, multiplied into the level */
         qreal command = 1.0;
         /** The last tick found this Show playing it */

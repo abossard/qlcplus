@@ -17,6 +17,7 @@
   limitations under the License.
 */
 
+#include <QMutex>
 #include <QSet>
 
 #include "showclipdriver.h"
@@ -30,12 +31,79 @@
 namespace
 {
 const qreal kSameLevel = 1e-9;
+
+/** The levels the clips of each Show wrote on a Function's Intensity
+ *  override, the latest last */
+class ClipWriters
+{
+public:
+    void wrote(const Function *f, const ShowClipDriver *writer, qreal level)
+    {
+        QMutexLocker locker(&m_mutex);
+        QVector<Write> &writes = m_writes[f];
+        remove(writes, writer);
+        writes.append({ writer, level });
+    }
+
+    /** writer no longer plays f: when it wrote last and another one plays
+     *  f on, its own level and the one to write back */
+    std::optional<QPair<qreal, qreal>> left(const Function *f, const ShowClipDriver *writer)
+    {
+        QMutexLocker locker(&m_mutex);
+        auto it = m_writes.find(f);
+        if (it == m_writes.end())
+            return std::nullopt;
+        std::optional<QPair<qreal, qreal>> back;
+        if (it->count() > 1 && it->last().writer == writer)
+            back = qMakePair(it->last().level, it->at(it->count() - 2).level);
+        remove(*it, writer);
+        if (it->isEmpty())
+            m_writes.erase(it);
+        return back;
+    }
+
+    void forget(const ShowClipDriver *writer)
+    {
+        QMutexLocker locker(&m_mutex);
+        for (auto it = m_writes.begin(); it != m_writes.end(); )
+        {
+            remove(*it, writer);
+            it = it->isEmpty() ? m_writes.erase(it) : std::next(it);
+        }
+    }
+
+private:
+    struct Write
+    {
+        const ShowClipDriver *writer;
+        qreal level;
+    };
+
+    static void remove(QVector<Write> &writes, const ShowClipDriver *writer)
+    {
+        writes.removeIf([writer](const Write &w) { return w.writer == writer; });
+    }
+
+    QMutex m_mutex;
+    QHash<const Function *, QVector<Write>> m_writes;
+};
+
+ClipWriters &clipWriters()
+{
+    static ClipWriters writers;
+    return writers;
+}
 }
 
 ShowClipDriver::ShowClipDriver(const Doc *doc, quint32 showId)
     : m_doc(doc)
     , m_show(qobject_cast<Show *>(doc->function(showId)))
 {
+}
+
+ShowClipDriver::~ShowClipDriver()
+{
+    clipWriters().forget(this);
 }
 
 ShowClipDriver::Clip ShowClipDriver::clipOf(const ShowFunction *clip) const
@@ -80,12 +148,6 @@ ShowClipDriver::Drive &ShowClipDriver::adopt(const ShowFunction *clip, Function 
     else if (drive.nested == nullptr && f->isRunning() && f->hasSource(parent()))
     {
         drive.command = intensityOverride(f);
-    }
-    // the level this Show's clips replaced stays theirs to give back
-    if (ended != m_drives.constEnd() && drive.nested == nullptr)
-    {
-        drive.wrote = ended->wrote;
-        drive.replaced = ended->replaced;
     }
 
     if (drive.nested != nullptr)
@@ -269,27 +331,23 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
     const bool playing = drive.function->stopped() == false && drive.function->hasSource(parent());
     if (starting == false && playing == false)
         return;
-    // what this write replaces, unless it is the clips' own last write
-    if (drive.function->attributes().at(Function::Intensity).m_isOverridden == false)
-        drive.replaced.reset();
-    else if (drive.wrote < 0.0 || qAbs(intensityOverride(drive.function) - drive.wrote) > kSameLevel)
-        drive.replaced = intensityOverride(drive.function);
     drive.function->requestAttributeOverride(Function::Intensity, level);
     drive.level = level;
-    drive.wrote = level;
+    clipWriters().wrote(drive.function, this, level);
 }
 
 void ShowClipDriver::release(const Drive &drive)
 {
     if (drive.nested == nullptr)
     {
-        // another owner plays it on: the level the clips replaced comes back,
-        // unless somebody wrote over theirs since
+        // another Show's clip plays it on: its level comes back, unless
+        // somebody wrote over this one's since
+        const std::optional<QPair<qreal, qreal>> back = clipWriters().left(drive.function, this);
         const Function *f = drive.function;
-        if (drive.replaced && f->isRunning() && f->stopped() == false && f->hasSource(parent()) == false &&
+        if (back && f->isRunning() && f->stopped() == false && f->hasSource(parent()) == false &&
             f->attributes().at(Function::Intensity).m_isOverridden &&
-            qAbs(intensityOverride(f) - drive.wrote) <= kSameLevel)
-            drive.function->requestAttributeOverride(Function::Intensity, *drive.replaced);
+            qAbs(intensityOverride(f) - back->first) <= kSameLevel)
+            drive.function->requestAttributeOverride(Function::Intensity, back->second);
         return;
     }
     // Perform took it meanwhile, with its own settings
