@@ -6137,33 +6137,34 @@ void ShowRunner_Test::deckPauseHoldsTheNestedShow_data()
 {
     QTest::addColumn<ClipSegments>("segments");
     QTest::addColumn<QList<quint32>>("positions");
-    QTest::addColumn<bool>("restarted");  // the set stops and starts the song in one tick, as crossed commands do
-    QTest::addColumn<quint32>("songMs");
+    QTest::addColumn<QString>("then");
+    QTest::addColumn<quint32>("songMs");  // UINT_MAX: not checked
     QTest::addColumn<bool>("cue");        // the song's Scene over [900, 1200) plays
     QTest::addColumn<bool>("paused");
 
     const ClipSegments pause{clipSegment(0, 0, 1.0), deckPause(1000, 1000)};
-    QTest::newRow("a deck pause") << pause << QList<quint32>{500, 3000} << false << 1000u << true << true;
+    QTest::newRow("a deck pause") << pause << QList<quint32>{500, 3000} << QString() << 1000u << true << true;
     QTest::newRow("a cue while paused")
         << ClipSegments{clipSegment(0, 0, 1.0), deckPause(1000, 1000), deckPause(2000, 300)}
-        << QList<quint32>{500, 1500, 3000} << false << 300u << false << true;
+        << QList<quint32>{500, 1500, 3000} << QString() << 300u << false << true;
     // the song takes the position the pause holds first
     QTest::newRow("a jump into a pause") << ClipSegments{clipSegment(0, 0, 1.0), deckPause(500, 1000)}
-                                         << QList<quint32>{400, 600, 700} << false << 1000u << true << true;
-    QTest::newRow("a deck pause, the set restarts the song")
-        << pause << QList<quint32>{500, 3000} << true << 1000u << true << true;
+                                         << QList<quint32>{400, 600, 700} << QString() << 1000u << true << true;
+    // the commands take the song from its clip: it plays on, restarted where the clip held it
+    QTest::newRow("a deck pause, the set's commands stop and start the song")
+        << pause << QList<quint32>{500, 1500, 3000} << QString("commands") << UINT_MAX << true << false;
     QTest::newRow("a held jog plays on") << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(1000, 1000, 0.0)}
-                                         << QList<quint32>{500, 3000} << false << 1000u << true << false;
+                                         << QList<quint32>{500, 3000} << QString() << 1000u << true << false;
     QTest::newRow("a resume")
         << ClipSegments{clipSegment(0, 0, 1.0), deckPause(1000, 1000), clipSegment(2000, 1000, 1.0)}
-        << QList<quint32>{500, 1500, 3000} << false << 2000u << false << false;
+        << QList<quint32>{500, 1500, 3000} << QString() << 2000u << false << false;
 }
 
 void ShowRunner_Test::deckPauseHoldsTheNestedShow()
 {
     QFETCH(ClipSegments, segments);
     QFETCH(QList<quint32>, positions);
-    QFETCH(bool, restarted);
+    QFETCH(QString, then);
     QFETCH(quint32, songMs);
     QFETCH(bool, cue);
     QFETCH(bool, paused);
@@ -6176,23 +6177,93 @@ void ShowRunner_Test::deckPauseHoldsTheNestedShow()
     Scene *cueScene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 100);
     addClip(n.song, cueTrack, cueScene->id(), 900, 300);
     addClip(n.set, n.track, n.song->id(), 0, 60000, clipAutomation(segments));
-
-    playExternal(doc, n.set, positions);
-    if (restarted)
+    if (then == "commands")
     {
-        const FunctionParent set(FunctionParent::Function, n.set->id());
-        n.song->stop(set);
-        n.song->start(timer, set);
-        playExternal(doc, n.set, {positions.last()});
+        ShowCommandTrack track;
+        QVERIFY(track.insert(ShowCommand::stop(1, 2000, n.song->id())));
+        QVERIFY(track.insert(ShowCommand::start(2, 2000, n.song->id())));
+        QVERIFY(track.setExtent(60000));
+        QVERIFY(n.set->setCommandTrack(track));
     }
 
+    playExternal(doc, n.set, positions);
+
     QVERIFY(n.song->isRunning());
-    QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
+    QVERIFY(n.scene->isRunning());
+    if (songMs != UINT_MAX)
+        QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
     QCOMPARE(cueScene->isRunning(), cue);
     // the song's Functions stand while its deck pauses
     QCOMPARE(n.scene->isPaused(), paused);
 
-    stopAndSettle(doc, n.set);
+    if (n.set->isRunning())
+        stopAndSettle(doc, n.set);
+    stopAndSettle(doc, n.song);
+}
+
+void ShowRunner_Test::stoppedPausedShowLeavesASharedFunctionPaused_data()
+{
+    QTest::addColumn<bool>("decks");  // the songs of a set in a deck pause, else paused by the user
+
+    QTest::newRow("both Shows paused by the user") << false;
+    QTest::newRow("both songs in a deck pause, one clip ends") << true;
+}
+
+void ShowRunner_Test::stoppedPausedShowLeavesASharedFunctionPaused()
+{
+    QFETCH(bool, decks);
+
+    // two Shows play one Scene, both paused: one of them stops
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    QVector<Show *> shows;
+    for (int i = 0; i < 2; i++)
+    {
+        Show *show = new Show(&doc);
+        doc.addFunction(show);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, 600000);
+        shows.append(show);
+    }
+    Show *set = nullptr;
+    if (decks)
+    {
+        set = new Show(&doc);
+        doc.addFunction(set);
+        for (int i = 0; i < 2; i++)
+        {
+            Track *deck = new Track(Function::invalidId());
+            set->addTrack(deck);
+            addClip(set, deck, shows.at(i)->id(), 0, i == 0 ? 3000 : 60000,
+                    clipAutomation({clipSegment(0, 0, 1.0), deckPause(1000, 1000)}));
+        }
+        playExternal(doc, set, {500, 2000});
+        QVERIFY(scene->isPaused());
+        playExternal(doc, set, {3500});
+        QVERIFY(shows.at(0)->isRunning() == false);
+    }
+    else
+    {
+        for (Show *show : std::as_const(shows))
+        {
+            show->start(timer, FunctionParent::master());
+            timer->timerTick();
+            show->setPause(true);
+        }
+        timer->timerTick();
+        QVERIFY(scene->isPaused());
+        stopAndSettle(doc, shows.at(0));
+    }
+
+    QVERIFY(scene->isRunning());
+    QVERIFY(scene->isPaused());
+
+    if (set != nullptr)
+        stopAndSettle(doc, set);
+    for (Show *show : std::as_const(shows))
+        stopAndSettle(doc, show);
 }
 
 void ShowRunner_Test::nestedShowEndedInItsClipPlaysAgain_data()

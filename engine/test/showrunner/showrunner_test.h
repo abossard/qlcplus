@@ -219,6 +219,8 @@ private slots:
     void commandIntensityAcrossClipBoundaries();
     void deckPauseHoldsTheNestedShow_data();
     void deckPauseHoldsTheNestedShow();
+    void stoppedPausedShowLeavesASharedFunctionPaused_data();
+    void stoppedPausedShowLeavesASharedFunctionPaused();
     void nestedShowEndedInItsClipPlaysAgain_data();
     void nestedShowEndedInItsClipPlaysAgain();
 

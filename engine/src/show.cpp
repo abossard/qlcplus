@@ -1304,9 +1304,6 @@ void Show::postRun(MasterTimer* timer, QList<Universe *> universes)
     m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
     if (m_runner != NULL)
     {
-        // a paused Function a next run starts in this tick takes a start, not a resume
-        if (m_runnerPaused)
-            m_runner->setPause(false);
         m_runner->stop();
         delete m_runner;
         m_runner = NULL;
