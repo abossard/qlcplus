@@ -98,6 +98,19 @@ void DjSetRecorder::setClock(const Clock &clock)
     m_clock = clock;
 }
 
+bool DjSetRecorder::hasWaitingClips() const
+{
+    // a closed clip stays only while it waits; an open one is in the set at once otherwise
+    if (m_closed.isEmpty() == false)
+        return true;
+    for (const std::optional<DeckClip> &clip : m_clips)
+    {
+        if (clip && clip->uid == std::nullopt)
+            return true;
+    }
+    return false;
+}
+
 qint64 DjSetRecorder::now() const
 {
     return m_clock();
@@ -350,6 +363,10 @@ DjSetRecorder::Written DjSetRecorder::writeClip(quint32 setId, int deck, DeckCli
         MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(set));
         if (!admission)
             return Written::Waiting;
+        // the song went, or came to hold the set, while its clip waited
+        const Show *song = qobject_cast<Show *>(m_doc->function(clip.showId));
+        if (song == nullptr || song->contains(setId))
+            return Written::Gone;
         Track *track = deckTrack(set, deck + 1);
         if (track == nullptr)
             return Written::Gone;

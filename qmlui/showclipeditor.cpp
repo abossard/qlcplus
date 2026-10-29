@@ -220,26 +220,27 @@ QString ShowClipEditor::clipXml(quint32 showId, const ShowFunction *sf)
     return xml;
 }
 
-bool ShowClipEditor::applyClip(Doc *doc, quint32 clipId, const QString &xml, bool history)
+ShowClipEditor::ClipEdit ShowClipEditor::applyClip(Doc *doc, quint32 clipId, const QString &xml, bool history)
 {
     QXmlStreamReader reader(xml);
     if (reader.readNextStartElement() == false || reader.name() != KXMLShowClip)
-        return false;
+        return ClipEdit::Gone;
 
     const QXmlStreamAttributes attrs = reader.attributes();
     const quint32 startTime = attrs.value(KXMLShowClipStart).toUInt();
     const quint32 duration = attrs.value(KXMLShowClipDuration).toUInt();
     Show *show = qobject_cast<Show *>(doc->function(attrs.value(KXMLShowClipShow).toUInt()));
-    ShowFunction *sf = show != nullptr && (history == false || show->isRunning() == false)
-            ? show->showFunction(clipId) : nullptr;
+    ShowFunction *sf = show != nullptr ? show->showFunction(clipId) : nullptr;
     ShowClipAutomation automation;
     if (sf == nullptr || reader.readNextStartElement() == false || automation.loadXML(reader) == false)
-        return false;
+        return ClipEdit::Gone;
+    if (history && show->isRunning())
+        return ClipEdit::Waits;
 
     sf->setStartTime(startTime);
     sf->setDuration(duration);
     sf->setClipAutomation(automation);
-    return true;
+    return ClipEdit::Applied;
 }
 
 ShowClipAutomation ShowClipEditor::played(ShowFunction *sf) const

@@ -110,6 +110,8 @@ void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at,
     const bool nested = f->type() == Function::ShowType;
     if (nested == false && f->isRunning() && f->stopped())
         f->stop(parent(), true);
+    if (nested && performed(f))
+        return;
 
     Drive &drive = adopt(clip, f, at);
     applyLevel(drive, trackIntensities);
@@ -148,6 +150,12 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
     for (auto it = m_drives.begin(); it != m_drives.end(); )
     {
         Drive &drive = it.value();
+        // with what they set on it
+        if (drive.nested != nullptr && performed(drive.nested))
+        {
+            it = m_drives.erase(it);
+            continue;
+        }
         // a nested Show somebody else stopped is theirs from now on
         if (queued.contains(drive.function) == false ||
             (drive.nested != nullptr && drive.nested->hasSource(parent()) == false))
@@ -220,6 +228,9 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
 
     if (drive.nested != nullptr)
     {
+        // paused, this Show still applies levels: Perform's Show is Perform's
+        if (performed(drive.nested))
+            return;
         drive.nested->setMasterIntensity(level);
         drive.nested->setDominant(driving.automation.dominantAt(drive.at) && m_show->isDominant());
         return;
@@ -242,7 +253,8 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
 
 void ShowClipDriver::release(const Drive &drive)
 {
-    if (drive.nested == nullptr)
+    // Perform took it meanwhile, with its own settings
+    if (drive.nested == nullptr || performed(drive.nested))
         return;
 
     drive.nested->setSyncSource(drive.saved.syncSource);
@@ -267,4 +279,10 @@ FunctionParent ShowClipDriver::parent() const
 bool ShowClipDriver::keepsThroughSeek(const Function *f)
 {
     return f->type() == Function::ShowType;
+}
+
+bool ShowClipDriver::performed(const Function *f)
+{
+    const Show *show = qobject_cast<const Show *>(f);
+    return show != nullptr && show->isPerformDriven();
 }

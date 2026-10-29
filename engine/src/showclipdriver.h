@@ -48,9 +48,10 @@ class Doc;
  * Show are, with its Audio suppressed when this Show suppresses nested audio
  * or its own.
  * It gets its own settings back once its clip ends, or at once when somebody
- * else stopped it. A Function plays once: of its clips active at a time, the
- * one that starts last drives it. Commands multiply their intensity into the
- * clip's level.
+ * else stopped it. One live Perform drives is Perform's: a clip neither
+ * starts it, nor drives it, nor gives it anything back.
+ * A Function plays once: of its clips active at a time, the one that starts
+ * last drives it. Commands multiply their intensity into the clip's level.
  */
 class ShowClipDriver final
 {
@@ -90,6 +91,9 @@ public:
 
     /** A clip of f active at a seek target keeps f running: its clock moves */
     static bool keepsThroughSeek(const Function *f);
+
+    /** f is a Show live Perform drives */
+    static bool performed(const Function *f);
 
 private:
     struct Clip

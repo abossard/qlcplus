@@ -2348,6 +2348,8 @@ void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch_data()
     QTest::newRow("gui seek") << QStringLiteral("gui seek");
     QTest::newRow("function stop") << QStringLiteral("function stop");
     QTest::newRow("stop, then manual tick") << QStringLiteral("stop, then manual tick");
+    // another deck's Show became the active one: its own state comes back on regaining
+    QTest::newRow("demotion") << QStringLiteral("demotion");
 }
 
 void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch()
@@ -2392,6 +2394,11 @@ void ShowCommandRecorder_Test::cancel_dropsParkedRunWithoutFurtherBatch()
     {
         // before the timer ran it
         static_cast<Function *>(show)->stop(FunctionParent::master());
+        QCoreApplication::processEvents();
+    }
+    else if (cancel == QStringLiteral("demotion"))
+    {
+        show->setDominant(false);
         QCoreApplication::processEvents();
     }
     else

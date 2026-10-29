@@ -186,9 +186,11 @@ public:
     /** Any thread: a Show that is not dominant replays none of its command
      *  track; once dominant again every control its track sets at or before
      *  the position takes that state, and the Function commands crossed
-     *  meanwhile play their net effect. Its clips lose LTP to a dominant
-     *  Show's (mix layer -1). Dominant unless a parent Show's clip says
-     *  otherwise. Not persisted. */
+     *  meanwhile play their net effect. Losing dominance cancels the VC work
+     *  crossed and not yet done. Its clips lose LTP to a dominant Show's
+     *  (mix layer -1); a Show that stops or rests takes the layer at its
+     *  next start, so its clips fade out on the one they played on.
+     *  Dominant unless a parent Show's clip says otherwise. Not persisted. */
     void setDominant(bool dominant);
     bool isDominant() const { return m_dominant.load(std::memory_order_relaxed); }
 
@@ -197,7 +199,14 @@ public:
     void setNestedAudioSuppressed(bool suppressed);
     bool nestedAudioSuppressed() const { return m_nestedAudioSuppressed.load(std::memory_order_relaxed); }
 
+    /** Any thread: live Perform drives this Show (its deck's clock, weight
+     *  and dominance); a parent Show's clip neither starts nor drives it
+     *  then. Not persisted. */
+    void setPerformDriven(bool driven) { m_performDriven.store(driven, std::memory_order_relaxed); }
+    bool isPerformDriven() const { return m_performDriven.load(std::memory_order_relaxed); }
+
 private:
+    std::atomic_bool m_performDriven{false};
     std::atomic<double> m_masterIntensity{1.0};
     std::atomic_bool m_dominant{true};
     std::atomic_bool m_nestedAudioSuppressed{false};

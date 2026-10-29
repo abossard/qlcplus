@@ -29,6 +29,10 @@ private slots:
     void quitApp();
     void djTelemetry_data();
     void djTelemetry();
+    void aRecordingSetIsReadOnly_data();
+    void aRecordingSetIsReadOnly();
+    void aClipWaitingForThePlayingSetHoldsTheSave_data();
+    void aClipWaitingForThePlayingSetHoldsTheSave();
     void drivenShows_data();
     void drivenShows();
     void invalidArguments_data();

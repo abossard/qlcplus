@@ -5150,18 +5150,22 @@ void ShowRunner_Test::masterIntensityScalesEveryTrack_data()
 {
     QTest::addColumn<qreal>("master");
     QTest::addColumn<bool>("whilePlaying");
-    QTest::addColumn<qreal>("track0");
+    QTest::addColumn<bool>("paused");
+    QTest::addColumn<qreal>("track0");  // a track at 1.0 is never adjusted
     QTest::addColumn<qreal>("track1");
 
-    QTest::newRow("full master") << 1.0 << false << 1.0 << 0.5;
-    QTest::newRow("half before playing") << 0.5 << false << 1.0 << 0.5;
-    QTest::newRow("half while playing") << 0.5 << true << 0.8 << 1.0;
+    QTest::newRow("full master") << 1.0 << false << false << 1.0 << 0.5;
+    QTest::newRow("half before playing") << 0.5 << false << false << 1.0 << 0.5;
+    QTest::newRow("half while playing") << 0.5 << true << false << 0.8 << 1.0;
+    QTest::newRow("half while paused") << 0.5 << true << true << 0.8 << 1.0;
+    QTest::newRow("half while paused, tracks never adjusted") << 0.5 << true << true << 1.0 << 1.0;
 }
 
 void ShowRunner_Test::masterIntensityScalesEveryTrack()
 {
     QFETCH(qreal, master);
     QFETCH(bool, whilePlaying);
+    QFETCH(bool, paused);
     QFETCH(qreal, track0);
     QFETCH(qreal, track1);
 
@@ -5179,14 +5183,21 @@ void ShowRunner_Test::masterIntensityScalesEveryTrack()
         addClip(show, track, scene->id(), 0, 60000);
         scenes.append(scene);
     }
-    show->adjustAttribute(track0, 0);
-    show->adjustAttribute(track1, 1);
+    if (track0 != 1.0)
+        show->adjustAttribute(track0, 0);
+    if (track1 != 1.0)
+        show->adjustAttribute(track1, 1);
     if (whilePlaying == false)
         show->setMasterIntensity(master);
 
     show->start(timer, FunctionParent::master());
     timer->timerTick();
     timer->timerTick();
+    if (paused)
+    {
+        show->setPause(true);
+        timer->timerTick();
+    }
     if (whilePlaying)
     {
         show->setMasterIntensity(master);
@@ -5444,6 +5455,38 @@ void ShowRunner_Test::clipLevelLeavesAnotherOwnersFunction()
     timer->timerTick();
 }
 
+void ShowRunner_Test::clipLevelLeavesAVcAdjustment_data()
+{
+    QTest::addColumn<qreal>("trackIntensity");
+
+    QTest::newRow("full track") << 1.0;
+    QTest::newRow("dimmed track") << 0.5;
+}
+
+void ShowRunner_Test::clipLevelLeavesAVcAdjustment()
+{
+    QFETCH(qreal, trackIntensity);
+
+    Doc doc(nullptr);
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *show = new Show(&doc);
+    doc.addFunction(show);
+    Track *track = new Track(scene->id());
+    show->addTrack(track);
+    addClip(show, track, scene->id(), 0, 60000);
+    show->adjustAttribute(trackIntensity, 0);
+    playExternal(doc, show, {100});
+
+    // an Adjust slider on the Scene shares its Single Intensity override
+    scene->adjustAttribute(0.3, scene->requestAttributeOverride(Function::Intensity, 0.3));
+    playExternal(doc, show, {200, 300});
+
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - 0.3) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, show);
+}
+
 void ShowRunner_Test::clipLevelFromTheFirstFrame_data()
 {
     QTest::addColumn<quint32>("laterDuration");
@@ -5549,17 +5592,29 @@ void ShowRunner_Test::regainPutsBackTheTrackState_data()
 {
     QTest::addColumn<quint32>("recordTime");
     QTest::addColumn<bool>("putBack");
+    QTest::addColumn<bool>("paused");
+    QTest::addColumn<quint32>("resumeAt");          // 0: where it paused
+    QTest::addColumn<QList<quint32>>("afterResume"); // what the resume replays
 
     // the Show loses dominance at 200 and regains it at 3000
-    QTest::newRow("set before the loss") << 100u << true;
-    QTest::newRow("set while not dominant") << 1500u << true;
-    QTest::newRow("set after the position") << 5000u << false;
+    QTest::newRow("set before the loss") << 100u << true << false << 0u << QList<quint32>();
+    QTest::newRow("set while not dominant") << 1500u << true << false << 0u << QList<quint32>();
+    QTest::newRow("set after the position") << 5000u << false << false << 0u << QList<quint32>();
+    // its deck paused, then became the active one
+    QTest::newRow("set before the loss, regained while paused") << 100u << true << true << 0u << QList<quint32>();
+    QTest::newRow("set after the position, regained while paused") << 5000u << false << true << 0u << QList<quint32>();
+    // a cue while paused: the resume crosses it
+    QTest::newRow("set after the position, regained while paused, resumed past it")
+        << 5000u << false << true << 6000u << QList<quint32>{1};
 }
 
 void ShowRunner_Test::regainPutsBackTheTrackState()
 {
     QFETCH(quint32, recordTime);
     QFETCH(bool, putBack);
+    QFETCH(bool, paused);
+    QFETCH(quint32, resumeAt);
+    QFETCH(QList<quint32>, afterResume);
 
     Doc doc(nullptr);
     MasterTimer *timer = doc.masterTimer();
@@ -5589,6 +5644,11 @@ void ShowRunner_Test::regainPutsBackTheTrackState()
     show->setDominant(false);
     playExternal(doc, show, {3000});
     QVERIFY(replayed().isEmpty());
+    if (paused)
+    {
+        show->setPause(true);
+        timer->timerTick();
+    }
 
     show->setDominant(true);
     timer->timerTick();
@@ -5598,6 +5658,17 @@ void ShowRunner_Test::regainPutsBackTheTrackState()
     if (putBack)
         expected.insert(1);
     QCOMPARE(replayed(), expected);
+
+    // resumed: the controls keep what they took, a DJ may have moved them since
+    if (paused)
+    {
+        if (resumeAt != 0)
+            show->setExternalElapsedTime(resumeAt);
+        show->setPause(false);
+        timer->timerTick();
+        timer->timerTick();
+        QCOMPARE(replayed(), QSet<quint32>(afterResume.cbegin(), afterResume.cend()));
+    }
 
     stopAndSettle(doc, show);
 }

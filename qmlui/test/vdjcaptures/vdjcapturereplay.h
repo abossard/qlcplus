@@ -28,7 +28,10 @@
  * real ones; a {"ev":"meta","state":[[trigger,value],...]} record holding
  * every value VDJ had sent before the slice in its order (fed first, as one
  * snapshot write); and marks. The replay is synchronous: a record's `t` only
- * reaches atTime, when given, before the record is fed. An
+ * reaches atTime, when given, before the record is fed. A write ends at the
+ * next one's start or, where the next record comes kSettleMs or later, before
+ * the clock moves on (the client's settle timeout without its latency); the
+ * snapshot and the last record end at once. An
  * rx record marked "derived" is not socket data but a per-deck master flag
  * the OSC polls of that capture observed; it is fed but not counted. Captures
  * were taken on VDJ 8.5.9307 and anonymized: paths are /music/track-N.mp3,
@@ -53,6 +56,7 @@ inline int replay(VdjTelemetryClient &client, const char *name,
     if (!file.open(QIODevice::ReadOnly))
         return -1;
     int chunks = 0;
+    qint64 lastFed = 0;
     while (!file.atEnd())
     {
         QJsonParseError error;
@@ -65,8 +69,15 @@ inline int replay(VdjTelemetryClient &client, const char *name,
         const QString ev = record.value(QLatin1String("ev")).toString();
         const bool fed = ev == QLatin1String("rx")
                          || (ev == QLatin1String("meta") && record.contains(QLatin1String("state")));
-        if (fed && atTime)
-            atTime(qint64(record.value(QLatin1String("t")).toDouble()));
+        if (fed)
+        {
+            const qint64 t = qint64(record.value(QLatin1String("t")).toDouble());
+            if (t - lastFed >= VdjTelemetryClient::kSettleMs)
+                client.settle();
+            lastFed = t;
+            if (atTime)
+                atTime(t);
+        }
         if (ev == QLatin1String("meta") && record.contains(QLatin1String("state")))
         {
             QByteArray snapshot;
@@ -78,6 +89,7 @@ inline int replay(VdjTelemetryClient &client, const char *name,
                 snapshot += QJsonDocument(object).toJson(QJsonDocument::Compact) + '\n';
             }
             client.feed(snapshot);
+            client.settle();
         }
         else if (ev == QLatin1String("rx"))
         {
@@ -86,6 +98,7 @@ inline int replay(VdjTelemetryClient &client, const char *name,
                 chunks++;
         }
     }
+    client.settle();
     return chunks;
 }
 

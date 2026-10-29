@@ -720,6 +720,40 @@ void DjSetRecorder_Test::aClipWaitsForARunningSetToStop()
     QCOMPARE(clip->duration(), 500u);
 }
 
+void DjSetRecorder_Test::aWaitingClipChecksItsSongAgain_data()
+{
+    QTest::addColumn<QString>("meanwhile");  // after Perform off, while the set still plays
+
+    QTest::newRow("B's Show came to hold the set") << "nest";
+    QTest::newRow("B's Show removed") << "remove-song=B";
+}
+
+void DjSetRecorder_Test::aWaitingClipChecksItsSongAgain()
+{
+    QFETCH(QString, meanwhile);
+
+    Rig rig;
+    rig.run("perform=on;d1.load=A;d1.play;+1000");
+    Show *set = rig.sets().first();
+    playExternal(rig.doc, set, 0);
+    rig.run("d2.load=B;d2.play;+500;perform=off;+100");
+    QCOMPARE(rig.clips(2).count(), 0);
+    if (meanwhile == "nest")
+    {
+        // allowed: the set does not hold B while B's clip waits
+        Show *song = rig.songs.value("B");
+        Track *track = new Track(Function::invalidId(), song);
+        song->addTrack(track);
+        track->createShowFunction(set->id())->setDuration(1000);
+    }
+    else
+        rig.run(meanwhile);
+
+    stopAndSettle(rig.doc, set);
+    rig.run("wait");
+    QCOMPARE(rig.clips(2).count(), 0);
+}
+
 void DjSetRecorder_Test::growthAfterASaveMarksTheWorkspaceModified_data()
 {
     QTest::addColumn<QString>("script");  // after a save while song A plays on deck 1

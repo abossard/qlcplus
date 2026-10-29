@@ -1482,7 +1482,8 @@ int Tardis::processAction(TardisAction &action, bool undo)
         break;
 
         case ShowManagerItemSetClip:
-            if (!ShowClipEditor::applyClip(m_doc, action.m_objID, value->toString(), m_replayingHistory))
+            if (ShowClipEditor::applyClip(m_doc, action.m_objID, value->toString(), m_replayingHistory) ==
+                ShowClipEditor::ClipEdit::Waits)
                 return -1;
         break;
 

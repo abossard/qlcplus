@@ -47,6 +47,7 @@ public:
     QVariantMap djState() const override;
     QVariantMap setRecording(bool on) override;
     QVariantMap recordingState() const override;
+    bool showRecorded(quint32 showId) const override;
     QVariantMap pressWidget(int widgetID, const QString &action) override;
 
     int addPage(const QString &name) override;

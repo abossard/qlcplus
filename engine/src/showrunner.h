@@ -260,6 +260,10 @@ private:
     bool m_commandJumpPending = false;
     /** The Show was not dominant: what it crossed meanwhile plays like a forward jump */
     bool m_commandsWithheld = false;
+    /** Dominant again while paused: its controls took their track state at
+     *  m_controlsRegainedAt, the Function commands crossed wait for the clock */
+    bool m_controlsRegained = false;
+    quint32 m_controlsRegainedAt = 0;
 
     /** What a legacy Start, Stop or SetIntensity found and left on its target */
     struct LegacyEffect
@@ -328,6 +332,10 @@ public:
      * Adjust the intensity of show track
      */
     void adjustIntensity(qreal fraction, const Track *track);
+
+    /** The clips' levels follow the Show's master and its clips' automation
+     *  while the clock stands, paused too */
+    void applyClipLevels() { m_clips.applyLevels(m_intensityMap); }
 
 private:
     QMap<quint32, qreal> m_intensityMap;

@@ -21,6 +21,7 @@
 #include "app.h"
 #include "djmanager.h"
 #include "vdjbridge.h"
+#include "djsetrecorder.h"
 #include "virtualconsole.h"
 #include "vcpage.h"
 #include "vcframe.h"
@@ -563,6 +564,14 @@ QVariantMap VCBridgeV5::setRecording(bool on)
         return result;
     }
     return recordingState();
+}
+
+bool VCBridgeV5::showRecorded(quint32 showId) const
+{
+    if (!hasMatchingAuthoringContext())
+        return false;
+    const DjSetRecorder *recorder = m_authoringApp->findChild<DjSetRecorder *>();
+    return recorder != nullptr && recorder->isRecording() && recorder->setShowId() == showId;
 }
 
 QVariantMap VCBridgeV5::recordingState() const

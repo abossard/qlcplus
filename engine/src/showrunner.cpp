@@ -167,6 +167,9 @@ void ShowRunner::setPause(bool enable)
         Function *f = m_runningQueue.at(i).first;
         if (keepAudioPaused && isAudioFunction(f))
             continue;
+        // a song Show live Perform drives follows its deck
+        if (ShowClipDriver::performed(f))
+            continue;
         f->setPause(enable);
     }
 }
@@ -732,9 +735,11 @@ void ShowRunner::processCommands(bool traversalStalled)
     if (m_show->isDominant() == false)
     {
         m_commandsWithheld = true;
+        m_controlsRegained = false;
         return;
     }
     const bool regained = std::exchange(m_commandsWithheld, false);
+    const bool controlsRegained = std::exchange(m_controlsRegained, false);
     if (regained)
         m_commandJumpPending = true;
 
@@ -744,10 +749,16 @@ void ShowRunner::processCommands(bool traversalStalled)
         m_commandCatchUp = true;
 
     m_commandState.playing = true;
-    const ShowCommandTransition played =
+    ShowCommandTransition played =
             regained ? ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime)
                      : ShowCommandFsm::advance(m_commandTrack, m_commandState, m_elapsedTime);
     m_commandState = played.state;
+    // the controls took their state while paused, a DJ may have moved them
+    // since; the ones the clock crossed after that play
+    if (regained && controlsRegained)
+        played.effects.removeIf([this](const ShowCommand &cmd) {
+            return ShowCommand::isControlAction(cmd.action) && cmd.time <= m_controlsRegainedAt;
+        });
 
     dispatchCommandEffects(played.effects);
 }
@@ -1019,10 +1030,28 @@ void ShowRunner::drainCommands()
         m_heldControlBatch = 0;
         m_settlingFunction = ShowCommand::InvalidId;
     }
-    else if (m_show->isDominant())
+    else if (m_show->isDominant() == false)
+    {
+        m_commandsWithheld = true;
+        m_controlsRegained = false;
+    }
+    else
     {
         m_commandStartedThisTick.clear();
-        dispatchCommandEffects(QVector<ShowCommand>());
+        // dominant again while paused: the controls take their track state
+        // now, the whole regain plays once the clock runs
+        QVector<ShowCommand> controls;
+        if (m_commandsWithheld && std::exchange(m_controlsRegained, true) == false)
+        {
+            m_controlsRegainedAt = m_elapsedTime;
+            const ShowCommandTransition regained = ShowCommandFsm::regain(m_commandTrack, m_commandState, m_elapsedTime);
+            for (const ShowCommand &cmd : regained.effects)
+            {
+                if (ShowCommand::isControlAction(cmd.action))
+                    controls.append(cmd);
+            }
+        }
+        dispatchCommandEffects(controls);
     }
     publishCommandWork();
 }

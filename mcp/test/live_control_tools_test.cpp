@@ -16,6 +16,7 @@
 #include "vcpage.h"
 #include "virtualconsole.h"
 #include "djmanager.h"
+#include "djsetrecorder.h"
 #include "vdjbridge.h"
 #include "showfactory.h"
 #include "showrunner.h"
@@ -28,6 +29,7 @@
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QTemporaryDir>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QTcpServer>
@@ -43,6 +45,14 @@ Json invoke(Doc *doc, VCBridge *vc, WorkspaceBridge *workspace,
     registerLiveControlTools(tm, doc, vc, workspace);
     if (!tm.has(name))
         return {{"error", std::string("tool not registered: ") + name}};
+    const Json result = tm.invoke(name, args);
+    return result.is_string() ? Json::parse(result.get<std::string>()) : result;
+}
+
+Json invokeShowTool(Doc *doc, VCBridge *vc, const char *name, const Json &args)
+{
+    fastmcpp::tools::ToolManager tm;
+    registerShowTools(tm, doc, vc);
     const Json result = tm.invoke(name, args);
     return result.is_string() ? Json::parse(result.get<std::string>()) : result;
 }
@@ -336,6 +346,143 @@ void McpLiveControlTools_Test::djTelemetry()
     QCOMPARE(song.at("artist"), Json("Test artist"));
     QCOMPARE(song.at("bpm"), Json(123.5));
     QCOMPARE(song.at("elapsedMs"), Json(2300));
+}
+
+void McpLiveControlTools_Test::aRecordingSetIsReadOnly_data()
+{
+    QTest::addColumn<QString>("tool");
+
+    QTest::newRow("add_show_items") << "add_show_items";
+    QTest::newRow("delete_show_items") << "delete_show_items";
+    QTest::newRow("create_shows") << "create_shows";
+}
+
+void McpLiveControlTools_Test::aRecordingSetIsReadOnly()
+{
+    QFETCH(QString, tool);
+    Doc *doc = m_app->doc();
+    auto *bridge = m_app->findChild<VdjBridge *>();
+    auto *recorder = m_app->findChild<DjSetRecorder *>();
+    QVERIFY(bridge);
+    QVERIFY(recorder);
+    const auto clear = qScopeGuard([&]() {
+        invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+        bridge->djFsm()->onDisconnected();
+    });
+    const auto send = [&](const QString &key, const QVariant &value) {
+        return QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, 0), Q_ARG(QString, key),
+                                        Q_ARG(QVariant, value));
+    };
+    QVERIFY(send("get_filepath", "/music/p7-set.mp3"));
+    QVERIFY(send("get_title", "Set song"));
+    QVERIFY(send("loaded", "on"));
+    QVERIFY(send("masterdeck", "on"));
+    QVERIFY(send("play", "on"));
+    QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    const Json on = invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", true}});
+    QVERIFY2(!on.contains("error"), on.dump().c_str());
+    // the next write opens the deck's clip in a new set
+    QVERIFY(send("get_time elapsed absolute", 1500));
+    QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    auto *set = qobject_cast<Show *>(doc->function(recorder->setShowId()));
+    QVERIFY(set);
+    const auto clips = [&]() {
+        int count = 0;
+        for (Track *track : set->tracks())
+            count += track->showFunctions().count();
+        return count;
+    };
+    const int tracks = set->tracks().count();
+    QCOMPARE(clips(), 1);
+    // sets started in one minute share their name: create_shows finds the first
+    set->setName(QStringLiteral("Recording set %1").arg(set->id()));
+    auto *scene = new Scene(doc);
+    QVERIFY(doc->addFunction(scene));
+
+    const auto edit = [&]() {
+        const Json item = tool == "add_show_items"
+            ? Json{{"showID", int(set->id())}, {"trackName", "Deck 1"},
+                   {"items", Json::array({{{"functionID", int(scene->id())}, {"startTime", 60000}, {"duration", 1000}}})}}
+            : tool == "delete_show_items"
+            ? Json{{"showID", int(set->id())}, {"trackNames", Json::array({"Deck 1"})}}
+            : Json{{"items", Json::array({{{"name", set->name().toStdString()},
+                                           {"tracks", Json::array({{{"name", "Deck 3"}}})}}})}};
+        const Json result = invokeShowTool(doc, m_vc.get(), tool.toLatin1().constData(), item);
+        return (result.is_array() ? result.at(0) : result).value("code", std::string());
+    };
+    // Perform writes it, as the Show Manager shows it read-only
+    QCOMPARE(QString::fromStdString(edit()), QStringLiteral("recording"));
+    QCOMPARE(set->tracks().count(), tracks);
+    QCOMPARE(clips(), 1);
+
+    // complete once Perform is off
+    invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+    QCOMPARE(QString::fromStdString(edit()), QString());
+}
+
+void McpLiveControlTools_Test::aClipWaitingForThePlayingSetHoldsTheSave_data()
+{
+    QTest::addColumn<bool>("performOff");  // the waiting clip closed
+
+    QTest::newRow("its song still plays") << false;
+    QTest::newRow("Perform went off") << true;
+}
+
+void McpLiveControlTools_Test::aClipWaitingForThePlayingSetHoldsTheSave()
+{
+    QFETCH(bool, performOff);
+    Doc *doc = m_app->doc();
+    auto *bridge = m_app->findChild<VdjBridge *>();
+    auto *recorder = m_app->findChild<DjSetRecorder *>();
+    QVERIFY(bridge);
+    QVERIFY(recorder);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    Show *set = nullptr;
+    const auto clear = qScopeGuard([&]() {
+        invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+        bridge->djFsm()->onDisconnected();
+        if (set != nullptr && set->isRunning())
+            set->stopAndWait();
+        doc->masterTimer()->stop();
+    });
+    const auto send = [&](int deck, const QString &key, const QVariant &value) {
+        return QMetaObject::invokeMethod(bridge, "onDeckTrigger", Q_ARG(int, deck - 1), Q_ARG(QString, key),
+                                        Q_ARG(QVariant, value));
+    };
+    const auto play = [&](int deck) {
+        QVERIFY(send(deck, "get_filepath", QStringLiteral("/music/p7-wait%1.mp3").arg(deck)));
+        QVERIFY(send(deck, "get_title", QStringLiteral("Wait song %1").arg(deck)));
+        QVERIFY(send(deck, "loaded", "on"));
+        QVERIFY(send(deck, "masterdeck", deck == 1 ? "on" : "off"));
+        QVERIFY(send(deck, "play", "on"));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+        QVERIFY(send(deck, "get_time elapsed absolute", 1500));
+        QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    };
+    play(1);
+    const Json on = invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", true}});
+    QVERIFY2(!on.contains("error"), on.dump().c_str());
+    QVERIFY(send(1, "get_time elapsed absolute", 1600));
+    QVERIFY(QMetaObject::invokeMethod(bridge, "onTickEnded"));
+    set = qobject_cast<Show *>(doc->function(recorder->setShowId()));
+    QVERIFY(set);
+    // somebody plays the set while it records: deck 2's song waits for it to stop
+    doc->masterTimer()->start();
+    set->setSyncSource(ShowRunner::External);
+    set->setExternalElapsedTime(0);
+    set->start(doc->masterTimer(), FunctionParent::master());
+    QTRY_VERIFY(set->isRunning());
+    play(2);
+    if (performOff)
+        invoke(doc, m_vc.get(), m_workspace.get(), "set_perform_mode", {{"on", false}});
+    QCOMPARE(set->tracks().at(1)->showFunctions().count(), 0);
+
+    // a saved set holds every song played
+    QVERIFY(!m_app->saveWorkspace(dir.filePath(QStringLiteral("waiting.qxw"))));
+    set->stopAndWait();
+    QTRY_COMPARE_WITH_TIMEOUT(set->tracks().at(1)->showFunctions().count(), 1, 2000);
+    QVERIFY(m_app->saveWorkspace(dir.filePath(QStringLiteral("complete.qxw"))));
 }
 
 void McpLiveControlTools_Test::drivenShows_data()

@@ -476,8 +476,19 @@ void Show::setNestedAudioSuppressed(bool suppressed)
 
 void Show::setDominant(bool dominant)
 {
-    m_dominant.store(dominant, std::memory_order_relaxed);
-    mixLayer()->setLayer(dominant ? 0 : -1);
+    const bool was = m_dominant.exchange(dominant);
+    // a Show that stops or rests keeps its layer: its clips fade out losing
+    // (or winning) LTP as they played; its next start takes the new one
+    if (isRunning() && stopped() == false)
+        mixLayer()->setLayer(dominant ? 0 : -1);
+    if (was == false || dominant)
+        return;
+    // the VC work crossed and not yet done is no longer this Show's
+    {
+        QMutexLocker locker(&m_commandTrackMutex);
+        cancelControlWork();
+    }
+    emit commandTraversalCancelled();
 }
 
 /*****************************************************************************
@@ -1165,6 +1176,7 @@ void Show::preRun(MasterTimer* timer)
     m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
     m_commandPosition.store(elapsed(), std::memory_order_relaxed);
     Function::preRun(timer);
+    mixLayer()->setLayer(isDominant() ? 0 : -1);
     m_runningChildren.clear();
     if (m_runner != NULL)
     {
@@ -1228,9 +1240,11 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         m_runner->setPause(paused);
     }
 
-    // paused: finish what was already crossed, without clock, clips or seeks
+    // paused: finish what was already crossed, without clock or seeks; a
+    // deck's weight still moves the clips' levels
     if (paused)
     {
+        m_runner->applyClipLevels();
         m_runner->drainCommands();
         return;
     }

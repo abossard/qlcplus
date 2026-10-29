@@ -25,6 +25,7 @@
 #include "showfunction.h"
 #include "track.h"
 #include "mastertimer.h"
+#include "vcbridge.h"
 
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
@@ -39,6 +40,13 @@ Json coded(Json record, const char *code)
 {
     record["code"] = code;
     return record;
+}
+
+// Perform writes the set it records: read-only, as the Show Manager shows it
+Json recordingRefusal(Json record, const Show *show)
+{
+    record["error"] = "Show " + std::to_string(show->id()) + " is the set Perform records: read-only until Perform is off";
+    return coded(record, "recording");
 }
 
 double millisecondsPerUnit(const Function *function, const Show *show)
@@ -139,7 +147,7 @@ Function *functionByName(const Doc *doc, const QString &name, bool &ambiguous)
 
 }
 
-void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
+void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcBridge)
 {
     using Tool = fastmcpp::tools::Tool;
 
@@ -162,7 +170,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }}, {"required", {"name"}}}}}}
         }}, {"required", {"items"}}},
         Json{},
-        [doc](const Json &args) -> Json {
+        [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto itemsErr = validateItemsArray(args);
             if (itemsErr) return *itemsErr;
@@ -220,6 +228,11 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                 MasterTimer *timer = doc->masterTimer();
                 Show *show = qobject_cast<Show*>(mcp::findFunction(doc, name, Function::ShowType));
                 const bool isNew = show == NULL;
+                if (!isNew && vcBridge != nullptr && vcBridge->showRecorded(show->id()))
+                {
+                    results.push_back(recordingRefusal(mcp::itemError(index, std::string()), show));
+                    continue;
+                }
                 MasterTimer::EditAdmission admission(timer, isNew ? timer->beginRegistryEdit() : timer->beginFunctionEdit(show));
                 if (!admission)
                 {
@@ -400,7 +413,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
             }}, {"required", {"startTime"}}}}}}
         }}, {"required", {"trackName", "items"}}},
         Json{},
-        [doc](const Json &args) -> Json {
+        [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"showID", "showName", "trackName", "items"});
             if (!err.empty()) return err;
@@ -557,6 +570,11 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                     continue;
                 }
 
+                if (vcBridge != nullptr && vcBridge->showRecorded(show->id()))
+                {
+                    results.push_back(recordingRefusal({{"functionID", (int)function->id()}}, show));
+                    continue;
+                }
                 MasterTimer *timer = doc->masterTimer();
                 MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(show));
                 if (!admission)
@@ -630,7 +648,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
                             {"description", "Whole tracks to remove, with everything on them"}}}
         }}, {"required", {"showID"}}},
         Json{},
-        [doc](const Json &args) -> Json {
+        [doc, vcBridge](const Json &args) -> Json {
             return execOnMainThread(doc, [&]() -> Json {
             auto err = validateFields(args, {"showID", "itemIDs", "trackNames"});
             if (!err.empty()) return err;
@@ -670,12 +688,14 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc)
 
             Json results = Json::array();
             MasterTimer *timer = doc->masterTimer();
-            MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(show));
+            const bool recorded = vcBridge != nullptr && vcBridge->showRecorded(show->id());
+            MasterTimer::EditAdmission admission(timer, recorded == false && timer->beginFunctionEdit(show));
             if (!admission)
             {
-                const Json refused = {{"code", "running"},
-                                      {"error", "Show " + std::to_string(show->id()) +
-                                                " or a function using it is running, starting or flashing"}};
+                const Json refused = recorded ? recordingRefusal(Json::object(), show)
+                                              : Json{{"code", "running"},
+                                                     {"error", "Show " + std::to_string(show->id()) +
+                                                               " or a function using it is running, starting or flashing"}};
                 for (quint32 id : itemIDs)
                 {
                     Json rec = refused;

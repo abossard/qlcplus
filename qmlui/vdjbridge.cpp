@@ -382,6 +382,7 @@ void VdjBridge::perform(const PerformFsm::Step &step)
             if (show)
             {
                 disconnect(show, nullptr, this, nullptr);
+                show->setPerformDriven(false);
                 show->setPerformAudioSuppressed(false);
                 show->setSyncSource(ShowRunner::Autonomous);
                 show->setMasterIntensity(1.0);
@@ -404,6 +405,10 @@ void VdjBridge::perform(const PerformFsm::Step &step)
         case Effect::AdoptShow:
             if (show && drive)
             {
+                // a set's clip playing it lets it go, and its end stops it no more
+                show->setPerformDriven(true);
+                if (show->isRunning() && show->stopped() == false)
+                    show->start(m_doc->masterTimer(), FunctionParent::master());
                 show->setPerformAudioSuppressed(true);
                 show->setSyncSource(ShowRunner::External);
                 show->setDominant(drive->dominant);

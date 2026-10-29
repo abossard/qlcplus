@@ -64,6 +64,10 @@ VdjTelemetryClient::VdjTelemetryClient(QObject *parent)
 {
     connect(&m_server, &QTcpServer::newConnection,
             this, &VdjTelemetryClient::onNewConnection);
+    m_settleTimer.setSingleShot(true);
+    m_settleTimer.setTimerType(Qt::PreciseTimer);
+    m_settleTimer.setInterval(kSettleMs);
+    connect(&m_settleTimer, &QTimer::timeout, this, &VdjTelemetryClient::settle);
 }
 
 VdjTelemetryClient::~VdjTelemetryClient()
@@ -115,6 +119,8 @@ void VdjTelemetryClient::closeClient()
 {
     if (m_client)
     {
+        // the last write's data is in: it ends before the connection does
+        settle();
         m_client->disconnect(this);
         QDeadlineTimer deadline(250);
         while (m_client->bytesToWrite() > 0 && !deadline.hasExpired())
@@ -158,6 +164,8 @@ void VdjTelemetryClient::closeClient()
         m_client->deleteLater();
         m_client = nullptr;
         m_buffer.clear();
+        m_writeOpen = false;
+        m_afterObject = false;
         m_subscriptionAnswered = false;
     }
 }
@@ -203,9 +211,11 @@ void VdjTelemetryClient::onReadyRead()
 
 void VdjTelemetryClient::feed(const QByteArray &chunk)
 {
+    m_settleTimer.stop();
     m_buffer.append(chunk);
     int pos = 0;
-    bool writeOpen = false; // objects dispatched since the last boundary
+    int objectEnd = m_afterObject ? 0 : -1; // right after the last complete object
+    bool objectOpen = false;                // the last object goes on in the next chunk
     while (pos < m_buffer.size())
     {
         const char c = m_buffer.at(pos);
@@ -221,6 +231,12 @@ void VdjTelemetryClient::feed(const QByteArray &chunk)
             qWarning() << kLogTag << "Discarding non-JSON bytes:" << m_buffer.mid(pos, next < 0 ? -1 : next - pos).left(120);
             pos = next < 0 ? m_buffer.size() : next;
             continue;
+        }
+        // a write ends where the next one starts, adjacent
+        if (pos == objectEnd && m_writeOpen)
+        {
+            m_writeOpen = false;
+            emit tickEnded();
         }
         // the object ends at its closing brace, braces and quotes inside strings aside
         int end = -1, depth = 0;
@@ -243,23 +259,22 @@ void VdjTelemetryClient::feed(const QByteArray &chunk)
                 end = i + 1;
         }
         if (end < 0)
-            break; // the object goes on in the next chunk
+        {
+            objectOpen = true;
+            break;
+        }
         parseLine(m_buffer.mid(pos, end - pos));
         pos = end;
-        writeOpen = true;
-        // a write ends where the next one starts, adjacent
-        if (pos < m_buffer.size() && m_buffer.at(pos) == '{')
-        {
-            writeOpen = false;
-            emit tickEnded();
-        }
+        objectEnd = end;
+        m_writeOpen = true;
     }
+    // a newline after the last object joins the next one to its write
+    m_afterObject = !objectOpen && objectEnd == m_buffer.size();
     m_buffer.remove(0, pos);
-    // or where the data ends after its last complete object
-    // shortcut: a write split across two reads ends here too (seen on no
-    // loopback capture), upgrade to a settle timeout when VDJ runs over the LAN
-    if (writeOpen && m_buffer.isEmpty())
-        emit tickEnded();
+    // or where the data ends after a complete object and stays quiet: a read
+    // can end inside a write (a LAN splits one), its rest follows at once
+    if (m_writeOpen && !objectOpen)
+        m_settleTimer.start();
     // an object still open past the cap is not VDJ's (a snapshot is ~7 KB)
     if (m_buffer.size() > kMaxOpenObjectBytes)
     {
@@ -268,6 +283,17 @@ void VdjTelemetryClient::feed(const QByteArray &chunk)
         if (m_client)
             onClientDisconnected();
     }
+}
+
+void VdjTelemetryClient::settle()
+{
+    m_settleTimer.stop();
+    // an object still open holds its write open
+    if (m_writeOpen == false || m_buffer.isEmpty() == false)
+        return;
+    m_writeOpen = false;
+    m_afterObject = false;
+    emit tickEnded();
 }
 
 void VdjTelemetryClient::onClientDisconnected()

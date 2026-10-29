@@ -17,6 +17,8 @@ private slots:
     void cleanupTestCase();
     void deckTransportDrivesTheShow();
     void handoverKeepsTheOldShowPlaying();
+    void aSetLeavesPerformItsSongs_data();
+    void aSetLeavesPerformItsSongs();
     void everyDeckDrivesItsShow_data();
     void everyDeckDrivesItsShow();
     void weightIsTheMasterIntensity_data();
