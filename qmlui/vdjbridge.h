@@ -22,6 +22,8 @@
 
 #include <QObject>
 #include <QPointer>
+#include <QSet>
+#include <array>
 #include <optional>
 
 #include "performfsm.h"
@@ -37,10 +39,11 @@ class ShowFactory;
  *
  * Routes the VDJ Bridge plugin's telemetry (DMXDesktop TCP protocol, port
  * 8050) into the DjFsm, the single source of truth for deck/song state, and
- * feeds the PerformFsm the active deck as one fact. On every PerformFsm
- * change it executes the planned effects: Show adoption and transport in
- * the engine, the recorder and the Show Manager through the perform*
- * signals, in handover order.
+ * feeds the PerformFsm every deck as one fact. On every PerformFsm change
+ * it executes the planned effects: Show adoption, dominance and transport
+ * in the engine, the recorder and the Show Manager through the perform*
+ * signals, in handover order. Each driven Show takes its deck's position
+ * and mix weight (master intensity) as they arrive.
  */
 class VdjBridge final : public QObject
 {
@@ -72,9 +75,10 @@ public:
     DjFsm *djFsm() const { return m_fsm; }
 
     /**
-     * Perform mode. When enabled, the active deck's Show is auto-started and
-     * kept synchronized with the deck's playback position. When disabled
-     * (default), VDJ playback never drives Show playback.
+     * Perform mode. When enabled, every deck's Show is auto-started and kept
+     * synchronized with its deck's playback position and mix weight; the
+     * active deck's Show is dominant. When disabled (default), VDJ playback
+     * never drives Show playback.
      */
     bool performMode() const { return m_performFsm->enabled(); }
     void setPerformMode(bool on);
@@ -83,7 +87,7 @@ public:
     PerformFsm *performFsm() const { return m_performFsm; }
     PerformFsm::PerformState performState() const { return m_performFsm->state(); }
 
-    /** Name of the show currently resolved for Perform, or empty. */
+    /** Name of the active deck's Show under Perform, or empty. */
     QString performShowName() const;
 
     QString telemetryStatus() const;
@@ -94,7 +98,8 @@ signals:
     void performModeChanged();
     void performStatusChanged();
 
-    /** Executor steps outside the engine, emitted in handover order */
+    /** Executor steps outside the engine, emitted in handover order; all
+     *  of them follow the active deck's Show */
     void performShowResolved(quint32 showId); //!< the recorder follows Perform to showId
     void performReleased();                    //!< Perform disengaged: the recorder's selection resolves again
     void performShowSelected(int showId);      //!< the Show Manager displays showId
@@ -102,20 +107,24 @@ signals:
 private slots:
     void onDeckTrigger(int deckIndex, const QString &trigger, const QVariant &value);
     void onGlobalTrigger(const QString &trigger, const QVariant &value);
-    /** One VDJ write is in: the decks commit it, the adopted Show takes the position */
+    /** One VDJ write is in: the decks commit it, every driven Show takes its deck's position */
     void onTickEnded();
     void onTelemetryClientDisconnected();
 
 private:
     void pushActiveBpm();
 
-    // --- Perform: the active deck as the FSM's input, the plan as effects ---
+    // --- Perform: every deck as the FSM's input, the plan as effects ---
     void refreshPerformInputs();
-    /** The active deck's position; none while it holds no song */
-    std::optional<quint32> deckPosition() const;
-    void pushPosition(Show *show) const;
+    /** A deck's (1-based) position; none while it holds no song */
+    std::optional<quint32> deckPosition(int deck) const;
+    void pushPosition(Show *show, int deck) const;
+    /** The deck's mix weight as the Show's master intensity */
+    void pushWeight(Show *show, int deck) const;
     void applyPerformPlan();
     void perform(const PerformFsm::Step &step);
+    /** The drive of showId the executor last applied, if any */
+    const PerformFsm::Drive *appliedDrive(quint32 showId) const;
     Show *lookupShow(quint32 showId) const;
 
     Doc *m_doc = nullptr;
@@ -124,15 +133,24 @@ private:
     PerformFsm *m_performFsm = nullptr;
 
     /** What the executor last applied: the planner's previous state */
-    PerformFsm::PerformState m_appliedState = PerformFsm::PerformState::Idle;
-    quint32 m_appliedShowId = PerformFsm::InvalidShowId;
+    PerformFsm::Snapshot m_applied;
     /** A step that plans again waits for the plan under way */
     bool m_planning = false;
     bool m_replanPending = false;
-    /** The deck position at which the adopted Show's runner ended; a move
+    /** A disconnect empties every deck: the FSM takes it as one fact, the tempo is no deck's */
+    bool m_holdInputs = false;
+    /** Per deck: the position at which its Show's runner ended; a move
      *  below it plays the Show again */
-    std::optional<quint32> m_endedAt;
-    /** The last tempo VirtualDJ gave the active deck's song */
+    struct Ended
+    {
+        quint32 showId;
+        quint32 positionMs;
+    };
+    std::array<std::optional<Ended>, PerformFsm::MaxDecks> m_ended;
+    /** Shows that moved to another deck once their run was over: a finish
+     *  still queued is the old deck's, until their next run starts */
+    QSet<quint32> m_finishedElsewhere;
+    /** The last tempo VirtualDJ gave the leading song */
     int m_lastSongBpm = 0;
 
     QPointer<QLCIOPlugin> m_vdjPlugin;

@@ -156,6 +156,25 @@ struct PerformRig
     void play(int index0, bool on) { deck(index0, "play", QVariant(on ? "on" : "off")); }
     void elapsed(int index0, double ms) { deck(index0, "get_time elapsed absolute", ms); }
 
+    /** A mixer trigger of the write under way, e.g. the crossfader */
+    void global(const char *trigger, const QVariant &value)
+    {
+        QMetaObject::invokeMethod(&bridge, "onGlobalTrigger", Q_ARG(QString, QString::fromLatin1(trigger)),
+                                  Q_ARG(QVariant, value));
+    }
+
+    /** What Perform drives the Show with, as one line */
+    QString drive(Show *show) const
+    {
+        const char *transport = show->isRunning() ? (show->isPaused() ? "paused" : "running")
+                                : doc.masterTimer()->isStartQueued(show) ? "queued" : "idle";
+        return QStringLiteral("%1 %2 %3 %4 %5 %6")
+            .arg(transport, show->syncSource() == ShowRunner::External ? "ext" : "auto",
+                 show->performAudioSuppressed() ? "muted" : "audible", show->isDominant() ? "dom" : "sub")
+            .arg(show->masterIntensity(), 0, 'f', 2)
+            .arg(show->externalElapsedTime());
+    }
+
     /** One MasterTimer tick plus the queued notifications it leaves behind */
     void tick(int ticks = 1)
     {
@@ -167,6 +186,15 @@ struct PerformRig
     }
 
     State state() const { return bridge.performFsm()->state(); }
+
+    /** The Perform state of the Show's drive, Idle when no deck drives it */
+    State driveState(Show *show) const
+    {
+        for (const PerformFsm::Drive &drive : bridge.performFsm()->snapshot().drives)
+            if (drive.showId == show->id())
+                return drive.state;
+        return State::Idle;
+    }
 };
 
 void VdjBridge_Test::deckTransportDrivesTheShow()
@@ -206,13 +234,15 @@ void VdjBridge_Test::deckTransportDrivesTheShow()
     QCOMPARE(show->externalElapsedTime(), 15000u);
 }
 
-void VdjBridge_Test::handoverLeavesTheShowInOrder()
+void VdjBridge_Test::handoverKeepsTheOldShowPlaying()
 {
     PerformRig rig;
     Show *a = rig.addShow("A", "/music/a.mp3");
     Show *b = rig.addShow("B", "/music/b.mp3");
     rig.load(0, "/music/a.mp3");
     rig.load(1, "/music/b.mp3");
+    rig.deck(0, "volume", 0.8);
+    rig.deck(1, "volume", 0.6);
     rig.play(0, true);
     rig.play(1, true);
     rig.elapsed(0, 40000);
@@ -220,15 +250,17 @@ void VdjBridge_Test::handoverLeavesTheShowInOrder()
     rig.master(0);
     rig.bridge.setPerformMode(true);
     rig.tick();
-    QVERIFY(a->isRunning());
+    QCOMPARE(rig.drive(a), QString("running ext muted dom 0.80 40000"));
+    QCOMPARE(rig.drive(b), QString("running ext muted sub 0.60 7000"));
+    QSignalSpy aStarted(a, QOverload<quint32>::of(&Function::running));
+    QSignalSpy bStarted(b, QOverload<quint32>::of(&Function::running));
 
     // what each outside step finds in the engine, in the order it is emitted
     QStringList log;
     const auto engine = [&]() {
         return QStringLiteral("A %1/%2 B %3/%4")
-            .arg(a->stopped() ? "stopping" : "running", a->syncSource() == ShowRunner::External ? "ext" : "auto",
-                 b->isRunning() ? "running" : rig.doc.masterTimer()->isStartQueued(b) ? "queued" : "idle",
-                 b->syncSource() == ShowRunner::External ? "ext" : "auto");
+            .arg(a->stopped() ? "stopping" : "running", a->isDominant() ? "dom" : "sub",
+                 b->stopped() ? "stopping" : "running", b->isDominant() ? "dom" : "sub");
     };
     // destroyed first, so the rig's teardown no longer reaches the log
     QObject listener;
@@ -237,7 +269,8 @@ void VdjBridge_Test::handoverLeavesTheShowInOrder()
     });
     connect(&rig.bridge, &VdjBridge::performReleased, &listener, [&]() { log << QStringLiteral("released"); });
     connect(&rig.bridge, &VdjBridge::performShowSelected, &listener, [&](int id) {
-        log << QStringLiteral("select %1: %2").arg(quint32(id) == b->id() ? "B" : "?", engine());
+        log << QStringLiteral("select %1: %2").arg(quint32(id) == a->id() ? "A" : quint32(id) == b->id() ? "B" : "?",
+                                                   engine());
     });
     QSignalSpy states(rig.bridge.performFsm(), &PerformFsm::stateChanged);
 
@@ -247,27 +280,437 @@ void VdjBridge_Test::handoverLeavesTheShowInOrder()
     QCOMPARE(states.count(), 1);
     QCOMPARE(rig.state(), State::Live);
     QCOMPARE(rig.bridge.performFsm()->activeShowId(), b->id());
-    // the recorder leaves A while A is still live, binds B once B is on the
-    // external clock and started, and only then the Show Manager follows
-    QCOMPARE(log, QStringList({ "resolve none: A running/ext B idle/auto",
-                                "resolve B: A stopping/auto B queued/ext",
-                                "select B: A stopping/auto B queued/ext" }));
-    // B begins at deck 2's position; A is stopped, not paused: its faders leave the mix
-    QCOMPARE(b->externalElapsedTime(), 7000u);
-    QVERIFY(!a->performAudioSuppressed());
+    // the recorder leaves A while A is still dominant, binds B once B is,
+    // and only then the Show Manager follows; neither Show stops
+    QCOMPARE(log, QStringList({ "resolve none: A running/dom B running/sub",
+                                "resolve B: A running/sub B running/dom",
+                                "select B: A running/sub B running/dom" }));
+    rig.elapsed(0, 41000);
+    rig.elapsed(1, 8000);
     rig.tick();
-    QVERIFY(!a->isRunning());
-    QVERIFY(b->isRunning() && !b->isPaused());
+    QCOMPARE(rig.drive(a), QString("running ext muted sub 0.80 41000"));
+    QCOMPARE(rig.drive(b), QString("running ext muted dom 0.60 8000"));
 
-    // back to deck 1: A starts again at deck 1's position
-    rig.elapsed(0, 45000);
+    // back to deck 1: dominance moves back, still no restart
+    log.clear();
     rig.master(0);
-    QCOMPARE(a->externalElapsedTime(), 45000u);
-    QCOMPARE(a->syncSource(), int(ShowRunner::External));
+    QCOMPARE(log, QStringList({ "resolve none: A running/sub B running/dom",
+                                "resolve A: A running/dom B running/sub",
+                                "select A: A running/dom B running/sub" }));
     rig.tick();
-    QVERIFY(a->isRunning() && !a->isPaused());
-    QVERIFY(!b->isRunning());
-    QCOMPARE(b->syncSource(), int(ShowRunner::Autonomous));
+    QCOMPARE(rig.drive(a), QString("running ext muted dom 0.80 41000"));
+    QCOMPARE(rig.drive(b), QString("running ext muted sub 0.60 8000"));
+    QCOMPARE(aStarted.count(), 0);
+    QCOMPARE(bStarted.count(), 0);
+}
+
+void VdjBridge_Test::everyDeckDrivesItsShow_data()
+{
+    QTest::addColumn<QString>("deck2");   // what deck 2 does with B's song
+    QTest::addColumn<QString>("drive");   // B's drive afterwards, as PerformRig::drive
+
+    QTest::newRow("deck 2 plays") << "play" << "running ext muted sub 0.30 7000";
+    QTest::newRow("deck 2 paused after playing") << "pause" << "paused ext muted sub 0.30 7000";
+    QTest::newRow("deck 2 cued, never played") << "cue" << "idle ext muted sub 0.30 7000";
+    QTest::newRow("deck 2's song has no show") << "unmapped" << "idle auto audible dom 1.00 0";
+}
+
+void VdjBridge_Test::everyDeckDrivesItsShow()
+{
+    QFETCH(QString, deck2);
+    QFETCH(QString, drive);
+
+    PerformRig rig;
+    Show *a = rig.addShow("A", "/music/a.mp3");
+    Show *b = rig.addShow("B", deck2 == "unmapped" ? "/music/other.mp3" : "/music/b.mp3");
+    rig.load(0, "/music/a.mp3");
+    rig.load(1, "/music/b.mp3");
+    rig.deck(0, "volume", 0.8);
+    rig.deck(1, "volume", 0.3);
+    rig.elapsed(0, 12000);
+    rig.elapsed(1, 7000);
+    rig.master(0);
+    rig.play(0, true);
+    QSignalSpy selected(&rig.bridge, &VdjBridge::performShowSelected);
+    QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    if (deck2 == "play" || deck2 == "pause")
+    {
+        rig.play(1, true);
+        rig.tick();
+        if (deck2 == "pause")
+            rig.play(1, false);
+    }
+    rig.tick();
+
+    // each Show on its deck's clock and weight; the active deck's alone dominant,
+    // recorded and shown
+    QCOMPARE(rig.drive(a), QString("running ext muted dom 0.80 12000"));
+    QCOMPARE(rig.drive(b), drive);
+    QCOMPARE(rig.state(), State::Live);
+    QCOMPARE(resolved.count(), 1);
+    QCOMPARE(resolved[0][0].toUInt(), a->id());
+    QCOMPARE(selected.count(), 1);
+    QCOMPARE(selected[0][0].toUInt(), a->id());
+}
+
+void VdjBridge_Test::weightIsTheMasterIntensity_data()
+{
+    QTest::addColumn<double>("volume1");
+    QTest::addColumn<double>("volume2");
+    QTest::addColumn<double>("crossfader");  // < 0: not sent
+    QTest::addColumn<QString>("masters");    // A and B
+
+    // deck 1 on the crossfader's left, deck 2 on its right, both faders full
+    QTest::newRow("deck 2's fader") << 1.0 << 0.5 << -1.0 << "1.00 0.50";
+    QTest::newRow("crossfader at the middle") << 1.0 << 1.0 << 0.5 << "1.00 1.00";
+    QTest::newRow("crossfader a quarter to the left") << 1.0 << 1.0 << 0.25 << "1.00 0.50";
+    QTest::newRow("crossfader near the right") << 1.0 << 1.0 << 0.9 << "0.20 1.00";
+    QTest::newRow("deck 1's fader down, crossfader left") << 0.0 << 1.0 << 0.0 << "0.00 0.00";
+}
+
+void VdjBridge_Test::weightIsTheMasterIntensity()
+{
+    QFETCH(double, volume1);
+    QFETCH(double, volume2);
+    QFETCH(double, crossfader);
+    QFETCH(QString, masters);
+
+    PerformRig rig;
+    Show *a = rig.addShow("A", "/music/a.mp3");
+    Show *b = rig.addShow("B", "/music/b.mp3");
+    rig.load(0, "/music/a.mp3");
+    rig.load(1, "/music/b.mp3");
+    rig.send(0, "volume", 1.0);
+    rig.send(0, "leftcross", QVariant("on"));
+    rig.send(1, "volume", 1.0);
+    rig.send(1, "rightcross", QVariant("on"));
+    rig.tickEnd();
+    rig.master(0);
+    rig.play(0, true);
+    rig.play(1, true);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    const auto both = [&]() {
+        return QStringLiteral("%1 %2").arg(a->masterIntensity(), 0, 'f', 2).arg(b->masterIntensity(), 0, 'f', 2);
+    };
+    QCOMPARE(both(), QString("1.00 1.00"));
+
+    // the mixer moves in one write: each Show takes its own deck's weight
+    rig.send(0, "volume", volume1);
+    rig.send(1, "volume", volume2);
+    if (crossfader >= 0)
+        rig.global("crossfader", crossfader);
+    rig.tickEnd();
+    QCOMPARE(both(), masters);
+
+    // released at full again
+    rig.bridge.setPerformMode(false);
+    QCOMPARE(both(), QString("1.00 1.00"));
+}
+
+void VdjBridge_Test::aDeckStopsOnlyItsShow_data()
+{
+    QTest::addColumn<QString>("action");  // on deck 2
+    QTest::addColumn<QString>("b");       // B's drive afterwards
+    QTest::addColumn<QString>("c");       // C's (mapped to /music/c.mp3)
+
+    QTest::newRow("pause") << "pause" << "paused ext muted sub 0.50 7000" << "idle auto audible dom 1.00 0";
+    QTest::newRow("eject") << "eject" << "idle auto audible dom 1.00 7000" << "idle auto audible dom 1.00 0";
+    QTest::newRow("a song without a show") << "unmapped" << "idle auto audible dom 1.00 7000"
+                                           << "idle auto audible dom 1.00 0";
+    QTest::newRow("another show's song") << "load c" << "idle auto audible dom 1.00 7000"
+                                         << "running ext muted sub 0.50 2000";
+}
+
+void VdjBridge_Test::aDeckStopsOnlyItsShow()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, b);
+    QFETCH(QString, c);
+
+    PerformRig rig;
+    Show *showA = rig.addShow("A", "/music/a.mp3");
+    Show *showB = rig.addShow("B", "/music/b.mp3");
+    Show *showC = rig.addShow("C", "/music/c.mp3");
+    rig.load(0, "/music/a.mp3");
+    rig.load(1, "/music/b.mp3");
+    rig.deck(0, "volume", 1.0);
+    rig.deck(1, "volume", 0.5);
+    rig.elapsed(0, 12000);
+    rig.elapsed(1, 7000);
+    rig.master(0);
+    rig.play(0, true);
+    rig.play(1, true);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QSignalSpy aStarted(showA, QOverload<quint32>::of(&Function::running));
+    QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
+    QSignalSpy selected(&rig.bridge, &VdjBridge::performShowSelected);
+
+    if (action == "pause")
+    {
+        rig.play(1, false);
+    }
+    else if (action == "eject")
+    {
+        rig.deck(1, "loaded", QVariant("off"));
+    }
+    else
+    {
+        rig.load(1, action == "load c" ? "/music/c.mp3" : "/music/other.mp3");
+        rig.elapsed(1, 2000);
+    }
+    rig.tick(2);
+
+    QCOMPARE(rig.drive(showB), b);
+    QCOMPARE(rig.drive(showC), c);
+    // the active deck's Show never notices
+    QCOMPARE(rig.drive(showA), QString("running ext muted dom 1.00 12000"));
+    QCOMPARE(aStarted.count(), 0);
+    QCOMPARE(resolved.count(), 0);
+    QCOMPARE(selected.count(), 0);
+}
+
+void VdjBridge_Test::disengageReleasesEveryShow_data()
+{
+    QTest::addColumn<QString>("deck2");
+    QTest::newRow("deck 2 plays") << "play";
+    QTest::newRow("deck 2 paused") << "pause";
+    QTest::newRow("deck 2 cued") << "cue";
+}
+
+void VdjBridge_Test::disengageReleasesEveryShow()
+{
+    QFETCH(QString, deck2);
+
+    PerformRig rig;
+    Show *a = rig.addShow("A", "/music/a.mp3");
+    Show *b = rig.addShow("B", "/music/b.mp3");
+    rig.load(0, "/music/a.mp3");
+    rig.load(1, "/music/b.mp3");
+    rig.deck(0, "volume", 0.7);
+    rig.deck(1, "volume", 0.4);
+    rig.elapsed(0, 12000);
+    rig.elapsed(1, 7000);
+    rig.master(0);
+    rig.play(0, true);
+    rig.bridge.setPerformMode(true);
+    if (deck2 != "cue")
+        rig.play(1, true);
+    rig.tick();
+    if (deck2 == "pause")
+        rig.play(1, false);
+    QVERIFY(rig.drive(b).contains("ext muted sub 0.40"));
+
+    QSignalSpy released(&rig.bridge, &VdjBridge::performReleased);
+    QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
+    rig.bridge.setPerformMode(false);
+    QCOMPARE(released.count(), 1);
+    QCOMPARE(resolved.count(), 0);
+    // stopped, Autonomous, audible, full and dominant: as before Perform
+    QVERIFY(a->stopped());
+    QVERIFY(b->stopped());
+    rig.tick();
+    QCOMPARE(rig.drive(a), QString("idle auto audible dom 1.00 12000"));
+    QCOMPARE(rig.drive(b), QString("idle auto audible dom 1.00 7000"));
+}
+
+void VdjBridge_Test::oneShowOnTwoDecksRunsOnce_data()
+{
+    QTest::addColumn<QString>("action");
+    QTest::addColumn<QString>("drive");  // S's drive afterwards
+    QTest::addColumn<State>("state");
+
+    // deck 1 at 30000 and a 0.9 fader, deck 2 at 9000 and 0.4, both play S's song
+    QTest::newRow("the handover takes S to deck 2") << "master 2" << "running ext muted dom 0.40 9000" << State::Live;
+    QTest::newRow("deck 2 ejects: S stays on deck 1") << "eject 2" << "running ext muted dom 0.90 30000" << State::Live;
+    QTest::newRow("deck 1 ejects: S goes on with deck 2") << "eject 1" << "running ext muted sub 0.40 9000"
+                                                          << State::Armed;
+    QTest::newRow("deck 2 pauses: S plays on with deck 1") << "pause 2" << "running ext muted dom 0.90 30000"
+                                                           << State::Live;
+}
+
+void VdjBridge_Test::oneShowOnTwoDecksRunsOnce()
+{
+    QFETCH(QString, action);
+    QFETCH(QString, drive);
+    QFETCH(State, state);
+
+    PerformRig rig;
+    Show *show = rig.addShow("S", "/music/s.mp3");
+    rig.load(0, "/music/s.mp3");
+    rig.load(1, "/music/s.mp3");
+    rig.deck(0, "volume", 0.9);
+    rig.deck(1, "volume", 0.4);
+    rig.elapsed(0, 30000);
+    rig.elapsed(1, 9000);
+    rig.master(0);
+    rig.play(0, true);
+    rig.play(1, true);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QCOMPARE(rig.drive(show), QString("running ext muted dom 0.90 30000"));
+    QSignalSpy started(show, QOverload<quint32>::of(&Function::running));
+    QSignalSpy stopped(show, QOverload<quint32>::of(&Function::stopped));
+
+    if (action == "master 2")
+        rig.master(1);
+    else if (action == "eject 2")
+        rig.deck(1, "loaded", QVariant("off"));
+    else if (action == "eject 1")
+        rig.deck(0, "loaded", QVariant("off"));
+    else
+        rig.play(1, false);
+    rig.tick(2);
+
+    // one Show, one run: it changes clocks, it never restarts
+    QCOMPARE(rig.drive(show), drive);
+    QCOMPARE(rig.state(), state);
+    QCOMPARE(started.count(), 0);
+    QCOMPARE(stopped.count(), 0);
+}
+
+void VdjBridge_Test::endedIsPerDeck_data()
+{
+    QTest::addColumn<int>("steps");
+    QTest::addColumn<QString>("drive");  // S's drive afterwards
+    QTest::addColumn<State>("state");
+
+    // S ends at 20000; deck 2 plays it at 19000, deck 3 at 9000, deck 1 plays A and is active
+    QTest::newRow("deck 2 runs past S") << 1 << "idle ext muted sub 0.50 21000" << State::Ended;
+    QTest::newRow("the handover takes S to deck 3, before its end") << 2 << "running ext muted dom 0.30 9000"
+                                                                    << State::Live;
+    QTest::newRow("back to deck 1: S is deck 2's again, past its end") << 3 << "idle ext muted sub 0.50 21000"
+                                                                       << State::Ended;
+}
+
+void VdjBridge_Test::endedIsPerDeck()
+{
+    QFETCH(int, steps);
+    QFETCH(QString, drive);
+    QFETCH(State, state);
+
+    PerformRig rig;
+    rig.bridge.djFsm()->setDeckCount(3);
+    Show *a = rig.addShow("A", "/music/a.mp3");
+    Show *s = rig.addShow("S", "/music/s.mp3", 20000);
+    rig.load(0, "/music/a.mp3");
+    rig.load(1, "/music/s.mp3");
+    rig.load(2, "/music/s.mp3");
+    rig.deck(0, "volume", 1.0);
+    rig.deck(1, "volume", 0.5);
+    rig.deck(2, "volume", 0.3);
+    rig.elapsed(0, 12000);
+    rig.elapsed(1, 19000);
+    rig.elapsed(2, 9000);
+    rig.master(0);
+    for (int deck = 0; deck < 3; deck++)
+        rig.play(deck, true);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QCOMPARE(rig.drive(s), QString("running ext muted sub 0.50 19000"));
+
+    // deck 2 plays past S's content: the runner ends it there, A plays on
+    rig.elapsed(1, 21000);
+    rig.tick(3);
+    if (steps >= 2)
+    {
+        rig.master(2);
+        rig.tick(2);
+    }
+    if (steps >= 3)
+    {
+        rig.master(0);
+        rig.tick(2);
+    }
+    QCOMPARE(rig.drive(s), drive);
+    QCOMPARE(rig.driveState(s), state);
+    QVERIFY(a->isRunning());
+    QCOMPARE(a->isDominant(), steps != 2);
+}
+
+void VdjBridge_Test::aFinishBeforeAMoveStaysWithItsDeck_data()
+{
+    QTest::addColumn<bool>("wound");  // the run wound down before the move
+
+    QTest::newRow("restarted by the move's plan") << true;
+    QTest::newRow("restarted by the queued stop") << false;
+}
+
+void VdjBridge_Test::aFinishBeforeAMoveStaysWithItsDeck()
+{
+    QFETCH(bool, wound);
+
+    // S ends at 20000; deck 1 plays it at 19000, deck 2 at 9000
+    PerformRig rig;
+    Show *s = rig.addShow("S", "/music/s.mp3", 20000);
+    rig.load(0, "/music/s.mp3");
+    rig.load(1, "/music/s.mp3");
+    rig.deck(0, "volume", 1.0);
+    rig.deck(1, "volume", 0.5);
+    rig.elapsed(0, 19000);
+    rig.elapsed(1, 9000);
+    rig.master(0);
+    rig.play(0, true);
+    rig.play(1, true);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QCOMPARE(rig.drive(s), QString("running ext muted dom 1.00 19000"));
+
+    // the runner ends S on deck 1's clock: it stops S on the timer thread and its
+    // finish reaches the GUI thread one hop later, as the Show's forward is queued
+    s->stop(FunctionParent::master());
+    QMetaObject::invokeMethod(s, "showFinished", Qt::QueuedConnection);
+    if (wound)
+    {
+        for (int i = 0; i < 5 && s->isRunning(); i++)
+            rig.doc.masterTimer()->timerTick();
+        QVERIFY(!s->isRunning());
+    }
+    // deck 1 ejects before the finish arrives: S goes on with deck 2, and its
+    // next run starts before the GUI thread handles the finish
+    rig.deck(0, "loaded", QVariant("off"));
+    rig.doc.masterTimer()->timerTick();
+    QCoreApplication::processEvents();
+    rig.tick(3);
+
+    // deck 2 is before S's end: S plays there
+    QCOMPARE(rig.driveState(s), State::Live);
+    QCOMPARE(rig.drive(s), QString("running ext muted sub 0.50 9000"));
+}
+
+void VdjBridge_Test::disconnectReleasesEveryShowAtOnce()
+{
+    PerformRig rig;
+    Show *a = rig.addShow("A", "/music/a.mp3");
+    Show *b = rig.addShow("B", "/music/b.mp3");
+    rig.load(0, "/music/a.mp3");
+    rig.load(1, "/music/b.mp3");
+    rig.master(1);
+    rig.play(0, true);
+    rig.play(1, true);
+    rig.elapsed(0, 5000);
+    rig.elapsed(1, 6000);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QVERIFY(a->isRunning() && b->isRunning());
+
+    QSignalSpy states(rig.bridge.performFsm(), &PerformFsm::stateChanged);
+    QSignalSpy resolved(&rig.bridge, &VdjBridge::performShowResolved);
+    QMetaObject::invokeMethod(&rig.bridge, "onTelemetryClientDisconnected");
+
+    // one transition: the recorder leaves B once, both Shows go dark at once,
+    // and the emptied decks' position 0 reaches neither
+    QCOMPARE(states.count(), 1);
+    QCOMPARE(rig.state(), State::Armed);
+    QCOMPARE(resolved.count(), 1);
+    QCOMPARE(resolved[0][0].toUInt(), PerformFsm::InvalidShowId);
+    QVERIFY(a->stopped() && b->stopped());
+    rig.tick();
+    QCOMPARE(rig.drive(a), QString("idle auto audible dom 1.00 5000"));
+    QCOMPARE(rig.drive(b), QString("idle auto audible dom 1.00 6000"));
 }
 
 void VdjBridge_Test::disengageStopsTheShow_data()
@@ -624,7 +1067,7 @@ void VdjBridge_Test::pauseBeforeTheFirstTickCancelsTheStart()
     QCOMPARE(clipRan.count(), 1);
 }
 
-void VdjBridge_Test::handoverDuringTheStartDrainStopsTheShow()
+void VdjBridge_Test::ejectDuringTheStartDrainStopsTheShow()
 {
     PerformRig rig;
     MasterTimer *mt = rig.doc.masterTimer();
@@ -645,8 +1088,8 @@ void VdjBridge_Test::handoverDuringTheStartDrainStopsTheShow()
         mt->m_startingFunctions.append(a);
     }
     QVERIFY(!a->isRunning() && !mt->isStartQueued(a));
-    rig.master(1);
-    QCOMPARE(rig.state(), State::Live);
+    rig.deck(0, "loaded", QVariant("off"));
+    QCOMPARE(rig.state(), State::Armed);
     QCOMPARE(a->syncSource(), int(ShowRunner::Autonomous));
     QVERIFY(a->stopped());
 
@@ -744,7 +1187,7 @@ void VdjBridge_Test::trackChangeBeforeTheFirstSampleStartsB()
     QCOMPARE(b->externalElapsedTime(), 2500u);
 }
 
-void VdjBridge_Test::nestedDisableDuringAHandoverLeavesBUntouched()
+void VdjBridge_Test::nestedDisableDuringAHandoverReleasesBoth()
 {
     PerformRig rig;
     Show *a = rig.addShow("A", "/music/a.mp3");
@@ -756,22 +1199,27 @@ void VdjBridge_Test::nestedDisableDuringAHandoverLeavesBUntouched()
     rig.master(0);
     rig.bridge.setPerformMode(true);
     rig.tick();
-    QVERIFY(a->isRunning());
+    QVERIFY(a->isRunning() && b->isRunning());
 
     // a synchronous listener disables Perform while the recorder leaves A:
     // its plan runs after the handover, from the state the handover reached
+    QStringList log;
     QObject listener;
     connect(&rig.bridge, &VdjBridge::performShowResolved, &listener, [&](quint32 id) {
+        log << QStringLiteral("resolve %1").arg(id == b->id() ? "B" : id == a->id() ? "A" : "none");
         if (id == PerformFsm::InvalidShowId)
             rig.bridge.setPerformMode(false);
     });
+    connect(&rig.bridge, &VdjBridge::performShowSelected, &listener, [&](int id) {
+        log << QStringLiteral("select %1").arg(quint32(id) == b->id() ? "B" : "?");
+    });
+    connect(&rig.bridge, &VdjBridge::performReleased, &listener, [&]() { log << QStringLiteral("released"); });
     rig.master(1);
     QCOMPARE(rig.state(), State::Idle);
+    QCOMPARE(log, QStringList({ "resolve none", "resolve B", "select B", "released" }));
     rig.tick(2);
-    QVERIFY(!a->isRunning());
-    QCOMPARE(b->syncSource(), int(ShowRunner::Autonomous));
-    QVERIFY(!b->performAudioSuppressed());
-    QVERIFY(!b->isRunning());
+    QCOMPARE(rig.drive(a).section(' ', 0, 4), QString("idle auto audible dom 1.00"));
+    QCOMPARE(rig.drive(b).section(' ', 0, 4), QString("idle auto audible dom 1.00"));
 }
 
 void VdjBridge_Test::ejectKeepsTheTempo_data()
@@ -949,9 +1397,9 @@ void VdjBridge_Test::deletedShowBindsAgainWhenItComesBack()
 void VdjBridge_Test::handoverInsideALoadWriteResolvesOnce()
 {
     // one write: deck 1 loads C, its master flag goes off and deck 2's on;
-    // the recorder sees the handover from A to B alone, Perform never adopts C
+    // the recorder sees the handover from A to B alone, C runs on deck 1 under B
     PerformRig rig;
-    rig.addShow("A", "/m/a.mp3");
+    Show *a = rig.addShow("A", "/m/a.mp3");
     Show *b = rig.addShow("B", "/m/b.mp3");
     Show *c = rig.addShow("C", "/m/c.mp3");
     rig.load(0, "/m/a.mp3");
@@ -974,7 +1422,10 @@ void VdjBridge_Test::handoverInsideALoadWriteResolvesOnce()
     }
     QCOMPARE(sequence, QStringList({ "-", "B" }));
     QCOMPARE(rig.bridge.performFsm()->activeShowId(), b->id());
-    QCOMPARE(c->syncSource(), int(ShowRunner::Autonomous));
+    QCOMPARE(a->syncSource(), int(ShowRunner::Autonomous));
+    QCOMPARE(c->syncSource(), int(ShowRunner::External));
+    QVERIFY(!c->isDominant());
+    QVERIFY(b->isDominant());
     QVERIFY(c->stopped());
 }
 
@@ -1249,7 +1700,7 @@ void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression_data(
 {
     QTest::addColumn<bool>("switchDeck");
     QTest::newRow("release") << false;
-    QTest::newRow("switch") << true;
+    QTest::newRow("switch, then the old deck ejects") << true;
 }
 
 void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression()
@@ -1305,11 +1756,18 @@ void VdjBridge_Test::performReleaseOrSwitchClearsTransientAudioSuppression()
                                   Q_ARG(QVariant, QVariant("off")));
         deckTrigger(1, "masterdeck", QVariant("on"));
         QTest::qWait(120);
-        QVERIFY(!showA.show->performAudioSuppressed());
-        QVERIFY(!showA.show->isRunning());
+        // the old deck plays on: its Show too, VirtualDJ still plays the audio
+        QVERIFY(showA.show->performAudioSuppressed());
+        QVERIFY(showA.show->isRunning());
+        QVERIFY(!showA.audioNow->isRunning());
         QVERIFY(showB.show->performAudioSuppressed());
         QVERIFY(!showB.audioNow->isRunning());
         QVERIFY(showBSceneNowRunningSpy.count() > 0);
+        // the old deck ejects: its Show is released
+        deckTrigger(0, "loaded", QVariant("off"));
+        QTest::qWait(120);
+        QVERIFY(!showA.show->performAudioSuppressed());
+        QVERIFY(!showA.show->isRunning());
     }
     else
     {
@@ -1502,6 +1960,119 @@ void VdjBridge_Test::engineBpmDropsLowWhenPaused()
     // Resumed → back to the steady song BPM.
     deckTrigger("play", QVariant("on"));
     QCOMPARE(doc.inputOutputMap()->bpmNumber(), 128);
+}
+
+void VdjBridge_Test::engineBpmCrawlsOnlyWhenNothingPlays_data()
+{
+    QTest::addColumn<int>("unknown");    // the deck whose song's tempo VirtualDJ never sent, 0: none
+    QTest::addColumn<QString>("moves");  // deck transport, in order
+    QTest::addColumn<int>("bpm");
+
+    // deck 1 (active) plays a 128 BPM song, deck 2 a 124 BPM one
+    QTest::newRow("the active deck pauses, deck 2 plays on") << 0 << "pause 1" << 124;
+    QTest::newRow("both pause") << 0 << "pause 1,pause 2" << 1;
+    QTest::newRow("deck 2 plays again under the paused active deck") << 0 << "pause 1,pause 2,play 2" << 124;
+    QTest::newRow("the active deck plays again") << 0 << "pause 1,play 1" << 128;
+    QTest::newRow("the active deck ejects, deck 2 plays on") << 0 << "eject 1" << 124;
+    QTest::newRow("both pause, the active deck ejects, deck 2 plays") << 0 << "pause 1,pause 2,eject 1,play 2" << 124;
+    // a known tempo leads; a song of unknown tempo playing stops the crawl, keeps the engine
+    QTest::newRow("the active deck's tempo unknown, deck 2 plays") << 1 << "" << 124;
+    QTest::newRow("the active deck pauses, deck 2's tempo unknown") << 2 << "pause 1" << 128;
+    QTest::newRow("both pause, deck 2 plays at an unknown tempo") << 2 << "pause 1,pause 2,play 2" << 1;
+}
+
+void VdjBridge_Test::engineBpmCrawlsOnlyWhenNothingPlays()
+{
+    QFETCH(int, unknown);
+    QFETCH(QString, moves);
+    QFETCH(int, bpm);
+
+    PerformRig rig;
+    rig.doc.inputOutputMap()->setBeatGeneratorType(InputOutputMap::Plugin);
+    for (int deck = 0; deck < 2; deck++)
+    {
+        rig.send(deck, "get_filepath", deck == 0 ? "/m/a.mp3" : "/m/b.mp3");
+        rig.send(deck, "get_title", QStringLiteral("Title %1").arg(deck));
+        if (unknown != deck + 1)
+            rig.send(deck, "get_bpm", deck == 0 ? 128.0 : 124.0);
+        rig.send(deck, "loaded", QVariant("on"));
+        rig.tickEnd();
+    }
+    rig.master(0);
+    rig.play(0, true);
+    rig.play(1, true);
+    QCOMPARE(rig.doc.inputOutputMap()->bpmNumber(), unknown == 1 ? 124 : 128);
+
+    // other decks' Shows play on under a paused active deck: their beats keep a tempo
+    for (const QString &move : moves.split(',', Qt::SkipEmptyParts))
+    {
+        const int deck = move.section(' ', 1).toInt() - 1;
+        if (move.startsWith("eject"))
+            rig.deck(deck, "loaded", QVariant("off"));
+        else
+            rig.play(deck, move.startsWith("play"));
+    }
+    QCOMPARE(rig.doc.inputOutputMap()->bpmNumber(), bpm);
+    rig.doc.inputOutputMap()->setBeatGeneratorType(InputOutputMap::Disabled);
+}
+
+void VdjBridge_Test::anEndRestartsNothing()
+{
+    // the runner stops S at its end and forwards the finish; its postRun's stop
+    // reaches the bridge before the plan the finish asks for
+    PerformRig rig;
+    Show *s = rig.addShow("S", "/music/s.mp3", 20000);
+    QSignalSpy started(s, QOverload<quint32>::of(&Function::running));
+    rig.load(0, "/music/s.mp3");
+    rig.master(0);
+    rig.play(0, true);
+    rig.elapsed(0, 19000);
+    rig.bridge.setPerformMode(true);
+    rig.tick();
+    QVERIFY(s->isRunning());
+
+    rig.elapsed(0, 21000);
+    s->stop(FunctionParent::master());
+    QMetaObject::invokeMethod(s, "showFinished", Qt::QueuedConnection);
+    for (int i = 0; i < 5 && s->isRunning(); i++)
+        rig.doc.masterTimer()->timerTick();
+    QVERIFY(!s->isRunning());
+    QCoreApplication::processEvents();
+
+    QCOMPARE(rig.state(), State::Ended);
+    QVERIFY(!rig.doc.masterTimer()->m_startQueue.contains(s));
+    rig.tick(2);
+    QCOMPARE(started.count(), 1);
+}
+
+void VdjBridge_Test::docTeardownWhileDecksPlay()
+{
+    // the Doc deletes its timer before its Functions: Perform plans nothing on a dying Doc
+    VdjBridge bridge;
+    Doc *doc = new Doc(nullptr, 4);
+    bridge.setDoc(doc);
+    PerformShowFixture a = createPerformShowFixture(doc, "A", false);
+    PerformShowFixture b = createPerformShowFixture(doc, "B", false);
+    bridge.showFactory()->registerMapping("/music/a.mp3", a.show->id());
+    bridge.showFactory()->registerMapping("/music/b.mp3", b.show->id());
+    for (int deck = 0; deck < 2; deck++)
+    {
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, deck), Q_ARG(QString, "get_filepath"),
+                                  Q_ARG(QVariant, QVariant(deck == 0 ? "/music/a.mp3" : "/music/b.mp3")));
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, deck), Q_ARG(QString, "loaded"),
+                                  Q_ARG(QVariant, QVariant("on")));
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, deck), Q_ARG(QString, "play"),
+                                  Q_ARG(QVariant, QVariant("on")));
+    }
+    QMetaObject::invokeMethod(&bridge, "onDeckTrigger", Q_ARG(int, 0), Q_ARG(QString, "masterdeck"),
+                              Q_ARG(QVariant, QVariant("on")));
+    QMetaObject::invokeMethod(&bridge, "onTickEnded");
+    bridge.setPerformMode(true);
+    doc->masterTimer()->timerTick();
+    QVERIFY(a.show->isRunning() && b.show->isRunning());
+
+    delete doc;
+    QCOMPARE(bridge.performFsm()->snapshot().drives.size(), 2);
 }
 
 void VdjBridge_Test::engineBpmLockReleasedOnDisconnect_data()

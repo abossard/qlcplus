@@ -29,6 +29,8 @@ private slots:
     void quitApp();
     void djTelemetry_data();
     void djTelemetry();
+    void drivenShows_data();
+    void drivenShows();
     void invalidArguments_data();
     void invalidArguments();
     void buttonRefusals_data();
