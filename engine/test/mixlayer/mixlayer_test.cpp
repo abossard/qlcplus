@@ -532,4 +532,50 @@ void MixLayer_Test::showDominanceDecidesLtp()
         timer->timerTick();
 }
 
+void MixLayer_Test::releasedShowFadesOutOnItsLayer_data()
+{
+    QTest::addColumn<bool>("releasedWhileStopping");
+
+    QTest::newRow("released while it stops (a deck's eject)") << true;
+    QTest::newRow("released once it stopped") << false;
+}
+
+void MixLayer_Test::releasedShowFadesOutOnItsLayer()
+{
+    QFETCH(bool, releasedWhileStopping);
+
+    // the active deck's Show sets LTP 100; the other deck's newer Show fades its LTP 50 out
+    MasterTimer *timer = m_doc->masterTimer();
+    Show *dominant = createShow(createScene(100, 150)->id());
+    Scene *fading = createScene(50, 200);
+    fading->setFadeOutSpeed(1000);
+    Show *released = createShow(fading->id());
+    released->setDominant(false);
+
+    dominant->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+    released->start(timer, FunctionParent::master());
+    for (int i = 0; i < 3; i++)
+        timer->timerTick();
+    QCOMPARE(uchar(writeUniverse().at(kLtp)), uchar(100));
+
+    // its deck is done with it: dominant again, as an idle Show is
+    released->stop(FunctionParent::master());
+    if (releasedWhileStopping)
+        released->setDominant(true);
+    timer->timerTick();
+    if (releasedWhileStopping == false)
+        released->setDominant(true);
+    for (int i = 0; i < 5; i++)
+    {
+        timer->timerTick();
+        QCOMPARE(uchar(writeUniverse().at(kLtp)), uchar(100));
+    }
+
+    dominant->stop(FunctionParent::master());
+    for (int i = 0; i < 60; i++)
+        timer->timerTick();
+}
+
 QTEST_MAIN(MixLayer_Test)

@@ -50,6 +50,8 @@ private slots:
     void flashIgnoresLastRunLayer();
     void showDominanceDecidesLtp_data();
     void showDominanceDecidesLtp();
+    void releasedShowFadesOutOnItsLayer_data();
+    void releasedShowFadesOutOnItsLayer();
 
 private:
     Scene *createScene(uchar ltp, uchar htp);

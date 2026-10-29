@@ -476,8 +476,11 @@ void Show::setNestedAudioSuppressed(bool suppressed)
 
 void Show::setDominant(bool dominant)
 {
-    const bool was = m_dominant.exchange(dominant, std::memory_order_relaxed);
-    mixLayer()->setLayer(dominant ? 0 : -1);
+    const bool was = m_dominant.exchange(dominant);
+    // a Show that stops or rests keeps its layer: its clips fade out losing
+    // (or winning) LTP as they played; its next start takes the new one
+    if (isRunning() && stopped() == false)
+        mixLayer()->setLayer(dominant ? 0 : -1);
     if (was == false || dominant)
         return;
     // the VC work crossed and not yet done is no longer this Show's
@@ -1173,6 +1176,7 @@ void Show::preRun(MasterTimer* timer)
     m_requestedForwardTime.store(NoSeekRequested, std::memory_order_relaxed);
     m_commandPosition.store(elapsed(), std::memory_order_relaxed);
     Function::preRun(timer);
+    mixLayer()->setLayer(isDominant() ? 0 : -1);
     m_runningChildren.clear();
     if (m_runner != NULL)
     {
