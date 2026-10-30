@@ -140,8 +140,8 @@ void Conversions_Test::qlcStringToTime_beatTextInput_data()
     QTest::newRow("5")      << QStringLiteral("5")     << 5000.0 << false;
     QTest::newRow("2 1/4")  << QStringLiteral("2 1/4") << 2250.0 << false;
     QTest::newRow("infinity") << QString::fromUtf8("∞") << -2.0  << false;
-    QTest::newRow("3/5 invalid denominator") << QStringLiteral("3/5") << 0.0 << true;
-    QTest::newRow("1/3 invalid denominator") << QStringLiteral("1/3") << 0.0 << true;
+    QTest::newRow("3/5 snaps to 5/8") << QStringLiteral("3/5") << 625.0 << false;
+    QTest::newRow("1/3 snaps to 5/16") << QStringLiteral("1/3") << 313.0 << false;
     QTest::newRow("garbage") << QStringLiteral("abc")   << 0.0   << true;
     QTest::newRow("negative fraction") << QStringLiteral("-1/16") << 0.0 << true;
 }
@@ -178,9 +178,9 @@ void Conversions_Test::timeToQlcString_currentBeatDisplay_data()
     QTest::addColumn<int>("input");
     QTest::addColumn<QString>("expected");
 
-    QTest::newRow("1/16 canonical") << 63 << QStringLiteral(" 1/16");
-    QTest::newRow("1/8 canonical") << 125 << QStringLiteral(" 1/8");
-    QTest::newRow("off-grid 63+63") << 126 << QStringLiteral(" 126");
+    QTest::newRow("1/16 canonical") << 63 << QStringLiteral("1/16");
+    QTest::newRow("1/8 canonical") << 125 << QStringLiteral("1/8");
+    QTest::newRow("off-grid 63+63") << 126 << QStringLiteral("126");
 }
 
 void Conversions_Test::timeToQlcString_currentBeatDisplay()
