@@ -344,8 +344,10 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     QRect geo;
                     if (item.contains("x") && item.contains("y"))
                         geo = QRect(item.at("x").get<int>(), item.at("y").get<int>(), w, h);
-                    else
+                    else if (hasPage)
                         geo = QRect(5, 5, w, h);
+                    else
+                        geo = vcBridge->nextWidgetPosition(item.at("parentID").get<int>(), w, h);
 
                     int id;
                     if (hasPage)

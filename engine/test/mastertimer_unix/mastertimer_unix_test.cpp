@@ -225,6 +225,7 @@ void MasterTimerUnix_Test::diagnostics()
     VirtualMasterTimer timer;
     VirtualMasterTimerPrivate loop(&timer);
     driver = &loop;
+    loop.m_run = true;
     loop.run();
     clockNs += 1000 * MS;
     TimingDiag::flushExpired();
@@ -283,6 +284,7 @@ namespace
         VirtualMasterTimer timer;
         VirtualMasterTimerPrivate loop(&timer);
         driver = &loop;
+        loop.m_run = true;
         loop.run();
         clockNs += 1000 * MS;   // force the final window past the interval
         TimingDiag::flushExpired();

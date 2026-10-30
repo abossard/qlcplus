@@ -331,7 +331,7 @@ void VCButton_Test::mcpBridge_freezeAction()
     QVERIFY(frameID >= 0);
 
     const QString createAction = path == QStringLiteral("addButton") ? action : QStringLiteral("toggle");
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40),
+    const int buttonID = bridge.addButton(frameID, QRect(10, 40, 80, 40),
                                           Function::invalidId(),
                                           QStringLiteral("Freeze"), createAction);
     QVERIFY(buttonID >= 0);
@@ -490,8 +490,8 @@ void VCButton_Test::mcpBridge_geometryUpdateMovesWithoutResizing_data()
 
     // Positions and sizes are multiples of the VC grid snap so the bridge keeps them as given.
     QTest::newRow("x-only") << QByteArray(R"({"x":150})") << QRect(150, 50, 100, 60);
-    QTest::newRow("y-only") << QByteArray(R"({"y":10})") << QRect(50, 10, 100, 60);
-    QTest::newRow("x-and-y") << QByteArray(R"({"x":0,"y":0})") << QRect(0, 0, 100, 60);
+    QTest::newRow("y-only") << QByteArray(R"({"y":100})") << QRect(50, 100, 100, 60);
+    QTest::newRow("x-and-y") << QByteArray(R"({"x":0,"y":40})") << QRect(0, 40, 100, 60);
     QTest::newRow("width-only") << QByteArray(R"({"width":200})") << QRect(50, 50, 200, 60);
 }
 
@@ -515,7 +515,8 @@ void VCButton_Test::mcpBridge_geometryUpdateMovesWithoutResizing()
     Json item = Json::parse(update.constData());
     item["widgetID"] = widgetID;
     const Json updated = tools.call("vc_update_widgets", {{"items", Json::array({item})}});
-    QVERIFY2(updated[0]["changes"][0]["status"] == "ok", updated.dump().c_str());
+    QVERIFY2(updated[0].contains("changes") && !updated[0]["changes"].empty() &&
+             updated[0]["changes"][0].value("status", "") == "ok", updated.dump().c_str());
 
     QCOMPARE(bridge.getWidgetDetails(widgetID).geometry, expected);
 }
@@ -621,7 +622,7 @@ void VCButton_Test::mcpBridge_createRejectsUnusableParent()
     McpTools tools(&doc, &bridge);
 
     const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+    const int buttonID = bridge.addButton(frameID, QRect(0, 40, 50, 50), Function::invalidId(),
                                           QStringLiteral("NotAContainer"), QStringLiteral("toggle"), 0);
     QVERIFY(buttonID >= 0);
     const int before = widgetCount(bridge);
@@ -693,7 +694,7 @@ void VCButton_Test::mcpBridge_mapInputsRejectsPartialFeedback()
     McpTools tools(&doc, &bridge);
 
     const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+    const int buttonID = bridge.addButton(frameID, QRect(0, 40, 50, 50), Function::invalidId(),
                                           QStringLiteral("Mapped"), QStringLiteral("toggle"), 0);
 
     Json item = Json::parse(feedback.constData());
@@ -794,7 +795,7 @@ void VCButton_Test::mcpBridge_layoutEnumsApplyCanonicalSpelling()
     McpTools tools(&doc, &bridge);
 
     const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
-    bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+    bridge.addButton(frameID, QRect(0, 40, 50, 50), Function::invalidId(),
                      QStringLiteral("Child"), QStringLiteral("toggle"), 0);
     args.replace("\"FRAME\"", QByteArray::number(frameID));
 
@@ -812,9 +813,9 @@ void VCButton_Test::mcpBridge_updateBatchReportsIndexedOutcomes()
     McpTools tools(&doc, &bridge);
 
     const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+    const int buttonID = bridge.addButton(frameID, QRect(0, 40, 50, 50), Function::invalidId(),
                                           QStringLiteral("Btn"), QStringLiteral("toggle"), 0);
-    const int sliderID = bridge.addSlider(frameID, QRect(60, 0, 60, 200), QStringLiteral("level"),
+    const int sliderID = bridge.addSlider(frameID, QRect(60, 40, 60, 200), QStringLiteral("level"),
                                           QStringLiteral("Sld"), Function::invalidId(), {});
 
     const Json items = Json::array({
@@ -877,7 +878,7 @@ void VCButton_Test::mcpBridge_setterBatchesReportIndexedOutcomes()
     McpTools tools(&doc, &bridge);
 
     const int frameID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
-    const int buttonID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+    const int buttonID = bridge.addButton(frameID, QRect(0, 40, 50, 50), Function::invalidId(),
                                           QStringLiteral("Btn"), QStringLiteral("toggle"), 0);
     // Feedback needs an input source to attach to.
     QVERIFY(bridge.mapWidgetInputByName(buttonID, QStringLiteral("default"), 0, 3));
@@ -929,7 +930,7 @@ void VCButton_Test::mcpBridge_childPageIndexRejectedBeforeMutation()
     cfg.multipageMode = true;
     cfg.totalPages = 3;
     QVERIFY(bridge.configureFrame(frameID, cfg));
-    const int existingID = bridge.addButton(frameID, QRect(0, 0, 50, 50), Function::invalidId(),
+    const int existingID = bridge.addButton(frameID, QRect(0, 40, 50, 50), Function::invalidId(),
                                             QStringLiteral("Existing"), QStringLiteral("toggle"), 0);
     QVERIFY(bridge.setWidgetPage(existingID, 1));
     const int childrenBefore = int(qobject_cast<VCFrame *>(ui.vc()->widget(frameID))->children().size());
@@ -998,13 +999,13 @@ void VCButton_Test::mcpBridge_updateRejectsLateInvalidFieldBeforeMutation()
     const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
     Scene *scene = new Scene(&doc);
     QVERIFY(doc.addFunction(scene));
-    const int labelID = bridge.addLabel(hostID, QRect(300, 300, 50, 20), QStringLiteral("Target"));
+    const int labelID = bridge.addLabel(hostID, QRect(450, 40, 100, 40), QStringLiteral("Target"));
     late.replace("SCENE", QByteArray::number(scene->id())).replace("LABEL", QByteArray::number(labelID));
     int wid = -1;
     if (type == "xypad")
-        wid = bridge.addXYPad(hostID, QRect(5, 5, 200, 200), {});
+        wid = bridge.addXYPad(hostID, QRect(5, 40, 200, 200), {});
     else if (type == "speedDial")
-        wid = bridge.addSpeedDial(hostID, QRect(5, 5, 200, 120), {});
+        wid = bridge.addSpeedDial(hostID, QRect(5, 40, 200, 120), {});
     else
     {
         const Json created = tools.call("vc_create_widgets", {{"items", Json::array({
@@ -1093,7 +1094,7 @@ void VCButton_Test::mcpBridge_updateAcceptsUnbindAndUnrelatedEdit()
     Scene *scene = new Scene(&doc);
     QVERIFY(doc.addFunction(scene));
     const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
-    const int wid = bridge.addButton(hostID, QRect(0, 0, 50, 50), scene->id(),
+    const int wid = bridge.addButton(hostID, QRect(0, 40, 50, 50), scene->id(),
                                      QStringLiteral("Bound"), QStringLiteral("toggle"), 0);
 
     Json item = Json::parse(edit.constData());
@@ -1150,7 +1151,7 @@ void VCButton_Test::mcpBridge_xyPadScenePresetFollowsNativePanTilt()
     QVERIFY(doc.addFunction(scene));
 
     const int hostID = bridge.addFrame(0, QRect(0, 0, 600, 400), QStringLiteral("Host"), false);
-    const int wid = bridge.addXYPad(hostID, QRect(5, 5, 200, 200), {});
+    const int wid = bridge.addXYPad(hostID, QRect(5, 40, 200, 200), {});
     VCXYPad *pad = qobject_cast<VCXYPad *>(ui.vc()->widget(wid));
     QVERIFY(pad);
     const VCBridge::WidgetDetails before = bridge.getWidgetDetails(wid);
@@ -1238,20 +1239,20 @@ void VCButton_Test::mcpBridge_reparentBatchRejectsMalformedItemPerItem()
     auto parentOf = [&](int id) { return bridge.getWidgetDetails(id).parentID; };
 
     const int host = bridge.addFrame(0, QRect(0, 0, 800, 600), QStringLiteral("Host"), false);
-    const int a = bridge.addFrameInFrame(host, QRect(0, 0, 300, 300), QStringLiteral("A"), false);
-    const int b = bridge.addFrameInFrame(host, QRect(400, 0, 300, 300), QStringLiteral("B"), false);
+    const int a = bridge.addFrameInFrame(host, QRect(0, 40, 300, 300), QStringLiteral("A"), false);
+    const int b = bridge.addFrameInFrame(host, QRect(400, 40, 300, 300), QStringLiteral("B"), false);
     auto button = [&](const char *caption, int y) {
         return bridge.addButton(a, QRect(10, y, 70, 40), Function::invalidId(),
                                 QString::fromLatin1(caption), QStringLiteral("toggle"));
     };
-    const int x = button("X", 10), z = button("Z", 60), y = button("Y", 110);
+    const int x = button("X", 40), z = button("Z", 90), y = button("Y", 140);
     QVERIFY(host >= 0 && a >= 0 && b >= 0 && x >= 0 && z >= 0 && y >= 0);
     middle.replace("\"B\"", QByteArray::number(b)).replace("\"Z\"", QByteArray::number(z));
 
     const Json result = tools.call("vc_reparent_widgets", {{"items", Json::array({
-        {{"widgetID", x}, {"newParentID", b}},
+        {{"widgetID", x}, {"newParentID", b}, {"x", 10}, {"y", 40}},
         Json::parse(middle.constData()),
-        {{"widgetID", y}, {"newParentID", b}}})}});
+        {{"widgetID", y}, {"newParentID", b}, {"x", 10}, {"y", 140}}})}});
 
     QVERIFY2(result.is_array() && result.size() == 3, result.dump().c_str());
     for (int i = 0; i < 3; ++i)
@@ -1296,9 +1297,9 @@ void VCButton_Test::mcpBridge_layoutBatchesReportIndexedOutcomes()
     const Json error = {{"status", "error"}};
 
     const int host = bridge.addFrame(0, QRect(0, 0, 800, 600), QStringLiteral("Host"), false);
-    const int a = bridge.addFrameInFrame(host, QRect(0, 0, 300, 300), QStringLiteral("A"), false);
-    const int b = bridge.addFrameInFrame(host, QRect(400, 0, 300, 300), QStringLiteral("B"), false);
-    const int c = bridge.addFrameInFrame(a, QRect(10, 10, 100, 100), QStringLiteral("C"), false);
+    const int a = bridge.addFrameInFrame(host, QRect(0, 40, 300, 300), QStringLiteral("A"), false);
+    const int b = bridge.addFrameInFrame(host, QRect(400, 40, 300, 300), QStringLiteral("B"), false);
+    const int c = bridge.addFrameInFrame(a, QRect(10, 40, 100, 100), QStringLiteral("C"), false);
     const int x = bridge.addButton(a, QRect(150, 150, 70, 40), Function::invalidId(),
                                    QStringLiteral("X"), QStringLiteral("toggle"));
     QVERIFY(host >= 0 && a >= 0 && b >= 0 && c >= 0 && x >= 0);
@@ -1660,7 +1661,7 @@ void VCButton_Test::freezeRoutesThroughRealInputDispatch()
     // reaches it: through VirtualConsole and VCPage, not by calling the button.
     const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     QVERIFY(frameID >= 0);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), Function::invalidId(),
+    const int buttonID = bridge.addButton(frameID, QRect(10, 40, 80, 40), Function::invalidId(),
                                           QStringLiteral("Freeze"),
                                           action == VCButton::Freeze ? QStringLiteral("freeze")
                                                                      : QStringLiteral("freezehold"));
@@ -2166,7 +2167,7 @@ void VCButton_Test::freezeWorkspace_survivesClearAndLoad()
 
     const int frameID = bridge.addFrame(0, QRect(0, 0, 400, 300), QStringLiteral("Frame"), false);
     QVERIFY(frameID >= 0);
-    const int buttonID = bridge.addButton(frameID, QRect(10, 10, 80, 40), Function::invalidId(),
+    const int buttonID = bridge.addButton(frameID, QRect(10, 40, 80, 40), Function::invalidId(),
                                           QStringLiteral("Hold the look"), QStringLiteral("freeze"));
     QVERIFY(buttonID >= 0);
     VCButton *button = qobject_cast<VCButton *>(ui.vc()->widget(buttonID));

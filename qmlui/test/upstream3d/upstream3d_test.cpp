@@ -497,7 +497,7 @@ void Upstream3D_Test::meshCellNotReady()
     QFETCH(bool, loader);
     Qt3DCore::QEntity scene;
     Qt3DRender::QSceneLoader pending;
-    auto *previousRoot = m_view->m_sceneRootEntity;
+    auto previousRoot = m_view->m_sceneRootEntity;
     const auto cleanup = qScopeGuard([&]() {
         m_view->m_sceneRootEntity = previousRoot;
         m_view->PreviewContext::enableContext(true);

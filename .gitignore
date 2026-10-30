@@ -70,6 +70,8 @@ docs/widget-mockup.html
 
 # Manual review run artifacts (manual-review-canvas extension / tools/manual-review)
 test-reports/
+# Committed, human-readable test reports
+!docs/test-reports/
 
 # The `.*` rule above also matches the `.github` directory, which would ignore
 # newly-added project extensions. Re-include this committed canvas extension.
