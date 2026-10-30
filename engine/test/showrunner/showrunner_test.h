@@ -69,6 +69,8 @@ private slots:
     void trackIntensityAppliesOnNextTick();
     void trackIntensityCopyFollowsTheAttributes_data();
     void trackIntensityCopyFollowsTheAttributes();
+    void trackIntensityFollowsItsTrack_data();
+    void trackIntensityFollowsItsTrack();
 
     // Beat-clock fallback tests (no global beat source -> run at song BPM)
     void internalBeatClockUsesSongBpm();

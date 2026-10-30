@@ -91,6 +91,12 @@
 #include "uimanager.h"
 #include "listmodel.h"
 #include "simpledesk.h"
+#include "efxfixture.h"
+#include "mainview2d.h"
+#include "palettemanager.h"
+#include "qlcchannel.h"
+#include "qlcpalette.h"
+#include "sequence.h"
 
 #define private public
 #include "scriptv4.h"
@@ -107,6 +113,28 @@ private slots:
     void cleanupTestCase();
     void C2_importFunctionVisibility_data();
     void C2_importFunctionVisibility();
+    void importRefusedFile_data();
+    void importRefusedFile();
+    void importFunctionFolders_data();
+    void importFunctionFolders();
+    void searchIgnoresCase_data();
+    void searchIgnoresCase();
+    void importFixtureTreeSearch_data();
+    void importFixtureTreeSearch();
+    void importEfxHeads_data();
+    void importEfxHeads();
+    void importScenePalettes_data();
+    void importScenePalettes();
+    void importSequenceSteps_data();
+    void importSequenceSteps();
+    void importShowClips_data();
+    void importShowClips();
+    void importStaleReferences_data();
+    void importStaleReferences();
+    void previewUniverseFilter_data();
+    void previewUniverseFilter();
+    void vcSliderClickAndGoPreset_data();
+    void vcSliderClickAndGoPreset();
     void textInputDeletion_data();
     void textInputDeletion();
     void functionDeletionConfirmation_data();
@@ -4739,6 +4767,730 @@ void UpstreamIntegration_Test::C2_importFunctionVisibility()
     QCOMPARE(actual, expected);
 }
 
+namespace
+{
+/** Ticks or unticks a tree row the way its checkbox does. The path names the
+ *  row by its labels, a folder and its rows joined with '/' */
+bool clickTreeRow(TreeModel *tree, const QString &path, bool checked)
+{
+    TreeModel *owner = tree;
+    const QStringList labels = path.split('/');
+    for (int depth = 0; depth < labels.count(); ++depth)
+    {
+        const QList<TreeModelItem *> items = owner->items();
+        const auto it = std::find_if(items.begin(), items.end(),
+                                     [&](TreeModelItem *item) { return item->label() == labels.at(depth); });
+        if (it == items.end())
+            return false;
+        if (depth == labels.count() - 1)
+            return owner->setData(owner->index(int(it - items.begin()), 0), checked, TreeModel::IsCheckedRole);
+        if ((*it)->hasChildren() == false)
+            return false;
+        owner = (*it)->children();
+    }
+    return false;
+}
+
+/** The checkbox state of each Function row of a tree, by Function name, folders included */
+void functionRows(TreeModel *tree, QMap<QString, bool> &rows)
+{
+    for (TreeModelItem *item : tree->items())
+    {
+        const QVariantList data = item->data();
+        if (data.isEmpty() == false && data.first().canConvert<Function *>())
+        {
+            if (Function *function = data.first().value<Function *>())
+                rows.insert(function->name(), item->flags() & TreeModel::Checked);
+        }
+        if (item->hasChildren())
+            functionRows(item->children(), rows);
+    }
+}
+
+/** The labels of every Fixture row of a fixture tree, folders included */
+QStringList fixtureRows(TreeModel *tree)
+{
+    QStringList rows;
+    for (TreeModelItem *item : tree->items())
+    {
+        const QVariantList data = item->data();
+        if (data.count() > 1 && data.at(1).toInt() == App::FixtureDragItem)
+            rows.append(item->label());
+        if (item->hasChildren())
+            rows.append(fixtureRows(item->children()));
+    }
+    return rows;
+}
+
+/** Every row of a tree as its label path, in tree order */
+QStringList treeShape(TreeModel *tree, const QString &prefix = QString())
+{
+    QStringList shape;
+    for (TreeModelItem *item : tree->items())
+    {
+        shape.append(prefix + item->label());
+        if (item->hasChildren())
+            shape.append(treeShape(item->children(), prefix + item->label() + "/"));
+    }
+    return shape;
+}
+
+Fixture *addDimmer(Doc *doc, const QString &name)
+{
+    auto *fixture = new Fixture(doc);
+    fixture->setName(name);
+    fixture->setChannels(1);
+    fixture->setAddress(doc->fixtures().count());
+    if (doc->addFixture(fixture) == false)
+    {
+        delete fixture;
+        return nullptr;
+    }
+    return fixture;
+}
+
+Fixture *fixtureNamed(Doc *doc, const QString &name)
+{
+    for (Fixture *fixture : doc->fixtures())
+        if (fixture->name() == name)
+            return fixture;
+    return nullptr;
+}
+
+Function *functionNamed(Doc *doc, const QString &name)
+{
+    for (Function *function : doc->functions())
+        if (function->name() == name)
+            return function;
+    return nullptr;
+}
+}
+
+void UpstreamIntegration_Test::importRefusedFile_data()
+{
+    QTest::addColumn<QByteArray>("content");
+    QTest::newRow("missing file") << QByteArray();
+    QTest::newRow("fixture definition")
+        << QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE FixtureDefinition>\n<FixtureDefinition/>\n");
+    QTest::newRow("not XML") << QByteArray("not a workspace\n");
+}
+
+void UpstreamIntegration_Test::importRefusedFile()
+{
+    QFETCH(QByteArray, content);
+    const QString path = m_settings.filePath("import-refused.qxf");
+    QFile::remove(path);
+    if (content.isEmpty() == false)
+    {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(content), content.size());
+    }
+
+    // a refused file opens no import popup, so no import tree is ever read
+    QVERIFY(m_app->loadImportWorkspace(path) == false);
+    QVERIFY(m_app->loadImportWorkspace(path) == false);
+    m_app->cancelImport();
+    QVERIFY(m_app->m_importManager == nullptr);
+}
+
+void UpstreamIntegration_Test::importFunctionFolders_data()
+{
+    QTest::addColumn<QStringList>("selectedBefore");
+    QTest::addColumn<QStringList>("clicks");
+    QTest::addColumn<QStringList>("expected");
+    QTest::newRow("tick a folder") << QStringList() << QStringList{"+Looks"} << QStringList{"Wash A", "Wash B"};
+    QTest::newRow("tick a folder, then a Function")
+        << QStringList() << QStringList{"+Looks", "+Solo"} << QStringList{"Solo", "Wash A", "Wash B"};
+    QTest::newRow("tick a folder, then untick it") << QStringList() << QStringList{"+Looks", "-Looks"} << QStringList();
+    QTest::newRow("tick in a folder") << QStringList() << QStringList{"+Looks/Wash A"} << QStringList{"Wash A"};
+    QTest::newRow("tick in a folder, search, clear")
+        << QStringList() << QStringList{"+Looks/Wash A", "?was", "?"} << QStringList{"Wash A"};
+    QTest::newRow("selected before the tree") << QStringList{"Wash B"} << QStringList() << QStringList{"Wash B"};
+}
+
+void UpstreamIntegration_Test::importFunctionFolders()
+{
+    QFETCH(QStringList, selectedBefore);
+    QFETCH(QStringList, clicks);
+    QFETCH(QStringList, expected);
+    QQuickView view;
+    Doc doc(nullptr);
+    ImportManager manager(&view, &doc);
+    for (const QString &name : {QString("Wash A"), QString("Wash B"), QString("Solo")})
+    {
+        auto *scene = new Scene(manager.m_importDoc);
+        scene->setName(name);
+        if (name.startsWith("Wash"))
+            scene->setPath("Looks");
+        QVERIFY(manager.m_importDoc->addFunction(scene));
+        if (selectedBefore.contains(name))
+            manager.m_functionIDList.append(scene->id());
+    }
+    manager.groupsTreeModel();
+    auto *tree = manager.functionsTreeModel().value<TreeModel *>();
+    QVERIFY(tree);
+
+    for (const QString &click : clicks)
+    {
+        if (click.startsWith('?'))
+            manager.setFunctionSearchFilter(click.mid(1));
+        else
+            QVERIFY2(clickTreeRow(tree, click.mid(1), click.startsWith('+')), qPrintable(click));
+    }
+
+    QVERIFY(manager.m_functionTreeUpdating == false);
+    QStringList selected;
+    for (quint32 id : manager.m_functionIDList)
+        selected.append(manager.m_importDoc->function(id)->name());
+    selected.sort();
+    QCOMPARE(selected, expected);
+
+    QMap<QString, bool> rows;
+    functionRows(tree, rows);
+    QVERIFY(rows.isEmpty() == false);
+    for (auto it = rows.cbegin(); it != rows.cend(); ++it)
+        QVERIFY2(it.value() == expected.contains(it.key()), qPrintable(it.key()));
+}
+
+void UpstreamIntegration_Test::searchIgnoresCase_data()
+{
+    QTest::addColumn<QString>("surface");
+    QTest::addColumn<QString>("filter");
+    for (const QString &surface : {QString("import functions"), QString("import fixtures"),
+                                   QString("function manager"), QString("fixture manager"),
+                                   QString("palette manager")})
+    {
+        for (const QString &filter : {QString("wash"), QString("Wash"), QString("WASH")})
+            QTest::newRow(qPrintable(QString("%1, %2").arg(surface, filter))) << surface << filter;
+    }
+}
+
+void UpstreamIntegration_Test::searchIgnoresCase()
+{
+    QFETCH(QString, surface);
+    QFETCH(QString, filter);
+    const QStringList names{"Lumenwash", "Lumenspot"};
+    QStringList found;
+
+    if (surface.startsWith("import"))
+    {
+        QQuickView view;
+        Doc doc(nullptr);
+        ImportManager manager(&view, &doc);
+        for (const QString &name : names)
+        {
+            if (surface == "import functions")
+            {
+                auto *scene = new Scene(manager.m_importDoc);
+                scene->setName(name);
+                QVERIFY(manager.m_importDoc->addFunction(scene));
+            }
+            else
+            {
+                QVERIFY(addDimmer(manager.m_importDoc, name));
+            }
+        }
+        auto *fixtureTree = manager.groupsTreeModel().value<TreeModel *>();
+        auto *functionTree = manager.functionsTreeModel().value<TreeModel *>();
+        if (surface == "import functions")
+        {
+            manager.setFunctionSearchFilter(filter);
+            QMap<QString, bool> rows;
+            functionRows(functionTree, rows);
+            found = rows.keys();
+        }
+        else
+        {
+            manager.setFixtureSearchFilter(filter);
+            found = fixtureRows(fixtureTree);
+        }
+    }
+    else
+    {
+        Doc *doc = m_app->doc();
+        QList<quint32> fixtureIDs, functionIDs, paletteIDs;
+        const auto cleanup = qScopeGuard([&]() {
+            m_app->m_fixtureManager->setSearchFilter(QString());
+            m_app->m_functionManager->setSearchFilter(QString());
+            m_app->m_paletteManager->setSearchFilter(QString());
+            for (quint32 id : functionIDs)
+                doc->deleteFunction(id);
+            for (quint32 id : fixtureIDs)
+                doc->deleteFixture(id);
+            for (quint32 id : paletteIDs)
+                doc->deletePalette(id);
+        });
+        for (const QString &name : names)
+        {
+            if (surface == "function manager")
+            {
+                auto *scene = new Scene(doc);
+                scene->setName(name);
+                QVERIFY(doc->addFunction(scene));
+                functionIDs.append(scene->id());
+            }
+            else if (surface == "fixture manager")
+            {
+                Fixture *fixture = addDimmer(doc, name);
+                QVERIFY(fixture);
+                fixtureIDs.append(fixture->id());
+            }
+            else
+            {
+                auto *palette = new QLCPalette(QLCPalette::Dimmer);
+                palette->setName(name);
+                QVERIFY(doc->addPalette(palette));
+                paletteIDs.append(palette->id());
+            }
+        }
+        if (surface == "function manager")
+        {
+            m_app->m_functionManager->setSearchFilter(filter);
+            QMap<QString, bool> rows;
+            functionRows(m_app->m_functionManager->functionsList().value<TreeModel *>(), rows);
+            found = rows.keys();
+        }
+        else if (surface == "fixture manager")
+        {
+            auto *tree = m_app->m_fixtureManager->groupsTreeModel().value<TreeModel *>();
+            m_app->m_fixtureManager->setSearchFilter(filter);
+            found = fixtureRows(tree);
+        }
+        else
+        {
+            m_app->m_paletteManager->setSearchFilter(filter);
+            auto *list = m_app->m_paletteManager->paletteList().value<ListModel *>();
+            for (int row = 0; row < list->rowCount(); ++row)
+            {
+                QLCPalette *palette = doc->palette(list->data(list->index(row, 0), "paletteID").toUInt());
+                if (palette)
+                    found.append(palette->name());
+            }
+        }
+    }
+
+    found.removeDuplicates();
+    QCOMPARE(found, QStringList{"Lumenwash"});
+}
+
+void UpstreamIntegration_Test::importFixtureTreeSearch_data()
+{
+    QTest::addColumn<QString>("filter");
+    QTest::newRow("no match") << QString("xyz");
+    QTest::newRow("a match") << QString("par");
+}
+
+void UpstreamIntegration_Test::importFixtureTreeSearch()
+{
+    QFETCH(QString, filter);
+    QQuickView view;
+    Doc doc(nullptr);
+    ImportManager manager(&view, &doc);
+    QVERIFY(addDimmer(manager.m_importDoc, "Par"));
+    // a generic 4 channel dimmer has a head per channel
+    auto *bar = new Fixture(manager.m_importDoc);
+    bar->setName("Bar");
+    bar->setChannels(4);
+    bar->setAddress(10);
+    QVERIFY(manager.m_importDoc->addFixture(bar));
+    QCOMPARE(bar->heads(), 4);
+    manager.functionsTreeModel();
+    auto *tree = manager.groupsTreeModel().value<TreeModel *>();
+    const QStringList opened = treeShape(tree);
+    QVERIFY(opened.contains("Universe 1/Bar"));
+
+    manager.setFixtureSearchFilter(filter);
+    manager.setFixtureSearchFilter(QString());
+    QCOMPARE(treeShape(tree), opened);
+}
+
+void UpstreamIntegration_Test::importEfxHeads_data()
+{
+    QTest::addColumn<QStringList>("targetFixtures");
+    QTest::addColumn<int>("targetFunctions");
+    QTest::newRow("new fixture, same IDs") << QStringList() << 0;
+    QTest::newRow("fixture matched by name") << QStringList{"Other", "Mover"} << 0;
+    QTest::newRow("fixture matched, Function IDs taken") << QStringList{"Other", "Mover"} << 3;
+}
+
+void UpstreamIntegration_Test::importEfxHeads()
+{
+    QFETCH(QStringList, targetFixtures);
+    QFETCH(int, targetFunctions);
+    QQuickView view;
+    Doc target(nullptr);
+    for (const QString &name : targetFixtures)
+        QVERIFY(addDimmer(&target, name));
+    for (int i = 0; i < targetFunctions; ++i)
+        QVERIFY(target.addFunction(new Scene(&target)));
+    ImportManager manager(&view, &target);
+    Fixture *mover = addDimmer(manager.m_importDoc, "Mover");
+    QVERIFY(mover);
+    auto *efx = new EFX(manager.m_importDoc);
+    efx->setName("Circle");
+    QVERIFY(efx->addFixture(mover->id(), 0));
+    QVERIFY(manager.m_importDoc->addFunction(efx));
+    manager.groupsTreeModel();
+    QVERIFY(clickTreeRow(manager.functionsTreeModel().value<TreeModel *>(), "Circle", true));
+
+    manager.apply();
+
+    auto *copy = qobject_cast<EFX *>(functionNamed(&target, "Circle"));
+    QVERIFY(copy);
+    QCOMPARE(copy->fixtures().count(), 1);
+    QVERIFY(fixtureNamed(&target, "Mover"));
+    QCOMPARE(copy->fixtures().first()->head().fxi, fixtureNamed(&target, "Mover")->id());
+}
+
+void UpstreamIntegration_Test::importScenePalettes_data()
+{
+    QTest::addColumn<QStringList>("targetPalettes");
+    QTest::newRow("new palette") << QStringList();
+    QTest::newRow("palette matched by name") << QStringList{"Blue", "Green", "Red"};
+}
+
+void UpstreamIntegration_Test::importScenePalettes()
+{
+    QFETCH(QStringList, targetPalettes);
+    QQuickView view;
+    Doc target(nullptr);
+    QVERIFY(addDimmer(&target, "Other"));
+    QVERIFY(addDimmer(&target, "Par"));
+    for (const QString &name : targetPalettes)
+    {
+        auto *palette = new QLCPalette(QLCPalette::Dimmer);
+        palette->setName(name);
+        QVERIFY(target.addPalette(palette));
+    }
+    ImportManager manager(&view, &target);
+    Fixture *par = addDimmer(manager.m_importDoc, "Par");
+    QVERIFY(par);
+    auto *red = new QLCPalette(QLCPalette::Dimmer);
+    red->setName("Red");
+    QVERIFY(manager.m_importDoc->addPalette(red));
+    auto *scene = new Scene(manager.m_importDoc);
+    scene->setName("Look");
+    scene->setValue(SceneValue(par->id(), 0, 200));
+    scene->addPalette(red->id());
+    QVERIFY(manager.m_importDoc->addFunction(scene));
+    manager.groupsTreeModel();
+    QVERIFY(clickTreeRow(manager.functionsTreeModel().value<TreeModel *>(), "Look", true));
+
+    manager.apply();
+
+    auto *copy = qobject_cast<Scene *>(functionNamed(&target, "Look"));
+    QVERIFY(copy);
+    QLCPalette *targetRed = nullptr;
+    for (QLCPalette *palette : target.palettes())
+        if (palette->name() == "Red")
+            targetRed = palette;
+    QVERIFY(targetRed);
+    QCOMPARE(copy->palettes(), QList<quint32>{targetRed->id()});
+    QCOMPARE(copy->values().count(), 1);
+    QCOMPARE(copy->values().first().fxi, fixtureNamed(&target, "Par")->id());
+}
+
+void UpstreamIntegration_Test::importSequenceSteps_data()
+{
+    QTest::addColumn<QStringList>("targetFixtures");
+    QTest::addColumn<int>("targetChasers");
+    QTest::newRow("same IDs") << QStringList{"Par"} << 0;
+    QTest::newRow("IDs taken in the target") << QStringList{"Other", "Par"} << 1;
+}
+
+void UpstreamIntegration_Test::importSequenceSteps()
+{
+    QFETCH(QStringList, targetFixtures);
+    QFETCH(int, targetChasers);
+    QQuickView view;
+    Doc target(nullptr);
+    for (const QString &name : targetFixtures)
+        QVERIFY(addDimmer(&target, name));
+    for (int i = 0; i < targetChasers; ++i)
+        QVERIFY(target.addFunction(new Chaser(&target)));
+    ImportManager manager(&view, &target);
+    Fixture *par = addDimmer(manager.m_importDoc, "Par");
+    QVERIFY(par);
+    // as the Function Manager makes it: a hidden Scene bound to the Sequence
+    auto *bound = new Scene(manager.m_importDoc);
+    bound->setName("Bound");
+    bound->setVisible(false);
+    bound->setValue(SceneValue(par->id(), 0, 0));
+    QVERIFY(manager.m_importDoc->addFunction(bound));
+    auto *sequence = new Sequence(manager.m_importDoc);
+    sequence->setName("Steps");
+    sequence->setBoundSceneID(bound->id());
+    ChaserStep step(bound->id());
+    step.values.append(SceneValue(par->id(), 0, 200));
+    QVERIFY(sequence->addStep(step));
+    QVERIFY(manager.m_importDoc->addFunction(sequence));
+    manager.groupsTreeModel();
+    QVERIFY(clickTreeRow(manager.functionsTreeModel().value<TreeModel *>(), "Steps", true));
+
+    manager.apply();
+
+    auto *copy = qobject_cast<Sequence *>(functionNamed(&target, "Steps"));
+    QVERIFY(copy);
+    Function *boundCopy = functionNamed(&target, "Bound");
+    QVERIFY(boundCopy);
+    QCOMPARE(copy->boundSceneID(), boundCopy->id());
+    QCOMPARE(copy->stepsCount(), 1);
+    QCOMPARE(copy->stepAt(0)->fid, boundCopy->id());
+    QCOMPARE(copy->stepAt(0)->values.count(), 1);
+    QCOMPARE(copy->stepAt(0)->values.first().fxi, fixtureNamed(&target, "Par")->id());
+}
+
+void UpstreamIntegration_Test::importShowClips_data()
+{
+    QTest::addColumn<QStringList>("targetScenes");
+    QTest::newRow("empty target") << QStringList();
+    QTest::newRow("a target Function at the clip ID") << QStringList{"Target Look"};
+}
+
+void UpstreamIntegration_Test::importShowClips()
+{
+    QFETCH(QStringList, targetScenes);
+    QQuickView view;
+    Doc target(nullptr);
+    QVERIFY(addDimmer(&target, "Par"));
+    for (const QString &name : targetScenes)
+    {
+        auto *scene = new Scene(&target);
+        scene->setName(name);
+        QVERIFY(target.addFunction(scene));
+    }
+    ImportManager manager(&view, &target);
+    Fixture *par = addDimmer(manager.m_importDoc, "Par");
+    QVERIFY(par);
+    auto *intro = new Scene(manager.m_importDoc);
+    intro->setName("Intro");
+    intro->setValue(SceneValue(par->id(), 0, 255));
+    QVERIFY(manager.m_importDoc->addFunction(intro));
+    auto *show = new Show(manager.m_importDoc);
+    show->setName("Song");
+    QVERIFY(manager.m_importDoc->addFunction(show));
+    auto *track = new Track(Function::invalidId(), show);
+    track->setName("Lights");
+    QVERIFY(show->addTrack(track));
+    ShowFunction *clip = track->createShowFunction(intro->id());
+    clip->setStartTime(1000);
+    clip->setDuration(4000);
+    manager.groupsTreeModel();
+    QVERIFY(clickTreeRow(manager.functionsTreeModel().value<TreeModel *>(), "Song", true));
+
+    manager.apply();
+
+    auto *copy = qobject_cast<Show *>(functionNamed(&target, "Song"));
+    QVERIFY(copy);
+    Function *introCopy = functionNamed(&target, "Intro");
+    QVERIFY(introCopy);
+    QCOMPARE(copy->tracks().count(), 1);
+    QCOMPARE(copy->tracks().first()->name(), QString("Lights"));
+    const QList<ShowFunction *> clips = copy->tracks().first()->showFunctions();
+    QCOMPARE(clips.count(), 1);
+    QCOMPARE(clips.first()->functionID(), introCopy->id());
+    QCOMPARE(clips.first()->startTime(), quint32(1000));
+    QCOMPARE(clips.first()->duration(), quint32(4000));
+    QCOMPARE(target.functions().count(), targetScenes.count() + 2);
+}
+
+void UpstreamIntegration_Test::importStaleReferences_data()
+{
+    QTest::addColumn<QString>("kind");
+    QTest::newRow("a Script line number read as a Function ID") << QString("script line");
+    QTest::newRow("a Script line number that is no Function") << QString("script missing");
+    QTest::newRow("a Scene of a deleted fixture group") << QString("group");
+    QTest::newRow("a Scene of a deleted palette") << QString("palette");
+    QTest::newRow("a Script of a deleted fixture") << QString("script fixture");
+}
+
+void UpstreamIntegration_Test::importStaleReferences()
+{
+    QFETCH(QString, kind);
+    QQuickView view;
+    Doc target(nullptr);
+    QVERIFY(addDimmer(&target, "Par"));
+    ImportManager manager(&view, &target);
+    Doc *source = manager.m_importDoc;
+    Fixture *par = addDimmer(source, "Par");
+    QVERIFY(par);
+    auto *unrelated = new Scene(source);
+    unrelated->setName("Unrelated");
+    QVERIFY(source->addFunction(unrelated));
+    auto *look = new Scene(source);
+    look->setName("Look");
+    look->setValue(SceneValue(par->id(), 0, 255));
+    QVERIFY(source->addFunction(look));
+    QString picked("Look");
+    QStringList expected{"Look"};
+    // IDs a saved workspace still refers to after their object was deleted
+    if (kind == "group")
+    {
+        look->addFixtureGroup(77);
+    }
+    else if (kind == "palette")
+    {
+        look->addPalette(77);
+    }
+    else
+    {
+        auto *script = new Script(source);
+        script->setName("Run");
+        QString text;
+        if (kind == "script missing")
+            text = "// one\n// two\n// three\n// four\n// five\n";
+        else if (kind == "script fixture")
+            text = "Engine.setFixture(12, 0, 255);\n";
+        text += QString("Engine.startFunction(%1);\n").arg(look->id());
+        QVERIFY(script->setData(text));
+        QVERIFY(source->addFunction(script));
+        picked = "Run";
+        expected = QStringList{"Look", "Run"};
+    }
+    manager.groupsTreeModel();
+    QVERIFY(clickTreeRow(manager.functionsTreeModel().value<TreeModel *>(), picked, true));
+
+    QStringList selected;
+    for (quint32 id : manager.m_functionIDList)
+    {
+        Function *function = source->function(id);
+        selected.append(function ? function->name() : QString::number(id));
+    }
+    selected.sort();
+    QCOMPARE(selected, expected);
+
+    manager.apply();
+    for (const QString &name : expected)
+        QVERIFY2(functionNamed(&target, name), qPrintable(name));
+    QVERIFY(functionNamed(&target, "Unrelated") == nullptr);
+}
+
+namespace
+{
+/** The fixture items of a preview, which only its subclasses reach */
+QMap<quint32, QPointer<QQuickItem>> &previewItems(PreviewContext *context)
+{
+    struct Items : PreviewContext
+    {
+        static QMap<quint32, QPointer<QQuickItem>> PreviewContext::*map() { return &Items::m_itemsMap; }
+    };
+    return context->*Items::map();
+}
+}
+
+void UpstreamIntegration_Test::previewUniverseFilter_data()
+{
+    QTest::addColumn<int>("missing"); // deleted behind the preview, as MCP delete_fixtures does
+    QTest::newRow("none missing") << -1;
+    QTest::newRow("first missing") << 0;
+    QTest::newRow("middle missing") << 1;
+}
+
+void UpstreamIntegration_Test::previewUniverseFilter()
+{
+    QFETCH(int, missing);
+    Doc *doc = m_app->doc();
+    MainView2D *view = m_app->m_contextManager->get2DView();
+    QVERIFY(view);
+    QMap<quint32, QPointer<QQuickItem>> &items = previewItems(view);
+    const bool wasEnabled = view->isEnabled();
+    const QList<quint32> universes{0, 0, 1};
+    QList<quint32> fixtureIDs;
+    std::vector<std::unique_ptr<QQuickItem>> fixtureItems;
+    const auto cleanup = qScopeGuard([&]() {
+        view->setUniverseFilter(Universe::invalid());
+        view->PreviewContext::enableContext(wasEnabled);
+        for (quint32 id : fixtureIDs)
+        {
+            items.remove(FixtureUtils::fixtureItemID(id, 0, 0));
+            doc->deleteFixture(id);
+        }
+    });
+    view->PreviewContext::enableContext(true);
+    for (int i = 0; i < universes.count(); ++i)
+    {
+        auto *fixture = new Fixture(doc);
+        fixture->setChannels(1);
+        fixture->setUniverse(universes.at(i));
+        fixture->setAddress(500 + i);
+        QVERIFY(doc->addFixture(fixture));
+        fixtureIDs.append(fixture->id());
+        // the item the 2D preview shows for it
+        fixtureItems.emplace_back(new QQuickItem);
+        items.insert(FixtureUtils::fixtureItemID(fixture->id(), 0, 0), fixtureItems.back().get());
+    }
+    if (missing >= 0)
+        QVERIFY(doc->deleteFixture(fixtureIDs.at(missing)));
+
+    view->setUniverseFilter(0);
+    for (int i = 0; i < universes.count(); ++i)
+    {
+        if (i != missing)
+            QVERIFY2(fixtureItems.at(i)->isVisible() == (universes.at(i) == 0), qPrintable(QString::number(i)));
+    }
+}
+
+void UpstreamIntegration_Test::vcSliderClickAndGoPreset_data()
+{
+    QTest::addColumn<bool>("missingFirst"); // a level channel its fixture no longer has comes first
+    QTest::newRow("its channel only") << false;
+    QTest::newRow("a missing channel first") << true;
+}
+
+void UpstreamIntegration_Test::vcSliderClickAndGoPreset()
+{
+    QFETCH(bool, missingFirst);
+    Doc *doc = m_app->doc();
+    QLCFixtureDef def;
+    def.setManufacturer("Test");
+    def.setModel("Color wheel");
+    auto *channel = new QLCChannel();
+    channel->setName("Color");
+    channel->setGroup(QLCChannel::Colour);
+    auto *red = new QLCCapability(0, 127, "Red");
+    red->setPreset(QLCCapability::ColorMacro);
+    red->setResource(0, QColor(Qt::red));
+    QVERIFY(channel->addCapability(red));
+    auto *blue = new QLCCapability(128, 255, "Blue");
+    blue->setPreset(QLCCapability::ColorMacro);
+    blue->setResource(0, QColor(Qt::blue));
+    QVERIFY(channel->addCapability(blue));
+    QVERIFY(def.addChannel(channel));
+    auto *mode = new QLCFixtureMode(&def);
+    mode->setName("1 channel");
+    QVERIFY(mode->insertChannel(channel, 0));
+    QVERIFY(def.addMode(mode));
+
+    QList<quint32> fixtureIDs;
+    const auto cleanup = qScopeGuard([&]() {
+        for (quint32 id : fixtureIDs)
+            doc->deleteFixture(id);
+    });
+    auto *dimmer = new Fixture(doc);
+    dimmer->setChannels(1);
+    dimmer->setAddress(400);
+    QVERIFY(doc->addFixture(dimmer));
+    fixtureIDs.append(dimmer->id());
+    auto *wheel = new Fixture(doc);
+    wheel->setFixtureDefinition(&def, mode);
+    wheel->setAddress(401);
+    QVERIFY(doc->addFixture(wheel));
+    fixtureIDs.append(wheel->id());
+
+    VCFrame frame(doc, m_app->virtualConsole());
+    VCSlider slider(doc, &frame);
+    slider.setSliderMode(VCSlider::Level);
+    slider.setClickAndGoType(VCSlider::CnGPreset);
+    // the dimmer's mode has one channel: index 5 is a channel it lost
+    if (missingFirst)
+        slider.addLevelChannel(dimmer->id(), 5);
+    slider.addLevelChannel(wheel->id(), 0);
+
+    slider.setValue(200);
+    QCOMPARE(slider.cngPrimaryColor(), QColor(Qt::blue));
+}
+
 void UpstreamIntegration_Test::fixtureGroupSelection_data()
 {
     QTest::addColumn<QString>("operation");
@@ -5911,6 +6663,20 @@ void UpstreamIntegration_Test::nestedClipTrim()
         QCOMPARE(sf->startTime(), 4000u);
         QCOMPARE(sf->duration(), 8000u);
         QVERIFY(sf->clipAutomation() == before);
+        if (expect == "playing")
+        {
+            // dragged by hand, the refused trim leaves the clip and its tooltip as they were
+            QVERIFY(QMetaObject::invokeMethod(item, "updateTooltipText"));
+            const QString tooltip = item->property("toolTipText").toString();
+            QVERIFY(tooltip.isEmpty() == false);
+            const QPoint point = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+            QTest::mousePress(m_app.get(), Qt::LeftButton, Qt::NoModifier, point);
+            QTest::mouseMove(m_app.get(), point + QPoint(15, 0), 20);
+            QTest::mouseMove(m_app.get(), point + QPoint(40, 0), 20);
+            QTest::mouseRelease(m_app.get(), Qt::LeftButton, Qt::NoModifier, point + QPoint(40, 0));
+            QCOMPARE(sf->startTime(), 4000u);
+            QCOMPARE(item->property("toolTipText").toString(), tooltip);
+        }
         return;
     }
 

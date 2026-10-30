@@ -1086,6 +1086,44 @@ void VdjTelemetryClient_Test::aSavedPortRestartsAnInputOpenedOnABusyPort()
     plugin.closeInput(0, 3);
 }
 
+void VdjTelemetryClient_Test::theSamePortBindsOnceItIsFree_data()
+{
+    QTest::addColumn<bool>("freed");
+    QTest::addColumn<int>("status");
+    QTest::addColumn<QString>("text"); // in the dialog's status
+    QTest::newRow("freed before the edit") << true << int(QLCIOPlugin::Advertising) << "18078";
+    QTest::newRow("still in use") << false << int(QLCIOPlugin::Idle) << "Port 18078 in use";
+}
+
+void VdjTelemetryClient_Test::theSamePortBindsOnceItIsFree()
+{
+    QFETCH(bool, freed);
+    QFETCH(int, status);
+    QFETCH(QString, text);
+
+    // the port was busy when the input opened; the user frees it and
+    // confirms the unchanged port in the dialog
+    QTcpServer other;
+    QVERIFY(other.listen(QHostAddress::Any, 18078));
+    VdjBridgePlugin plugin;
+    plugin.setParameter(0, 0, QLCIOPlugin::Input, QStringLiteral("hostPort"), 18078);
+    QVERIFY(plugin.openInput(0, 3));
+    QCOMPARE(plugin.connectionStatus(0), int(QLCIOPlugin::Idle));
+    if (freed)
+        other.close();
+    ConfigureVdjBridge dialog(&plugin);
+    QSpinBox *port = dialog.findChild<QSpinBox *>();
+    QVERIFY(port != nullptr);
+    QCOMPARE(port->value(), 18078);
+
+    emit port->editingFinished();
+    QCOMPARE(plugin.connectionStatus(0), status);
+    QLabel *label = dialog.findChild<QLabel *>(QStringLiteral("statusLabel"));
+    QVERIFY2(label->text().contains(text), qPrintable(label->text()));
+    QCOMPARE(vdjBonjourLive(), freed ? 1 : 0);
+    plugin.closeInput(0, 3);
+}
+
 void VdjTelemetryClient_Test::openingAnOpenInputBindsABusyPortAgain()
 {
     // vdj/autoOpenInput opened the input while the port was busy; the

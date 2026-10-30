@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { pathToFileURL } from 'url';
 import { parseManualReview, countCheckItems, allCheckItems, allTags, filterPlan } from './parser';
 
 describe('parseManualReview with real MANUAL_REVIEW.md', () => {
@@ -17,20 +18,22 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
   const skip = md.length === 0;
 
   it.each([
+    // 47.3 to 47.5 need the set recorded with VirtualDJ in 47.2
     { number: '47', commit: '162a4fe22',
-      cases: ['47.1', '47.2', '47.3', '47.4', '47.5', '47.6'],
-      checks: [3, 3, 3, 3, 1, 2], tags: [['VDJ', 'DMX'], ['VDJ'], ['DMX'], [], [], ['VDJ']] },
+      cases: ['47.1', '47.2', '47.3', '47.4', '47.5', '47.6', '47.7'],
+      checks: [3, 3, 3, 3, 1, 2, 1],
+      tags: [['VDJ', 'DMX'], ['VDJ'], ['VDJ', 'DMX'], ['VDJ'], ['VDJ'], ['VDJ'], []] },
     { number: '46', commit: '4cd37df23',
-      cases: ['46.1', '46.2'], checks: [2, 2], tags: [['DMX'], ['DMX']] },
+      cases: ['46.1', '46.2', '46.3'], checks: [2, 2, 1], tags: [['DMX'], ['DMX'], []] },
     { number: '45', commit: '302a18c98',
-      cases: ['45.1'], checks: [2], tags: [[]] },
+      cases: ['45.1', '45.2'], checks: [2, 1], tags: [[], []] },
     { number: '44', commit: 'fb21860d8',
       cases: ['44.1', '44.2', '44.3', '44.4', '44.5', '44.6'],
       checks: [2, 2, 2, 2, 2, 1], tags: [['DMX'], [], ['DMX'], ['DMX'], [], []] },
     { number: '43', commit: '2b447118e',
       cases: ['43.1', '43.2', '43.3', '43.4', '43.5', '43.6'],
       checks: [2, 2, 2, 1, 2, 1], tags: [[], ['MIDI'], [], [], ['DMX'], []] },
-  ])('recognizes upstream $commit chaser and plugin review cases', ({ number, commit, cases, checks, tags }) => {
+  ])('recognizes the section $number ($commit) review cases', ({ number, commit, cases, checks, tags }) => {
     const section = parseManualReview(md).sections.find(s => s.number === number);
     expect(section?.title).toContain(commit);
     expect(section?.cases.map(c => c.number)).toEqual(cases);
@@ -236,6 +239,19 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section13b).toBeTruthy();
     expect(section13b!.title).toContain('VCAnimation');
     expect(section13b!.cases.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it.skipIf(skip)('the review canvas parses section 13b too', async () => {
+    const canvasParser = resolve(__dirname, '../../../.github/extensions/manual-review-canvas/parser.mjs');
+    const canvas = await import(pathToFileURL(canvasParser).href);
+    const section13b = canvas.parseManualReview(md).sections.find((s: { number: string }) => s.number === '13b');
+    expect(section13b?.cases.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it.skipIf(skip)('gives every VDJ playback case checks of its own', () => {
+    const section = parseManualReview(md).sections.find(s => s.number === '12');
+    const withoutChecks = section!.cases.filter(c => c.steps.every(s => s.checks.length === 0));
+    expect(withoutChecks.map(c => c.number)).toEqual([]);
   });
 
   it.skipIf(skip)('extracts all three tag types', () => {

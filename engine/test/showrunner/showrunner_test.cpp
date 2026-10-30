@@ -753,6 +753,93 @@ void ShowRunner_Test::trackIntensityCopyFollowsTheAttributes()
     stop();
 }
 
+void ShowRunner_Test::trackIntensityFollowsItsTrack_data()
+{
+    QTest::addColumn<QString>("edit");
+    QTest::addColumn<int>("target"); // the track a VC slider was set to
+
+    QTest::newRow("no edit") << QString() << 2;
+    QTest::newRow("moved up") << QString("up") << 2;
+    QTest::newRow("moved down") << QString("down") << 0;
+    // as the Tardis undoes a track deletion: a new Track with the old ID
+    QTest::newRow("removed and restored") << QString("restore") << 0;
+    QTest::newRow("an earlier track renamed and removed") << QString("rename") << 2;
+}
+
+void ShowRunner_Test::trackIntensityFollowsItsTrack()
+{
+    QFETCH(QString, edit);
+    QFETCH(int, target);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Show *show = new Show(&doc);
+    QVERIFY(doc.addFunction(show));
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(3);
+    QVERIFY(doc.addFixture(fixture));
+    QVector<Track *> tracks;
+    for (int i = 0; i < 3; i++)
+    {
+        Scene *scene = new Scene(&doc);
+        scene->setValue(fixture->id(), i, 200);
+        QVERIFY(doc.addFunction(scene));
+        Track *track = new Track(scene->id());
+        track->setName(QString("Track %1").arg(i + 1));
+        ShowFunction *clip = new ShowFunction(show->getLatestShowFunctionId());
+        clip->setFunctionID(scene->id());
+        clip->setStartTime(0);
+        clip->setDuration(60000);
+        track->addShowFunction(clip);
+        QVERIFY(show->addTrack(track));
+        tracks.append(track);
+    }
+    // the slider holds the attribute by the name the Show gave it
+    const QString attribute = show->attributes().at(target).m_name;
+    Track *targetTrack = tracks.at(target);
+
+    if (edit == "up" || edit == "down")
+    {
+        show->moveTrack(targetTrack, edit == "up" ? -1 : 1);
+    }
+    else if (edit == "restore")
+    {
+        const quint32 id = targetTrack->id();
+        const QString name = targetTrack->name();
+        const quint32 sceneID = targetTrack->getSceneID();
+        const quint32 functionID = targetTrack->showFunctions().first()->functionID();
+        QVERIFY(show->removeTrack(id));
+        targetTrack = new Track(sceneID);
+        targetTrack->setName(name);
+        ShowFunction *clip = new ShowFunction(show->getLatestShowFunctionId());
+        clip->setFunctionID(functionID);
+        clip->setStartTime(0);
+        clip->setDuration(60000);
+        targetTrack->addShowFunction(clip);
+        QVERIFY(show->addTrack(targetTrack, id));
+    }
+    else if (edit == "rename")
+    {
+        tracks.first()->setName("Renamed");
+        QVERIFY(show->removeTrack(tracks.first()->id()));
+    }
+
+    const int index = show->getAttributeIndex(attribute);
+    QVERIFY(index >= 0);
+    QCOMPARE(show->attributes().count(), show->tracks().count());
+    show->start(timer, FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+    QVERIFY(show->adjustAttribute(0.3, index) == index);
+    timer->timerTick();
+    for (Track *track : show->tracks())
+        QCOMPARE(show->m_runner->m_intensityMap.value(track->id(), 1.0), track == targetTrack ? 0.3 : 1.0);
+
+    show->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+}
+
 void ShowRunner_Test::internalBeatClockUsesSongBpm()
 {
     // With NO global beat source (MasterTimer defaults to None), a beat-based Show
