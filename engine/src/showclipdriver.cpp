@@ -37,7 +37,7 @@ const qreal kSameLevel = 1e-9;
 class ClipWriters
 {
 public:
-    void wrote(const Function *f, const ShowClipDriver *writer, qreal level)
+    void wrote(const Function *f, const FunctionParent &writer, qreal level)
     {
         QMutexLocker locker(&m_mutex);
         QVector<Write> &writes = m_writes[f];
@@ -45,24 +45,27 @@ public:
         writes.append({ writer, level });
     }
 
-    /** writer no longer plays f: when it wrote last and another one plays
-     *  f on, its own level and the one to write back */
-    std::optional<QPair<qreal, qreal>> left(const Function *f, const ShowClipDriver *writer)
+    /** writer no longer plays f: when it wrote last, its own level and the
+     *  one of the latest other writer still playing f */
+    std::optional<QPair<qreal, qreal>> left(const Function *f, const FunctionParent &writer)
     {
         QMutexLocker locker(&m_mutex);
         auto it = m_writes.find(f);
         if (it == m_writes.end())
             return std::nullopt;
         std::optional<QPair<qreal, qreal>> back;
-        if (it->count() > 1 && it->last().writer == writer)
-            back = qMakePair(it->last().level, it->at(it->count() - 2).level);
+        for (int i = it->count() - 2; it->last().writer == writer && i >= 0 && !back; i--)
+        {
+            if (f->hasSource(it->at(i).writer))
+                back = qMakePair(it->last().level, it->at(i).level);
+        }
         remove(*it, writer);
         if (it->isEmpty())
             m_writes.erase(it);
         return back;
     }
 
-    void forget(const ShowClipDriver *writer)
+    void forget(const FunctionParent &writer)
     {
         QMutexLocker locker(&m_mutex);
         for (auto it = m_writes.begin(); it != m_writes.end(); )
@@ -75,13 +78,13 @@ public:
 private:
     struct Write
     {
-        const ShowClipDriver *writer;
+        FunctionParent writer;
         qreal level;
     };
 
-    static void remove(QVector<Write> &writes, const ShowClipDriver *writer)
+    static void remove(QVector<Write> &writes, const FunctionParent &writer)
     {
-        writes.removeIf([writer](const Write &w) { return w.writer == writer; });
+        writes.removeIf([&writer](const Write &w) { return w.writer == writer; });
     }
 
     QMutex m_mutex;
@@ -103,7 +106,8 @@ ShowClipDriver::ShowClipDriver(const Doc *doc, quint32 showId)
 
 ShowClipDriver::~ShowClipDriver()
 {
-    clipWriters().forget(this);
+    if (m_show != nullptr)
+        clipWriters().forget(parent());
 }
 
 ShowClipDriver::Clip ShowClipDriver::clipOf(const ShowFunction *clip) const
@@ -333,7 +337,7 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
         return;
     drive.function->requestAttributeOverride(Function::Intensity, level);
     drive.level = level;
-    clipWriters().wrote(drive.function, this, level);
+    clipWriters().wrote(drive.function, parent(), level);
 }
 
 void ShowClipDriver::release(const Drive &drive)
@@ -342,7 +346,7 @@ void ShowClipDriver::release(const Drive &drive)
     {
         // another Show's clip plays it on: its level comes back, unless
         // somebody wrote over this one's since
-        const std::optional<QPair<qreal, qreal>> back = clipWriters().left(drive.function, this);
+        const std::optional<QPair<qreal, qreal>> back = clipWriters().left(drive.function, parent());
         const Function *f = drive.function;
         if (back && f->isRunning() && f->stopped() == false && f->hasSource(parent()) == false &&
             f->attributes().at(Function::Intensity).m_isOverridden &&

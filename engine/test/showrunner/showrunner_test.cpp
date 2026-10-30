@@ -5560,8 +5560,8 @@ void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt()
 
 void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt_data()
 {
-    QTest::addColumn<QList<qreal>>("masters");  // one Show each, writing in this order
-    QTest::addColumn<QStringList>("steps");      // "master <show> <level>" or "stop <show>"
+    QTest::addColumn<QList<qreal>>("masters");  // one Show each, started in this order unless a step starts it
+    QTest::addColumn<QStringList>("steps");      // "master|start|stop <show> [level]" or "restart"
     QTest::addColumn<qreal>("intensity");
 
     QTest::newRow("the Show playing on wrote the same level last")
@@ -5570,6 +5570,10 @@ void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt_data()
         << QList<qreal>{0.6, 0.0, 0.8} << QStringList{"stop 1", "stop 2"} << 0.6;
     QTest::newRow("the latest Show leaves first")
         << QList<qreal>{0.6, 0.0, 0.8} << QStringList{"stop 2", "stop 1"} << 0.6;
+    // somebody else stops and starts the Scene: the first Show plays it no more,
+    // and no Show's clip plays it on once the second one leaves
+    QTest::newRow("the Show before lost it to somebody else")
+        << QList<qreal>{0.0, 0.8} << QStringList{"restart", "start 1", "stop 1"} << 0.8;
 }
 
 void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt()
@@ -5583,6 +5587,13 @@ void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt()
     MasterTimer *timer = doc.masterTimer();
     Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
     QVector<Show *> shows;
+    const auto start = [&](Show *show) {
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(100);
+        timer->timerTick();
+        timer->timerTick();
+    };
     for (qreal master : masters)
     {
         Show *show = new Show(&doc);
@@ -5591,22 +5602,29 @@ void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt()
         show->addTrack(track);
         addClip(show, track, scene->id(), 0, 60000);
         show->setMasterIntensity(master);
-        show->setSyncSource(ShowRunner::External);
-        show->start(timer, FunctionParent::master());
-        show->setExternalElapsedTime(100);
-        timer->timerTick();
-        timer->timerTick();
+        if (steps.contains(QString("start %1").arg(shows.count())) == false)
+            start(show);
         shows.append(show);
     }
 
     for (const QString &step : steps)
     {
         const QStringList words = step.split(' ');
-        Show *show = shows.at(words.at(1).toInt());
-        if (words.at(0) == "master")
-            show->setMasterIntensity(words.at(2).toDouble());
+        if (words.at(0) == "start")
+        {
+            start(shows.at(words.at(1).toInt()));
+            continue;
+        }
+        if (words.at(0) == "restart")
+        {
+            scene->stop(FunctionParent::master());
+            timer->timerTick();
+            scene->start(timer, FunctionParent::master());
+        }
+        else if (words.at(0) == "master")
+            shows.at(words.at(1).toInt())->setMasterIntensity(words.at(2).toDouble());
         else
-            show->stop(FunctionParent::master());
+            shows.at(words.at(1).toInt())->stop(FunctionParent::master());
         timer->timerTick();
         timer->timerTick();
     }
@@ -5617,6 +5635,8 @@ void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt()
 
     for (Show *show : std::as_const(shows))
         stopAndSettle(doc, show);
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
 }
 
 void ShowRunner_Test::clipLevelFromTheFirstFrame_data()
