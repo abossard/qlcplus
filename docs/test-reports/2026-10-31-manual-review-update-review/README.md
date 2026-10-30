@@ -100,6 +100,23 @@ The fix changes how the slider handles Show attributes in an upstream class. It 
 14. The canvas parser accepts alphanumeric section numbers.
 15. Document fixes D1 to D13; D14 seeds the selection through the tree and compares with the seeded ID.
 
+## Fix results
+
+The next two commits fix bugs 1 to 18 and D1 to D15. Bug 19 stays open: section 13 lists it and 4.11 points to it.
+
+| Suite | Before | After |
+|---|---|---|
+| `upstreamintegration_test` | 668 passed, 15 failed, 8 skipped | 713 passed, the same 15 `timelineViewport` failures, 8 skipped (45 new rows) |
+| `showrunner_test` | 319 | 324 |
+| `vdjtelemetryclient_test` | 115 | 117 |
+| `show_test`, `upstream3d_test` | 49, 53 | 49, 53 |
+| `vdjbridge_test`, `djmanager_test`, `djsetrecorder_test`, `vceditor_test`, `fixturecontrols_test`, `mcp_show_tools_test` | 95, 41, 80, 164, 5257, 72 (2026-10-30 run) | the same, 0 failed |
+| `tools/manual-review` vitest | 59 passed, 5 failed | 64 passed |
+
+- Every red row above passes after the fix. Each failed for the bug it names, except the canvas test, which failed in the red commit because vitest cannot load a module outside its package. It now runs the canvas parser in its own `node` process and fails with "expected 0 to be greater than or equal to 4" against the unfixed parser.
+- The C2 test now ticks the row through the tree, as the dialog does, and compares the tick and the selection with that row.
+- Left as is: an imported Show's recorded VC commands keep the source Function IDs (not tested); the 12.7 and 47.1 overlap; the seek rule in four places; the checks that tests cover only in part.
+
 ## Reproduce
 
 ```sh

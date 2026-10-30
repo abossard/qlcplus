@@ -4716,57 +4716,6 @@ void UpstreamIntegration_Test::cleanupTestCase()
     m_app.reset();
 }
 
-void UpstreamIntegration_Test::C2_importFunctionVisibility_data()
-{
-    QTest::addColumn<int>("hiddenIndex");
-    QTest::addColumn<QString>("filter");
-    for (int hiddenIndex = -1; hiddenIndex <= 3; ++hiddenIndex)
-    {
-        for (const QString &filter : {QString(), QString("visible")})
-        {
-            const QByteArray name = QString("hidden-%1-%2")
-                .arg(hiddenIndex).arg(filter.isEmpty() ? "all" : "filtered").toLatin1();
-            QTest::newRow(name.constData()) << hiddenIndex << filter;
-        }
-    }
-}
-
-void UpstreamIntegration_Test::C2_importFunctionVisibility()
-{
-    QFETCH(int, hiddenIndex);
-    QFETCH(QString, filter);
-    QQuickView view;
-    Doc doc(nullptr);
-    ImportManager manager(&view, &doc);
-    manager.groupsTreeModel();
-    QList<quint32> expected;
-    for (int index = 0; index < 3; ++index)
-    {
-        auto *scene = new Scene(manager.m_importDoc);
-        scene->setName(index == 2 ? "Other" : QString("Visible %1").arg(index));
-        scene->setVisible(hiddenIndex != index && hiddenIndex != 3);
-        QVERIFY(manager.m_importDoc->addFunction(scene));
-        if (scene->isVisible() && scene->name().toLower().contains(filter))
-            expected.append(scene->id());
-    }
-    if (!expected.isEmpty())
-        manager.m_functionIDList.append(expected.last());
-    auto *tree = manager.functionsTreeModel().value<TreeModel *>();
-    QVERIFY(tree);
-    manager.setFunctionSearchFilter(filter);
-    QList<quint32> actual;
-    for (int row = 0; row < tree->rowCount(); ++row)
-    {
-        Function *function = tree->items().at(row)->data(0).value<Function *>();
-        QVERIFY(function);
-        QVERIFY(function->isVisible());
-        actual.append(function->id());
-        QCOMPARE(tree->data(tree->index(row, 0), TreeModel::IsCheckedRole).toBool(),
-                 manager.m_functionIDList.contains(function->id()));
-    }
-    QCOMPARE(actual, expected);
-}
-
 namespace
 {
 /** Ticks or unticks a tree row the way its checkbox does. The path names the
@@ -4864,6 +4813,59 @@ Function *functionNamed(Doc *doc, const QString &name)
             return function;
     return nullptr;
 }
+}
+
+void UpstreamIntegration_Test::C2_importFunctionVisibility_data()
+{
+    QTest::addColumn<int>("hiddenIndex");
+    QTest::addColumn<QString>("filter");
+    for (int hiddenIndex = -1; hiddenIndex <= 3; ++hiddenIndex)
+    {
+        for (const QString &filter : {QString(), QString("visible")})
+        {
+            const QByteArray name = QString("hidden-%1-%2")
+                .arg(hiddenIndex).arg(filter.isEmpty() ? "all" : "filtered").toLatin1();
+            QTest::newRow(name.constData()) << hiddenIndex << filter;
+        }
+    }
+}
+
+void UpstreamIntegration_Test::C2_importFunctionVisibility()
+{
+    QFETCH(int, hiddenIndex);
+    QFETCH(QString, filter);
+    QQuickView view;
+    Doc doc(nullptr);
+    ImportManager manager(&view, &doc);
+    QList<quint32> expected;
+    for (int index = 0; index < 3; ++index)
+    {
+        auto *scene = new Scene(manager.m_importDoc);
+        scene->setName(index == 2 ? "Other" : QString("Visible %1").arg(index));
+        scene->setVisible(hiddenIndex != index && hiddenIndex != 3);
+        QVERIFY(manager.m_importDoc->addFunction(scene));
+        if (scene->isVisible() && scene->name().toLower().contains(filter))
+            expected.append(scene->id());
+    }
+    auto *tree = manager.functionsTreeModel().value<TreeModel *>();
+    QVERIFY(tree);
+    // tick the last match the way its checkbox does: the search must keep the tick
+    const QList<quint32> ticked = expected.isEmpty() ? QList<quint32>() : QList<quint32>{expected.last()};
+    for (quint32 id : ticked)
+        QVERIFY(clickTreeRow(tree, manager.m_importDoc->function(id)->name(), true));
+    manager.setFunctionSearchFilter(filter);
+    QList<quint32> actual;
+    for (int row = 0; row < tree->rowCount(); ++row)
+    {
+        Function *function = tree->items().at(row)->data(0).value<Function *>();
+        QVERIFY(function);
+        QVERIFY(function->isVisible());
+        actual.append(function->id());
+        QCOMPARE(tree->data(tree->index(row, 0), TreeModel::IsCheckedRole).toBool(),
+                 ticked.contains(function->id()));
+    }
+    QCOMPARE(actual, expected);
+    QCOMPARE(manager.m_functionIDList, ticked);
 }
 
 void UpstreamIntegration_Test::importRefusedFile_data()

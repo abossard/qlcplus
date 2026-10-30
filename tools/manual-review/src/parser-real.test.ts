@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { pathToFileURL } from 'url';
+import { execFileSync } from 'child_process';
 import { parseManualReview, countCheckItems, allCheckItems, allTags, filterPlan } from './parser';
 
 describe('parseManualReview with real MANUAL_REVIEW.md', () => {
@@ -21,7 +22,7 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     // 47.3 to 47.5 need the set recorded with VirtualDJ in 47.2
     { number: '47', commit: '162a4fe22',
       cases: ['47.1', '47.2', '47.3', '47.4', '47.5', '47.6', '47.7'],
-      checks: [3, 3, 3, 3, 1, 2, 1],
+      checks: [3, 3, 3, 2, 1, 2, 1],
       tags: [['VDJ', 'DMX'], ['VDJ'], ['VDJ', 'DMX'], ['VDJ'], ['VDJ'], ['VDJ'], []] },
     { number: '46', commit: '4cd37df23',
       cases: ['46.1', '46.2', '46.3'], checks: [2, 2, 1], tags: [['DMX'], ['DMX'], []] },
@@ -241,11 +242,15 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
     expect(section13b!.cases.length).toBeGreaterThanOrEqual(4);
   });
 
-  it.skipIf(skip)('the review canvas parses section 13b too', async () => {
-    const canvasParser = resolve(__dirname, '../../../.github/extensions/manual-review-canvas/parser.mjs');
-    const canvas = await import(pathToFileURL(canvasParser).href);
-    const section13b = canvas.parseManualReview(md).sections.find((s: { number: string }) => s.number === '13b');
-    expect(section13b?.cases.length).toBeGreaterThanOrEqual(4);
+  it.skipIf(skip)('the review canvas parses section 13b too', () => {
+    // the canvas parser is plain ESM outside this package: node runs it on its own
+    const canvasParser = pathToFileURL(resolve(__dirname, '../../../.github/extensions/manual-review-canvas/parser.mjs'));
+    const script = `import { parseManualReview } from ${JSON.stringify(canvasParser.href)};
+      import { readFileSync } from 'fs';
+      const section = parseManualReview(readFileSync(${JSON.stringify(mdPath)}, 'utf-8')).sections.find(s => s.number === '13b');
+      console.log(section ? section.cases.length : 0);`;
+    const cases = Number(execFileSync(process.execPath, ['--input-type=module', '-e', script]).toString().trim());
+    expect(cases).toBeGreaterThanOrEqual(4);
   });
 
   it.skipIf(skip)('gives every VDJ playback case checks of its own', () => {
