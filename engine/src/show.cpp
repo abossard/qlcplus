@@ -1248,8 +1248,10 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
         }
     }
 
-    // its clip pauses it once it played the clip's position: a move goes first
-    const bool paused = isPaused() || (isClipPaused() && m_runner->reached(externalElapsedTime()));
+    // its clip pauses it once it played the clip's position: a move goes
+    // first; one Perform drives follows its deck
+    const bool paused = isPaused() || (isClipPaused() && isPerformDriven() == false &&
+                                       m_runner->reached(externalElapsedTime()));
     if (paused != m_runnerPaused)
     {
         m_runnerPaused = paused;

@@ -6231,6 +6231,8 @@ void ShowRunner_Test::deckPauseHoldsTheNestedShow_data()
     // Perform plays on, holding the deck's position between its samples
     QTest::newRow("a deck pause, Perform takes the song from the paused set")
         << pause << QList<quint32>{500, 3000} << QString("perform") << 1000u << true << false;
+    QTest::newRow("a deck pause, Perform takes the song, the set stays paused")
+        << pause << QList<quint32>{500, 3000} << QString("perform, set paused") << 1000u << true << false;
     QTest::newRow("a held jog plays on") << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(1000, 1000, 0.0)}
                                          << QList<quint32>{500, 3000} << QString() << 1000u << true << false;
     QTest::newRow("a resume")
@@ -6274,15 +6276,16 @@ void ShowRunner_Test::deckPauseHoldsTheNestedShow()
     }
 
     playExternal(doc, n.set, positions);
-    if (then == "perform")
+    if (then.startsWith("perform"))
     {
-        // the user paused the set, Perform adopts the song, the user stops the set
+        // the user paused the set, Perform adopts the song, the user stops the set or not
         n.set->setPause(true);
         timer->timerTick();
         n.song->setPerformDriven(true);
         n.song->start(timer, FunctionParent::master());
         n.song->setPause(false);
-        stopAndSettle(doc, n.set);
+        if (then == "perform")
+            stopAndSettle(doc, n.set);
         n.song->setExternalElapsedTime(songMs);
         timer->timerTick();
         timer->timerTick();
