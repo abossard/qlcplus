@@ -984,16 +984,26 @@ cmake --build . --target mcp_vc_query_filter_test -j8 && ./mcp/test/mcp_vc_query
 cmake --build . --target mcp_vc_validation_test -j8 && ./mcp/test/mcp_vc_validation_test
 ```
 
-| Suite | Tests | Covers |
-|-------|-------|--------|
-| `beatquantize_test` | 20 | 1/16 quantizer table, `musicalBeatValue`, `beatValueToMusical`, round-trips, overflow guards |
-| `mcp_conversions_test` | 43 | Beat string parsing/formatting, decimal precision, off-grid snapping, GCD reduction, round-trips |
-| `mcp_vc_query_filter_test` | — | VC widget query filtering and pagination |
-| `mcp_vc_validation_test` | — | Widget type/field validation |
-| `huematrix_test` | 42 | HUE Matrix: HSV `Float32Array` contract, dual packed-uint contract, algorithm-list separation, fork properties + XML round-trip, icon-site enumeration, bounded destructor drain, async precompute, per-tick audio recompute, load warnings |
-| `rgbmatrix_test` | 9 | Upstream's own suite, unmodified — proves the `RGBMatrix` restore |
-| `rgbscript_test` | 14 | Upstream's own suite, unmodified — packed-uint script contract |
-| `mcp_rgb_transform_test` | 15 | Rotation, mirror + blend, and beat transforms (spatial) |
+| Suite | Functions | Rows | Covers |
+|-------|-----------|------|--------|
+| `beatquantize_test` | 18 | 18 | 1/16 quantizer table, `musicalBeatValue`, `beatValueToMusical`, round-trips, overflow guards |
+| `mcp_conversions_test` | 21 | 139 | Beat string parsing/formatting, decimal precision, off-grid snapping, GCD reduction, round-trips |
+| `mcp_vc_query_filter_test` | 7 | 63 | VC widget query filtering and pagination |
+| `mcp_vc_validation_test` | 55 | 74 | Widget type/field validation |
+| `huematrix_test` | 47 | 255 | HUE Matrix: HSV `Float32Array` contract, dual packed-uint contract, algorithm-list separation, fork properties + XML round-trip, icon-site enumeration, bounded destructor drain, async precompute, per-tick audio recompute, load warnings |
+| `rgbmatrix_test` | 13 | 26 | Upstream's suite plus fork additions (upstream rows unchanged), proves the `RGBMatrix` restore |
+| `rgbscript_test` | 15 | 37 | Upstream's suite plus fork additions (upstream rows unchanged), packed-uint script contract |
+| `mcp_rgb_transform_test` | 13 | 13 | Rotation, mirror + blend, and beat transforms (spatial) |
+
+Counts from the 2026-10-30 full run. Rows count each data row of a parameterized test, without `initTestCase` and `cleanupTestCase`.
+
+### All suites
+
+```bash
+cd build && cmake --build . --target check
+```
+
+Without a display, set `QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software`. Run a QML UI suite from its own folder (`build/qmlui/test/<name>`): some find the fixture library by a relative path.
 
 ### E2E tests (Web DMX Control Panel)
 
@@ -1001,7 +1011,15 @@ cmake --build . --target mcp_vc_validation_test -j8 && ./mcp/test/mcp_vc_validat
 cd webaccess/web-dmx && npx playwright test
 ```
 
-35+ Playwright tests covering fixture panels, cross-tab sync, presets, and REST API.
+Playwright tests (150 in the last recorded run) covering fixture panels, cross-tab sync, presets, and REST API.
+
+### Test reports
+
+- **2026-10-30, every suite on `mcp-server` `d148b372c`**: [report](docs/test-reports/2026-10-30-mcp-server/README.md). 133 suites and a live VirtualDJ run. No failure came from that day's merges; 6 of the 10 older failure groups are fixed by `866961aca`.
+  - Screenshots: [page planner](docs/test-reports/2026-10-30-mcp-server/screenshots-page-planner.md), [VC editor](docs/test-reports/2026-10-30-mcp-server/screenshots-vc-editor.md), [VC outline](docs/test-reports/2026-10-30-mcp-server/screenshots-vc-outline.md), [show recorder](docs/test-reports/2026-10-30-mcp-server/screenshots-show-recorder.md)
+  - [Live VirtualDJ run](docs/test-reports/2026-10-30-mcp-server/live-virtualdj-run.md): all 10 checks passed
+- **2026-05-20, Web DMX Playwright run**: [Markdown](webaccess/web-dmx/e2e/screenshots/TEST_REPORT.md), [HTML](webaccess/web-dmx/e2e/screenshots/TEST_REPORT.html). 123 of 150 failed, 27 skipped.
+- **2026-04-25, Web DMX feature screenshots**: [page](webaccess/web-dmx/e2e/screenshots/FEATURES.md).
 
 ### Manual review
 

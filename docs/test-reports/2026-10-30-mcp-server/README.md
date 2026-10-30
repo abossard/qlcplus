@@ -11,7 +11,7 @@ Every test suite of the main build tree, run on the fork's `mcp-server` branch a
 - 2 test programs do not build (`upstream3d_test`, `vcxypad_test`), both before today too.
 - Live VirtualDJ run: all 10 checks passed. One new low-severity defect (F1) and three low observations (O1 to O3). [Details](live-virtualdj-run.md).
 - Screenshots: 457 images from four UI test suites and the DJ set run, reviewed during the run (see "Screenshots").
-- Fixes on `fix/pre-existing-test-failures`: 6 of 10 failure groups fixed. Not in this fix: Show Manager timeline preview wider than the view; VC outline release probes; Show command recorder; Fixture check step needs Python lxml (known before this run).
+- Fixes on `fix/pre-existing-test-failures`, merged into `mcp-server` as `866961aca`: 6 of 10 failure groups fixed. Not in this fix: Show Manager timeline preview wider than the view; VC outline release probes; Show command recorder; Fixture check step needs Python lxml (known before this run).
 
 ## Results by area
 
@@ -292,7 +292,7 @@ All groups are older than the 2026-10-30 merges.
 
 ## Fixed on branch fix/pre-existing-test-failures
 
-Suites rerun on `fix/pre-existing-test-failures` after the fixes, against the failures of this run on `d148b372c`. Row counts leave out initTestCase and cleanupTestCase.
+Suites rerun on `fix/pre-existing-test-failures` (merged into `mcp-server` as `866961aca`) after the fixes, against the failures of this run on `d148b372c`. Row counts leave out initTestCase and cleanupTestCase.
 
 | Suite | Failed on d148b372c | Passed after the fixes | Failed after the fixes | Skipped after the fixes |
 |---|---:|---:|---:|---:|
