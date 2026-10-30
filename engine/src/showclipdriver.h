@@ -44,19 +44,27 @@ class Doc;
  * thread. A clip's Function starts at the clip's in-point, at the level of
  * its track intensity x the envelope x the Show's master intensity. A nested
  * Show follows its clip every tick instead: External clock from the position
- * map, master intensity from that level, dominant when the clip and this
- * Show are, with its Audio suppressed when this Show suppresses nested audio
- * or its own.
+ * map, paused by its clip in a deck pause, master intensity from that level,
+ * dominant when the clip and this Show are, with its Audio suppressed when
+ * this Show suppresses nested audio or its own. One that ends itself inside
+ * its clip plays again from where the map moves below its end, as live
+ * Perform plays it again.
  * It gets its own settings back once its clip ends, or at once when somebody
  * else stopped it. One live Perform drives is Perform's: a clip neither
  * starts it, nor drives it, nor gives it anything back.
  * A Function plays once: of its clips active at a time, the one that starts
  * last drives it. Commands multiply their intensity into the clip's level.
+ * A Function several Shows' clips play takes the level of the one that wrote
+ * last: once that one lets it go, the one that wrote before it among those
+ * still playing it writes its level again, unless somebody wrote over the
+ * clip's level since.
  */
 class ShowClipDriver final
 {
 public:
     ShowClipDriver(const Doc *doc, quint32 showId);
+    ~ShowClipDriver();
+    Q_DISABLE_COPY(ShowClipDriver)
 
     /** Start f, not running for this Show yet, for clip at its clip time at,
      *  in the clock units of f */
@@ -67,8 +75,9 @@ public:
     void join(const ShowFunction *clip, Function *f);
 
     /** Each tick: what is still running takes the clock, level and dominance
-     *  of its driving clip at the Show's clocks; a nested Show that is not
-     *  running gets its settings back */
+     *  of its driving clip at the Show's clocks; a nested Show somebody else
+     *  stopped gets its settings back, one that ended itself keeps them to
+     *  its clip's end */
     void drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap<quint32, qreal> &trackIntensities,
                const QList<QPair<Function *, quint32>> &running);
 

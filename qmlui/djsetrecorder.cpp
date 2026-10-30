@@ -40,15 +40,22 @@ namespace
 const quint32 kOpenInterval = std::numeric_limits<quint32>::max();
 
 /** A segment replaces the ones that do not start before it */
-void appendSegment(QVector<ShowClipSegment> &segments, quint32 clipMs, quint32 songMs, qreal rate)
+void appendSegment(QVector<ShowClipSegment> &segments, const ShowClipSegment &segment)
 {
-    while (segments.isEmpty() == false && segments.last().clipMs >= clipMs)
+    while (segments.isEmpty() == false && segments.last().clipMs >= segment.clipMs)
         segments.removeLast();
+    segments.append(segment);
+}
+
+/** The deck paused: its song stands at songMs */
+ShowClipSegment deckPause(quint32 clipMs, quint32 songMs)
+{
     ShowClipSegment segment;
     segment.clipMs = clipMs;
     segment.songMs = songMs;
-    segment.rate = rate;
-    segments.append(segment);
+    segment.rate = 0.0;
+    segment.paused = true;
+    return segment;
 }
 
 /** A sample in the millisecond of the one before replaces it: the later write is the newer view */
@@ -251,13 +258,13 @@ void DjSetRecorder::sample(DeckClip &clip, const DjFsm::Deck &deck, bool active,
         // a pause: the run ends at the deck's position, held from here on
         appendSample(clip.run, ShowClipPositionSample{ clipMs, position });
         closeRun(clip);
-        appendSegment(clip.segments, clipMs, position, 0.0);
+        appendSegment(clip.segments, deckPause(clipMs, position));
         clip.playing = false;
     }
     else if (position != clip.segments.last().songMs)
     {
         // a cue or a seek while paused
-        appendSegment(clip.segments, clipMs, position, 0.0);
+        appendSegment(clip.segments, deckPause(clipMs, position));
     }
 
     // the weight steps at a write: the old one holds up to it
@@ -280,7 +287,7 @@ void DjSetRecorder::sample(DeckClip &clip, const DjFsm::Deck &deck, bool active,
 void DjSetRecorder::closeRun(DeckClip &clip) const
 {
     for (const ShowClipSegment &segment : ShowClipAutomation::segmentsFromSamples(clip.run, kPositionToleranceMs))
-        appendSegment(clip.segments, segment.clipMs, segment.songMs, segment.rate);
+        appendSegment(clip.segments, segment);
     clip.run.clear();
 }
 
@@ -288,7 +295,7 @@ ShowClipAutomation DjSetRecorder::automation(const DeckClip &clip) const
 {
     QVector<ShowClipSegment> segments = clip.segments;
     for (const ShowClipSegment &segment : ShowClipAutomation::segmentsFromSamples(clip.run, kPositionToleranceMs))
-        appendSegment(segments, segment.clipMs, segment.songMs, segment.rate);
+        appendSegment(segments, segment);
 
     ShowClipAutomation automation;
     automation.setSegments(segments);

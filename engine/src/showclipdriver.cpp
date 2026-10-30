@@ -17,6 +17,7 @@
   limitations under the License.
 */
 
+#include <QMutex>
 #include <QSet>
 
 #include "showclipdriver.h"
@@ -27,10 +28,86 @@
 #include "show.h"
 #include "doc.h"
 
+namespace
+{
+const qreal kSameLevel = 1e-9;
+
+/** The levels the clips of each Show wrote on a Function's Intensity
+ *  override, the latest last */
+class ClipWriters
+{
+public:
+    void wrote(const Function *f, const FunctionParent &writer, qreal level)
+    {
+        QMutexLocker locker(&m_mutex);
+        QVector<Write> &writes = m_writes[f];
+        remove(writes, writer);
+        writes.append({ writer, level });
+    }
+
+    /** writer no longer plays f: when it wrote last, its own level and the
+     *  one of the latest other writer still playing f */
+    std::optional<QPair<qreal, qreal>> left(const Function *f, const FunctionParent &writer)
+    {
+        QMutexLocker locker(&m_mutex);
+        auto it = m_writes.find(f);
+        if (it == m_writes.end())
+            return std::nullopt;
+        std::optional<QPair<qreal, qreal>> back;
+        for (int i = it->count() - 2; it->last().writer == writer && i >= 0 && !back; i--)
+        {
+            if (f->hasSource(it->at(i).writer))
+                back = qMakePair(it->last().level, it->at(i).level);
+        }
+        remove(*it, writer);
+        if (it->isEmpty())
+            m_writes.erase(it);
+        return back;
+    }
+
+    void forget(const FunctionParent &writer)
+    {
+        QMutexLocker locker(&m_mutex);
+        for (auto it = m_writes.begin(); it != m_writes.end(); )
+        {
+            remove(*it, writer);
+            it = it->isEmpty() ? m_writes.erase(it) : std::next(it);
+        }
+    }
+
+private:
+    struct Write
+    {
+        FunctionParent writer;
+        qreal level;
+    };
+
+    static void remove(QVector<Write> &writes, const FunctionParent &writer)
+    {
+        writes.removeIf([&writer](const Write &w) { return w.writer == writer; });
+    }
+
+    QMutex m_mutex;
+    QHash<const Function *, QVector<Write>> m_writes;
+};
+
+ClipWriters &clipWriters()
+{
+    static ClipWriters writers;
+    return writers;
+}
+}
+
 ShowClipDriver::ShowClipDriver(const Doc *doc, quint32 showId)
     : m_doc(doc)
     , m_show(qobject_cast<Show *>(doc->function(showId)))
 {
+}
+
+ShowClipDriver::~ShowClipDriver()
+{
+    if (m_show != nullptr)
+        clipWriters().forget(parent());
 }
 
 ShowClipDriver::Clip ShowClipDriver::clipOf(const ShowFunction *clip) const
@@ -150,15 +227,19 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
     for (auto it = m_drives.begin(); it != m_drives.end(); )
     {
         Drive &drive = it.value();
-        // with what they set on it
+        // with what they set on it, paused by no clip
         if (drive.nested != nullptr && performed(drive.nested))
         {
+            drive.nested->setClipPaused(false);
             it = m_drives.erase(it);
             continue;
         }
+        // one that ended itself inside its clip waits for the map to move below its end
+        const std::optional<quint32> ended = drive.nested != nullptr && drive.nested->hasSource(parent()) == false
+                                             ? drive.nested->finishedAt() : std::nullopt;
         // a nested Show somebody else stopped is theirs from now on
         if (queued.contains(drive.function) == false ||
-            (drive.nested != nullptr && drive.nested->hasSource(parent()) == false))
+            (drive.nested != nullptr && drive.nested->hasSource(parent()) == false && ended == std::nullopt))
         {
             release(drive);
             it = m_drives.erase(it);
@@ -182,7 +263,14 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
         drive.at = clock > driving.clip->startTime() ? clock - driving.clip->startTime() : 0;
 
         if (drive.nested != nullptr)
-            drive.nested->setExternalElapsedTime(driving.automation.songPositionAt(drive.at));
+        {
+            const quint32 position = driving.automation.songPositionAt(drive.at);
+            // a move below its end plays it again from there, as live Perform does
+            if (ended && position < *ended)
+                drive.nested->start(m_doc->masterTimer(), parent(), position);
+            drive.nested->setExternalElapsedTime(position);
+            drive.nested->setClipPaused(driving.automation.pausedAt(drive.at));
+        }
         applyLevel(drive, trackIntensities);
         ++it;
     }
@@ -249,12 +337,27 @@ void ShowClipDriver::applyLevel(Drive &drive, const QMap<quint32, qreal> &trackI
         return;
     drive.function->requestAttributeOverride(Function::Intensity, level);
     drive.level = level;
+    clipWriters().wrote(drive.function, parent(), level);
 }
 
 void ShowClipDriver::release(const Drive &drive)
 {
+    if (drive.nested == nullptr)
+    {
+        // another Show's clip plays it on: its level comes back, unless
+        // somebody wrote over this one's since
+        const std::optional<QPair<qreal, qreal>> back = clipWriters().left(drive.function, parent());
+        const Function *f = drive.function;
+        if (back && f->isRunning() && f->stopped() == false && f->hasSource(parent()) == false &&
+            f->attributes().at(Function::Intensity).m_isOverridden &&
+            qAbs(intensityOverride(f) - back->first) <= kSameLevel)
+            drive.function->requestAttributeOverride(Function::Intensity, back->second);
+        return;
+    }
+    // the pause is the clip's, whoever plays it on
+    drive.nested->setClipPaused(false);
     // Perform took it meanwhile, with its own settings
-    if (drive.nested == nullptr || performed(drive.nested))
+    if (performed(drive.nested))
         return;
 
     drive.nested->setSyncSource(drive.saved.syncSource);

@@ -575,39 +575,41 @@ void DjSetRecorder_Test::clipAutomationFollowsTheDeck_data()
     QTest::addColumn<QString>("positions"); // clip ms = song ms, within the position tolerance
     QTest::addColumn<QString>("levels");    // clip ms = level, within the level tolerance
     QTest::addColumn<QString>("dominance"); // clip ms = 1 or 0
+    QTest::addColumn<QString>("paused");    // clip ms = 1 or 0
 
-    QTest::newRow("in-point") << "d1.at=30000;d1.play;+2000" << 1 << 1 << "0=30000 1500=31500" << "" << "";
+    QTest::newRow("in-point") << "d1.at=30000;d1.play;+2000" << 1 << 1 << "0=30000 1500=31500" << "" << "" << "";
     QTest::newRow("loop wraps") << "d1.at=34000;d1.play;+1905;d1.at=34000;+1905;d1.at=34000;+1000" << 1 << 3
-                                << "1000=35000 2500=34595 4300=34490" << "" << "";
+                                << "1000=35000 2500=34595 4300=34490" << "" << "" << "";
     QTest::newRow("a seek") << "d1.at=30000;d1.play;+2000;d1.at=60000;+1000" << 1 << 2 << "1000=31000 2500=60500"
-                            << "" << "";
+                            << "" << "" << "";
     QTest::newRow("a pitched deck") << "d1.rate=1.06;d1.at=30000;d1.play;+4000" << 1 << 1
-                                    << "1000=31060 3000=33180" << "" << "";
+                                    << "1000=31060 3000=33180" << "" << "" << "";
     QTest::newRow("a pause holds the position") << "d1.at=30000;d1.play;+2000;d1.pause;+3000;d1.play;+1000" << 1
-                                                << 3 << "1000=31000 3500=32000 5500=32500" << "" << "";
+                                                << 3 << "1000=31000 3500=32000 5500=32500" << "" << ""
+                                                << "1000=0 3500=1 5500=0";
     QTest::newRow("a cue while paused")
         << "d1.at=30000;d1.play;+1000;d1.pause;+500;d1.at=20000;+500;d1.play;+500" << 1 << 4
-        << "500=30500 1200=31000 1700=20000 2300=20300" << "" << "";
+        << "500=30500 1200=31000 1700=20000 2300=20300" << "" << "" << "500=0 1200=1 1700=1 2300=0";
     QTest::newRow("a held jog holds the position")
         << "d2.load=B;d2.play;d1.at=30000;d1.play;+1000;d1.rate=0;+2000;d1.rate=1;+1000" << 1 << -1
-        << "500=30500 1500=31000 2500=31000 3500=31500" << "" << "";
+        << "500=30500 1500=31000 2500=31000 3500=31500" << "" << "" << "500=0 2500=0 3500=0";
     QTest::newRow("the update timer between the reads of a write")
         << "d1.at=30000;d1.play;+1000;d1.half=B@5000;~10;wait;~10;d1.rest=B;+500" << 1 << 1 << "1015=31015" << ""
-        << "";
+        << "" << "";
     QTest::newRow("a seek in the millisecond of the write before")
-        << "d1.at=30000;d1.play;+1000;d1.send=60000;+20" << 1 << 2 << "500=30500 1010=60010" << "" << "";
+        << "d1.at=30000;d1.play;+1000;d1.send=60000;+20" << 1 << 2 << "500=30500 1010=60010" << "" << "" << "";
     QTest::newRow("two fader moves in one millisecond") << "d1.play;+1000;d1.vol=0.5;d1.vol=0.3;+1000" << 1 << -1
-                                                        << "" << "500=1 1500=0.3" << "";
+                                                        << "" << "500=1 1500=0.3" << "" << "";
     QTest::newRow("the fader steps") << "d1.play;+1000;d1.vol=0.5;+1000" << 1 << -1 << "" << "500=1 990=1 1500=0.5"
-                                     << "";
+                                     << "" << "";
     QTest::newRow("the crossfader sweeps")
         << "d1.side=left;d2.side=right;x=0;d1.play;+500;x=0.75;+500;x=1;+500" << 1 << -1 << ""
-        << "250=1 490=1 750=0.5 1250=0" << "";
+        << "250=1 490=1 750=0.5 1250=0" << "" << "";
     QTest::newRow("the active deck hands over, deck 1") << "d2.load=B;d1.play;d2.play;+1000;d2.master;+1000" << 1
-                                                        << -1 << "" << "" << "500=1 1500=0";
+                                                        << -1 << "" << "" << "500=1 1500=0" << "";
     QTest::newRow("the active deck hands over, deck 2") << "d2.load=B;d1.play;d2.play;+1000;d2.master;+1000" << 2
-                                                        << -1 << "" << "" << "500=0 1500=1";
-    QTest::newRow("another deck is active") << "d2.master;d1.play;+1000" << 1 << -1 << "" << "" << "0=0 500=0";
+                                                        << -1 << "" << "" << "500=0 1500=1" << "";
+    QTest::newRow("another deck is active") << "d2.master;d1.play;+1000" << 1 << -1 << "" << "" << "0=0 500=0" << "";
 }
 
 void DjSetRecorder_Test::clipAutomationFollowsTheDeck()
@@ -618,6 +620,7 @@ void DjSetRecorder_Test::clipAutomationFollowsTheDeck()
     QFETCH(QString, positions);
     QFETCH(QString, levels);
     QFETCH(QString, dominance);
+    QFETCH(QString, paused);
 
     Rig rig;
     rig.run("d1.master;d1.load=A;perform=on;" + script + ";perform=off");
@@ -641,6 +644,9 @@ void DjSetRecorder_Test::clipAutomationFollowsTheDeck()
     }
     for (const auto &[clipMs, dominant] : points(dominance))
         QCOMPARE(automation.dominantAt(clipMs), dominant != 0.0);
+    // a deck pause, never a held jog
+    for (const auto &[clipMs, pause] : points(paused))
+        QVERIFY2(automation.pausedAt(clipMs) == (pause != 0.0), qPrintable(QString("at %1").arg(clipMs)));
 }
 
 void DjSetRecorder_Test::clipsReachTheSetAtABoundedRate_data()

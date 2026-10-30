@@ -84,6 +84,8 @@ private slots:
     void nativeAudioSuppression_data();
     void nativeAudioSuppression();
     void pausedPerformAdoptionKeepsAudioPaused();
+    void pausedShowStopResumesNothing_data();
+    void pausedShowStopResumesNothing();
     void nativeAudioNormalStopPreservesFade();
 
     // Command track playback (C14-7..C14-13, C14-16)
@@ -195,6 +197,10 @@ private slots:
     void clipLevelLeavesAnotherOwnersFunction();
     void clipLevelLeavesAVcAdjustment_data();
     void clipLevelLeavesAVcAdjustment();
+    void sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt_data();
+    void sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt();
+    void sharedClipLevelFollowsTheLatestShowStillPlayingIt_data();
+    void sharedClipLevelFollowsTheLatestShowStillPlayingIt();
     void clipLevelFromTheFirstFrame_data();
     void clipLevelFromTheFirstFrame();
     void commandIntensityMultipliesTheClipLevel_data();
@@ -213,6 +219,14 @@ private slots:
     void nestedShowTakenOverKeepsEveryClip();
     void commandIntensityAcrossClipBoundaries_data();
     void commandIntensityAcrossClipBoundaries();
+    void deckPauseHoldsTheNestedShow_data();
+    void deckPauseHoldsTheNestedShow();
+    void stoppedPausedShowLeavesASharedFunctionPaused_data();
+    void stoppedPausedShowLeavesASharedFunctionPaused();
+    void pausedFunctionStoppedAndStartedRuns_data();
+    void pausedFunctionStoppedAndStartedRuns();
+    void nestedShowEndedInItsClipPlaysAgain_data();
+    void nestedShowEndedInItsClipPlaysAgain();
 
 private:
     Scene *createScene();

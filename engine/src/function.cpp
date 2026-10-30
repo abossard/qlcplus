@@ -1361,8 +1361,9 @@ void Function::start(MasterTimer* timer, FunctionParent source, quint32 startTim
     }
 
     /** If we're in a paused state, then just return to the running state
-     *  to let subclasses resuming what they were doing. */
-    if (m_paused == true)
+     *  to let subclasses resuming what they were doing. A stop still to be
+     *  run is not resumed: the start restarts it. */
+    if (m_paused == true && m_stop == false)
     {
         m_paused = false;
         return;

@@ -36,6 +36,8 @@ private slots:
     void level();
     void dominant_data();
     void dominant();
+    void paused_data();
+    void paused();
     void refusedValuesKeepThePreviousOnes_data();
     void refusedValuesKeepThePreviousOnes();
 

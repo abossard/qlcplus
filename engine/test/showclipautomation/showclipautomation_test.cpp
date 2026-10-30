@@ -44,7 +44,8 @@ Q_DECLARE_METATYPE(Intervals)
 
 char *toString(const ShowClipSegment &s)
 {
-    return qstrdup(qPrintable(QString("{%1, %2, %3}").arg(s.clipMs).arg(s.songMs).arg(s.rate, 0, 'g', 17)));
+    return qstrdup(qPrintable(QString("{%1, %2, %3%4}").arg(s.clipMs).arg(s.songMs).arg(s.rate, 0, 'g', 17)
+                                  .arg(s.paused ? ", paused" : "")));
 }
 
 char *toString(const ShowClipLevel &l)
@@ -66,6 +67,14 @@ ShowClipSegment segment(quint32 clipMs, quint32 songMs, qreal rate)
     s.clipMs = clipMs;
     s.songMs = songMs;
     s.rate = rate;
+    return s;
+}
+
+/** The deck paused: its song stands at songMs */
+ShowClipSegment pause(quint32 clipMs, quint32 songMs)
+{
+    ShowClipSegment s = segment(clipMs, songMs, 0.0);
+    s.paused = true;
     return s;
 }
 
@@ -255,6 +264,29 @@ void ShowClipAutomation_Test::dominant()
     QCOMPARE(a.dominantAt(clipMs), dominant);
 }
 
+void ShowClipAutomation_Test::paused_data()
+{
+    QTest::addColumn<Segments>("segments");
+    QTest::addColumn<quint32>("clipMs");
+    QTest::addColumn<bool>("paused");
+
+    const Segments cued{segment(0, 500, 1.0), pause(1000, 1500), pause(2000, 300), segment(3000, 300, 1.0)};
+    QTest::newRow("a deck pause") << cued << 1500u << true;
+    QTest::newRow("a cue while paused") << cued << 2000u << true;
+    QTest::newRow("before the first segment it extends back") << Segments{pause(1000, 5000)} << 400u << true;
+}
+
+void ShowClipAutomation_Test::paused()
+{
+    QFETCH(Segments, segments);
+    QFETCH(quint32, clipMs);
+    QFETCH(bool, paused);
+
+    ShowClipAutomation a;
+    QVERIFY(a.setSegments(segments));
+    QCOMPARE(a.pausedAt(clipMs), paused);
+}
+
 void ShowClipAutomation_Test::refusedValuesKeepThePreviousOnes_data()
 {
     QTest::addColumn<Segments>("segments");
@@ -273,6 +305,9 @@ void ShowClipAutomation_Test::refusedValuesKeepThePreviousOnes_data()
     QTest::newRow("negative rate") << Segments{segment(0, 0, -1.0)} << Levels() << Steps() << false;
     QTest::newRow("NaN rate") << Segments{segment(0, 0, nan)} << Levels() << Steps() << false;
     QTest::newRow("infinite rate") << Segments{segment(0, 0, inf)} << Levels() << Steps() << false;
+    ShowClipSegment moving = pause(0, 0);
+    moving.rate = 1.0;
+    QTest::newRow("a pause that moves") << Segments{moving} << Levels() << Steps() << false;
     QTest::newRow("level above 1") << Segments() << Levels{keyframe(0, 1.5)} << Steps() << false;
     QTest::newRow("level below 0") << Segments() << Levels{keyframe(0, -0.1)} << Steps() << false;
     QTest::newRow("NaN level") << Segments() << Levels{keyframe(0, nan)} << Steps() << false;
@@ -344,6 +379,11 @@ void ShowClipAutomation_Test::startMoved_data()
         << automation({segment(0, 0, 0.0), segment(2000, 0, 1.0)}, {}, {});
     QTest::newRow("extended pause stays paused")
         << automation({segment(0, 5000, 0.0)}, {}, {}) << qint64(-2000) << automation({segment(0, 5000, 0.0)}, {}, {});
+    QTest::newRow("trimmed inside a deck pause")
+        << automation({segment(0, 0, 1.0), pause(2000, 2000), segment(5000, 2000, 1.0)}, {}, {}) << qint64(3000)
+        << automation({pause(0, 2000), segment(2000, 2000, 1.0)}, {}, {});
+    QTest::newRow("extended deck pause stays a deck pause")
+        << automation({pause(0, 5000)}, {}, {}) << qint64(-2000) << automation({pause(0, 5000)}, {}, {});
 
     const Levels fadeIn{keyframe(0, 0.0), keyframe(2000, 1.0)};
     QTest::newRow("envelope trimmed mid fade")
@@ -657,6 +697,8 @@ void ShowClipAutomation_Test::xmlRoundTrip_data()
                                                segment(4000, 3000, 0.0)},
                                               {keyframe(0, 0.0), keyframe(1500, 0.3333333333333333), keyframe(4000, 1.0)},
                                               {step(0, false), step(2500, true)});
+    QTest::newRow("a deck pause and a cue while paused")
+        << automation({segment(0, 1000, 1.0), pause(2000, 2000), pause(2500, 300), segment(4000, 300, 1.0)}, {}, {});
 }
 
 void ShowClipAutomation_Test::xmlRoundTrip()
@@ -685,6 +727,8 @@ void ShowClipAutomation_Test::xmlUnreadable_data()
     QTest::newRow("level above 1") << "<Level Clip=\"0\" Value=\"2\"/>";
     QTest::newRow("times not rising") << "<Level Clip=\"10\" Value=\"0\"/><Level Clip=\"10\" Value=\"1\"/>";
     QTest::newRow("dominance not a flag") << "<Dominance Clip=\"0\" Dominant=\"2\"/>";
+    QTest::newRow("pause not a flag") << "<Segment Clip=\"0\" Song=\"0\" Rate=\"0\" Paused=\"2\"/>";
+    QTest::newRow("a pause that moves") << "<Segment Clip=\"0\" Song=\"0\" Rate=\"1\" Paused=\"1\"/>";
 }
 
 void ShowClipAutomation_Test::xmlUnreadable()
