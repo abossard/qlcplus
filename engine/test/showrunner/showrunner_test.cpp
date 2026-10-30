@@ -1159,6 +1159,7 @@ void ShowRunner_Test::pausedShowStopResumesNothing()
     auto *show = new Show(&doc);
     doc.addFunction(show);
     Function *function = nullptr;
+    Function *child = nullptr;
     AudioRendererNull *renderer = nullptr;
     if (type == "audio")
     {
@@ -1177,12 +1178,26 @@ void ShowRunner_Test::pausedShowStopResumesNothing()
     {
         auto *collection = new Collection(&doc);
         doc.addFunction(collection);
+        child = new Scene(&doc);
+        doc.addFunction(child);
+        collection->addFunction(child->id());
         function = collection;
     }
     ShowRunner runner(&doc, show->id());
-    function->m_sources.append(FunctionParent(FunctionParent::Function, show->id()));
-    function->m_running = true;
-    function->m_stop = false;
+    const FunctionParent showParent(FunctionParent::Function, show->id());
+    if (child != nullptr)
+    {
+        // a Collection starts its children when it runs
+        function->start(doc.masterTimer(), showParent);
+        doc.masterTimer()->timerTick();
+        QVERIFY(child->isRunning());
+    }
+    else
+    {
+        function->m_sources.append(showParent);
+        function->m_running = true;
+        function->m_stop = false;
+    }
     function->setPause(true);
     runner.m_runningQueue.append(qMakePair(function, quint32(10000)));
 
@@ -1190,6 +1205,13 @@ void ShowRunner_Test::pausedShowStopResumesNothing()
 
     QVERIFY(function->stopped());
     QVERIFY(function->isPaused());
+    if (child != nullptr)
+    {
+        QVERIFY(child->isPaused());
+        doc.masterTimer()->timerTick();
+        doc.masterTimer()->timerTick();
+        return;
+    }
     function->postRun(doc.masterTimer(), {});
     if (renderer != nullptr)
         QCOMPARE(static_cast<Audio *>(function)->m_audio_out, renderer);
@@ -6369,6 +6391,55 @@ void ShowRunner_Test::stoppedPausedShowLeavesASharedFunctionPaused()
         stopAndSettle(doc, set);
     for (Show *show : std::as_const(shows))
         stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::pausedFunctionStoppedAndStartedRuns_data()
+{
+    QTest::addColumn<bool>("chaser");
+
+    QTest::newRow("a Scene") << false;
+    QTest::newRow("a Chaser") << true;
+}
+
+void ShowRunner_Test::pausedFunctionStoppedAndStartedRuns()
+{
+    QFETCH(bool, chaser);
+
+    // a paused Function one owner stops and another starts in one tick plays on for the new one
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Function *function = scene;
+    if (chaser)
+    {
+        auto *c = new Chaser(&doc);
+        doc.addFunction(c);
+        c->addStep(ChaserStep(scene->id()));
+        c->setDuration(Function::infiniteSpeed());
+        function = c;
+    }
+    const FunctionParent first(FunctionParent::Function, 1001);
+    const FunctionParent second(FunctionParent::Function, 1002);
+    function->start(timer, first);
+    timer->timerTick();
+    function->setPause(true);
+    timer->timerTick();
+    QVERIFY(function->isPaused());
+
+    function->stop(first);
+    function->start(timer, second);
+    timer->timerTick();
+    timer->timerTick();
+
+    QVERIFY(function->isRunning());
+    QVERIFY(function->stopped() == false);
+    QVERIFY(function->hasSource(second));
+    QVERIFY(function->isPaused() == false);
+    QVERIFY(scene->isRunning());
+
+    function->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
 }
 
 void ShowRunner_Test::nestedShowEndedInItsClipPlaysAgain_data()

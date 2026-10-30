@@ -223,6 +223,8 @@ private slots:
     void deckPauseHoldsTheNestedShow();
     void stoppedPausedShowLeavesASharedFunctionPaused_data();
     void stoppedPausedShowLeavesASharedFunctionPaused();
+    void pausedFunctionStoppedAndStartedRuns_data();
+    void pausedFunctionStoppedAndStartedRuns();
     void nestedShowEndedInItsClipPlaysAgain_data();
     void nestedShowEndedInItsClipPlaysAgain();
 
