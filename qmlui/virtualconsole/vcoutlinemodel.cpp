@@ -507,8 +507,18 @@ void VCOutlineModel::selectionChanged()
     });
 }
 
-void VCOutlineModel::reconcile(Node *owner, const std::vector<Row> &rows)
+void VCOutlineModel::reconcile(Node *owner, const std::vector<Row> &rows, Detached &detached)
 {
+    // rows that left go first, so the rows that stay keep their places
+    QSet<QString> staying;
+    for (const Row &row : rows)
+        staying.insert(row.key);
+    for (int row = static_cast<int>(owner->children.size()) - 1; row >= 0; --row)
+    {
+        Node *entry = owner->children[static_cast<size_t>(row)].get();
+        if (!staying.contains(entry->key))
+            detached.emplace(entry, take(entry, detached));
+    }
     for (size_t position = 0; position < rows.size(); ++position)
     {
         const Row &row = rows[position];
@@ -537,20 +547,13 @@ void VCOutlineModel::reconcile(Node *owner, const std::vector<Row> &rows)
         }
         else if (entry->parent != owner || nodeRow(entry) != static_cast<int>(position))
         {
-            Node *previous = entry->parent;
-            const int oldRow = nodeRow(entry);
-            const int destination = static_cast<int>(position) +
-                                    (previous == owner && oldRow < static_cast<int>(position) ? 1 : 0);
-            if (!beginMoveRows(nodeIndex(previous), oldRow, oldRow, nodeIndex(owner), destination))
-            {
-                qWarning() << "Cannot update VC outline row" << row.key;
-                continue;
-            }
-            auto moved = std::move(previous->children[static_cast<size_t>(oldRow)]);
-            previous->children.erase(previous->children.begin() + oldRow);
+            // a remove and an insert, not a move: the filter proxy turns each move into a layout
+            // change, and on every layout change each outline branch rebuilds all of its rows
+            std::unique_ptr<Node> moved = take(entry, detached);
+            beginInsertRows(nodeIndex(owner), static_cast<int>(position), static_cast<int>(position));
             entry->parent = owner;
             owner->children.insert(owner->children.begin() + position, std::move(moved));
-            endMoveRows();
+            endInsertRows();
         }
         if (entry->widget != row.widget || entry->kind != row.kind)
             changedRoles = roleNames().keys();
@@ -570,49 +573,48 @@ void VCOutlineModel::reconcile(Node *owner, const std::vector<Row> &rows)
             emit dataChanged(index, index, changedRoles);
         }
         watch(row.widget);
-        reconcile(entry, row.children);
+        reconcile(entry, row.children, detached);
     }
 }
 
-void VCOutlineModel::removeMissing(Node *owner, const QSet<QString> &keys)
+std::unique_ptr<VCOutlineModel::Node> VCOutlineModel::take(Node *entry, Detached &detached)
 {
-    const auto retained = [&keys](auto &&self, const Node *entry) -> bool {
-        if (keys.contains(entry->key))
-            return true;
-        for (const auto &child : entry->children)
-            if (self(self, child.get()))
-                return true;
-        return false;
-    };
-    const auto unregister = [this](auto &&self, const Node *entry) -> void {
-        for (const auto &child : entry->children)
-            self(self, child.get());
-        m_nodes.remove(entry->key);
-    };
-    for (int row = static_cast<int>(owner->children.size()) - 1; row >= 0; --row)
+    const auto found = detached.find(entry);
+    if (found != detached.end())
     {
-        Node *entry = owner->children[static_cast<size_t>(row)].get();
-        if (!retained(retained, entry))
-        {
-            beginRemoveRows(nodeIndex(owner), row, row);
-            unregister(unregister, entry);
-            owner->children.erase(owner->children.begin() + row);
-            endRemoveRows();
-        }
-        else
-            removeMissing(entry, keys);
+        std::unique_ptr<Node> taken = std::move(found->second);
+        detached.erase(found);
+        return taken;
     }
+    // a row inside a detached subtree is no longer in the model, so it leaves without a signal
+    bool attached = true;
+    for (const Node *ancestor = entry; attached && ancestor != m_root.get(); ancestor = ancestor->parent)
+        attached = nodeRow(ancestor) >= 0;
+    Node *previous = entry->parent;
+    const int row = nodeRow(entry);
+    if (attached)
+        beginRemoveRows(nodeIndex(previous), row, row);
+    std::unique_ptr<Node> taken = std::move(previous->children[static_cast<size_t>(row)]);
+    previous->children.erase(previous->children.begin() + row);
+    if (attached)
+        endRemoveRows();
+    return taken;
+}
+
+void VCOutlineModel::unregister(const Node *entry)
+{
+    for (const auto &child : entry->children)
+        unregister(child.get());
+    m_nodes.remove(entry->key);
 }
 
 void VCOutlineModel::refresh()
 {
-    QSet<QString> keys;
     std::function<Row(VCWidget *, RowKind, int, int)> makeRow;
     makeRow = [&](VCWidget *widget, RowKind kind, int pageIndex, int subpage) {
         Row row{kind == SubpageRow ? QStringLiteral("subpage:%1:%2").arg(widget->id()).arg(subpage) :
                                     QStringLiteral("widget:%1").arg(widget->id()),
                 widget, kind, pageIndex, subpage, {}};
-        keys.insert(row.key);
         if (kind == SubpageRow)
             return row;
         if (auto *frame = qobject_cast<VCFrame *>(widget))
@@ -648,9 +650,10 @@ void VCOutlineModel::refresh()
     for (int page = 0; page < m_vc->pagesCount(); ++page)
         if (VCPage *frame = m_vc->page(page))
             rows.push_back(makeRow(frame, PageRow, page, 0));
-    removeMissing(m_root.get(), keys);
-    reconcile(m_root.get(), rows);
-    removeMissing(m_root.get(), keys);
+    Detached detached;
+    reconcile(m_root.get(), rows, detached);
+    for (const auto &entry : detached)
+        unregister(entry.second.get());
     if (!m_scopeKey.isEmpty() && !m_nodes.contains(m_scopeKey))
     {
         const QString fallback = fallbackScopeKey(m_scopeKey);

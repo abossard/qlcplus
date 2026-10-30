@@ -243,6 +243,8 @@ private slots:
     void vcAuthoringAccess();
     void vcOutlineNotifications_data();
     void vcOutlineNotifications();
+    void vcOutlineMovesKeepOtherRows_data();
+    void vcOutlineMovesKeepOtherRows();
     void vcScreenshotConsole_data();
     void vcScreenshotConsole();
     void vcLayoutRoundTrip_data();
@@ -2674,6 +2676,126 @@ void UpstreamIntegration_Test::vcOutlineNotifications()
     QCOMPARE(resets.count(), 0);
 }
 
+void UpstreamIntegration_Test::vcOutlineMovesKeepOtherRows_data()
+{
+    QTest::addColumn<QString>("operation");
+    for (const QString &operation : {QString("reorder"), QString("reparent")})
+        QTest::newRow(qPrintable(operation)) << operation;
+}
+
+void UpstreamIntegration_Test::vcOutlineMovesKeepOtherRows()
+{
+    QFETCH(QString, operation);
+    VirtualConsole *vc = m_app->virtualConsole();
+    const bool oldEdit = vc->editMode();
+    const bool oldVisible = m_app->isVisible();
+    const QSize oldSize = m_app->size();
+    QVariantList frameIDs;
+    const auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets(frameIDs);
+        vc->setEditMode(oldEdit);
+        m_app->resize(oldSize);
+        m_app->setVisible(oldVisible);
+    });
+    m_app->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_app.get()));
+    m_app->resize(1440, 900);
+    vc->setEditMode(true);
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/VirtualConsole.qml"));
+    std::unique_ptr<QObject> object(component.create(qmlContext(m_app->rootObject())));
+    auto *console = qobject_cast<QQuickItem *>(object.get());
+    QVERIFY2(console, qPrintable(component.errorString()));
+    console->setParentItem(m_app->rootObject());
+    console->setWidth(1440);
+    console->setHeight(900);
+    QVERIFY(console->setProperty("outlineOpen", true));
+    auto *outline = console->findChild<QQuickItem *>("vcOutlinePane");
+    QVERIFY(outline);
+    QTRY_VERIFY(outline->isVisible() && outline->width() > 100);
+    // the edit moves the first frame's buttons, the second frame starts empty, the third only looks on
+    QList<VCFrame *> frames;
+    QList<QVariantList> buttonIDs;
+    for (int f = 0; f < 3; ++f)
+    {
+        auto *frame = new VCFrame(m_app->doc(), vc, vc->page(0));
+        vc->addWidgetToMap(frame);
+        vc->page(0)->addWidgetToPageMap(frame);
+        frame->setShowHeader(false);
+        frame->setLogicalGeometry(QRectF(f * 700, 0, 650, 400));
+        frameIDs.append(frame->id());
+        frames.append(frame);
+        QVariantList ids;
+        for (int i = 0; i < (f == 1 ? 0 : 6); ++i)
+        {
+            auto *button = new VCButton(m_app->doc(), frame);
+            vc->addWidgetToMap(button);
+            frame->addWidgetToPageMap(button);
+            button->setLogicalGeometry(QRectF(20 + i * 100, 60, 80, 80));
+            ids.append(button->id());
+        }
+        buttonIDs.append(ids);
+    }
+    auto locate = [&](const QVariant &id) {
+        QQuickItem *found = nullptr;
+        const QString name = QString("vcOutlineRow-%1").arg(id.toUInt());
+        std::function<void(QQuickItem *)> visit = [&](QQuickItem *item) {
+            if (item->isVisible() && item->objectName() == name) found = item;
+            for (QQuickItem *child : item->childItems()) visit(child);
+        };
+        visit(outline);
+        return found;
+    };
+    for (const QVariantList &ids : {buttonIDs[0], buttonIDs[2]})
+    {
+        QTRY_VERIFY(vc->outlineModel()->indexForKey(QString("widget:%1").arg(ids[0].toUInt())).isValid());
+        QVERIFY(QMetaObject::invokeMethod(outline, "ensureExpandedToKey",
+                                          Q_ARG(QVariant, QString("widget:%1").arg(ids[0].toUInt()))));
+    }
+    QVERIFY(QMetaObject::invokeMethod(outline, "toggleExpanded", Q_ARG(QVariant, QString("widget:%1").arg(frames[1]->id()))));
+    QList<QPointer<QQuickItem>> onlookers;
+    for (const QVariant &id : buttonIDs[2])
+    {
+        QQuickItem *row = nullptr;
+        QTRY_VERIFY((row = locate(id)));
+        onlookers.append(row);
+    }
+    QSignalSpy proxyLayouts(vc->outlineModel()->filteredModel(), &QAbstractItemModel::layoutChanged);
+    // reorder: each button in turn to the front reverses the frame; reparent: all into the next frame
+    QVariantList moved = buttonIDs[0];
+    VCFrame *owner = frames[operation == "reorder" ? 0 : 1];
+    if (operation == "reorder")
+    {
+        std::reverse(moved.begin(), moved.end());
+        for (int i = 1; i < buttonIDs[0].size(); ++i)
+        {
+            const QVariantMap result = vc->editStructure({buttonIDs[0][i]}, owner->id(), 0, 0);
+            QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
+        }
+    }
+    else
+    {
+        const QVariantMap result = vc->editStructure(moved, owner->id(), 0, 0);
+        QVERIFY2(result.value("accepted").toBool(), qPrintable(result.value("error").toString()));
+    }
+    QCOMPARE(owner->orderedChildIDs(0).mid(0, moved.size()), moved);
+    auto outlineOrder = [&]() {
+        QAbstractItemModel *rows = vc->outlineModel()->filteredModel();
+        const QModelIndex parent = vc->outlineModel()->indexForKey(QString("widget:%1").arg(owner->id()));
+        QVariantList ids;
+        for (int row = 0; row < std::min(rows->rowCount(parent), int(moved.size())); ++row)
+            ids.append(rows->index(row, 0, parent).data(VCOutlineModel::WidgetIDRole).toUInt());
+        return ids;
+    };
+    QTRY_COMPARE(outlineOrder(), moved);
+    for (const QVariant &id : moved)
+        QTRY_VERIFY(locate(id));
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+    for (int i = 0; i < onlookers.size(); ++i)
+        QVERIFY2(onlookers[i] && onlookers[i] == locate(buttonIDs[2][i]),
+                 qPrintable(QString("outline row of untouched button %1 was rebuilt").arg(buttonIDs[2][i].toUInt())));
+    QCOMPARE(proxyLayouts.count(), 0);
+}
+
 void UpstreamIntegration_Test::vcScreenshotConsole_data()
 {
     QTest::addColumn<QString>("variant");
@@ -3435,7 +3557,8 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
         sampleQueue();
         QVERIFY(writeJSON("outline-release-held.json", receipt()));
         QSignalSpy proxyLayouts(vc->outlineModel()->filteredModel(), &QAbstractItemModel::layoutChanged);
-        QSignalSpy sourceMoves(vc->outlineModel(), &QAbstractItemModel::rowsMoved);
+        QSignalSpy sourceRemovals(vc->outlineModel(), &QAbstractItemModel::rowsRemoved);
+        QSignalSpy sourceInserts(vc->outlineModel(), &QAbstractItemModel::rowsInserted);
         QSignalSpy sourceResets(vc->outlineModel(), &QAbstractItemModel::modelReset);
         qint64 commitMS = -1;
         const qint64 releaseStart = clock.elapsed();
@@ -3474,19 +3597,23 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
         if (outlineRelease == "screenshot")
             QVERIFY(QFile::exists(QDir(artifactDirectory).filePath("checkpoint-001.png")));
         QCOMPARE(published.count(), 1);
+        // each moved row leaves head1 and arrives in head2's second page, and no other row moves
         int crossParentMoves = 0;
-        for (const auto &move : sourceMoves)
+        for (const auto &removal : sourceRemovals)
         {
-            const QModelIndex source = move[0].value<QModelIndex>(), target = move[3].value<QModelIndex>();
-            if (source == target) continue;
-            QCOMPARE(source.data(VCOutlineModel::RowKeyRole).toString(), QString("widget:%1").arg(head1->id()));
-            QCOMPARE(target.data(VCOutlineModel::RowKeyRole).toString(), QString("subpage:%1:1").arg(head2->id()));
-            QCOMPARE(move[2].toInt() - move[1].toInt() + 1, 1);
+            QCOMPARE(removal[0].value<QModelIndex>().data(VCOutlineModel::RowKeyRole).toString(), QString("widget:%1").arg(head1->id()));
+            QCOMPARE(removal[2].toInt() - removal[1].toInt() + 1, 1);
             ++crossParentMoves;
         }
+        for (const auto &insert : sourceInserts)
+        {
+            QCOMPARE(insert[0].value<QModelIndex>().data(VCOutlineModel::RowKeyRole).toString(), QString("subpage:%1:1").arg(head2->id()));
+            QCOMPARE(insert[2].toInt() - insert[1].toInt() + 1, 1);
+        }
         QCOMPARE(crossParentMoves, 2);
+        QCOMPARE(sourceInserts.count(), 2);
         QCOMPARE(sourceResets.count(), 0);
-        QVERIFY(!proxyLayouts.isEmpty());
+        QCOMPARE(proxyLayouts.count(), 0);
         QCOMPARE(receipt().value("dropEventCount").toInt(), 1);
         QCOMPARE(first->parent(), head2);
         QCOMPARE(second->parent(), head2);
@@ -3525,7 +3652,7 @@ void UpstreamIntegration_Test::vcScreenshotConsole()
         QCOMPARE(starts.count(), 0);
         QVERIFY(!queueViolation);
         QVERIFY(writeJSON("outline-release-proof.json", QJsonObject{{"releaseMS", releaseMS}, {"checkpointMS", checkpointMS},
-            {"commitMS", commitMS}, {"sourceMoves", sourceMoves.count()}, {"sourceResets", sourceResets.count()},
+            {"commitMS", commitMS}, {"sourceRemovals", sourceRemovals.count()}, {"sourceResets", sourceResets.count()},
             {"crossParentMoves", crossParentMoves}, {"proxyLayouts", proxyLayouts.count()}, {"state", receipt()}}));
         return;
     }
