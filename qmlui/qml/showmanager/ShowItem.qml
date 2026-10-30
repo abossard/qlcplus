@@ -917,6 +917,8 @@ Item
                 isDragging = false
                 itemSnapped = false
                 updateGeometry()
+                // a refused resize put the clip back: the tooltip follows it
+                updateTooltipText()
             }
         }
     }
@@ -1036,6 +1038,8 @@ Item
                 isDragging = false
                 itemSnapped = false
                 updateGeometry()
+                // a refused resize put the clip back: the tooltip follows it
+                updateTooltipText()
             }
         }
     }

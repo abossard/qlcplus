@@ -1811,7 +1811,7 @@ void FunctionManager::addFunctionTreeItem(Function *func)
             static_cast<Qt::ConnectionType>(Qt::AutoConnection | Qt::UniqueConnection));
 
     if ((m_filter == 0 || m_filter & func->type()) &&
-        (m_searchFilter.length() < SEARCH_MIN_CHARS || func->name().toLower().contains(m_searchFilter)))
+        (m_searchFilter.length() < SEARCH_MIN_CHARS || func->name().contains(m_searchFilter, Qt::CaseInsensitive)))
     {
         if (m_showRunningOnly && !func->isRunning())
             return;

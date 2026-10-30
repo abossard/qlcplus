@@ -359,7 +359,7 @@ void MainView3D::setUniverseFilter(quint32 universeFilter)
 
         Fixture *fixture = m_doc->fixture(fixtureID);
         if (fixture == nullptr)
-            return;
+            continue;
 
         SceneItem *meshRef = m_entitiesMap.value(itemID, nullptr);
 
