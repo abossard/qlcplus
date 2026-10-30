@@ -3091,7 +3091,7 @@ void InputOutputMap_Test::C3_audioTempoChanges()
         [&](int step) { actualSteps.append({tick, step}); });
     connect(controlChaser, &Chaser::currentStepChanged, this,
         [&](int step) { controlSteps.append({tick, step}); });
-    int time = 0, tickRemainder = 0;
+    int time = 0, tickRemainder = 0, beatRemainder = 0;
     const QList<int> targets = offset ? QList<int>{base + offset, base}
                                      : QList<int>{121, 122, 123};
     for (int target : targets)
@@ -3129,6 +3129,13 @@ void InputOutputMap_Test::C3_audioTempoChanges()
             tickRemainder += cadence;
             while (tickRemainder >= int(MasterTimer::tick()))
             {
+                beatRemainder += MasterTimer::tick();
+                if (beatRemainder >= clock.doc.masterTimer()->beatTimeDuration())
+                {
+                    beatRemainder -= clock.doc.masterTimer()->beatTimeDuration();
+                    clock.doc.masterTimer()->requestBeat();
+                    control.doc.masterTimer()->requestBeat();
+                }
                 clock.doc.masterTimer()->timerTick();
                 control.doc.masterTimer()->timerTick();
                 QCOMPARE(actualSteps, controlSteps);
