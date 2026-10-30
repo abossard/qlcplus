@@ -84,6 +84,8 @@ private slots:
     void nativeAudioSuppression_data();
     void nativeAudioSuppression();
     void pausedPerformAdoptionKeepsAudioPaused();
+    void pausedShowStopResumesNothing_data();
+    void pausedShowStopResumesNothing();
     void nativeAudioNormalStopPreservesFade();
 
     // Command track playback (C14-7..C14-13, C14-16)

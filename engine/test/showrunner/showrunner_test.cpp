@@ -1141,6 +1141,60 @@ void ShowRunner_Test::pausedPerformAdoptionKeepsAudioPaused()
     runner.stop();
 }
 
+void ShowRunner_Test::pausedShowStopResumesNothing_data()
+{
+    QTest::addColumn<QString>("type");
+
+    QTest::newRow("an Audio") << QString("audio");
+    QTest::newRow("a Scene") << QString("scene");
+    QTest::newRow("a Collection") << QString("collection");
+}
+
+void ShowRunner_Test::pausedShowStopResumesNothing()
+{
+    QFETCH(QString, type);
+
+    // a paused Show stops: what it paused stops paused, an Audio silent through its fade out
+    Doc doc(nullptr);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    Function *function = nullptr;
+    AudioRendererNull *renderer = nullptr;
+    if (type == "audio")
+    {
+        auto *a = new Audio(&doc);
+        a->setFadeOutSpeed(5000);
+        doc.addFunction(a);
+        renderer = attachNullRenderer(a, false);
+        function = a;
+    }
+    else if (type == "scene")
+    {
+        function = new Scene(&doc);
+        doc.addFunction(function);
+    }
+    else
+    {
+        auto *collection = new Collection(&doc);
+        doc.addFunction(collection);
+        function = collection;
+    }
+    ShowRunner runner(&doc, show->id());
+    function->m_sources.append(FunctionParent(FunctionParent::Function, show->id()));
+    function->m_running = true;
+    function->m_stop = false;
+    function->setPause(true);
+    runner.m_runningQueue.append(qMakePair(function, quint32(10000)));
+
+    runner.stop();
+
+    QVERIFY(function->stopped());
+    QVERIFY(function->isPaused());
+    function->postRun(doc.masterTimer(), {});
+    if (renderer != nullptr)
+        QCOMPARE(static_cast<Audio *>(function)->m_audio_out, renderer);
+}
+
 void ShowRunner_Test::nativeAudioNormalStopPreservesFade()
 {
     Doc doc(nullptr);
@@ -6164,9 +6218,10 @@ void ShowRunner_Test::deckPauseHoldsTheNestedShow_data()
 
     const ClipSegments pause{clipSegment(0, 0, 1.0), deckPause(1000, 1000)};
     QTest::newRow("a deck pause") << pause << QList<quint32>{500, 3000} << QString() << 1000u << true << true;
+    // the Chaser the cue stopped starts again before the pause holds it
     QTest::newRow("a cue while paused")
         << ClipSegments{clipSegment(0, 0, 1.0), deckPause(1000, 1000), deckPause(2000, 300)}
-        << QList<quint32>{500, 1500, 3000} << QString() << 300u << false << true;
+        << QList<quint32>{500, 1500, 3000, 3000} << QString() << 300u << false << true;
     // the song takes the position the pause holds first
     QTest::newRow("a jump into a pause") << ClipSegments{clipSegment(0, 0, 1.0), deckPause(500, 1000)}
                                          << QList<quint32>{400, 600, 700} << QString() << 1000u << true << true;
@@ -6199,6 +6254,15 @@ void ShowRunner_Test::deckPauseHoldsTheNestedShow()
     n.song->addTrack(cueTrack);
     Scene *cueScene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 100);
     addClip(n.song, cueTrack, cueScene->id(), 900, 300);
+    // a Chaser holding one step all along
+    Scene *step = makeScene(doc, makeFixture(doc, 1)->id(), 0, 50);
+    auto *chaser = new Chaser(&doc);
+    doc.addFunction(chaser);
+    chaser->addStep(ChaserStep(step->id()));
+    chaser->setDuration(Function::infiniteSpeed());
+    Track *chaserTrack = new Track(chaser->id());
+    n.song->addTrack(chaserTrack);
+    addClip(n.song, chaserTrack, chaser->id(), 0, 600000);
     addClip(n.set, n.track, n.song->id(), 0, 60000, clipAutomation(segments));
     if (then == "commands")
     {
@@ -6231,6 +6295,8 @@ void ShowRunner_Test::deckPauseHoldsTheNestedShow()
     QCOMPARE(cueScene->isRunning(), cue);
     // the song's Functions stand while its deck pauses
     QCOMPARE(n.scene->isPaused(), paused);
+    QVERIFY(step->isRunning());
+    QCOMPARE(chaser->isPaused(), paused);
 
     if (n.set->isRunning())
         stopAndSettle(doc, n.set);

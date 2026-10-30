@@ -189,9 +189,6 @@ void ShowRunner::stop()
     {
         Function *f = m_runningQueue.at(i).first;
         f->stop(functionParent());
-        // paused, a start in this tick would only resume it into its stop
-        if (f->stopped() && f->isPaused())
-            f->setPause(false);
     }
 
     stopCommandOwnedFunctions();
