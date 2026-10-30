@@ -9,6 +9,7 @@
 #include <QTimer>
 #include <QVariantMap>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 class VirtualConsole;
@@ -72,13 +73,16 @@ signals:
 private:
     struct Node;
     struct Row;
+    // rows a refresh took out of the tree, until they find their new place
+    using Detached = std::unordered_map<Node *, std::unique_ptr<Node>>;
     QModelIndex nodeIndex(const Node *node) const;
     Node *node(const QModelIndex &index) const;
     int nodeRow(const Node *node) const;
     void scheduleRefresh();
     void refresh();
-    void reconcile(Node *parent, const std::vector<Row> &rows);
-    void removeMissing(Node *parent, const QSet<QString> &keys);
+    void reconcile(Node *parent, const std::vector<Row> &rows, Detached &detached);
+    std::unique_ptr<Node> take(Node *node, Detached &detached);
+    void unregister(const Node *node);
     void watch(VCWidget *widget);
     void widgetDataChanged(VCWidget *widget, const QList<int> &roles);
     void selectionChanged();
