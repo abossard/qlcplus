@@ -2,7 +2,6 @@ set(module_name "velleman_test")
 
 add_executable(${module_name} WIN32
     ../../interfaces/qlcioplugin.cpp ../../interfaces/qlcioplugin.h
-    ../src/velleman_mock.cpp
     ${module_name}.cpp ${module_name}.h
 )
 target_include_directories(${module_name} PRIVATE
