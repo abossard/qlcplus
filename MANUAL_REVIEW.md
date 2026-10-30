@@ -2,7 +2,7 @@
 
 This checklist contains ONLY items that require human judgment (visual inspection, UX assessment, timing perception, 3D rendering). Anything that can be asserted automatically lives elsewhere:
 
-- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./mcp/test/mcp_vcpage_input_mode_test && ./mcp/test/mcp_io_tools_test && ./mcp/test/mcp_delete_tools_test && ./mcp/test/mcp_workspace_tools_test && ./mcp/test/mcp_stage_tools_test && ./mcp/test/mcp_input_profile_tools_test && ./mcp/test/mcp_live_tools_test && ./mcp/test/mcp_show_tools_test && ./mcp/test/mcp_dispatch_smoke_test && ./qmlui/test/djfsm/djfsm_test && ./qmlui/test/djmanager/djmanager_test && ./qmlui/test/audiobpmtag/audiobpmtag_test && ./qmlui/test/showfactory/showfactory_test && ./qmlui/test/vdjbridge/vdjbridge_test && ./qmlui/test/vdjtelemetryclient/vdjtelemetryclient_test`
+- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./engine/test/showcommandtrack/showcommandtrack_test && ./engine/test/showrunner/showrunner_test && ./engine/test/showclipautomation/showclipautomation_test && ./engine/test/mixlayer/mixlayer_test && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./mcp/test/mcp_vcpage_input_mode_test && ./mcp/test/mcp_io_tools_test && ./mcp/test/mcp_delete_tools_test && ./mcp/test/mcp_workspace_tools_test && ./mcp/test/mcp_stage_tools_test && ./mcp/test/mcp_input_profile_tools_test && ./mcp/test/mcp_live_tools_test && ./mcp/test/mcp_live_control_tools_test && ./mcp/test/mcp_show_tools_test && ./mcp/test/mcp_dispatch_smoke_test && ./qmlui/test/djfsm/djfsm_test && ./qmlui/test/performfsm/performfsm_test && ./qmlui/test/djmanager/djmanager_test && ./qmlui/test/djsetrecorder/djsetrecorder_test && ./qmlui/test/audiobpmtag/audiobpmtag_test && ./qmlui/test/showfactory/showfactory_test && ./qmlui/test/vdjbridge/vdjbridge_test && ./qmlui/test/vdjtelemetryclient/vdjtelemetryclient_test && ./qmlui/test/vdjdatabasereader/vdjdatabasereader_test`. `mcp_live_control_tools_test` is built only with `-DMCP_AUTHORING_OWNER_TESTS=ON`.
 - **Smoke test:** `./scripts/smoke-test.sh` — covers MCP server reachability, handshake, tool list, REST API spot checks, path-traversal protection, MIME types
 - **E2E tests:** `cd webaccess/web-dmx && npx playwright test` — covers DOM structure, filter/search behaviour, raw-channel disclosure, cross-tab sync wiring
 
@@ -170,6 +170,61 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 - **Do:** From a known initial state, snapshot widget positions. Call MCP `auto_layout_page`, snapshot. Reset, run Auto-Layout from the QML editor on the same page, snapshot.
 - **Expected:** Resulting positions are visually identical (unified reflow algorithm).
 - **Why manual:** Cross-surface parity comparison; small pixel deltas may be acceptable but only a human can decide.
+
+### 4.9 Save errors say why [MEDIUM RISK]
+
+> MEDIUM RISK: Needs a folder QLC+ cannot write to and a 30 s wait for the autosave. The reason text comes from the operating system.
+
+- **Prerequisite:** A scratch workspace saved in its own folder. Do not use a workspace you care about.
+- **Do:** Make the folder read-only in a terminal (`chmod a-w <folder>`). Change something in the workspace, then press `Ctrl+S`.
+- **Verify:**
+- ☐ An **Error** popup opens with "The project could not be saved. Nothing was replaced or closed." and the reason below it
+- ☐ The workspace stays open and still counts as modified
+- ☐ Pressing `Ctrl+S` again opens the popup again
+- **Do:** Close the popup. Open the Virtual Console, change something in Design mode and wait 30 s for the autosave.
+- **Verify:**
+- ☐ The message bar at the bottom of the Virtual Console shows "The autosave failed:" and the reason, and hides after about 5 s
+- ☐ No dialog opens, and the console log has an `Autosave failed:` line
+- **Do:** Restore the folder (`chmod u+w <folder>`) and press `Ctrl+S`.
+- **Verify:**
+- ☐ The save succeeds and no popup opens
+
+### 4.10 Recorded holds through editing, saving and reloading [MEDIUM RISK]
+
+> MEDIUM RISK: A hold (Flash button, slider flash, FreezeHold) is recorded as a press and a release that must stay a pair. The pair rules, saving and loading are covered by `showcommandtrack_test` and `showcommandrecorder_test`. This checks what you can see and what the lights do.
+
+- **Prerequisite:** A Show with a Scene clip. A Virtual Console Flash button F bound to a Scene that lights a fixture. Perform off.
+- **Do:** In the Show Manager select the Show and switch **Record** on. Press Play, hold F for about 2 s, release it, switch **Record** off and stop the Show.
+- **Verify:**
+- ☐ The Recordings lane shows the hold as one block, and the Recordings tab lists its press and its release
+- ☐ Playing the Show lights the fixture at the recorded press and darkens it at the recorded release
+- ☐ Deleting only the release in the Recordings tab is refused with a reason, and the hold stays whole
+- **Do:** Play the Show and click the ruler inside the recorded hold.
+- **Verify:**
+- ☐ The fixture is on at once at the new position and goes dark at the recorded release
+- **Do:** Play the Show. While the hold replays, delete the Show in the Function Manager, then undo the deletion (`Ctrl+Z`).
+- **Verify:**
+- ☐ The fixture goes dark at once, because the replayed hold is released with its Show
+- ☐ The undo brings the Show back in the Show Manager
+- **Do:** Save (`Ctrl+S`), reopen the workspace and open the Show.
+- **Verify:**
+- ☐ The Recordings lane shows the same hold and playback gives the same lighting
+- **Do:** Switch **Record** on and press Play. Hold F (mouse or MIDI), press `Ctrl+S` while still holding, then release F and switch **Record** off. Reopen the saved workspace without saving it.
+- **Verify:**
+- ☐ Before reopening, the lane showed the whole hold from press to release
+- ☐ In the reopened file the hold ends at the moment of the save, with both its press and its release
+- **Do:** Switch **Record** on with nothing else changed, then choose File → New, Open and Exit in turn (cancel each prompt).
+- **Verify:**
+- ☐ Each one asks to save or discard
+
+### 4.11 Track intensity reaches a playing Show [LOW RISK]
+
+> LOW RISK: The change reaches the Show's runner through a protected copy and is covered by `show_test`. This confirms it on real output.
+
+- **Prerequisite:** A Show with two tracks that each play a Scene on different fixtures. A Virtual Console Slider in Adjust mode, with Function Control set to this Show and Attribute set to one track (named `<track name>-<track id>`).
+- **Do:** Play the Show and move the slider through its range while it plays.
+- **Verify:**
+- ☐ Only that track's fixtures follow the slider, within a tick
 
 ---
 
@@ -343,18 +398,18 @@ Open http://localhost:9999/vc/ in a fresh browser tab.
 
 ## 8. Performance & Diagnostics
 
-### 6.1 RGB matrix step-transition latency [DMX]
+### 8.1 RGB matrix step-transition latency [DMX]
 
 - **Do:** Build an RGB matrix function with a fast step rate (e.g. 50 ms steps). Run it.
 - **Verify:** Step transitions feel snappy. With a logic analyser or scope on the DMX line, latency should be ≈ **3 ms** (was 22 ms before the fix).
 - **Why manual:** Perceptual snappiness; precise measurement requires hardware.
 
-### 6.2 OS2L diagnostics dashboard [VDJ]
+### 8.2 OS2L diagnostics dashboard [VDJ]
 
 - **Do:** Tools / Settings → **OS2L Diagnostics**.
 - **Verify:** Dashboard renders, shows OS2L connection state, recent BPM, beat events ticking in real time.
 
-### 6.3 Multi-plugin diagnostics — runtime toggle [DMX]
+### 8.3 Multi-plugin diagnostics — runtime toggle [DMX]
 
 - **Do:** Open the diagnostics dashboard, locate per-plugin status. Disable a plugin (DMX USB / ArtNet / sACN / MIDI / OSC) while functions are running. Re-enable.
 - **Verify:** Plugin stops without crashing the app, status updates, re-enable restores function. No hang or zombie state.
@@ -501,7 +556,7 @@ Navigate to Virtual Console with VC editing access:
 
 ## 11. Song Manager — VDJ Integration
 
-> Unit tests for the model and sort/filter logic: `cd build && ./qmlui/test/djmanager/djmanager_test` (24 tests). The items below require VDJ connected or visual verification.
+> Unit tests for the model and sort/filter logic: `cd build && ./qmlui/test/djmanager/djmanager_test` (35 passing rows). The items below require VDJ connected or visual verification.
 
 ### 11.1 Currently playing indicator [VDJ] [HIGH RISK]
 
@@ -525,12 +580,14 @@ Navigate to Virtual Console with VC editing access:
 
 ### 11.3 Song list population [VDJ] [MEDIUM RISK]
 
-> MEDIUM RISK: Requires VDJ connected and ShowFactory deferred timer (3s). Depends on correct folder path matching.
+> MEDIUM RISK: Requires VDJ connected. A song's Show is built when VirtualDJ announces the song and again when a workspace loads, so the result depends on telemetry order. Depends on correct folder path matching.
 
 - **Do:** Open Song Manager (toolbar icon). Load a workspace with Shows in the `Songs/` folder.
 - **Verify:** All Songs-folder Shows appear in the list with title and duration.
 - ☐ Pre-existing Songs-folder shows appear on workspace load
-- ☐ Songs created mid-session by VDJ song-load appear incrementally
+- ☐ A song loaded on a VDJ deck gets its row and a Show in `Songs/` as soon as VDJ announces it, with no delay
+- ☐ Opening a workspace while a deck is already playing gives that deck's song its row and a Show right after the load
+- ☐ Each row has **Load**, **Assign** and **New** (**Create** when it has no Show) buttons, and no Clear button
 
 ### 11.4 Search / filter [LOW RISK]
 
@@ -553,6 +610,211 @@ Navigate to Virtual Console with VC editing access:
 | Toggle to ▼ | Songs Z→A | ☐ |
 | Select "Recently Played" | Most recently played first, never-played at bottom | ☐ |
 | Select "Recently Edited" | Most recently edited first | ☐ |
+
+### 11.6 Song to Show choice [VDJ] [MEDIUM RISK]
+
+> MEDIUM RISK: A song maps to the Show you chose with **Assign** or **New**, else to the first Show whose first Audio clip plays the song. The choice is saved in the workspace (`<SongShows>`) and read back on load. Needs a save and reopen, and VDJ for the Perform check.
+
+- **Prerequisite:** A song row that has a Show, and a second Show in the workspace.
+- **Do:** Click **Assign** on the row and pick the second Show. Save (`Ctrl+S`), quit QLC+, start it and load the workspace.
+- **Verify:**
+- ☐ The row shows the second Show's id after the load, not the first Show of the song
+- ☐ With Perform on, playing that song in VDJ drives the second Show (the status names it)
+- **Do:** Click **New** on the row, then save and reload as above.
+- **Verify:**
+- ☐ The new Show is the song's Show after the reload
+
+---
+
+## 12. VDJ Beat-Synced Show Playback [VDJ]
+
+> **Automated coverage:** `showrunner_test` (319 passing rows) and `show_test` (49) cover the external sync engine: mode switching, position-driven function start/stop, forward jumps, backward seeks that keep the Scenes active at the target running, and Show API delegation. `showcommandtrack_test` (545) covers the recorded command track and its hold pairs. `djfsm_test` (140) covers the 4-deck FSM in isolation: VirtualDJ's on-change rules, master flags, crossfader and mix weights, ejects and per-deck play-position tracking. `performfsm_test` (85) covers the Perform state table and the per-deck planner. `showfactory_test` (21) covers Audio+Show+Track creation, the song-to-Show index and the saved choices. `audiobpmtag_test` covers reading the song's BPM from its MP3 ID3 `TBPM` tag and applying it to the created Show's time-division. `vdjbridge_test` (95) covers Perform adoption on every playing deck, handover, release, eject, reconnect and engine-BPM-follows-VDJ (jitter-locked). `vdjtelemetryclient_test` (115) covers the plugin's framing, beat backlog, Bonjour, busy port and close paths. The recorded DJ set and its replay are in section 47. `showcommandrecorder_test` covers live input while REC records; it is not in the command list at the top because it runs one process per test function and has 54 known failing rows in the offscreen rig. The items below require a live VDJ connection.
+
+### 12.1 VDJ disconnect [HIGH RISK]
+
+> HIGH RISK: Depends on TCP connection teardown timing, thread-safety of ShowRunner atomic state, and graceful degradation. Hard to reproduce — race conditions may only surface under load.
+
+- **Prerequisite:** Perform on, a deck playing a song that has a Show.
+- **Do:** While the Show is playing, disconnect VDJ (close the app or kill the TCP connection).
+- **Verify:**
+- ☐ The Show stops with no runaway (its lighting goes dark) and the status reads `PERFORM: Armed — no show for active deck yet`
+- ☐ The `-d` console logs `[VdjBridge] Telemetry client disconnected`, and there is no crash
+- ☐ Reconnecting VDJ and playing the same song adopts the Show again and starts it at the deck position (`PERFORM: Live — <show>`)
+
+### 12.2 Seek / loop handling [HIGH RISK]
+
+> HIGH RISK: Depends on VDJ position reporting rate and function lifecycle management. A seek keeps the Scenes that are active at the target running and starts every other clip again at its offset, so a leaked or stuck function shows only under a real loop.
+
+- **Prerequisite:** Perform on. A Show with a long Scene clip and a Chaser or RGB Matrix clip that are both active at the loop start, and a second Scene clip that starts inside the loop and runs past its end.
+- **Do:** While the Show plays, set a 4-beat VDJ loop over those clips and let it wrap several times. Then seek backward in VDJ (scratch or jump).
+- **Verify:**
+- ☐ Debug output shows `[ShowRunner] Seeking: <old> -> <new>` for each jump
+- ☐ A Scene whose clip is active at the target stays on across the wrap, with no blink or dropped output
+- ☐ The Chaser or RGB Matrix clip starts again at its offset after each wrap
+- ☐ The second Scene goes off at the wrap, because its clip is not active at the loop start, and starts again when the playhead reaches its clip
+- ☐ No crash or stuck functions
+
+### 12.3 Tempo scaling [MEDIUM RISK]
+
+> MEDIUM RISK: Requires VDJ tempo slider adjustment and visual confirmation of proportional timeline movement. Timing precision depends on VDJ telemetry update interval.
+
+- **Do:** With a song playing, change VDJ tempo (e.g. +10% from original BPM).
+- **Verify:**
+  - ☐ Show timeline progresses faster/slower proportionally (visual: cursor moves faster on speedup)
+  - ☐ If the Show has lighting functions placed on the timeline, they fire at the tempo-shifted times
+
+### 12.4 Auto-creation and sync mode [MEDIUM RISK]
+
+> MEDIUM RISK: Requires VDJ connected. A song's Show is built when VirtualDJ announces the song, and again on workspace load. Verifies the full telemetry→FSM→factory pipeline end-to-end.
+
+- **Prerequisite:** VDJ running and connected to QLC+ (telemetry strip shows "Connected")
+- **Do:** Load a song on VDJ deck 1 (the master deck).
+- **Verify:**
+- ☐ Song Manager shows the song and its Show as soon as VDJ announces the song, with no delay
+- ☐ In Show Manager, select the auto-created Show → it should exist under the `Songs/` folder
+- ☐ With Perform on, press Play on the deck: the Show's sync source is `External` (debug output shows `[ShowRunner] Sync source set to External` once, and `[VdjBridge] Perform: adopted show <name>`)
+
+### 12.4b Perform — FSM-driven activation, visibility, read-only [MEDIUM RISK]
+
+> Control flow is a typed state machine (`PerformFsm`: Idle/Armed/Live/Suspended/Ended), unit-tested end to end (`performfsm_test` 85 passing rows, `vdjbridge_test::performAdoptsAndReleasesSyncSource`, `djmanager_test::performResolvesShowAfterWorkspaceReload` + `performShowsActiveShowInShowManager`). This verifies the visible behavior — **run both on a fresh workspace and on a saved+reopened one** (the reload case was broken before).
+
+**Activation & status row**
+- ☐ Enable **Perform** in the DJ Manager → status text appears next to the toggle: `PERFORM: Live — <show>` (green) while VDJ plays, `PERFORM: Suspended — <show>` (amber) when paused, `PERFORM: Ended — <show>` (amber) when the deck plays on past the end of the Show, `PERFORM: Armed — no show for active deck yet` (amber) when the song has no show
+- ☐ **Ended:** let a song play past the last clip of its Show (or seek VDJ past it) → the Show's lighting goes dark, and moving the deck back inside the content plays the Show again. With **Record** on the Show does not end.
+- ☐ `-d` console logs each transition as `[PerformFsm] "<old state>" <old show id> -> "<new state>" <new show id>` (id 4294967295 means no Show), plus `[VdjBridge] Perform: adopted show <name>` / `Perform: released show <name>` lines
+- ☐ **Reload case:** save the workspace, quit, reopen, enable Perform, play in VDJ → the show's functions actually fire on the timeline (lighting output changes), cursor follows
+
+**Show Manager follow + read-only**
+- ☐ The active deck's show loads automatically in the Show Manager; the amber **PERFORM — read only** badge shows in the toolbar
+- ☐ Cursor tracks VDJ continuously; pausing VDJ freezes it; a VDJ loop jumps the cursor back each pass (Scenes active at the loop start keep running, other clips start again at their offset, see 12.2); deck switch swaps the show (see 12.7)
+- ☐ While Perform is on: items can't be dragged/resized (handles hidden), toolbar edit + play/stop buttons disabled, Space/Ctrl+Space/Ctrl+V inert, track rename/solo/mute/delete disabled, BPM/timings/insert/cut panel disabled, dragging a function from the Function Manager onto the timeline does nothing
+- ☐ Still allowed read-only: navigation, zoom, selection, copy, opening other shows, and editing recorded events in the Recordings lane (see 12.6)
+
+**Undo is frozen during Perform** (review fix — Tardis bypassed the guards)
+- ☐ Move an item, enable Perform, press Ctrl+Z and Ctrl+Shift+Z → nothing moves
+- ☐ Disable Perform → Ctrl+Z now undoes the pre-Perform move as usual
+
+**Corrupt database resilience** (review fix — grid painter had no density bound)
+- ☐ Song whose database entry has an implausible Bpm value (< 12 or > 600 BPM equivalent) → VDJ Beat mode shows a plain time ruler (grid rejected), no freeze
+- ☐ Zooming far out on a valid VDJ Beat show → beat lines disappear below ~2 px spacing instead of smearing/stalling the header
+
+**Release semantics**
+- ☐ Perform off → show stops (its lighting goes dark), badge disappears, everything editable again
+- ☐ After Perform off, pressing Play in the Show Manager plays the show normally (autonomous clock — the adopted External sync source was restored)
+
+### 12.4c Perform audio, local seeking and playhead follow [VDJ]
+
+Use a saved verification copy and controlled audio/lighting output.
+
+- ☐ Enable Perform before starting a song, then repeat while its Show is already playing. QLC+ suppresses the Show's Audio while lighting cues continue, including lighting on a mixed Audio/lighting track.
+- ☐ Switch decks, then disable Perform. Authored track-mute settings remain unchanged. Local Play resumes the song Audio at the current position and future Audio items still start when due.
+- ☐ With Perform OFF and local playback running, click ahead and behind on the timeline. The cursor and lighting cues move to the selected time; future cues still run.
+- ☐ With Perform ON, timeline clicks and cursor gestures do not override the external position. VirtualDJ seeks still move the playhead.
+- ☐ Open a Show stopped, paused and playing, including an already-playing Perform Show. The playhead appears at the current position. During playback it stays on-screen across viewport edges and backward seeks; stopped manual scrolling remains available.
+
+Automated checks exercise Show/ShowRunner scheduling and production QML. Native audio output and the installed VirtualDJ connection still require these manual observations.
+
+### 12.5 Auto-start / auto-pause (Perform) [LOW RISK]
+
+> LOW RISK: Core logic is well-covered by unit tests. Manual verification confirms QML UI updates track the bridge state correctly.
+
+- **Prerequisite:** Perform on, deck 1 (the master deck) loaded with a song that has a Show.
+- **Do:** Press Play on VDJ deck 1.
+- **Verify:**
+- ☐ The status reads `PERFORM: Live — <show>`
+- ☐ Show Manager timeline cursor begins advancing in sync with VDJ playback position
+- **Do:** Press Pause on VDJ deck 1.
+- **Verify:**
+- ☐ The status reads `PERFORM: Suspended — <show>`
+- ☐ Show Manager timeline cursor stops, and Play continues from the deck position
+- **Do:** Switch Perform off and press Play on VDJ deck 1.
+- **Verify:**
+- ☐ The Show does not start
+
+### 12.6 REC while Perform runs [HIGH RISK]
+
+> HIGH RISK: Live input, the recorder, the Show clock and VirtualDJ loops meet on different threads. The suites drive a simulated clock; only a real loop shows how the output behaves across a wrap. The recorder does not know about loops: a VirtualDJ loop is a backward move like any other.
+
+- **Prerequisite:** Perform on, a deck playing a song whose Show has a Scene clip. A Virtual Console Flash button F bound to a Scene that lights a fixture.
+- **Do:** Switch **Record** on (DJ Manager, Show Manager or Virtual Console). Hold F for about 2 s, then release it.
+- **Verify:**
+- ☐ F lights its fixture while held and releases at once, as it does with Record off
+- ☐ The `REC:` status names the Show
+- ☐ After the release the Recordings lane shows the hold as one block. Before the release it shows no block for it.
+- **Do:** Set a VDJ loop that starts before the recorded hold and ends in the middle of it. Let it wrap several times without touching F.
+- **Verify:**
+- ☐ The recorded hold replays on every pass, up to the loop end
+- ☐ The fixture goes dark at the wrap, although the loop ends while the hold is on
+- **Do:** On a later pass hold F over part of the recorded hold, then release it.
+- **Verify:**
+- ☐ The fixture follows your hold only, with no flicker between your hold and the replay
+- ☐ Only the time you held F is replaced: the recorded hold stays before and after it in the lane
+- **Do:** Keep F held while the loop wraps.
+- **Verify:**
+- ☐ The fixture stays on across the wrap without a blink
+- ☐ Nothing recorded in this take disappears when VirtualDJ jumps back. After the release the lane shows your hold split at the wrap: one block ends at the loop end and the next starts at the loop start.
+- **Do:** While Perform drives the Show, move or delete a recorded event in the Recordings lane, then press `Ctrl+Z`.
+- **Verify:**
+- ☐ The edit applies while the Show plays, and Undo undoes only that edit. Lighting already played is not replayed.
+
+### 12.7 Deck handover [MEDIUM RISK]
+
+> MEDIUM RISK: Every playing deck runs its Show; the handover only moves dominance (VC commands and LTP channels), the recorder and the Show Manager, in one ordered step. The order is unit-tested; the visible result depends on VirtualDJ's master deck flag. Mixing both decks' lighting is in 47.1.
+
+- **Prerequisite:** Perform on. Songs with Shows on deck 1 and deck 2. Deck 1 is the master deck and plays.
+- **Do:** Start deck 2, then make deck 2 VirtualDJ's master deck.
+- **Verify:**
+- ☐ The Show of deck 2 runs as soon as deck 2 plays. At the handover the Show of deck 1 keeps playing at deck 1's mix level, and it stops only when deck 1 stops or ejects. The DJ Manager's **Perform** column moves the ★ to deck 2.
+- ☐ The Show Manager switches to the Show of deck 2 and the status names it
+- ☐ With **Record** on, REC follows to the new Show: input recorded on the old Show stays in it, and the `REC:` status names the new Show
+- ☐ Making deck 1 the master deck again hands back: its Show, still running, becomes the dominant one again, with no restart
+
+### 12.8 VirtualDJ eject and same-file reload [MEDIUM RISK]
+
+> MEDIUM RISK: VirtualDJ sends only values that changed, and an eject changes few of them. The suites replay captures from VirtualDJ 8.5; this checks the live deck table and Perform against the real application.
+
+- **Prerequisite:** Perform on, deck 1 loaded with a song that has a Show, the deck fader at a level you can recognize.
+- **Do:** Eject the song from deck 1 in VirtualDJ.
+- **Verify:**
+- ☐ The deck 1 row in the DJ Manager empties at once (State `Empty`), and Vol keeps its last value
+- ☐ Perform lets go of the song's Show: its lighting goes dark and the console logs `[VdjBridge] Perform: released show <name>`
+- **Do:** Load the same file on deck 1 again, with no other song in between.
+- **Verify:**
+- ☐ The deck row shows the title and the BPM from before the eject (not the 120 VirtualDJ sends at an eject)
+- ☐ Perform adopts the same Show again (`[VdjBridge] Perform: adopted show <name>`) and plays it from the deck position when you press Play
+
+### 12.9 VDJ Bridge settings and busy port [MEDIUM RISK]
+
+> MEDIUM RISK: The settings are stored with the input's universe patch in the workspace, so they are lost without a save. A plugin-only change may not mark the workspace modified. A busy port needs a second listener on the machine.
+
+- **Do:** In Inputs/Outputs select the universe that has the **VDJ Bridge** input and open the plugin configuration. Set **Listen port** (default 8050) and change **Service name** (default `QLC+ VDJ`), pressing Tab after each to apply, and untick **Bonjour**. Close the dialog, save the workspace with `Ctrl+S`, quit QLC+, start it and load the workspace.
+- **Verify:**
+- ☐ The dialog shows the same port, Bonjour state and service name after the restart
+- ☐ The input info shows the Bonjour service as `disabled`
+- **Do:** Tick **Bonjour** again. In a terminal start a listener on a free port above 1023 (for example `nc -l 8051`), then set **Listen port** to that port.
+- **Verify:**
+- ☐ **Status** reads `Port 8051 in use`, not `Idle`, and the input info says the same
+- ☐ The Bonjour line says it is not registered while the port is in use
+- **Do:** Stop the listener and set **Listen port** to a free port.
+- **Verify:**
+- ☐ **Status** reads `Listening (port <n>)`, and `Connected from <address> (port <n>)` once VirtualDJ connects
+- ☐ The input info shows the service as `_os2l._tcp (<service name>)`
+
+### 12.10 VirtualDJ reconnect, beat backlog and QLC+ quit [HIGH RISK]
+
+> HIGH RISK: Depends on VirtualDJ's reconnect behaviour (it reconnects only to a service that is registered again) and on how the connection closes. VirtualDJ was seen exiting when QLC+ closed its connection while telemetry was still arriving. Use a disposable workspace and a song you can pause.
+
+- **Prerequisite:** Perform on, the beat generator set to the VDJ Bridge input (Beat generators panel), a deck playing.
+- **Do:** Change **Listen port** in the plugin configuration.
+- **Verify:**
+- ☐ The deck rows empty and Perform shows `Armed` at once
+- ☐ VirtualDJ connects again within a few seconds (**Status** reads `Connected from <address> (port <n>)`) and the deck rows fill again
+- **Do:** Remove the VDJ Bridge input patch from its universe, wait about a minute while the deck plays, then patch it again.
+- **Verify:**
+- ☐ After the reconnect the beat indicator and any beat-driven function run at the song's tempo from the first second, with no burst of fast beats
+- **Do:** With a deck playing, quit QLC+ normally (discard changes) and watch VirtualDJ for 30 s.
+- **Verify:**
+- ☐ VirtualDJ keeps running and the deck keeps playing
 
 ---
 
@@ -579,105 +841,11 @@ Navigate to Virtual Console with VC editing access:
 - **HUEMatrix — VC Animation widget icon:** A `HUEMatrix` can be assigned to a Virtual Console Animation widget (`HUEMatrix` IS-A `RGBMatrix`), but the widget icon is unconditionally the RGB Matrix icon. Cosmetic only.
 - **HUEMatrix — editor algorithm list is not covered by tests:** `qmlui` builds an executable rather than a library and `FunctionEditor` depends on `Tardis`, so the editor cannot be constructed in a unit test. `HUEMatrixEditor::algorithms()` delegating to `HUEMatrix::availableAlgorithms()` is verified only at the cache boundary — §23.1 covers it manually.
 - **HUEMatrix — shutdown drain:** Destroying a `HUEMatrix` waits up to 2 s per object for an in-flight async precompute task that never ran, then warns and continues. Many stuck matrices would add up at shutdown; not observed in practice.
-
----
-
-## 12. VDJ Beat-Synced Show Playback [VDJ]
-
-> **Automated coverage:** `showrunner_test` (9 tests) and `show_test` (10 tests) cover the external sync engine: mode switching, position-driven function start/stop, forward jumps, backward seeks, and Show API delegation. `djfsm_test` (21 tests) covers the 4-deck FSM in isolation, including per-deck play-position (beat+time) tracking with throttled `positionChanged`. `showfactory_test` (9 tests) covers Audio+Show+Track creation and dedup. `audiobpmtag_test` (16 tests) covers reading the song's BPM from its MP3 ID3 `TBPM` tag and applying it to the created Show's time-division. `vdjbridge_test` (12 tests) covers auto-start, auto-pause, auto-resume integration, engine-BPM-follows-VDJ (jitter-locked), and Perform load/sync/switch. The items below require a live VDJ connection.
-
-### 12.1 VDJ disconnect [HIGH RISK]
-
-> HIGH RISK: Depends on TCP connection teardown timing, thread-safety of ShowRunner atomic state, and graceful degradation. Hard to reproduce — race conditions may only surface under load.
-
-- **Do:** While a Show is playing, disconnect VDJ (close the app or kill the TCP connection).
-- **Verify:**
-  - ☐ The Show freezes at the last known position (no runaway)
-  - ☐ No crash
-  - ☐ Reconnecting VDJ and playing the same song resumes or restarts the Show
-
-### 12.2 Seek / loop handling [HIGH RISK]
-
-> HIGH RISK: Depends on VDJ position reporting rate, backward-seek detection threshold, and function lifecycle management. Functions stopped mid-execution may leak state.
-
-- **Do:** While a Show with functions on the timeline is playing, seek backward in VDJ (scratch or jump).
-- **Verify:**
-  - ☐ Debug output shows `[ShowRunner] Backward seek detected: <old> -> <new>`
-  - ☐ Functions that were running are stopped and re-evaluated at the new position
-  - ☐ No crash or stuck functions
-
-### 12.3 Tempo scaling [MEDIUM RISK]
-
-> MEDIUM RISK: Requires VDJ tempo slider adjustment and visual confirmation of proportional timeline movement. Timing precision depends on VDJ telemetry update interval.
-
-- **Do:** With a song playing, change VDJ tempo (e.g. +10% from original BPM).
-- **Verify:**
-  - ☐ Show timeline progresses faster/slower proportionally (visual: cursor moves faster on speedup)
-  - ☐ If the Show has lighting functions placed on the timeline, they fire at the tempo-shifted times
-
-### 12.4 Auto-creation and sync mode [MEDIUM RISK]
-
-> MEDIUM RISK: Requires VDJ connected and depends on ShowFactory deferred creation timer (3s). Verifies the full telemetry→FSM→factory pipeline end-to-end.
-
-- **Prereq:** VDJ running and connected to QLC+ (telemetry strip shows "Connected")
-- **Do:** Load a song on VDJ deck 1 (the master deck).
-- **Verify:**
-  - ☐ Song Manager shows the song after ~3 seconds (ShowFactory deferred creation)
-  - ☐ In Show Manager, select the auto-created Show → it should exist under the `Songs/` folder
-  - ☐ The Show's sync source should be `External` (check debug output for `[ShowRunner] Sync source set to External` when playing)
-
-### 12.4b Perform — FSM-driven activation, visibility, read-only [MEDIUM RISK]
-
-> Control flow is a typed state machine (`PerformFsm`: Idle/Armed/Live/Suspended), unit-tested end to end (`performfsm_test` 12 tests, `vdjbridge_test::performAdoptsAndReleasesSyncSource`, `djmanager_test::performResolvesShowAfterWorkspaceReload` + `performShowsActiveShowInShowManager`). This verifies the visible behavior — **run both on a fresh workspace and on a saved+reopened one** (the reload case was broken before).
-
-**Activation & status row**
-- ☐ Enable **Perform** in the DJ Manager → status text appears next to the toggle: `PERFORM: Live — <show>` (green) while VDJ plays, `Suspended — <show>` (amber) when paused, `Armed — no show for active deck yet` (amber) when the song has no show
-- ☐ `-d` console logs each transition: `[PerformFsm] Idle -> Live (show N)` etc., plus `adopted show` / `released show` lines
-- ☐ **Reload case:** save the workspace, quit, reopen, enable Perform, play in VDJ → the show's functions actually fire on the timeline (lighting output changes), cursor follows
-
-**Show Manager follow + read-only**
-- ☐ The active deck's show loads automatically in the Show Manager; the amber **PERFORM — read only** badge shows in the toolbar
-- ☐ Cursor tracks VDJ continuously; pausing VDJ freezes it; a VDJ loop jumps the cursor back each pass and re-fires the looped functions; deck switch swaps the show
-- ☐ While Perform is on: items can't be dragged/resized (handles hidden), toolbar edit + play/stop buttons disabled, Space/Ctrl+Space/Ctrl+V inert, track rename/solo/mute/delete disabled, BPM/timings/insert/cut panel disabled, dragging a function from the Function Manager onto the timeline does nothing
-- ☐ Still allowed read-only: navigation, zoom, selection, copy, opening other shows
-
-**Undo is frozen during Perform** (review fix — Tardis bypassed the guards)
-- ☐ Move an item, enable Perform, press Ctrl+Z and Ctrl+Shift+Z → nothing moves
-- ☐ Disable Perform → Ctrl+Z now undoes the pre-Perform move as usual
-
-**Corrupt database resilience** (review fix — grid painter had no density bound)
-- ☐ Song whose database entry has an implausible Bpm value (< 12 or > 600 BPM equivalent) → VDJ Beat mode shows a plain time ruler (grid rejected), no freeze
-- ☐ Zooming far out on a valid VDJ Beat show → beat lines disappear below ~2 px spacing instead of smearing/stalling the header
-
-**Release semantics**
-- ☐ Perform off → show pauses, badge disappears, everything editable again
-- ☐ After Perform off, pressing Play in the Show Manager plays the show normally (autonomous clock — the adopted External sync source was restored)
-- ☐ Perform off also pauses any *other* still-running external-sync show (stale-session safety net)
-
-### 12.4c Perform audio, local seeking and playhead follow [VDJ]
-
-Use a saved verification copy and controlled audio/lighting output.
-
-- ☐ Enable Perform before starting a song, then repeat while its Show is already playing. QLC+ suppresses the Show's Audio while lighting cues continue, including lighting on a mixed Audio/lighting track.
-- ☐ Switch decks, then disable Perform. Authored track-mute settings remain unchanged. Local Play resumes the song Audio at the current position and future Audio items still start when due.
-- ☐ With Perform OFF and local playback running, click ahead and behind on the timeline. The cursor and lighting cues move to the selected time; future cues still run.
-- ☐ With Perform ON, timeline clicks and cursor gestures do not override the external position. VirtualDJ seeks still move the playhead.
-- ☐ Open a Show stopped, paused and playing, including an already-playing Perform Show. The playhead appears at the current position. During playback it stays on-screen across viewport edges and backward seeks; stopped manual scrolling remains available.
-
-Automated checks exercise Show/ShowRunner scheduling and production QML. Native audio output and the installed VirtualDJ connection still require these manual observations.
-
-### 12.5 Auto-start / auto-pause [LOW RISK]
-
-> LOW RISK: Core logic is well-covered by unit tests. Manual verification confirms QML UI updates track the bridge state correctly.
-
-- **Do:** Press Play on VDJ deck 1.
-- **Verify:**
-  - ☐ Debug output shows `[VdjBridge] Auto-starting show: <song name>`
-  - ☐ Show Manager timeline cursor begins advancing in sync with VDJ playback position
-- **Do:** Press Pause on VDJ deck 1.
-- **Verify:**
-  - ☐ Debug output shows `[VdjBridge] Auto-pausing show: <song name>`
-  - ☐ Show Manager timeline cursor stops
+- **Recording: a restored control keeps its hold:** If a Virtual Console control is removed while it is held and comes back with the same identity in the same take (undo, or cut and paste), the hold goes on from its first press. Accepted by design; a new take starts clean.
+- **DJ set — one Show per song at a time:** A song Show runs once. If two decks hold the same song, the active deck (else the lower deck) drives it, and two overlapping clips of the same song in a set play as one: the later clip takes over.
+- **DJ set — what the recorder cannot see:** A held jog on a lone deck sends no telemetry, so the hold is not recorded. A VirtualDJ write delayed more than 10 ms over the network can still be split into two views. Two sets started in the same minute get the same name.
+- **DJ set — replay limits:** A Function that a set clip and another owner (a VC button, the Function Manager, a Show's commands) both play keeps the clip's last level when the clip ends. A song the set's commands stop and start in one tick starts its timed Chasers from step 0. After a song ends inside its clip, every rewind in that clip below the end restarts it, as live Perform does. MCP `query_shows` does not report the pause flag of a set clip.
+- **DJ set — deck weight without a fader value:** A deck whose volume VirtualDJ never sent has weight 0, so its Show runs dark. VirtualDJ sends the fader on connect in practice.
 
 ---
 
@@ -964,6 +1132,8 @@ Upstream fixed catch-up when the slider is disabled and on page change. This ove
 | July 2026 merge — EFX dimmer / slider catch-up / video | | |       | §17.2–17.6 |
 | VDJ Beat time division          |        |      |             | §18 — grid accuracy, POI markers, snapping |
 | July 2026 merge — controls / aliases / desktop UX | | |          | §19 — shortcuts, TAP BPM, MIDI feedback, Fixture Editor, geometry |
+
+Sections 20 to 47 record their sign-off in their own tables.
 
 **Overall:** ☐ Ready to merge ☐ Blockers found (list below)
 
@@ -2533,23 +2703,7 @@ The running application was not restarted.
 | Simple Desk high-byte levels | | | | |
 | Script responsiveness and cleanup | | | | |
 
-#### Correction validation (2026-10-21)
-
-> Fresh inspection found a native-read cancellation deadlock (four-second timeout versus a passing release-before-teardown control), intermittent short-window wheel failures, and a full VC cadence failure (197 passed, 1 failed). These remain recorded failures, not replaced by the earlier green summary.
->
-> ScriptRunner now acquires universe ownership through a private cancellation-aware InputOutputMap path. Script teardown still joins the worker, destroys its engine on that worker, retires audio subscriptions and releases only its own output. The new parameterized production `Script::postRun` regression passes both blocked-read and nonblocked controls under a four-second process budget, with independent output retained.
->
-> Wheel failures were fixture admission: fresh offscreen settings auto-scale to 0.9 and open the modal first-use scaling notice above the editor. A recorded event filter identified `QQuickPopupItem`, not the settings Flickable, as the recipient. Reusing the written settings passed without a code change. The shared App fixture now acknowledges only that named notice before UI interaction. Timestamp experiments failed and were removed. An intermediate full run (560 passed, 19 failed, 8 skipped) showed why acknowledging it only in the late settings test was insufficient. No production scrolling change, relaxed assertion or input retry was used.
->
-> Completed build, exit 0: `cmake --build build --target qlcplus5 upstreamintegration_test mcp_script_tool_test audioconsumers_test vcaudiotriggers_test chaser_test chaserstep_test chaserrunner_test mcp_uimanager_preset_test mcp_dispatch_smoke_test -j8`. Subsequent changed-test rebuilds passed, including final `cmake --build build --target upstreamintegration_test -j8`.
->
-> Final rebuilt native executions, each exit 0 with `-maxwarnings 0`, offscreen/software, fresh isolated settings/HOME/TMPDIR and owned output directories: full `upstreamintegration_test` 579 passed / 8 opt-in screenshot skips; incoming-change selection 59 passed; two separate final settings selections 4 passed each; `audioconsumers_test` 667 passed / 2 opt-in media/replay skips; dedicated `scriptRunnerNativeStop` 4 passed; `vcaudiotriggers_test` 198 passed; focused `visualCadence` 4 passed; script tools 79; chaser 23; chaserstep 12; chaserrunner 23; presets 6; dispatch 35.
->
-> Comparable baseline: exact first parent `b92031004af1ef78c7b15b7e731d78f36c2d64c0` was exported without switching branch/worktree and built separately with matching Qt/compiler flags and independent dependency binaries. Serial full baseline/current runs produced 197/1 versus 198/0; baseline's unchanged low-latency assertion observed 39 signals / 40 polls. Awake and suspension-inclusive durations matched (84.34s baseline, 84.48s current). Both focused runs passed 40/40. Thus that failure is runtime-demonstrated before the merge, not repaired or evidence of reliable cadence. The first baseline attempt had an unexplained awake/Qt-time discrepancy and is retained as supplemental, not the decisive comparison.
->
-> Correction artifacts: `build/upstream-correction-2026-10-21/executions.json` records every retained selection, exact argv/environment/cwd, raw inner exit, continuous-time budget, failures/skips and executable/engine/audio hashes before and after execution. Named build/test logs and `baseline-identity.json` retain the red attempts and matched baseline provenance.
->
-> All ten human checks above remain pending. Eight screenshot fixtures, media export, ten-minute replay, physical input/display feel, audio/output hardware and real-show cadence remain unverified. No running application or live workspace was changed.
+Automated evidence for this section: appendix, *§40: Correction validation (2026-10-21)*.
 
 ## 41. Upstream a706b2adf playback and safe-area integration
 
@@ -2611,13 +2765,7 @@ The running application was not restarted.
 | Clock schedule control and layout | | | | | |
 | Android safe areas and kiosk | | | | | |
 
-#### Superseding classification note, 2026-10-23
-
-The earlier statement “Their cause and whether they predate the integrated merge remain unverified” records the initial observation, now superseded by E9/E10 diagnosis and independent inspection in the [verification blueprint](/Users/abossard/.minime/abossard/_qlcplus/blueprints/2026-10-23-upstream-master-a706b2adf-verification.md#e9-bounded-preview-width-classification-correction-2026-10-23). The fifteen failures are a pre-existing fork production/test contract mismatch: fork commit `6010206a1` introduced a three-viewport preview cache while the tests retained one-viewport width assertions. Relevant production QML (ShowItem, ShowManager and HeaderAndCursor) and integration-test blobs are identical at merge HEAD `e1dfd6a59b48c76d21601d6f430ef09347943a1b` and its first parent `6010206a1a668ce51208019e36482bc4ff0ad321`, not newly changed by this upstream integration.
-
-Retained [diagnostic output](build/preview-width-correction-20261023/diagnostic.log) and [summary](build/preview-width-correction-20261023/summary.json) report `viewport=991`, `preview=1982.07` for Time/VDJ or `1982.03` for BPM, with `viewChunk=0`, `contentX=0` and the correct timeline identity. At the left edge, clamping the three-viewport cache leaves roughly two viewport widths, explaining the unchanged failing bound. E10 independently reproduced these values and verified the relevant first-parent blob identities.
-
-All prior failures remain failures: full suite `564 passed, 15 failed, 8 skipped`; focused run `23 passed, 15 failed, 0 skipped`; diagnostic `17 passed, 15 failed, 0 skipped` (each inner exit 15). The full UI suite is not green. No full first-parent suite was executed, so this localized attribution does not establish complete pre-merge runtime equivalence or approval of the cache policy. No production/test source changes or weakened assertions were made. Reconciling the fork cache policy and its tests is explicitly out of the current integration scope and requires separate owner scope. All existing human checks and sign-offs remain unchanged and pending where previously pending.
+Automated evidence for this section: appendix, *§41: Superseding classification note, 2026-10-23*.
 
 ## 42. Upstream master 0eee616b5 integration (2026-10-25)
 
@@ -2665,40 +2813,7 @@ All prior failures remain failures: full suite `564 passed, 15 failed, 8 skipped
 | Frame and Click and Go actions | | | | | |
 | Android native dialogs and desktop comparison | | | | | |
 
-#### Automated evidence, 2026-10-25
-
-- Final application and affected-suite build: exit `0`. `qlcplus5` includes the upstream QPointer changes and fork MCP/UI consumers. The existing Release configuration and warning exceptions were unchanged. An earlier build attempt stopped on missing Qt headers in `scene_test`; an unchanged retry and the final batch completed successfully, without dependency installation or source changes for that transient failure.
-- Build command from the repository root:
-
-```sh
-cmake --build build --target qlcplus5 fixture_test doc_test fadechannel_test genericdmxsource_test rgbmatrix_test huematrix_test scene_test script_test upstreamintegration_test mcp_vc_query_filter_test mcp_vc_validation_test mcp_vc_authoring_apply_tools_test mcp_io_tools_test mcp_query_tools_test -j8
-python3 build/upstream-integration-20261025/run-tests.py
-```
-
-- Native execution used Qt `6.12.0`, offscreen/software rendering, per-suite isolated HOME/config/runtime directories, `-maxwarnings 0`, source-test working directories for relative engine resources, and owned scratch working directories for MCP/UI tests. [Final build log](build/upstream-integration-20261025/build-final.log), [exact per-suite commands, working directories, exits and totals](build/upstream-integration-20261025/results.json).
-
-| Suite | Passed | Failed | Skipped | Exit |
-|-------|--------|--------|---------|------|
-| fixture | 29 | 0 | 0 | 0 |
-| doc | 30 | 0 | 0 | 0 |
-| fadechannel | 14 | 0 | 0 | 0 |
-| genericdmxsource | 5 | 0 | 0 | 0 |
-| rgbmatrix | 27 | 0 | 0 | 0 |
-| huematrix | 257 | 0 | 0 | 0 |
-| scene | 20 | 0 | 0 | 0 |
-| script | 3 | 0 | 0 | 0 |
-| mcp_vc_query_filter | 65 | 0 | 0 | 0 |
-| mcp_vc_validation | 76 | 0 | 0 | 0 |
-| mcp_vc_authoring_apply_tools | 47 | 0 | 0 | 0 |
-| mcp_io_tools | 60 | 0 | 0 | 0 |
-| mcp_query_tools | 94 | 0 | 0 | 0 |
-| upstreamintegration | 564 | 15 | 8 | 15 |
-
-- Native aggregate: `1291 passed, 15 failed, 8 skipped`. The batch runner exits `1` because the full UI suite exits `15`. All fifteen failures remain `timelineViewport` rows at `preview->width() <= width`; the eight skips are opt-in VC screenshots requiring `QLC_VC_VISUAL_DIR`. The preview-cache attribution in section 41 remains applicable: ShowItem.qml, ShowManager.qml, HeaderAndCursor.qml and the integration-test source are byte-identical to first parent `4bc0df66e`. No width assertions or cache policy were changed. This is not a green full UI suite or a full first-parent runtime comparison.
-- Fork split-address repair: HUEMatrix's cached pixel plan now resolves each channel with upstream `Fixture::channelAddress`; MCP universe deletion uses `Fixture::lastUniverse`. The new parameterized `C2_splitPixelPlan` regression failed before the HUE repair (`4 passed, 1 failed`, exit `1`, pixel mode selected universe `0` instead of `1`) and all three mode rows pass afterward. The existing MCP cross-universe deletion test now covers fill and whole-pixel modes and the changed fixture API. [Pre-repair regression](build/upstream-integration-20261025/hue-regression-before.log), [final HUE log](build/upstream-integration-20261025/huematrix.log), [final MCP I/O log](build/upstream-integration-20261025/mcp_io_tools.log).
-- Conflict seams retain the cached first FadeChannel index while adopting upstream resolved-address semantics, guard and release old VC projections while preserving fork QML contexts, retain fork selection/authoring admission, and combine upstream frame/color live actions with fork editor history and recording. Linux package installation keeps the fork's Qt6/MCP architecture matrix and dependency verification while adding upstream mirror retries.
-- Workflow YAML parses and every shell run block passes `bash -n`. Linux CI/package execution, v4, Windows, physical DMX, Android document providers, Tardis peers and native desktop focus are not verified by this macOS/offscreen run.
-- Review parser tests: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `49 passed`, exit `0`. Both native-canvas and TypeScript parsers recognize six new cases and eleven unique pending checks. All preceding parsed sections are identical. Original document prefix preserved: `184943` bytes, SHA-256 `0f1423f1dc6b282ba1835af7a3914c5a50e8e52a240272ba2bac0a25951f957e`. [Parser tests](build/upstream-integration-20261025/review-parser-tests.log), [byte and parser preservation check](build/upstream-integration-20261025/review-preservation.log).
+Automated evidence for this section: appendix, *§42: Automated evidence, 2026-10-25*.
 
 ## 43. Upstream master integration, 2b447118e (2026-10-26)
 
@@ -2745,37 +2860,7 @@ python3 build/upstream-integration-20261025/run-tests.py
 | Settings scrollbar layout | | | | | |
 | Peperoni libusb, firmware and output lines | | | | | |
 
-#### Automated evidence, 2026-10-26
-
-- Application, Peperoni plugin and affected-suite builds completed with exit `0`. Build commands from the repository root:
-
-```sh
-cmake --build build --target qlcplus5 peperoni chaserrunner_test chaser_test sequence_test function_test upstreamintegration_test mcp_vc_query_filter_test mcp_vc_authoring_apply_tools_test mcp_query_tools_test -j8
-cmake --build build --target chaserrunner_test mcp_idempotency_test -j8
-cmake --build build --target qlcplus5 peperoni upstreamintegration_test -j8
-python3 build/upstream-integration-20261026/run-tests.py
-```
-
-- Build evidence: [initial Peperoni compile failure](build/upstream-integration-20261026/build.log), [affected-target build](build/upstream-integration-20261026/build-final.log), [regression-target build](build/upstream-integration-20261026/build-regressions.log), [final application/UI build](build/upstream-integration-20261026/build-ui-repair.log). The incoming Peperoni implementation left `line` unused on macOS, where bulk output is excluded. A single `Q_UNUSED(line)` fixes the warning-as-error failure without changing transfers. The plugin links Homebrew `libusb-1.0.0.dylib`. Existing compiler/linker warning policy was not relaxed.
-- Native execution used Qt `6.12.0`, offscreen/software rendering, isolated per-suite HOME/config/runtime directories, source-test working directories for engine resources and owned scratch directories for UI/MCP suites. The runner uses sleep-inclusive macOS deadlines, preserves true exit codes and reports timeouts separately. No suite timed out. [Commands, exits, totals and failing rows](build/upstream-integration-20261026/results.json), [runner output](build/upstream-integration-20261026/native-tests.log).
-
-| Suite | Passed | Failed | Skipped | Exit |
-|-------|--------|--------|---------|------|
-| chaserrunner | 37 | 0 | 0 | 0 |
-| chaser | 23 | 0 | 0 | 0 |
-| sequence | 9 | 0 | 0 | 0 |
-| function | 37 | 0 | 0 | 0 |
-| mcp_vc_query_filter | 65 | 0 | 0 | 0 |
-| mcp_vc_authoring_apply_tools | 47 | 0 | 0 | 0 |
-| mcp_query_tools | 94 | 0 | 0 | 0 |
-| mcp_idempotency | 96 | 0 | 0 | 0 |
-| upstreamintegration | 605 | 15 | 8 | 15 |
-
-- Native aggregate: `1013 passed, 15 failed, 8 skipped`; the runner exits `1`, not green. All fifteen failures are the same `timelineViewport` rows at `preview->width() <= width` recorded in section 42. The affected ShowItem.qml, ShowManager.qml and HeaderAndCursor.qml files and the complete viewport test methods remain unchanged from first parent `38d57ee04`. The eight skips require opt-in `QLC_VC_VISUAL_DIR`. This is not a fresh first-parent runtime comparison, Windows run, hardware test or native desktop-focus check.
-- Chaser resolution adopts upstream beat-clock alignment and drift-free chaining, retaining only the fork's child-duration argument. The parameterized `C2_childDuration` covers six Time/Beats duration combinations; the incoming whole/fractional, early/late beat and mid-beat-start tests also pass.
-- Parameterized `C3_beatEditing` covers 31 sixteenth fractions, decimal/comma-decimal/mixed inputs, whitespace, zero, infinity and rejected invalid values through the actual QML component. It checks format round-trips, functional count/subdivision controls and absence of QML warnings. A focused pre-repair run exposed the fork calling static invokables on the uncreatable `QLCFunction` type (`42 passed, 1 failed`, including TypeError warnings). Two instance forwarding methods on FunctionManager now reuse the existing engine helpers. The focused rerun is `43 passed, 0 failed`, exit `0`; all 41 rows also pass in the full suite. [Before helper repair](build/upstream-integration-20261026/beat-editing-before-helper-fix.log), [focused rerun](build/upstream-integration-20261026/beat-editing-focused.log).
-- Review parser suites: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `50 passed`, exit `0`. Native-canvas parsing also confirms six new cases and ten unique pending checks. All preceding parsed sections and the original `193535` document bytes remain unchanged, SHA-256 `74dfffbf710efc684eb6693769859d7aa8f8233d0f3e080df12e48c5211d2f99`. [Parser tests](build/upstream-integration-20261026/review-parser-tests.log), [preservation evidence](build/upstream-integration-20261026/review-preservation.json).
-- Windows palette behavior, MIDI hardware feedback, Peperoni firmware/driver combinations, Linux permissions, Android packaging and perceptual beat alignment remain unsigned. No live QLC+ process or unsaved workspace was restarted or modified.
+Automated evidence for this section: appendix, *§43: Automated evidence, 2026-10-26*.
 
 ## 44. Upstream master fb21860d8 integration (2026-10-27)
 
@@ -2823,7 +2908,236 @@ python3 build/upstream-integration-20261026/run-tests.py
 | Additive preview and CMY separation | | | | | |
 | Generic 3D items, selection and history | | | | | |
 
-#### Automated evidence, 2026-10-27
+Automated evidence for this section: appendix, *§44: Automated evidence, 2026-10-27*.
+
+Automated evidence for this section: appendix, *§44: Upstream freshness and automated recheck, 2026-10-28*.
+
+## 45. Upstream master 302a18c98 import tree (2026-10-29)
+
+> Upstream PR [#2228](https://github.com/mcallegari/qlcplus/pull/2228) skips hidden functions instead of ending import-tree enumeration. Automated `upstreamintegration_test C2_importFunctionVisibility` checks visible identities, hidden entries in each position, search filtering and restored check states. The case below is for visual hierarchy and usability, not a second assertion of tree contents.
+
+### 45.1 Import-tree hierarchy and readability
+
+- **Prerequisite:** Use a scratch source workspace containing a Show with hidden supporting functions and several visible functions in different folders. Import it into a separate scratch workspace, not a live show.
+- **Do:** Open the workspace import dialog. Expand the function folders, select visible functions, search for a visible function, then clear the search.
+- **Verify:**
+- ☐ Folder nesting, names and checkboxes remain readable and visually aligned throughout filtering and expansion
+- ☐ The restored list remains usable without blank gaps, clipped rows or confusing selection feedback
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+Automated evidence for this section: appendix, *§45: Automated integration evidence, 2026-10-29*.
+
+## 46. Upstream fixture patching and Simple Desk (4cd37df23)
+
+### 46.1 Fixture repatching and output continuity [DMX]
+
+- **Prerequisite:** Use a scratch workspace and noncritical physical fixtures. Patch two fixtures at different addresses, including an LTP channel with a visible nonzero value.
+- **Do:** Move one fixture to a new address and universe, including a move whose intermediate universe/address overlaps the other fixture. Rename the stationary fixture, then delete the moved fixture. Exercise a fixture positioned across the last channels of a universe.
+- **Verify:**
+- ☐ The stationary fixture remains visually stable during the move and rename, without flashes or lost control
+- ☐ The moved fixture responds at its new patch with the expected intensity mixing, and abandoned or deleted LTP channels no longer hold visible output
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+### 46.2 Native-client Simple Desk on another universe [DMX]
+
+- **Prerequisite:** Use a scratch workspace with at least two universes, a native client connected to a separate server, and noncritical physical output on the second universe.
+- **Do:** Select the second universe in the native client's Simple Desk while the server is displaying another universe or running headless. Set and reset channels, then undo and redo those actions. Repeat after changing the displayed universe.
+- **Verify:**
+- ☐ Physical output follows the intended universe without changing the corresponding channel on another universe
+- ☐ Reset, undo and redo remain understandable and visually consistent across client/server views, without crashes or stuck output
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+Automated evidence for this section: appendix, *§46: Automated integration evidence, 2026-10-30*.
+
+---
+
+## 47. DJ sets and multi-deck Perform (feat/djset, 162a4fe22)
+
+> Merged into `mcp-server` as `860c7551f` and `162a4fe22`. Perform runs every playing deck's song Show, each at its deck's mix level (volume × crossfader); the master deck's Show is dominant (it plays its VC commands and wins LTP channels). Perform also records a set Show in the `Sets` folder: one track per deck, one clip per song play, each clip with its part of the song, loops, seeks, pauses, fades and dominance. Automated coverage: `mixlayer_test` (32), `showclipautomation_test` (125), `showrunner_test` (319), `performfsm_test` (85), `vdjbridge_test` (95), `djmanager_test` (41), `djsetrecorder_test` (80, including a replay of a recorded two-deck mix) and `upstreamintegration_test` (nested clips, trim, overlay, record-head cursor). The items below need VirtualDJ, physical output or a visual judgement.
+
+### 47.1 Two decks crossfading [VDJ] [DMX] [HIGH RISK]
+
+- **Prerequisite:** Perform on. Two songs whose Shows you can tell apart on the same fixtures (different colours, and a dimmer chase on one). Deck 1 plays and is the master deck, the crossfader on deck 1's side.
+- **Do:** Start deck 2 and move the crossfader slowly to deck 2 until VirtualDJ makes deck 2 the master deck. Repeat with the volume faders instead of the crossfader.
+- **Verify:**
+- ☐ Deck 2's lighting fades in and deck 1's fades out with the mix, and the DJ Manager's **Mix** column follows the controls
+- ☐ Colour and position (LTP) switch to deck 2's Show at the handover, not before, with no flicker; intensity mixes smoothly
+- ☐ The **Perform** column shows both Shows, the ★ moving to deck 2 at the handover; deck 1's Show stops only when deck 1 stops
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+### 47.2 Recording a set while performing [VDJ] [MEDIUM RISK]
+
+- **Prerequisite:** A disposable workspace, two songs with Shows, Perform off.
+- **Do:** Turn Perform on and play a short mix: deck 1, deck 2 crossfaded in, a loop and a seek, a pause, an eject and another song. While it plays, open the new `Set yyyy-MM-dd HH:mm` Show (folder `Sets`) in the Show Manager.
+- **Verify:**
+- ☐ The set has a Deck 1 and a Deck 2 track with one clip per song play, growing while you play. It is read-only (PERFORM badge), and its cursor stays at the end of the growing clips.
+- ☐ Each clip's name stays readable in its top strip. The yellow markers (loops, seeks, pauses), the green fade line and the darker part where the deck was not the master deck match what you did.
+- **Do:** Turn Perform off and save the workspace.
+- **Verify:**
+- ☐ The set is editable, ends where you stopped, and is in the saved workspace
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+### 47.3 Replaying a set [DMX] [HIGH RISK]
+
+- **Prerequisite:** Perform off, the set from 47.2, output you can watch.
+- **Do:** Play the set from its start in the Show Manager and watch the crossfade, the loop, the pause and the song change.
+- **Verify:**
+- ☐ The lighting replays each song from the part you played, with the loop and the seek, and both songs overlap and fade as they did live
+- ☐ During a recorded pause the song's lighting holds (Chasers and EFX stop) and goes on from there after the pause
+- ☐ Each song's recorded VC presses replay only while its deck was the master deck, and no song audio plays over the set
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+### 47.4 Nested song clips in the Show Manager [MEDIUM RISK]
+
+- **Do:** In a set, double-click a song clip, then press the **◀ set name** button next to the Show name. Drag a song clip's left edge later and then earlier, then undo.
+- **Verify:**
+- ☐ The song Show opens, and the back button returns to the set
+- ☐ The left edge moves where the song starts; markers, fade and shading stay at the same set times, and the edge stops at the song's start. Undo restores the clip exactly.
+- ☐ While the set plays, the left-edge trim is refused
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+### 47.5 Clip names at small UI scales [LOW RISK]
+
+- **Do:** Look at a set with fades and markers at the smallest UI scaling, at 0.6 and at 1.0.
+- **Verify:**
+- ☐ At every scale the first line of each clip's name is readable above the fade line, shading and markers
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+### 47.6 DJ Manager deck table [VDJ] [LOW RISK]
+
+- **Do:** With Perform on and two decks loaded, play, pause and eject decks, and move the crossfader, its hamster and disable switches and the volume faders in VirtualDJ.
+- **Verify:**
+- ☐ **Mix** shows each deck's level (volume × crossfader), 0 % on the closed side, the faders alone when the crossfader is disabled
+- ☐ **Perform** shows the Show each deck drives: ★ in yellow for the master deck, green while playing, orange while paused, a dash with Perform off
+
+| Reviewer | Date | Result | Notes |
+|----------|------|--------|-------|
+| | | Pending | |
+
+---
+
+## Appendix: automated evidence
+
+> Build and test logs from the merges above, kept for traceability. Nothing here is a manual check.
+
+#### §40: Correction validation (2026-10-21)
+
+> Fresh inspection found a native-read cancellation deadlock (four-second timeout versus a passing release-before-teardown control), intermittent short-window wheel failures, and a full VC cadence failure (197 passed, 1 failed). These remain recorded failures, not replaced by the earlier green summary.
+>
+> ScriptRunner now acquires universe ownership through a private cancellation-aware InputOutputMap path. Script teardown still joins the worker, destroys its engine on that worker, retires audio subscriptions and releases only its own output. The new parameterized production `Script::postRun` regression passes both blocked-read and nonblocked controls under a four-second process budget, with independent output retained.
+>
+> Wheel failures were fixture admission: fresh offscreen settings auto-scale to 0.9 and open the modal first-use scaling notice above the editor. A recorded event filter identified `QQuickPopupItem`, not the settings Flickable, as the recipient. Reusing the written settings passed without a code change. The shared App fixture now acknowledges only that named notice before UI interaction. Timestamp experiments failed and were removed. An intermediate full run (560 passed, 19 failed, 8 skipped) showed why acknowledging it only in the late settings test was insufficient. No production scrolling change, relaxed assertion or input retry was used.
+>
+> Completed build, exit 0: `cmake --build build --target qlcplus5 upstreamintegration_test mcp_script_tool_test audioconsumers_test vcaudiotriggers_test chaser_test chaserstep_test chaserrunner_test mcp_uimanager_preset_test mcp_dispatch_smoke_test -j8`. Subsequent changed-test rebuilds passed, including final `cmake --build build --target upstreamintegration_test -j8`.
+>
+> Final rebuilt native executions, each exit 0 with `-maxwarnings 0`, offscreen/software, fresh isolated settings/HOME/TMPDIR and owned output directories: full `upstreamintegration_test` 579 passed / 8 opt-in screenshot skips; incoming-change selection 59 passed; two separate final settings selections 4 passed each; `audioconsumers_test` 667 passed / 2 opt-in media/replay skips; dedicated `scriptRunnerNativeStop` 4 passed; `vcaudiotriggers_test` 198 passed; focused `visualCadence` 4 passed; script tools 79; chaser 23; chaserstep 12; chaserrunner 23; presets 6; dispatch 35.
+>
+> Comparable baseline: exact first parent `b92031004af1ef78c7b15b7e731d78f36c2d64c0` was exported without switching branch/worktree and built separately with matching Qt/compiler flags and independent dependency binaries. Serial full baseline/current runs produced 197/1 versus 198/0; baseline's unchanged low-latency assertion observed 39 signals / 40 polls. Awake and suspension-inclusive durations matched (84.34s baseline, 84.48s current). Both focused runs passed 40/40. Thus that failure is runtime-demonstrated before the merge, not repaired or evidence of reliable cadence. The first baseline attempt had an unexplained awake/Qt-time discrepancy and is retained as supplemental, not the decisive comparison.
+>
+> Correction artifacts: `build/upstream-correction-2026-10-21/executions.json` records every retained selection, exact argv/environment/cwd, raw inner exit, continuous-time budget, failures/skips and executable/engine/audio hashes before and after execution. Named build/test logs and `baseline-identity.json` retain the red attempts and matched baseline provenance.
+>
+> All ten human checks above remain pending. Eight screenshot fixtures, media export, ten-minute replay, physical input/display feel, audio/output hardware and real-show cadence remain unverified. No running application or live workspace was changed.
+
+#### §41: Superseding classification note, 2026-10-23
+
+The earlier statement “Their cause and whether they predate the integrated merge remain unverified” records the initial observation, now superseded by E9/E10 diagnosis and independent inspection in the [verification blueprint](/Users/abossard/.minime/abossard/_qlcplus/blueprints/2026-10-23-upstream-master-a706b2adf-verification.md#e9-bounded-preview-width-classification-correction-2026-10-23). The fifteen failures are a pre-existing fork production/test contract mismatch: fork commit `6010206a1` introduced a three-viewport preview cache while the tests retained one-viewport width assertions. Relevant production QML (ShowItem, ShowManager and HeaderAndCursor) and integration-test blobs are identical at merge HEAD `e1dfd6a59b48c76d21601d6f430ef09347943a1b` and its first parent `6010206a1a668ce51208019e36482bc4ff0ad321`, not newly changed by this upstream integration.
+
+Retained [diagnostic output](build/preview-width-correction-20261023/diagnostic.log) and [summary](build/preview-width-correction-20261023/summary.json) report `viewport=991`, `preview=1982.07` for Time/VDJ or `1982.03` for BPM, with `viewChunk=0`, `contentX=0` and the correct timeline identity. At the left edge, clamping the three-viewport cache leaves roughly two viewport widths, explaining the unchanged failing bound. E10 independently reproduced these values and verified the relevant first-parent blob identities.
+
+All prior failures remain failures: full suite `564 passed, 15 failed, 8 skipped`; focused run `23 passed, 15 failed, 0 skipped`; diagnostic `17 passed, 15 failed, 0 skipped` (each inner exit 15). The full UI suite is not green. No full first-parent suite was executed, so this localized attribution does not establish complete pre-merge runtime equivalence or approval of the cache policy. No production/test source changes or weakened assertions were made. Reconciling the fork cache policy and its tests is explicitly out of the current integration scope and requires separate owner scope. All existing human checks and sign-offs remain unchanged and pending where previously pending.
+
+#### §42: Automated evidence, 2026-10-25
+
+- Final application and affected-suite build: exit `0`. `qlcplus5` includes the upstream QPointer changes and fork MCP/UI consumers. The existing Release configuration and warning exceptions were unchanged. An earlier build attempt stopped on missing Qt headers in `scene_test`; an unchanged retry and the final batch completed successfully, without dependency installation or source changes for that transient failure.
+- Build command from the repository root:
+
+```sh
+cmake --build build --target qlcplus5 fixture_test doc_test fadechannel_test genericdmxsource_test rgbmatrix_test huematrix_test scene_test script_test upstreamintegration_test mcp_vc_query_filter_test mcp_vc_validation_test mcp_vc_authoring_apply_tools_test mcp_io_tools_test mcp_query_tools_test -j8
+python3 build/upstream-integration-20261025/run-tests.py
+```
+
+- Native execution used Qt `6.12.0`, offscreen/software rendering, per-suite isolated HOME/config/runtime directories, `-maxwarnings 0`, source-test working directories for relative engine resources, and owned scratch working directories for MCP/UI tests. [Final build log](build/upstream-integration-20261025/build-final.log), [exact per-suite commands, working directories, exits and totals](build/upstream-integration-20261025/results.json).
+
+| Suite | Passed | Failed | Skipped | Exit |
+|-------|--------|--------|---------|------|
+| fixture | 29 | 0 | 0 | 0 |
+| doc | 30 | 0 | 0 | 0 |
+| fadechannel | 14 | 0 | 0 | 0 |
+| genericdmxsource | 5 | 0 | 0 | 0 |
+| rgbmatrix | 27 | 0 | 0 | 0 |
+| huematrix | 257 | 0 | 0 | 0 |
+| scene | 20 | 0 | 0 | 0 |
+| script | 3 | 0 | 0 | 0 |
+| mcp_vc_query_filter | 65 | 0 | 0 | 0 |
+| mcp_vc_validation | 76 | 0 | 0 | 0 |
+| mcp_vc_authoring_apply_tools | 47 | 0 | 0 | 0 |
+| mcp_io_tools | 60 | 0 | 0 | 0 |
+| mcp_query_tools | 94 | 0 | 0 | 0 |
+| upstreamintegration | 564 | 15 | 8 | 15 |
+
+- Native aggregate: `1291 passed, 15 failed, 8 skipped`. The batch runner exits `1` because the full UI suite exits `15`. All fifteen failures remain `timelineViewport` rows at `preview->width() <= width`; the eight skips are opt-in VC screenshots requiring `QLC_VC_VISUAL_DIR`. The preview-cache attribution in section 41 remains applicable: ShowItem.qml, ShowManager.qml, HeaderAndCursor.qml and the integration-test source are byte-identical to first parent `4bc0df66e`. No width assertions or cache policy were changed. This is not a green full UI suite or a full first-parent runtime comparison.
+- Fork split-address repair: HUEMatrix's cached pixel plan now resolves each channel with upstream `Fixture::channelAddress`; MCP universe deletion uses `Fixture::lastUniverse`. The new parameterized `C2_splitPixelPlan` regression failed before the HUE repair (`4 passed, 1 failed`, exit `1`, pixel mode selected universe `0` instead of `1`) and all three mode rows pass afterward. The existing MCP cross-universe deletion test now covers fill and whole-pixel modes and the changed fixture API. [Pre-repair regression](build/upstream-integration-20261025/hue-regression-before.log), [final HUE log](build/upstream-integration-20261025/huematrix.log), [final MCP I/O log](build/upstream-integration-20261025/mcp_io_tools.log).
+- Conflict seams retain the cached first FadeChannel index while adopting upstream resolved-address semantics, guard and release old VC projections while preserving fork QML contexts, retain fork selection/authoring admission, and combine upstream frame/color live actions with fork editor history and recording. Linux package installation keeps the fork's Qt6/MCP architecture matrix and dependency verification while adding upstream mirror retries.
+- Workflow YAML parses and every shell run block passes `bash -n`. Linux CI/package execution, v4, Windows, physical DMX, Android document providers, Tardis peers and native desktop focus are not verified by this macOS/offscreen run.
+- Review parser tests: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `49 passed`, exit `0`. Both native-canvas and TypeScript parsers recognize six new cases and eleven unique pending checks. All preceding parsed sections are identical. Original document prefix preserved: `184943` bytes, SHA-256 `0f1423f1dc6b282ba1835af7a3914c5a50e8e52a240272ba2bac0a25951f957e`. [Parser tests](build/upstream-integration-20261025/review-parser-tests.log), [byte and parser preservation check](build/upstream-integration-20261025/review-preservation.log).
+
+#### §43: Automated evidence, 2026-10-26
+
+- Application, Peperoni plugin and affected-suite builds completed with exit `0`. Build commands from the repository root:
+
+```sh
+cmake --build build --target qlcplus5 peperoni chaserrunner_test chaser_test sequence_test function_test upstreamintegration_test mcp_vc_query_filter_test mcp_vc_authoring_apply_tools_test mcp_query_tools_test -j8
+cmake --build build --target chaserrunner_test mcp_idempotency_test -j8
+cmake --build build --target qlcplus5 peperoni upstreamintegration_test -j8
+python3 build/upstream-integration-20261026/run-tests.py
+```
+
+- Build evidence: [initial Peperoni compile failure](build/upstream-integration-20261026/build.log), [affected-target build](build/upstream-integration-20261026/build-final.log), [regression-target build](build/upstream-integration-20261026/build-regressions.log), [final application/UI build](build/upstream-integration-20261026/build-ui-repair.log). The incoming Peperoni implementation left `line` unused on macOS, where bulk output is excluded. A single `Q_UNUSED(line)` fixes the warning-as-error failure without changing transfers. The plugin links Homebrew `libusb-1.0.0.dylib`. Existing compiler/linker warning policy was not relaxed.
+- Native execution used Qt `6.12.0`, offscreen/software rendering, isolated per-suite HOME/config/runtime directories, source-test working directories for engine resources and owned scratch directories for UI/MCP suites. The runner uses sleep-inclusive macOS deadlines, preserves true exit codes and reports timeouts separately. No suite timed out. [Commands, exits, totals and failing rows](build/upstream-integration-20261026/results.json), [runner output](build/upstream-integration-20261026/native-tests.log).
+
+| Suite | Passed | Failed | Skipped | Exit |
+|-------|--------|--------|---------|------|
+| chaserrunner | 37 | 0 | 0 | 0 |
+| chaser | 23 | 0 | 0 | 0 |
+| sequence | 9 | 0 | 0 | 0 |
+| function | 37 | 0 | 0 | 0 |
+| mcp_vc_query_filter | 65 | 0 | 0 | 0 |
+| mcp_vc_authoring_apply_tools | 47 | 0 | 0 | 0 |
+| mcp_query_tools | 94 | 0 | 0 | 0 |
+| mcp_idempotency | 96 | 0 | 0 | 0 |
+| upstreamintegration | 605 | 15 | 8 | 15 |
+
+- Native aggregate: `1013 passed, 15 failed, 8 skipped`; the runner exits `1`, not green. All fifteen failures are the same `timelineViewport` rows at `preview->width() <= width` recorded in section 42. The affected ShowItem.qml, ShowManager.qml and HeaderAndCursor.qml files and the complete viewport test methods remain unchanged from first parent `38d57ee04`. The eight skips require opt-in `QLC_VC_VISUAL_DIR`. This is not a fresh first-parent runtime comparison, Windows run, hardware test or native desktop-focus check.
+- Chaser resolution adopts upstream beat-clock alignment and drift-free chaining, retaining only the fork's child-duration argument. The parameterized `C2_childDuration` covers six Time/Beats duration combinations; the incoming whole/fractional, early/late beat and mid-beat-start tests also pass.
+- Parameterized `C3_beatEditing` covers 31 sixteenth fractions, decimal/comma-decimal/mixed inputs, whitespace, zero, infinity and rejected invalid values through the actual QML component. It checks format round-trips, functional count/subdivision controls and absence of QML warnings. A focused pre-repair run exposed the fork calling static invokables on the uncreatable `QLCFunction` type (`42 passed, 1 failed`, including TypeError warnings). Two instance forwarding methods on FunctionManager now reuse the existing engine helpers. The focused rerun is `43 passed, 0 failed`, exit `0`; all 41 rows also pass in the full suite. [Before helper repair](build/upstream-integration-20261026/beat-editing-before-helper-fix.log), [focused rerun](build/upstream-integration-20261026/beat-editing-focused.log).
+- Review parser suites: `npm test -- src/parser.test.ts src/parser-real.test.ts` from `tools/manual-review`, `50 passed`, exit `0`. Native-canvas parsing also confirms six new cases and ten unique pending checks. All preceding parsed sections and the original `193535` document bytes remain unchanged, SHA-256 `74dfffbf710efc684eb6693769859d7aa8f8233d0f3e080df12e48c5211d2f99`. [Parser tests](build/upstream-integration-20261026/review-parser-tests.log), [preservation evidence](build/upstream-integration-20261026/review-preservation.json).
+- Windows palette behavior, MIDI hardware feedback, Peperoni firmware/driver combinations, Linux permissions, Android packaging and perceptual beat alignment remain unsigned. No live QLC+ process or unsaved workspace was restarted or modified.
+
+#### §44: Automated evidence, 2026-10-27
 
 - Application and affected-suite builds exited `0`, using the existing Release configuration and compiler warning policy. The final application includes Qt3D and fork MCP consumers. Existing unnecessary-virtual and macOS deployment-target versus Homebrew Qt warnings remain visible in the logs. Commands from the repository root:
 
@@ -2861,3 +3175,78 @@ python3 build/upstream-integration-20261027/run-tests.py
 - Added parameterized automation checks eight emitter preview colors, WAUV QML additive swatches and unchanged wheel mode, plus generic-item custom-color XML round-trip and reset omission. These checks do not establish perceptual color matching, native pointer interaction or actual 3D material rendering.
 - Both review parser suites pass `51` tests, exit `0`. Native-canvas and TypeScript parsing independently verify six new cases, eleven unique pending checks and unchanged prior parsed sections. The original `216603` document bytes, including entry-time uncommitted edits, remain an exact prefix with SHA-256 `6de427552f65ef77eac6235674eeaabaf04675e3f1d9e3197ed31ce2e4e3ee4b`. [Parser results](build/upstream-integration-20261027/review-parser-tests.log), [prefix and plan preservation](build/upstream-integration-20261027/review-preservation.log).
 - Physical DMX, audible alignment, rendered 3D materials, Tardis peers, other platforms and native desktop focus remain unverified and unsigned. No running QLC+ process or unsaved workspace was restarted or modified.
+
+#### §44: Upstream freshness and automated recheck, 2026-10-28
+
+- Fetched `mcallegari/qlcplus:master` through the `upstream` remote and independently checked its advertised tip: `fb21860d8cb73dd817b2a9b0e3cab25830790fa6`. The current `mcp-server` tip, `8c669f769dd4cd0e018291a61cc2353f5c39cd46`, already merges that exact commit as its second parent. There are zero incoming commits, so no additional merge, conflict resolution or refactor was performed. The local `origin` remote is the fork, `abossard/qlcplus`, not the upstream repository.
+- Rebuilt `qlcplus5` and all fifteen section 44 native suites, exit `0`, using the existing configuration and warning policy. EFX and MainView3D implementation/header files remain byte-identical to upstream. Existing compiler and macOS deployment-target warnings remain in the [build log](build/upstream-verification-20261028/build.log). Commands from the repository root:
+
+```sh
+cmake --build build --target qlcplus5 efx_test efxfixture_test rgbmatrix_test huematrix_test monitorproperties_test showrunner_test show_test showcommandtrack_test function_test upstreamintegration_test mcp_show_tools_test mcp_stage_tools_test mcp_query_tools_test mcp_vc_query_filter_test mcp_vc_validation_test -j8
+python3 build/upstream-verification-20261028/run-tests.py
+```
+
+- Fresh native aggregate: `2135 passed, 15 failed, 9 skipped`; batch exit `1`, not green. All fourteen engine/MCP suites passed; `upstreamintegration` returned `15` with `613 passed, 15 failed, 8 skipped`. The fifteen failures exactly match the previously recorded `timelineViewport` rows asserting `preview->width() <= width`; no new failure names appeared. Eight UI skips require `QLC_VC_VISUAL_DIR`; the EFX skip records intentionally allowed duplicate fixtures. No timeout occurred. Execution used isolated per-suite settings, working directories and offscreen/software rendering, not the running desktop application. [Commands, environments, binary hashes, exits, totals, failures and skips](build/upstream-verification-20261028/results.json), [native runner output](build/upstream-verification-20261028/native-tests.log).
+- This recheck adds no human cases because the upstream tip is unchanged and section 44 already covers its changes. Existing checkbox states, sign-offs and all `226614` entry-time bytes, including preexisting uncommitted edits, are preserved. Original-prefix SHA-256: `af2c2095d7ab4dce801e17661a150b3287e8023001da051b307aadf5d14046bc`. Both review parser suites passed `51` tests, exit `0`; native-canvas and TypeScript parsing confirmed the complete parsed plan is unchanged. [Parser results](build/upstream-verification-20261028/review-parser-tests.log), [prefix and parsed-plan preservation](build/upstream-verification-20261028/review-preservation.log).
+- Hardware, perceptual colors/audio, rendered 3D materials, peer behavior, other platforms and native desktop interaction remain unverified and unsigned. No live QLC+ process or unsaved workspace was restarted or modified.
+
+#### §45: Automated integration evidence, 2026-10-29
+
+- Fetched `mcallegari/qlcplus:master` using the `upstream` remote. Its advertised tip was `302a18c98761495aaccbb8f4d1012aa56a88d2c2`, containing PR #2228 and its single implementation commit `f3acd8394`. The local `origin` remote remains `abossard/qlcplus`. Merge `b435e1108354b23d8ce74f3b97e589ae7c146a15` has exact parents `8c669f769dd4cd0e018291a61cc2353f5c39cd46` and `302a18c98761495aaccbb8f4d1012aa56a88d2c2`.
+- The merge changes only `return` to upstream's `continue` in `ImportManager::updateFunctionsTree()`. No conflicts or refactors were needed. Fork HUE script loading and both HUE function-import/dependency cases remain unchanged. The merge commit excludes this checklist and the new regression/parser tests; those remain unstaged for review.
+- Rebuilt `upstreamintegration_test` and its `qlcplus5` application dependency in the existing Release configuration, exit `0`, without changing warning policy. [Pre-merge successful build](build/upstream-integration-20261029/build-before-retry.log), [post-merge build](build/upstream-integration-20261029/build-after.log). Commands from the repository root:
+
+```sh
+cmake --build build --target upstreamintegration_test -j8
+python3 build/upstream-integration-20261029/run-tests.py before C2_importFunctionVisibility timelineViewport
+cmake --build build --target upstreamintegration_test -j8
+python3 build/upstream-integration-20261029/run-tests.py focused C2_importFunctionVisibility
+python3 build/upstream-integration-20261029/run-tests.py full
+cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
+```
+
+| Execution | Passed | Failed | Skipped | Binary exit |
+|-----------|--------|--------|---------|-------------|
+| Before merge: import regression and viewport baseline | 21 | 21 | 0 | 21 |
+| After merge: import regression | 12 | 0 | 0 | 0 |
+| After merge: full upstreamintegration suite | 623 | 15 | 8 | 15 |
+| Review parser suites | 52 | 0 | 0 | 0 |
+
+- The ten new parameterized import rows cover hidden functions first, middle, last, absent and all hidden, each with and without search filtering. They assert visible identities and restored checked state. Six rows fail before the merge and all ten pass afterward; Qt's initialization and cleanup account for the two additional passes in the focused total. [Before command/environment/hash/results](build/upstream-integration-20261029/before.json), [focused results](build/upstream-integration-20261029/focused.json).
+- The full native run is **not green**. Its fifteen failures exactly match the `timelineViewport` failure names and width assertions reproduced before the merge. Eight screenshot cases require opt-in `QLC_VC_VISUAL_DIR`. No new failure names appeared, no timeout occurred, and no existing assertion was weakened. This is a focused pre-merge baseline comparison, not a full first-parent suite run. [Full results](build/upstream-integration-20261029/full.json), [full log](build/upstream-integration-20261029/full.log).
+- Native execution used isolated per-run HOME, config, runtime, TMPDIR and working directories with offscreen/software rendering and sleep-inclusive macOS deadlines. No running QLC+ process or unsaved workspace was restarted or modified. Native desktop interaction, visual judgment, hardware and other platforms remain unverified and unsigned.
+- Both review parser suites passed `52` tests, exit `0`. Native-canvas and TypeScript parsing independently preserve all prior parsed sections and confirm one new case with two unique pending checks. All `229622` entry-time bytes, including preexisting uncommitted edits, remain an exact prefix with SHA-256 `42e2649e5ad8418ecf94e425f2b441de51fb0071352e382607284a6dd1b509a1`. [Parser results](build/upstream-integration-20261029/review-parser-tests.log), [prefix and parsed-plan preservation](build/upstream-integration-20261029/review-preservation.json).
+
+#### §46: Automated integration evidence, 2026-10-30
+
+- Fetched `mcallegari/qlcplus:master` through the `upstream` remote at `4cd37df238603d007a0e208ece8a77d0ac21db25`, containing PR #2204 (fixture-channel repatching) and PR #2230 (native-client Simple Desk absolute addresses and nonexistent-universe guard). `origin` remains the fork `abossard/qlcplus`.
+- Local merge `a7e4eeb91ae113f8216569348d04c717707b6c0e` has exact parents `860c7551f432592b93792d58c7c70a780f95242f` and `4cd37df238603d007a0e208ece8a77d0ac21db25`. Nothing was pushed. Only the eight incoming source/test paths were committed. Existing uncommitted checklist and test edits remain outside the merge commit.
+- The only conflict was competing end-of-file tests in `engine/test/doc/doc_test.cpp`. Both upstream's five fixture regressions and all fork audio tests were retained byte-for-byte, with the fork's `QTEST_GUILESS_MAIN` event-loop entry point. Production files match the automatic merge without additional refactors or repairs; `qmlui/simpledesk.cpp` is byte-identical to upstream. [Resolution preservation](build/upstream-integration-20261030/merge-preservation.json).
+- Rebuilt the affected engine tests, native application (`qlcplus5`, a dependency of the integration test), full native integration target and MCP fixture-deletion target successfully, without changing warning policy. Both builds retain existing linker warnings about Homebrew Qt libraries targeting macOS 27 while this build targets macOS 26. [Before build](build/upstream-integration-20261030/build-before.log), [after build](build/upstream-integration-20261030/build-after.log), [MCP build](build/upstream-integration-20261030/build-mcp.log).
+
+```sh
+cmake --build build --target doc_test universe_test upstreamintegration_test -j8
+python3 build/upstream-integration-20261030/run-tests.py before-doc build/engine/test/doc/doc_test
+python3 build/upstream-integration-20261030/run-tests.py before-universe build/engine/test/universe/universe_test
+python3 build/upstream-integration-20261030/run-tests.py before-ui build/qmlui/test/upstreamintegration/upstreamintegration_test
+# Repeat the build after merging, then run with after-doc, after-universe and after-ui.
+cmake --build build --target mcp_delete_tools_test -j8
+python3 build/upstream-integration-20261030/run-tests.py after-mcp-delete build/mcp/test/mcp_delete_tools_test
+cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
+```
+
+| Execution | Passed | Failed | Skipped | Binary exit |
+|-----------|--------|--------|---------|-------------|
+| Before merge: Doc | 30 | 0 | 0 | 0 |
+| After merge: Doc, including five upstream fixture regressions | 35 | 0 | 0 | 0 |
+| Before merge: Universe | 26 | 0 | 0 | 0 |
+| After merge: Universe | 26 | 0 | 0 | 0 |
+| Before merge: full upstreamintegration suite | 656 | 15 | 8 | 15 |
+| After merge: full upstreamintegration suite | 656 | 15 | 8 | 15 |
+| After merge: MCP deletion tools | 23 | 0 | 0 | 0 |
+| Review parser suites | 53 | 0 | 0 | 0 |
+
+- The full native UI suite is **not green**. All fifteen failing `timelineViewport` rows and their `preview->width() <= width` assertions exactly match the freshly built first-parent baseline; no new failures appeared. Eight opt-in screenshot rows remain skipped without `QLC_VC_VISUAL_DIR`. Both runs completed without timeout. [Before UI results](build/upstream-integration-20261030/before-ui.json), [after UI results](build/upstream-integration-20261030/after-ui.json), [baseline comparison](build/upstream-integration-20261030/comparison.json).
+- All five incoming Doc regressions pass: fixture move, delete/LTP zeroing, rename preserving values, universe-end straddling and a move temporarily overlapping another fixture. Existing fork audio tests also pass. [Doc results](build/upstream-integration-20261030/after-doc.json), [Universe results](build/upstream-integration-20261030/after-universe.json), [MCP results](build/upstream-integration-20261030/after-mcp-delete.json).
+- Review parser suites pass `53` tests. Independent native-canvas parsing preserves all previous sections and check identities, recognizes cases `46.1` and `46.2`, and confirms four unique pending checks. The TypeScript tests additionally verify both `DMX` tags. The first `234754` entry-time bytes remain unchanged with SHA-256 `4880c542f508ccde08ac85e84cee36e1d8e5b9d7379476107528c007ec8937f4`; protected native tests remain byte-identical and prior parser edits are preserved. [Parser results](build/upstream-integration-20261030/review-parser-tests.log), [review preservation](build/upstream-integration-20261030/review-preservation.json).
+- Native tests used isolated HOME/config/runtime/TMPDIR and working directories, offscreen/software rendering and sleep-inclusive macOS deadlines. No live QLC+ process or unsaved workspace was restarted or modified. Physical output, native client/server interaction, visual judgment and other platforms remain unverified and unsigned.
