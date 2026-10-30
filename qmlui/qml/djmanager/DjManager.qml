@@ -218,6 +218,8 @@ Rectangle
                 Text { text: "BPM"; color: "#ccc"; Layout.preferredWidth: 56; font.pixelSize: 11; font.bold: true }
                 Text { text: "Pos"; color: "#ccc"; Layout.preferredWidth: 116; font.pixelSize: 11; font.bold: true }
                 Text { text: "Vol"; color: "#ccc"; Layout.preferredWidth: 44; font.pixelSize: 11; font.bold: true }
+                Text { text: "Mix"; color: "#ccc"; Layout.preferredWidth: 44; font.pixelSize: 11; font.bold: true }
+                Text { text: "Perform"; color: "#ccc"; Layout.preferredWidth: 96; font.pixelSize: 11; font.bold: true }
             }
         }
 
@@ -292,6 +294,33 @@ Rectangle
                         text: Math.round(model.volume * 100) + "%"
                         color: "#888"
                         font.pixelSize: 12
+                        horizontalAlignment: Text.AlignRight
+                    }
+                    // volume × crossfader: the level the deck's Show plays at
+                    Text {
+                        objectName: "deckMixWeight"
+                        Layout.preferredWidth: 44
+                        text: Math.round(model.weight * 100) + "%"
+                        color: model.weight > 0 ? "#eee" : "#666"
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignRight
+                    }
+                    // the Show Perform drives from this deck; ★ the dominant one
+                    Text {
+                        objectName: "deckDrive"
+                        Layout.preferredWidth: 96
+                        text: model.driveShowId >= 0
+                              ? ("Show " + model.driveShowId + (model.driveDominant ? " ★" : ""))
+                              : "—"
+                        color: {
+                            switch (model.driveState) {
+                            case "Live":      return model.driveDominant ? "#f1c40f" : "#2ecc71"
+                            case "Suspended": return "#e67e22"
+                            default:          return "#666"
+                            }
+                        }
+                        font.pixelSize: 12
+                        font.bold: model.driveDominant
                         horizontalAlignment: Text.AlignRight
                     }
                 }

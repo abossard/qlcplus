@@ -90,6 +90,10 @@ public:
      *  one plays the commands it crosses, a backward one repositions. */
     void requestSeek(quint32 ms, bool forward = false);
 
+    /** Under External: its last write played the position ms, with nothing
+     *  a seek stopped still to restart */
+    bool reached(quint32 ms) const;
+
 private:
     const Doc *m_doc;
 
@@ -154,6 +158,8 @@ private:
     QList < QPair<Function *, quint32> > m_runningQueue;
 
     QSet<Function *> m_seekRestartFunctions;
+    /** The last write waited for one of them to stop */
+    bool m_seekRestartPending = false;
 
     /** A Scene this Show still owns, whose clip is active at newTime, keeps
      *  running, and so does a nested Show, whose clock moves; every other

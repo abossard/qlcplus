@@ -25,6 +25,8 @@
 #include <QSettings>
 #include <QSignalSpy>
 
+#include <algorithm>
+
 static Doc *createDoc()
 {
     return new Doc(nullptr, 4);
@@ -931,6 +933,93 @@ void DjManager_Test::deckTableShowsTheMixWeight()
         moved << 1;
     QCOMPARE(rows, moved);
 
+    delete doc;
+}
+
+void DjManager_Test::deckTableShowsWhatPerformDrives_data()
+{
+    QTest::addColumn<bool>("perform");
+    QTest::addColumn<int>("activeDeck");      // 0-based
+    QTest::addColumn<int>("dominantDeck");    // 1-based, 0 for none
+
+    QTest::newRow("Perform off") << false << 0 << 0;
+    QTest::newRow("deck 1 active") << true << 0 << 1;
+    QTest::newRow("deck 2 active") << true << 1 << 2;
+}
+
+void DjManager_Test::deckTableShowsWhatPerformDrives()
+{
+    QFETCH(bool, perform);
+    QFETCH(int, activeDeck);
+    QFETCH(int, dominantDeck);
+
+    Doc *doc = createDoc();
+    QQuickView view;
+    VdjBridge bridge;
+    bridge.setDoc(doc);
+    ShowFactory *factory = bridge.showFactory();
+
+    DjManager mgr(&view, doc, &bridge, factory);
+    mgr.setDeckCount(2);
+    QAbstractItemModel *deckModel = mgr.deckModel();
+    const QHash<int, QByteArray> roles = deckModel->roleNames();
+    QCOMPARE(roles.value(DjDeckModel::DriveShowRole), QByteArray("driveShowId"));
+    QCOMPARE(roles.value(DjDeckModel::DriveStateRole), QByteArray("driveState"));
+    QCOMPARE(roles.value(DjDeckModel::DriveDominantRole), QByteArray("driveDominant"));
+
+    QList<Show *> shows;
+    for (const QString &name : { QStringLiteral("Show A"), QStringLiteral("Show B") })
+    {
+        Show *s = new Show(doc); s->setName(name); s->setSyncSource(1); doc->addFunction(s);
+        Scene *sc = new Scene(doc); doc->addFunction(sc);
+        Track *t = new Track(Function::invalidId(), s); s->addTrack(t);
+        ShowFunction *sf = t->createShowFunction(sc->id());
+        sf->setStartTime(0); sf->setDuration(300000);
+        shows << s;
+    }
+    factory->registerMapping("/m/a.mp3", shows[0]->id());
+    factory->registerMapping("/m/b.mp3", shows[1]->id());
+
+    auto deckTrigger = [&](int idx, const QString &t, const QVariant &v) {
+        QMetaObject::invokeMethod(&bridge, "onDeckTrigger",
+            Q_ARG(int, idx), Q_ARG(QString, t), Q_ARG(QVariant, v));
+        QMetaObject::invokeMethod(&bridge, "onTickEnded");
+    };
+    deckTrigger(0, "get_filepath", QVariant("/m/a.mp3"));
+    deckTrigger(0, "loaded", QVariant("on"));
+    deckTrigger(1, "get_filepath", QVariant("/m/b.mp3"));
+    deckTrigger(1, "loaded", QVariant("on"));
+    deckTrigger(0, "play", QVariant("on"));
+    deckTrigger(1, "play", QVariant("on"));
+    doc->masterTimer()->start();
+    master(bridge, 0);
+    mgr.setPerformMode(perform);
+    QSignalSpy dataSpy(deckModel, &QAbstractItemModel::dataChanged);
+    master(bridge, activeDeck);
+    QTest::qWait(60);
+
+    for (int row = 0; row < 2; ++row)
+    {
+        const QModelIndex index = deckModel->index(row, 0);
+        const int showId = perform ? int(shows[row]->id()) : -1;
+        QCOMPARE(deckModel->data(index, DjDeckModel::DriveShowRole).toInt(), showId);
+        QCOMPARE(deckModel->data(index, DjDeckModel::DriveStateRole).toString(),
+                 perform ? QStringLiteral("Live") : QString());
+        QCOMPARE(deckModel->data(index, DjDeckModel::DriveDominantRole).toBool(), dominantDeck == row + 1);
+    }
+    // QML hears of the rows whose dominance moved
+    if (perform && activeDeck == 1)
+    {
+        QList<int> rows;
+        for (const QList<QVariant> &args : dataSpy)
+            if (args[2].value<QList<int>>().contains(DjDeckModel::DriveDominantRole))
+                rows << args[0].toModelIndex().row();
+        std::sort(rows.begin(), rows.end());
+        rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+        QCOMPARE(rows, QList<int>({ 0, 1 }));
+    }
+
+    doc->masterTimer()->stop();
     delete doc;
 }
 

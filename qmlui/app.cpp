@@ -325,6 +325,17 @@ void App::startup()
     m_djSetRecorder = new DjSetRecorder(m_doc, m_vdjBridge->djFsm(), m_vdjBridge->showFactory(), this);
     connect(m_vdjBridge, &VdjBridge::performModeChanged, m_djSetRecorder,
             [this]() { m_djSetRecorder->setRecording(m_vdjBridge->performMode()); });
+    // the shown set under way puts its record head on the cursor, unless it plays;
+    // the last head, as Perform ends, is where the editable set takes input
+    connect(m_djSetRecorder, &DjSetRecorder::recordHeadChanged, m_showManager,
+            [this](quint32 setId, quint32 ms) {
+                const Function *shown = m_doc->function(quint32(m_showManager->currentShowID()));
+                if (shown == nullptr || shown->id() != setId || shown->isRunning())
+                    return;
+                QMetaObject::invokeMethod(m_showManager, "slotTimeChanged", Q_ARG(quint32, ms));
+                if (m_djSetRecorder->isRecording() == false)
+                    m_showCommandRecorder->setHostCursor(setId, ms);
+            });
 
     // DJ Manager — standalone view for VDJ status + auto-created Shows.
     m_djManager = new DjManager(this, m_doc, m_vdjBridge,

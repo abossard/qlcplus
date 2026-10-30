@@ -1141,6 +1141,82 @@ void ShowRunner_Test::pausedPerformAdoptionKeepsAudioPaused()
     runner.stop();
 }
 
+void ShowRunner_Test::pausedShowStopResumesNothing_data()
+{
+    QTest::addColumn<QString>("type");
+
+    QTest::newRow("an Audio") << QString("audio");
+    QTest::newRow("a Scene") << QString("scene");
+    QTest::newRow("a Collection") << QString("collection");
+}
+
+void ShowRunner_Test::pausedShowStopResumesNothing()
+{
+    QFETCH(QString, type);
+
+    // a paused Show stops: what it paused stops paused, an Audio silent through its fade out
+    Doc doc(nullptr);
+    auto *show = new Show(&doc);
+    doc.addFunction(show);
+    Function *function = nullptr;
+    Function *child = nullptr;
+    AudioRendererNull *renderer = nullptr;
+    if (type == "audio")
+    {
+        auto *a = new Audio(&doc);
+        a->setFadeOutSpeed(5000);
+        doc.addFunction(a);
+        renderer = attachNullRenderer(a, false);
+        function = a;
+    }
+    else if (type == "scene")
+    {
+        function = new Scene(&doc);
+        doc.addFunction(function);
+    }
+    else
+    {
+        auto *collection = new Collection(&doc);
+        doc.addFunction(collection);
+        child = new Scene(&doc);
+        doc.addFunction(child);
+        collection->addFunction(child->id());
+        function = collection;
+    }
+    ShowRunner runner(&doc, show->id());
+    const FunctionParent showParent(FunctionParent::Function, show->id());
+    if (child != nullptr)
+    {
+        // a Collection starts its children when it runs
+        function->start(doc.masterTimer(), showParent);
+        doc.masterTimer()->timerTick();
+        QVERIFY(child->isRunning());
+    }
+    else
+    {
+        function->m_sources.append(showParent);
+        function->m_running = true;
+        function->m_stop = false;
+    }
+    function->setPause(true);
+    runner.m_runningQueue.append(qMakePair(function, quint32(10000)));
+
+    runner.stop();
+
+    QVERIFY(function->stopped());
+    QVERIFY(function->isPaused());
+    if (child != nullptr)
+    {
+        QVERIFY(child->isPaused());
+        doc.masterTimer()->timerTick();
+        doc.masterTimer()->timerTick();
+        return;
+    }
+    function->postRun(doc.masterTimer(), {});
+    if (renderer != nullptr)
+        QCOMPARE(static_cast<Audio *>(function)->m_audio_out, renderer);
+}
+
 void ShowRunner_Test::nativeAudioNormalStopPreservesFade()
 {
     Doc doc(nullptr);
@@ -4752,6 +4828,14 @@ ShowClipSegment clipSegment(quint32 clipMs, quint32 songMs, qreal rate)
     return s;
 }
 
+/** The deck paused: its song stands at songMs */
+ShowClipSegment deckPause(quint32 clipMs, quint32 songMs)
+{
+    ShowClipSegment s = clipSegment(clipMs, songMs, 0.0);
+    s.paused = true;
+    return s;
+}
+
 ShowClipLevel clipLevel(quint32 clipMs, qreal level)
 {
     ShowClipLevel l;
@@ -5487,6 +5571,150 @@ void ShowRunner_Test::clipLevelLeavesAVcAdjustment()
     stopAndSettle(doc, show);
 }
 
+void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt_data()
+{
+    QTest::addColumn<bool>("stopTheOther");
+    QTest::addColumn<bool>("adjusted");
+    QTest::addColumn<qreal>("intensity");
+
+    QTest::newRow("the other Show stops") << true << false << 0.6;
+    QTest::newRow("the other Show's clip ends") << false << false << 0.6;
+    // an Adjust slider moved after the other Show's level keeps its value
+    QTest::newRow("a VC adjustment after the other Show's level") << true << true << 0.3;
+}
+
+void ShowRunner_Test::sharedClipFunctionTakesTheLevelOfTheShowStillPlayingIt()
+{
+    QFETCH(bool, stopTheOther);
+    QFETCH(bool, adjusted);
+    QFETCH(qreal, intensity);
+
+    // one Scene on a clip of two Shows, two decks' songs: the dark one leaves
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    QVector<Show *> shows;
+    for (quint32 duration : { 60000u, 500u })
+    {
+        Show *show = new Show(&doc);
+        doc.addFunction(show);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, duration);
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(0);
+        shows.append(show);
+    }
+    Show *playing = shows.at(0), *other = shows.at(1);
+    timer->timerTick();
+    playing->setMasterIntensity(0.6);
+    other->setMasterIntensity(0.0);
+    auto pushBoth = [&](quint32 ms) {
+        for (Show *show : std::as_const(shows))
+            show->setExternalElapsedTime(ms);
+        timer->timerTick();
+        timer->timerTick();
+    };
+    pushBoth(100);
+    QCOMPARE(scene->getAttributeValue(Function::Intensity), 0.0);
+    if (adjusted)
+        scene->adjustAttribute(0.3, scene->requestAttributeOverride(Function::Intensity, 0.3));
+
+    if (stopTheOther)
+        stopAndSettle(doc, other);
+    else
+        pushBoth(1000);
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - intensity) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    stopAndSettle(doc, playing);
+    stopAndSettle(doc, other);
+}
+
+void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt_data()
+{
+    QTest::addColumn<QList<qreal>>("masters");  // one Show each, started in this order unless a step starts it
+    QTest::addColumn<QStringList>("steps");      // "master|start|stop <show> [level]" or "restart"
+    QTest::addColumn<qreal>("intensity");
+
+    QTest::newRow("the Show playing on wrote the same level last")
+        << QList<qreal>{1.0, 1.0} << QStringList{"master 1 0", "master 0 0", "stop 1"} << 0.0;
+    QTest::newRow("the middle Show leaves first")
+        << QList<qreal>{0.6, 0.0, 0.8} << QStringList{"stop 1", "stop 2"} << 0.6;
+    QTest::newRow("the latest Show leaves first")
+        << QList<qreal>{0.6, 0.0, 0.8} << QStringList{"stop 2", "stop 1"} << 0.6;
+    // somebody else stops and starts the Scene: the first Show plays it no more,
+    // and no Show's clip plays it on once the second one leaves
+    QTest::newRow("the Show before lost it to somebody else")
+        << QList<qreal>{0.0, 0.8} << QStringList{"restart", "start 1", "stop 1"} << 0.8;
+}
+
+void ShowRunner_Test::sharedClipLevelFollowsTheLatestShowStillPlayingIt()
+{
+    QFETCH(QList<qreal>, masters);
+    QFETCH(QStringList, steps);
+    QFETCH(qreal, intensity);
+
+    // one Scene on a clip of every Show, each Show one tick after the one before
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    QVector<Show *> shows;
+    const auto start = [&](Show *show) {
+        show->setSyncSource(ShowRunner::External);
+        show->start(timer, FunctionParent::master());
+        show->setExternalElapsedTime(100);
+        timer->timerTick();
+        timer->timerTick();
+    };
+    for (qreal master : masters)
+    {
+        Show *show = new Show(&doc);
+        doc.addFunction(show);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, 60000);
+        show->setMasterIntensity(master);
+        if (steps.contains(QString("start %1").arg(shows.count())) == false)
+            start(show);
+        shows.append(show);
+    }
+
+    for (const QString &step : steps)
+    {
+        const QStringList words = step.split(' ');
+        if (words.at(0) == "start")
+        {
+            start(shows.at(words.at(1).toInt()));
+            continue;
+        }
+        if (words.at(0) == "restart")
+        {
+            scene->stop(FunctionParent::master());
+            timer->timerTick();
+            scene->start(timer, FunctionParent::master());
+        }
+        else if (words.at(0) == "master")
+            shows.at(words.at(1).toInt())->setMasterIntensity(words.at(2).toDouble());
+        else
+            shows.at(words.at(1).toInt())->stop(FunctionParent::master());
+        timer->timerTick();
+        timer->timerTick();
+    }
+
+    QVERIFY(scene->isRunning());
+    QVERIFY2(qAbs(scene->getAttributeValue(Function::Intensity) - intensity) < 1e-9,
+             qPrintable(QString::number(scene->getAttributeValue(Function::Intensity))));
+
+    for (Show *show : std::as_const(shows))
+        stopAndSettle(doc, show);
+    scene->stop(FunctionParent::master());
+    timer->timerTick();
+}
+
 void ShowRunner_Test::clipLevelFromTheFirstFrame_data()
 {
     QTest::addColumn<quint32>("laterDuration");
@@ -5999,6 +6227,261 @@ void ShowRunner_Test::commandIntensityAcrossClipBoundaries()
 
     stopAndSettle(doc, show);
     stopAndSettle(doc, other);
+}
+
+void ShowRunner_Test::deckPauseHoldsTheNestedShow_data()
+{
+    QTest::addColumn<ClipSegments>("segments");
+    QTest::addColumn<QList<quint32>>("positions");
+    QTest::addColumn<QString>("then");
+    QTest::addColumn<quint32>("songMs");  // UINT_MAX: not checked
+    QTest::addColumn<bool>("cue");        // the song's Scene over [900, 1200) plays
+    QTest::addColumn<bool>("paused");
+
+    const ClipSegments pause{clipSegment(0, 0, 1.0), deckPause(1000, 1000)};
+    QTest::newRow("a deck pause") << pause << QList<quint32>{500, 3000} << QString() << 1000u << true << true;
+    // the Chaser the cue stopped starts again before the pause holds it
+    QTest::newRow("a cue while paused")
+        << ClipSegments{clipSegment(0, 0, 1.0), deckPause(1000, 1000), deckPause(2000, 300)}
+        << QList<quint32>{500, 1500, 3000, 3000} << QString() << 300u << false << true;
+    // the song takes the position the pause holds first
+    QTest::newRow("a jump into a pause") << ClipSegments{clipSegment(0, 0, 1.0), deckPause(500, 1000)}
+                                         << QList<quint32>{400, 600, 700} << QString() << 1000u << true << true;
+    // the commands take the song from its clip: it plays on, restarted where the clip held it
+    QTest::newRow("a deck pause, the set's commands stop and start the song")
+        << pause << QList<quint32>{500, 1500, 3000} << QString("commands") << UINT_MAX << true << false;
+    // Perform plays on, holding the deck's position between its samples
+    QTest::newRow("a deck pause, Perform takes the song from the paused set")
+        << pause << QList<quint32>{500, 3000} << QString("perform") << 1000u << true << false;
+    QTest::newRow("a deck pause, Perform takes the song, the set stays paused")
+        << pause << QList<quint32>{500, 3000} << QString("perform, set paused") << 1000u << true << false;
+    QTest::newRow("a held jog plays on") << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(1000, 1000, 0.0)}
+                                         << QList<quint32>{500, 3000} << QString() << 1000u << true << false;
+    QTest::newRow("a resume")
+        << ClipSegments{clipSegment(0, 0, 1.0), deckPause(1000, 1000), clipSegment(2000, 1000, 1.0)}
+        << QList<quint32>{500, 1500, 3000} << QString() << 2000u << false << false;
+}
+
+void ShowRunner_Test::deckPauseHoldsTheNestedShow()
+{
+    QFETCH(ClipSegments, segments);
+    QFETCH(QList<quint32>, positions);
+    QFETCH(QString, then);
+    QFETCH(quint32, songMs);
+    QFETCH(bool, cue);
+    QFETCH(bool, paused);
+
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    NestedSet n = makeNestedSet(doc);
+    Track *cueTrack = new Track(Function::invalidId());
+    n.song->addTrack(cueTrack);
+    Scene *cueScene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 100);
+    addClip(n.song, cueTrack, cueScene->id(), 900, 300);
+    // a Chaser holding one step all along
+    Scene *step = makeScene(doc, makeFixture(doc, 1)->id(), 0, 50);
+    auto *chaser = new Chaser(&doc);
+    doc.addFunction(chaser);
+    chaser->addStep(ChaserStep(step->id()));
+    chaser->setDuration(Function::infiniteSpeed());
+    Track *chaserTrack = new Track(chaser->id());
+    n.song->addTrack(chaserTrack);
+    addClip(n.song, chaserTrack, chaser->id(), 0, 600000);
+    addClip(n.set, n.track, n.song->id(), 0, 60000, clipAutomation(segments));
+    if (then == "commands")
+    {
+        ShowCommandTrack track;
+        QVERIFY(track.insert(ShowCommand::stop(1, 2000, n.song->id())));
+        QVERIFY(track.insert(ShowCommand::start(2, 2000, n.song->id())));
+        QVERIFY(track.setExtent(60000));
+        QVERIFY(n.set->setCommandTrack(track));
+    }
+
+    playExternal(doc, n.set, positions);
+    if (then.startsWith("perform"))
+    {
+        // the user paused the set, Perform adopts the song, the user stops the set or not
+        n.set->setPause(true);
+        timer->timerTick();
+        n.song->setPerformDriven(true);
+        n.song->start(timer, FunctionParent::master());
+        n.song->setPause(false);
+        if (then == "perform")
+            stopAndSettle(doc, n.set);
+        n.song->setExternalElapsedTime(songMs);
+        timer->timerTick();
+        timer->timerTick();
+    }
+
+    QVERIFY(n.song->isRunning());
+    QVERIFY(n.scene->isRunning());
+    if (songMs != UINT_MAX)
+        QCOMPARE(n.song->m_runner->m_elapsedTime, songMs);
+    QCOMPARE(cueScene->isRunning(), cue);
+    // the song's Functions stand while its deck pauses
+    QCOMPARE(n.scene->isPaused(), paused);
+    QVERIFY(step->isRunning());
+    QCOMPARE(chaser->isPaused(), paused);
+
+    if (n.set->isRunning())
+        stopAndSettle(doc, n.set);
+    stopAndSettle(doc, n.song);
+}
+
+void ShowRunner_Test::stoppedPausedShowLeavesASharedFunctionPaused_data()
+{
+    QTest::addColumn<bool>("decks");  // the songs of a set in a deck pause, else paused by the user
+
+    QTest::newRow("both Shows paused by the user") << false;
+    QTest::newRow("both songs in a deck pause, one clip ends") << true;
+}
+
+void ShowRunner_Test::stoppedPausedShowLeavesASharedFunctionPaused()
+{
+    QFETCH(bool, decks);
+
+    // two Shows play one Scene, both paused: one of them stops
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    QVector<Show *> shows;
+    for (int i = 0; i < 2; i++)
+    {
+        Show *show = new Show(&doc);
+        doc.addFunction(show);
+        Track *track = new Track(scene->id());
+        show->addTrack(track);
+        addClip(show, track, scene->id(), 0, 600000);
+        shows.append(show);
+    }
+    Show *set = nullptr;
+    if (decks)
+    {
+        set = new Show(&doc);
+        doc.addFunction(set);
+        for (int i = 0; i < 2; i++)
+        {
+            Track *deck = new Track(Function::invalidId());
+            set->addTrack(deck);
+            addClip(set, deck, shows.at(i)->id(), 0, i == 0 ? 3000 : 60000,
+                    clipAutomation({clipSegment(0, 0, 1.0), deckPause(1000, 1000)}));
+        }
+        playExternal(doc, set, {500, 2000});
+        QVERIFY(scene->isPaused());
+        playExternal(doc, set, {3500});
+        QVERIFY(shows.at(0)->isRunning() == false);
+    }
+    else
+    {
+        for (Show *show : std::as_const(shows))
+        {
+            show->start(timer, FunctionParent::master());
+            timer->timerTick();
+            show->setPause(true);
+        }
+        timer->timerTick();
+        QVERIFY(scene->isPaused());
+        stopAndSettle(doc, shows.at(0));
+    }
+
+    QVERIFY(scene->isRunning());
+    QVERIFY(scene->isPaused());
+
+    if (set != nullptr)
+        stopAndSettle(doc, set);
+    for (Show *show : std::as_const(shows))
+        stopAndSettle(doc, show);
+}
+
+void ShowRunner_Test::pausedFunctionStoppedAndStartedRuns_data()
+{
+    QTest::addColumn<bool>("chaser");
+
+    QTest::newRow("a Scene") << false;
+    QTest::newRow("a Chaser") << true;
+}
+
+void ShowRunner_Test::pausedFunctionStoppedAndStartedRuns()
+{
+    QFETCH(bool, chaser);
+
+    // a paused Function one owner stops and another starts in one tick plays on for the new one
+    Doc doc(nullptr);
+    MasterTimer *timer = doc.masterTimer();
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Function *function = scene;
+    if (chaser)
+    {
+        auto *c = new Chaser(&doc);
+        doc.addFunction(c);
+        c->addStep(ChaserStep(scene->id()));
+        c->setDuration(Function::infiniteSpeed());
+        function = c;
+    }
+    const FunctionParent first(FunctionParent::Function, 1001);
+    const FunctionParent second(FunctionParent::Function, 1002);
+    function->start(timer, first);
+    timer->timerTick();
+    function->setPause(true);
+    timer->timerTick();
+    QVERIFY(function->isPaused());
+
+    function->stop(first);
+    function->start(timer, second);
+    timer->timerTick();
+    timer->timerTick();
+
+    QVERIFY(function->isRunning());
+    QVERIFY(function->stopped() == false);
+    QVERIFY(function->hasSource(second));
+    QVERIFY(function->isPaused() == false);
+    QVERIFY(scene->isRunning());
+
+    function->stop(FunctionParent::master());
+    timer->timerTick();
+    timer->timerTick();
+}
+
+void ShowRunner_Test::nestedShowEndedInItsClipPlaysAgain_data()
+{
+    QTest::addColumn<ClipSegments>("segments");
+    QTest::addColumn<quint32>("songMs");
+
+    // the song plays one Scene over [0, 1000) and ends itself before the set's 2000
+    QTest::newRow("a loop back to the song start")
+        << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(2000, 0, 1.0)} << 500u;
+    QTest::newRow("a seek back into the song")
+        << ClipSegments{clipSegment(0, 0, 1.0), clipSegment(2000, 300, 1.0)} << 800u;
+}
+
+void ShowRunner_Test::nestedShowEndedInItsClipPlaysAgain()
+{
+    QFETCH(ClipSegments, segments);
+    QFETCH(quint32, songMs);
+
+    Doc doc(nullptr);
+    Scene *scene = makeScene(doc, makeFixture(doc, 1)->id(), 0, 200);
+    Show *song = new Show(&doc);
+    doc.addFunction(song);
+    Track *songTrack = new Track(scene->id());
+    song->addTrack(songTrack);
+    addClip(song, songTrack, scene->id(), 0, 1000);
+    Show *set = new Show(&doc);
+    doc.addFunction(set);
+    Track *track = new Track(Function::invalidId());
+    set->addTrack(track);
+    addClip(set, track, song->id(), 0, 10000, clipAutomation(segments));
+
+    playExternal(doc, set, {500, 1500});
+    QVERIFY(song->isRunning() == false);
+
+    playExternal(doc, set, {2500});
+    QVERIFY(song->isRunning());
+    QCOMPARE(song->syncSource(), int(ShowRunner::External));
+    QCOMPARE(song->m_runner->m_elapsedTime, songMs);
+    QVERIFY(scene->isRunning());
+
+    stopAndSettle(doc, set);
 }
 
 QTEST_GUILESS_MAIN(ShowRunner_Test)

@@ -35,6 +35,8 @@ private slots:
     void setChangesRestartTheAutosave();
     void performOffFinalizesTheSet_data();
     void performOffFinalizesTheSet();
+    void recordHeadFollowsTheSet_data();
+    void recordHeadFollowsTheSet();
     void replayReproducesTheSet_data();
     void replayReproducesTheSet();
     void replayedSetHoldsEverySongStay_data();
