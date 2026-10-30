@@ -89,6 +89,10 @@ public:
     /** "Set yyyy-MM-dd HH:mm" */
     static QString setName(const QDateTime &start);
 
+signals:
+    /** The set under way is written up to ms on its timeline */
+    void recordHeadChanged(quint32 setId, quint32 ms);
+
 private:
     /** A song stay on a deck */
     struct DeckClip

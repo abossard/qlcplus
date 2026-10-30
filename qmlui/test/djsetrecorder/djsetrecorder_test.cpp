@@ -851,6 +851,38 @@ void DjSetRecorder_Test::performOffFinalizesTheSet()
     QCOMPARE(rig.summary(), summary);
 }
 
+void DjSetRecorder_Test::recordHeadFollowsTheSet_data()
+{
+    QTest::addColumn<QString>("script");
+    QTest::addColumn<int>("head");  // the last one, -1 for none
+
+    QTest::newRow("a playing deck") << "perform=on;d1.load=A;d1.play;+1000;wait" << 1000;
+    QTest::newRow("a second deck later") << "perform=on;d1.load=A;d1.play;+1000;d2.load=B;d2.play;+500;wait"
+                                         << 1500;
+    QTest::newRow("a paused deck") << "perform=on;d1.load=A;d1.play;+1000;d1.pause;~400;wait" << 1400;
+    QTest::newRow("Perform off") << "perform=on;d1.load=A;d1.play;+1000;~300;perform=off" << 1300;
+    QTest::newRow("Perform without a play") << "perform=on;d1.load=A;+1000;wait" << -1;
+}
+
+void DjSetRecorder_Test::recordHeadFollowsTheSet()
+{
+    QFETCH(QString, script);
+    QFETCH(int, head);
+
+    Rig rig;
+    QSignalSpy spy(&rig.recorder, &DjSetRecorder::recordHeadChanged);
+    rig.run(script);
+
+    if (head < 0)
+    {
+        QCOMPARE(spy.count(), 0);
+        return;
+    }
+    QVERIFY(spy.count() > 0);
+    QCOMPARE(spy.last().at(0).toUInt(), rig.sets().first()->id());
+    QCOMPARE(spy.last().at(1).toUInt(), quint32(head));
+}
+
 void DjSetRecorder_Test::replayReproducesTheSet_data()
 {
     QTest::addColumn<QString>("label");

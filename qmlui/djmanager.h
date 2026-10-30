@@ -22,6 +22,7 @@
 
 #include "previewcontext.h"
 #include "djfsm.h"
+#include "performfsm.h"
 
 #include <QAbstractListModel>
 #include <QDateTime>
@@ -29,6 +30,8 @@
 #include <QSet>
 #include <QSortFilterProxyModel>
 #include <QString>
+
+#include <array>
 
 class Doc;
 class VdjBridge;
@@ -175,6 +178,9 @@ public:
         IsActiveRole,
         IsPlayingRole,
         WeightRole,
+        DriveShowRole,      //!< the Show Perform drives from the deck, -1 for none
+        DriveStateRole,     //!< that drive's PerformFsm state name, empty for none
+        DriveDominantRole,  //!< that drive is the dominant one
     };
 
     explicit DjDeckModel(DjFsm *fsm, QObject *parent = nullptr);
@@ -198,9 +204,13 @@ public:
     /** Set the active deck (1-based; 0 = none) and refresh affected rows. */
     void setActiveDeck(int deck);
 
+    /** What Perform drives, from its snapshot; refreshes the rows whose drive changed */
+    void setDrives(const QList<PerformFsm::Drive> &drives);
+
 private:
     DjFsm *m_fsm;
     int m_activeDeck = 0;
+    std::array<PerformFsm::Drive, DjFsm::MaxDecks> m_drives;  //!< per deck, InvalidShowId for none
 };
 
 // ────────────────────────────────────────────────────────────────

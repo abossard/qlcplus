@@ -421,6 +421,9 @@ QHash<int, QByteArray> DjDeckModel::roleNames() const
         { IsActiveRole,   "isActive" },
         { IsPlayingRole,  "isPlaying" },
         { WeightRole,     "weight" },
+        { DriveShowRole,     "driveShowId" },
+        { DriveStateRole,    "driveState" },
+        { DriveDominantRole, "driveDominant" },
     };
 }
 
@@ -430,6 +433,8 @@ QVariant DjDeckModel::data(const QModelIndex &index, int role) const
         return {};
 
     const DjFsm::Deck &deck = m_fsm->deckAt(index.row());
+    const PerformFsm::Drive &drive = m_drives[index.row()];
+    const bool driven = drive.showId != PerformFsm::InvalidShowId;
 
     switch (role)
     {
@@ -447,6 +452,9 @@ QVariant DjDeckModel::data(const QModelIndex &index, int role) const
     case IsActiveRole:   return deck.number == m_activeDeck;
     case IsPlayingRole:  return deck.playing;
     case WeightRole:     return deck.weight;
+    case DriveShowRole:     return driven ? int(drive.showId) : -1;
+    case DriveStateRole:    return driven ? PerformFsm::stateToString(drive.state) : QString();
+    case DriveDominantRole: return driven && drive.dominant;
     default:             return {};
     }
 }
@@ -496,6 +504,24 @@ void DjDeckModel::setActiveDeck(int deck)
     {
         QModelIndex mi = index(deck - 1);
         emit dataChanged(mi, mi, { IsActiveRole });
+    }
+}
+
+void DjDeckModel::setDrives(const QList<PerformFsm::Drive> &drives)
+{
+    std::array<PerformFsm::Drive, DjFsm::MaxDecks> next{};
+    for (const PerformFsm::Drive &drive : drives)
+    {
+        if (drive.deck >= 1 && drive.deck <= DjFsm::MaxDecks)
+            next[drive.deck - 1] = drive;
+    }
+    for (int i = 0; i < DjFsm::MaxDecks; ++i)
+    {
+        if (next[i] == m_drives[i])
+            continue;
+        m_drives[i] = next[i];
+        if (m_fsm && i < m_fsm->deckCount())
+            emit dataChanged(index(i), index(i), { DriveShowRole, DriveStateRole, DriveDominantRole });
     }
 }
 
@@ -552,6 +578,10 @@ DjManager::DjManager(QQuickView *view, Doc *doc, VdjBridge *bridge,
     {
         connect(m_bridge, &VdjBridge::performModeChanged,
                 this, &DjManager::performModeChanged);
+        // the deck table shows the Show each deck drives
+        if (PerformFsm *perform = m_bridge->performFsm())
+            connect(perform, &PerformFsm::stateChanged, m_deckModel,
+                    [this, perform]() { m_deckModel->setDrives(perform->snapshot().drives); });
     }
 
     if (m_doc)

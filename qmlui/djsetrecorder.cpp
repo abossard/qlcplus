@@ -417,6 +417,8 @@ void DjSetRecorder::write()
     }
     if (restart || (mark && m_doc->isModified() == false))
         m_doc->setModified();
+    if (m_setId != Function::invalidId())
+        emit recordHeadChanged(m_setId, quint32(now() - m_setStartClock));
 }
 
 void DjSetRecorder::forgetSet()

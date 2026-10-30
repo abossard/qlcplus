@@ -38,8 +38,18 @@ Item
     property real pixelsPerUnit: 1
     /* pixels the drawing moves while the left edge is dragged, so it stays at its Show times */
     property real shift: 0
+    /* the first line of the clip's name (ShowItem's label) stays clear: nothing is drawn above
+       this; the envelope keeps at least 3 pixels */
+    property real topInset: Math.max(0, Math.min(height - 6, Math.ceil(3 + nameMetrics.height + 1)))
 
     property var drawn: ({ inPoint: -1, boundaries: [], envelope: [], shaded: [] })
+
+    FontMetrics
+    {
+        id: nameMetrics
+        font.family: UISettings.robotoFontName
+        font.pixelSize: UISettings.textSizeDefault * 0.7
+    }
 
     function refresh()
     {
@@ -56,7 +66,7 @@ Item
 
     function envelopeY(level)
     {
-        return height - 3 - level * (height - 6)
+        return height - 3 - level * (height - 3 - topInset)
     }
 
     /* held before the first keyframe and after the last one */
@@ -90,8 +100,9 @@ Item
         {
             objectName: "clipShade"
             x: overlayRoot.shift + overlayRoot.px(modelData.fromMs)
+            y: overlayRoot.topInset
             width: overlayRoot.px(modelData.toMs) - overlayRoot.px(modelData.fromMs)
-            height: overlayRoot.height
+            height: overlayRoot.height - overlayRoot.topInset
             color: "#80000000"
         }
     }
@@ -104,8 +115,9 @@ Item
         {
             objectName: "clipBoundary"
             x: overlayRoot.shift + overlayRoot.px(modelData) - width / 2
+            y: overlayRoot.topInset
             width: 2
-            height: overlayRoot.height
+            height: overlayRoot.height - overlayRoot.topInset
             color: "#f1c40f"
         }
     }

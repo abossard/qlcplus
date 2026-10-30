@@ -53,6 +53,8 @@ private slots:
     void deckTablePositionReflectsActiveDeck();
     void deckTableShowsTheMixWeight_data();
     void deckTableShowsTheMixWeight();
+    void deckTableShowsWhatPerformDrives_data();
+    void deckTableShowsWhatPerformDrives();
     void getDecksDrivesDeckCount();
     void deckCountSettingLimitsTable();
     void perDeckMasterdeckSetsActiveDeck();

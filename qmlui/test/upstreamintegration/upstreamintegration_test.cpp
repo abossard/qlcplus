@@ -38,6 +38,7 @@
 #include "doc.h"
 #include "efx.h"
 #include "djmanager.h"
+#include "djsetrecorder.h"
 #include "editorview.h"
 #include "fixture.h"
 #include "fixtureeditor.h"
@@ -57,7 +58,9 @@
 #include "showfunction.h"
 #include "showfactory.h"
 #include "showmanager.h"
+#define private public
 #include "showcommandrecorder.h"
+#undef private
 #include "showclipeditor.h"
 #include "showrunner.h"
 #define private public
@@ -128,6 +131,10 @@ private slots:
     void nestedClipOpen();
     void nestedClipOverlay_data();
     void nestedClipOverlay();
+    void nestedClipOverlayLeavesTheNameClear_data();
+    void nestedClipOverlayLeavesTheNameClear();
+    void setRecordHeadMovesTheShownSetCursor_data();
+    void setRecordHeadMovesTheShownSetCursor();
     void rulerChangeGeometry_data();
     void rulerChangeGeometry();
     void fileOpenGuard_data();
@@ -6109,6 +6116,143 @@ void UpstreamIntegration_Test::nestedClipOverlay()
     QCOMPARE(count("clipBoundary"), int(drawn["boundaries"].toArray().size()));
     QCOMPARE(count("clipShade"), int(drawn["shaded"].toArray().size()));
     QCOMPARE(count("clipEnvelope"), drawn["envelope"].toArray().isEmpty() ? 0 : 1);
+}
+
+void UpstreamIntegration_Test::nestedClipOverlayLeavesTheNameClear_data()
+{
+    QTest::addColumn<ShowClipAutomation>("automation");
+    QTest::addColumn<double>("scale");
+    QTest::newRow("envelope at full level") << clipAutomation({}, {{0, 1.0}, {3000, 0.5}}, {}) << 1.0;
+    QTest::newRow("not dominant from the start") << clipAutomation({}, {}, {{0, false}}) << 1.0;
+    QTest::newRow("a loop marker") << clipAutomation({{0, 30000, 1.0}, {1900, 28000, 1.0}}, {}, {}) << 1.0;
+    // the smallest UI scale the settings offer
+    QTest::newRow("envelope at full level, small UI") << clipAutomation({}, {{0, 1.0}}, {}) << 0.3;
+    QTest::newRow("not dominant, small UI") << clipAutomation({}, {}, {{0, false}}) << 0.3;
+}
+
+void UpstreamIntegration_Test::nestedClipOverlayLeavesTheNameClear()
+{
+    QFETCH(ShowClipAutomation, automation);
+    QFETCH(double, scale);
+    m_app->m_uiManager->setModified("scalingFactor", scale);
+    const auto unscale = qScopeGuard([&]() { m_app->m_uiManager->setModified("scalingFactor", 1.0); });
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    QVERIFY(manager);
+    auto *set = new Show(doc);
+    QVERIFY(doc->addFunction(set));
+    set->setTimeDivision(Show::Time, 120);
+    auto *song = new Show(doc);
+    song->setName("Song");
+    QVERIFY(doc->addFunction(song));
+    manager->setCurrentShowID(set->id());
+    manager->setTimeScale(0.5);
+    QQuickItem area(m_app->rootObject());
+    area.setWidth(800);
+    area.setHeight(100);
+    const auto reset = qScopeGuard([&]() {
+        manager->resetView();
+        manager->setCurrentShowID(Function::invalidId());
+    });
+    manager->addItems(&area, -1, 0, {song->id()});
+    ShowFunction *sf = set->tracks().first()->showFunctions().first();
+    sf->setDuration(6000);
+    sf->setClipAutomation(automation);
+    auto *item = area.childItems().first();
+    auto *overlay = item->findChild<QQuickItem*>("clipAutomationOverlay");
+    QVERIFY(overlay && overlay->isVisible());
+
+    // the first line of the clip's name, in the item
+    QQuickItem *name = nullptr;
+    for (QQuickItem *child : item->findChildren<QQuickItem*>())
+        if (child->inherits("QQuickText") && child->property("text").toString() == song->name())
+            name = child;
+    QVERIFY(name);
+    const qreal lineHeight = name->property("contentHeight").toReal() / qMax(1, name->property("lineCount").toInt());
+    const qreal nameBottom = name->mapToItem(item, QPointF(0, lineHeight)).y();
+
+    // nothing the overlay draws reaches into the name
+    QVariant top;
+    QVERIFY(QMetaObject::invokeMethod(overlay, "envelopeY", Q_RETURN_ARG(QVariant, top), Q_ARG(QVariant, 1.0)));
+    QVERIFY2(overlay->mapToItem(item, QPointF(0, top.toReal())).y() >= nameBottom,
+             qPrintable(QString("envelope top %1, name bottom %2").arg(top.toReal()).arg(nameBottom)));
+    int drawn = 0;
+    for (QQuickItem *child : overlay->childItems())
+    {
+        if ((child->objectName() != "clipShade" && child->objectName() != "clipBoundary") || !child->isVisible())
+            continue;
+        ++drawn;
+        QVERIFY2(child->mapToItem(item, QPointF(0, 0)).y() >= nameBottom,
+                 qPrintable(QString("%1 top %2, name bottom %3").arg(child->objectName())
+                            .arg(child->mapToItem(item, QPointF(0, 0)).y()).arg(nameBottom)));
+    }
+    // every row draws what it checks
+    QVERIFY(drawn > 0 || !automation.envelope().isEmpty());
+}
+
+void UpstreamIntegration_Test::setRecordHeadMovesTheShownSetCursor_data()
+{
+    QTest::addColumn<QString>("shown");
+    QTest::addColumn<bool>("recording");
+    QTest::addColumn<bool>("shownBefore");  // the head was already on the cursor while recording
+    QTest::addColumn<bool>("follows");
+    QTest::newRow("the set while it records") << "set" << true << false << true;
+    // Perform off writes the last head: the cursor is where input goes from then on
+    QTest::newRow("the set as Perform ends") << "set" << false << false << true;
+    QTest::newRow("Perform ends at the head shown") << "set" << false << true << true;
+    QTest::newRow("another Show") << "other" << true << false << false;
+    QTest::newRow("the set playing") << "playing set" << true << false << false;
+}
+
+void UpstreamIntegration_Test::setRecordHeadMovesTheShownSetCursor()
+{
+    QFETCH(QString, shown);
+    QFETCH(bool, recording);
+    QFETCH(bool, shownBefore);
+    QFETCH(bool, follows);
+    auto *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager*>(m_app->rootContext()->contextProperty("showManager").value<QObject*>());
+    ShowCommandRecorder *commands = ShowCommandRecorder::instance();
+    QVERIFY(manager);
+    QVERIFY(commands);
+    QVERIFY(m_app->m_djSetRecorder);
+    auto *set = new Show(doc);
+    QVERIFY(doc->addFunction(set));
+    auto *other = new Show(doc);
+    QVERIFY(doc->addFunction(other));
+    manager->setCurrentShowID(int((shown == "other" ? other : set)->id()));
+    m_app->m_djSetRecorder->setRecording(recording);
+    const auto reset = qScopeGuard([&]() {
+        m_app->m_djSetRecorder->setRecording(false);
+        if (set->isRunning())
+        {
+            set->stop(FunctionParent::master());
+            doc->masterTimer()->timerTick();
+        }
+        manager->setCurrentShowID(Function::invalidId());
+    });
+    if (shown == "playing set")
+    {
+        set->start(doc->masterTimer(), FunctionParent::master());
+        doc->masterTimer()->timerTick();
+        QVERIFY(set->isRunning());
+    }
+    QCoreApplication::processEvents();
+    const int head = manager->currentTime() + 4321;
+    if (shownBefore)
+    {
+        m_app->m_djSetRecorder->setRecording(true);
+        emit m_app->m_djSetRecorder->recordHeadChanged(set->id(), quint32(head));
+        QCOMPARE(manager->currentTime(), head);
+        m_app->m_djSetRecorder->setRecording(recording);
+    }
+
+    emit m_app->m_djSetRecorder->recordHeadChanged(set->id(), quint32(head));
+
+    QCOMPARE(manager->currentTime() == head, follows);
+    // an editable set takes input at its cursor; a recording one is read-only
+    const bool hostCursor = commands->m_hostCursorShowId == set->id() && commands->m_hostCursor == quint32(head);
+    QCOMPARE(hostCursor, follows && !recording);
 }
 
 void UpstreamIntegration_Test::rulerChangeGeometry_data()
