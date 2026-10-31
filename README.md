@@ -1015,6 +1015,7 @@ Playwright tests (150 in the last recorded run) covering fixture panels, cross-t
 
 ### Test reports
 
+- **2026-10-31, review of the manual-review update on `mcp-server` `de357b71a`**: [report](docs/test-reports/2026-10-31-manual-review-update-review/README.md). 19 code bugs (18 shown by failing tests, most in the workspace import) and 15 defects in the reviewed checklist and tests. All are fixed on `fix/manual-review-findings` except the VC slider on a Show track.
 - **2026-10-30, show features live with VirtualDJ on `mcp-server` `1839d2442`**: [report](docs/test-reports/2026-10-30-show-features-virtualdj/README.md). 16 of 16 live checks passed, with DMX output, the LTP hand-over and VC replay measured. 73 screenshots of song Shows, the show command recorder, the recorded set, its replay in Simple Desk, DMX, 2D and VC views, Perform and the DJ Manager. One new low finding (N1, `read_dmx_values` can return mid-tick values).
 - **2026-10-30, every suite on `mcp-server` `d148b372c`**: [report](docs/test-reports/2026-10-30-mcp-server/README.md). 133 suites and a live VirtualDJ run. No failure came from that day's merges; 6 of the 10 older failure groups are fixed by `866961aca`.
   - Screenshots: [page planner](docs/test-reports/2026-10-30-mcp-server/screenshots-page-planner.md), [VC editor](docs/test-reports/2026-10-30-mcp-server/screenshots-vc-editor.md), [VC outline](docs/test-reports/2026-10-30-mcp-server/screenshots-vc-outline.md), [show recorder](docs/test-reports/2026-10-30-mcp-server/screenshots-show-recorder.md)

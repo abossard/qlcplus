@@ -39,9 +39,38 @@
 #include "chaser.h"
 #include "scriptwrapper.h"
 #include "scene.h"
+#include "show.h"
 #include "efx.h"
 #include "doc.h"
 #include "app.h"
+
+/** The Fixture tree shows the same rows when it opens and after a search */
+static const int fixtureTreeFlags =
+        FixtureManager::ShowCheckBoxes | FixtureManager::ShowHeads | FixtureManager::ShowLinked;
+
+/** The IDs of the Functions a Function plays. Script::functionList()
+ *  pairs each Function ID with the line that names it */
+static QList<quint32> playedFunctions(Function *function)
+{
+    switch (function->type())
+    {
+        case Function::ChaserType:
+        case Function::SequenceType:
+        case Function::CollectionType:
+        case Function::ShowType:
+            return function->components();
+        case Function::ScriptType:
+        {
+            const QList<quint32> list = qobject_cast<Script *>(function)->functionList();
+            QList<quint32> ids;
+            for (int i = 0; i < list.count(); i += 2)
+                ids.append(list.at(i));
+            return ids;
+        }
+        default:
+            return QList<quint32>();
+    }
+}
 
 ImportManager::ImportManager(QQuickView *view, Doc *doc, QObject *parent)
     : QObject(parent)
@@ -84,9 +113,7 @@ ImportManager::~ImportManager()
     m_importDoc->setFixtureDefinitionCache(nullptr);
     delete m_importDoc;
 
-    m_functionTree->clear();
-    m_fixtureTree->clear();
-
+    // the trees exist only once the import popup read them
     delete m_functionTree;
     delete m_fixtureTree;
 }
@@ -400,7 +427,7 @@ void ImportManager::importPalettes()
                              << "with ID" << paletteID << "will be remapped to ID" << docPalette->id();
                 }
 
-                m_fixtureIDRemap[paletteID] = docPalette->id();
+                m_paletteIDRemap[paletteID] = docPalette->id();
                 matchFound = true;
                 break;
             }
@@ -433,28 +460,14 @@ void ImportManager::importPalettes()
 void ImportManager::importFunctionID(quint32 funcID)
 {
     Function *importFunction = m_importDoc->function(funcID);
-    QList<quint32> funcList;
+    if (importFunction == nullptr)
+    {
+        m_functionIDList.removeOne(funcID);
+        return;
+    }
 
     // 1. Get a list of Function ID upon importFunction depends on
-    switch (importFunction->type())
-    {
-        // these will return only Function IDs
-        case Function::ChaserType:
-        case Function::SequenceType:
-        case Function::CollectionType:
-            funcList = importFunction->components();
-        break;
-
-        // Scripts are a mix: they can control Fixtures AND Functions
-        case Function::ScriptType:
-        {
-            Script *script = qobject_cast<Script *>(importFunction);
-            funcList = script->functionList();
-        }
-        break;
-        default:
-        break;
-    }
+    const QList<quint32> funcList = playedFunctions(importFunction);
 
     // 2. import the dependecies first, if any
     for (quint32 depID : funcList)
@@ -569,6 +582,24 @@ void ImportManager::importFunctionID(quint32 funcID)
             if (boundSceneID != Function::invalidId() &&
                 m_functionIDRemap.contains(boundSceneID))
                     sequence->setBoundSceneID(m_functionIDRemap[boundSceneID]);
+
+            // every step plays the bound Scene, with values of remapped fixtures
+            for (int i = 0; i < sequence->stepsCount(); i++)
+            {
+                ChaserStep *step = sequence->stepAt(i);
+                QList<SceneValue> values;
+                for (SceneValue scv : step->values)
+                {
+                    if (m_fixtureIDRemap.contains(scv.fxi))
+                    {
+                        scv.fxi = m_fixtureIDRemap[scv.fxi];
+                        values.append(scv);
+                    }
+                }
+                std::sort(values.begin(), values.end());
+                step->fid = sequence->boundSceneID();
+                step->values = values;
+            }
         }
         break;
         case Function::EFXType:
@@ -578,10 +609,31 @@ void ImportManager::importFunctionID(quint32 funcID)
             {
                 GroupHead head(efxFixture->head());
 
-                if (m_functionIDRemap.contains(head.fxi))
+                if (m_fixtureIDRemap.contains(head.fxi))
                 {
-                    head.fxi = m_functionIDRemap[head.fxi];
+                    head.fxi = m_fixtureIDRemap[head.fxi];
                     efxFixture->setHead(head);
+                }
+            }
+        }
+        break;
+        case Function::ShowType:
+        {
+            // a Show copied into another Doc keeps the source IDs of its clips
+            Show *show = qobject_cast<Show *>(docFunction);
+            for (Track *track : show->tracks())
+            {
+                if (m_functionIDRemap.contains(track->getSceneID()))
+                    track->setSceneID(m_functionIDRemap[track->getSceneID()]);
+                else
+                    track->setSceneID(Function::invalidId());
+
+                for (ShowFunction *clip : track->showFunctions())
+                {
+                    if (m_functionIDRemap.contains(clip->functionID()))
+                        clip->setFunctionID(m_functionIDRemap[clip->functionID()]);
+                    else
+                        track->removeShowFunction(clip);
                 }
             }
         }
@@ -691,8 +743,7 @@ QVariant ImportManager::groupsTreeModel()
         m_fixtureTree->setColumnNames(treeColumns);
         m_fixtureTree->enableSorting(false);
 
-        FixtureManager::updateGroupsTree(m_importDoc, m_fixtureTree, m_fixtureSearchFilter,
-                                         FixtureManager::ShowCheckBoxes | FixtureManager::ShowHeads | FixtureManager::ShowLinked);
+        FixtureManager::updateGroupsTree(m_importDoc, m_fixtureTree, m_fixtureSearchFilter, fixtureTreeFlags);
 
         connect(m_fixtureTree, SIGNAL(roleChanged(TreeModelItem*,int,const QVariant&)),
                 this, SLOT(slotFixtureTreeDataChanged(TreeModelItem*,int,const QVariant&)));
@@ -756,8 +807,7 @@ void ImportManager::setFixtureSearchFilter(QString searchFilter)
     if (searchFilter.length() >= SEARCH_MIN_CHARS ||
         (currLen >= SEARCH_MIN_CHARS && searchFilter.length() < SEARCH_MIN_CHARS))
     {
-        FixtureManager::updateGroupsTree(m_importDoc, m_fixtureTree, m_fixtureSearchFilter,
-                                         FixtureManager::ShowCheckBoxes | FixtureManager::ShowGroups);
+        FixtureManager::updateGroupsTree(m_importDoc, m_fixtureTree, m_fixtureSearchFilter, fixtureTreeFlags);
         checkFixtureTree(m_fixtureTree);
         emit groupsTreeModelChanged();
     }
@@ -807,7 +857,7 @@ void ImportManager::updateFunctionsTree()
 
         QQmlEngine::setObjectOwnership(func, QQmlEngine::CppOwnership);
 
-        if (m_functionSearchFilter.length() < SEARCH_MIN_CHARS || func->name().toLower().contains(m_functionSearchFilter))
+        if (m_functionSearchFilter.length() < SEARCH_MIN_CHARS || func->name().contains(m_functionSearchFilter, Qt::CaseInsensitive))
         {
             QVariantList params;
             params.append(QVariant::fromValue(func));
@@ -847,21 +897,38 @@ void ImportManager::checkFunctionTree(TreeModel *tree) const
 
     for (TreeModelItem *item : tree->items())
     {
-        if (item->data().count() == 0)
-            continue;
-
-        QVariant cRef = item->data().first();
-        if (cRef.canConvert<Function *>())
+        // a folder row has no data: its Functions are its children
+        if (item->data().count() > 0)
         {
-            Function *func = cRef.value<Function *>();
-            if (func != nullptr)
+            QVariant cRef = item->data().first();
+            if (cRef.canConvert<Function *>())
             {
-                if (m_functionIDList.contains(func->id()))
-                    tree->setItemRoleData(item, true, TreeModel::IsCheckedRole);
+                Function *func = cRef.value<Function *>();
+                if (func != nullptr)
+                {
+                    if (m_functionIDList.contains(func->id()))
+                        tree->setItemRoleData(item, true, TreeModel::IsCheckedRole);
+                }
             }
         }
         if (item->hasChildren())
             checkFunctionTree(item->children());
+    }
+}
+
+/** The Functions of a tree row and of every row below it */
+static void rowFunctions(TreeModelItem *item, QList<Function *> &functions)
+{
+    const QVariantList data = item->data();
+    if (data.isEmpty() == false && data.first().canConvert<Function *>())
+    {
+        if (Function *function = data.first().value<Function *>())
+            functions.append(function);
+    }
+    if (item->hasChildren())
+    {
+        for (TreeModelItem *child : item->children()->items())
+            rowFunctions(child, functions);
     }
 }
 
@@ -882,29 +949,33 @@ void ImportManager::slotFunctionTreeDataChanged(TreeModelItem *item, int role, c
     if (item->hasChildren())
         setChildrenChecked(item->children(), checked);
 
-    QVariantList itemData = item->data();
-    if (itemData.isEmpty())
-        return;
+    // ticking a folder row ticks every Function below it
+    QList<Function *> functions;
+    rowFunctions(item, functions);
 
-    QVariant cRef = item->data().first();
-    if (cRef.canConvert<Function *>())
+    bool added = false;
+    for (Function *func : functions)
     {
-        Function *func = cRef.value<Function *>();
         if (checked)
         {
             if (m_functionIDList.contains(func->id()) == false)
             {
                 m_functionIDList.append(func->id());
                 checkFunctionDependency(func->id());
-                qDebug() << "Fixtures count:" << m_fixtureIDList.count() << "functions count:" << m_functionIDList.count();
-                checkFunctionTree(m_functionTree);
-                checkFixtureTree(m_fixtureTree);
+                added = true;
             }
         }
         else
         {
             m_functionIDList.removeOne(func->id());
         }
+    }
+
+    if (added)
+    {
+        qDebug() << "Fixtures count:" << m_fixtureIDList.count() << "functions count:" << m_functionIDList.count();
+        checkFunctionTree(m_functionTree);
+        checkFixtureTree(m_fixtureTree);
     }
 
     m_functionTreeUpdating = false;
@@ -979,14 +1050,15 @@ void ImportManager::checkFunctionDependency(quint32 fid)
         case Function::ChaserType:
         case Function::SequenceType:
         case Function::CollectionType:
-            funcList = func->components();
+        case Function::ShowType:
+            funcList = playedFunctions(func);
         break;
 
         // Script are a mix: they can control Fixtures AND Functions
         case Function::ScriptType:
         {
             Script *script = qobject_cast<Script *>(func);
-            funcList = script->functionList();
+            funcList = playedFunctions(func);
             fxList = script->fixtureList();
         }
         break;
@@ -996,12 +1068,12 @@ void ImportManager::checkFunctionDependency(quint32 fid)
         break;
     }
 
+    // a saved workspace can still name objects that were deleted: those are skipped
     for (quint32 groupID : fxGroupList)
     {
-        if (groupID != FixtureGroup::invalidId() &&
-            m_fixtureGroupIDList.contains(groupID) == false)
+        FixtureGroup *group = m_importDoc->fixtureGroup(groupID);
+        if (group != nullptr && m_fixtureGroupIDList.contains(groupID) == false)
         {
-            FixtureGroup *group = m_importDoc->fixtureGroup(groupID);
             m_fixtureGroupIDList.append(groupID);
 
             for (quint32 id : group->fixtureList())
@@ -1014,7 +1086,7 @@ void ImportManager::checkFunctionDependency(quint32 fid)
 
     for (quint32 paletteID : paletteList)
     {
-        if (paletteID != QLCPalette::invalidId() &&
+        if (m_importDoc->palette(paletteID) != nullptr &&
             m_paletteIDList.contains(paletteID) == false)
         {
             m_paletteIDList.append(paletteID);
@@ -1023,13 +1095,15 @@ void ImportManager::checkFunctionDependency(quint32 fid)
 
     for (quint32 fixtureID : fxList)
     {
-        if (m_fixtureIDList.contains(fixtureID) == false)
+        if (m_importDoc->fixture(fixtureID) != nullptr &&
+            m_fixtureIDList.contains(fixtureID) == false)
             m_fixtureIDList.append(fixtureID);
     }
 
     for (quint32 functionID : funcList)
     {
-        if (m_functionIDList.contains(functionID) == false)
+        if (m_importDoc->function(functionID) != nullptr &&
+            m_functionIDList.contains(functionID) == false)
         {
             m_functionIDList.append(functionID);
             checkFunctionDependency(functionID);

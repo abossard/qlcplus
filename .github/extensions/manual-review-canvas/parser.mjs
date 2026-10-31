@@ -44,7 +44,8 @@ export function parseManualReview(markdown) {
             continue;
         }
 
-        const h2 = line.match(/^## (\d+)\.\s+(.+)/);
+        // N can be alphanumeric (e.g. 4B, 13b), as in tools/manual-review/src/parser.ts
+        const h2 = line.match(/^## (\w+)\.\s+(.+)/);
         if (h2) {
             inPreamble = false;
             flushCase();
@@ -55,7 +56,7 @@ export function parseManualReview(markdown) {
             continue;
         }
 
-        const h3 = line.match(/^### (\d+\.\d+)\s+(.+)/);
+        const h3 = line.match(/^### (\w+\.\w+)\s+(.+)/);
         if (h3 && currentSection) {
             flushCase();
             currentStep = null;

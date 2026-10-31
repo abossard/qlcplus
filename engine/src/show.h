@@ -591,6 +591,10 @@ protected:
     /** The same, without overrides: what the reset after a stop leaves.
      *  Lets postRun reset the copy without reading the attributes */
     QVector<qreal> m_trackBaseIntensities;
+    /** The Track each intensity attribute was registered for, by attribute
+     *  index, under m_commandTrackMutex. A move swaps track IDs and a rename
+     *  keeps the attribute name, so neither finds the attribute's track */
+    QList<Track *> m_intensityTracks;
     /** Number of currently running children */
     QSet <quint32> m_runningChildren;
 

@@ -203,7 +203,8 @@ void VdjBridgePlugin::setParameter(quint32 universe, quint32 line, Capability ty
             qWarning() << "[VdjBridge] ignoring hostPort" << value;
             return;
         }
-        if (port != m_hostPort)
+        // the same port again retries a port that was busy
+        if (port != m_hostPort || portInUse())
         {
             m_hostPort = quint16(port);
             if (m_open)

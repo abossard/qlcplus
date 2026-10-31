@@ -237,32 +237,37 @@ bool Show::copyFrom(const Function* function)
         // create a copy of each sequence/audio in a track
         foreach (ShowFunction *sfunc, track->showFunctions())
         {
-            Function* function = doc()->function(sfunc->functionID());
-            if (function == NULL)
-                continue;
-
-            const bool commanded = commandedTargets.contains(function->id());
+            /* A copy into another Doc, as an import makes, keeps the IDs of
+             * its clips: they name Functions of the source Doc */
             Function *copy = NULL;
+            if (doc() == show->doc())
+            {
+                Function* function = doc()->function(sfunc->functionID());
+                if (function == NULL)
+                    continue;
 
-            if (commanded && copiedTargets.contains(function->id()))
-            {
-                copy = doc()->function(copiedTargets.value(function->id()));
-            }
-            else
-            {
-                /* Attempt to create a copy of the function to Doc */
-                copy = function->createCopy(doc());
-                if (copy != NULL)
+                const bool commanded = commandedTargets.contains(function->id());
+
+                if (commanded && copiedTargets.contains(function->id()))
                 {
-                    copy->setName(tr("Copy of %1").arg(function->name()));
-                    if (commanded)
-                        copiedTargets.insert(function->id(), copy->id());
+                    copy = doc()->function(copiedTargets.value(function->id()));
+                }
+                else
+                {
+                    /* Attempt to create a copy of the function to Doc */
+                    copy = function->createCopy(doc());
+                    if (copy != NULL)
+                    {
+                        copy->setName(tr("Copy of %1").arg(function->name()));
+                        if (commanded)
+                            copiedTargets.insert(function->id(), copy->id());
+                    }
                 }
             }
 
-            if (copy != NULL)
+            if (copy != NULL || doc() != show->doc())
             {
-                ShowFunction *showFunc = newTrack->createShowFunction(copy->id());
+                ShowFunction *showFunc = newTrack->createShowFunction(copy ? copy->id() : sfunc->functionID());
                 showFunc->setStartTime(sfunc->startTime());
                 showFunc->setDuration(sfunc->duration());
                 showFunc->setColor(sfunc->color());
@@ -508,6 +513,10 @@ bool Show::addTrack(Track *track, quint32 id)
      m_tracks[id] = track;
 
      registerAttribute(QString("%1-%2").arg(track->name()).arg(track->id()));
+     {
+         QMutexLocker locker(&m_commandTrackMutex);
+         m_intensityTracks.append(track);
+     }
 
      return true;
 }
@@ -519,9 +528,16 @@ bool Show::removeTrack(quint32 id)
         Track* track = m_tracks.take(id);
         Q_ASSERT(track != NULL);
 
-        const QString name = QString("%1-%2").arg(track->name()).arg(track->id());
-        const int index = getAttributeIndex(name);
-        unregisterAttribute(name);
+        // the attribute registered for this track, whatever its name became
+        int index;
+        {
+            QMutexLocker locker(&m_commandTrackMutex);
+            index = m_intensityTracks.indexOf(track);
+            if (index >= 0)
+                m_intensityTracks.removeAt(index);
+        }
+        if (index >= 0)
+            unregisterAttribute(attributes().at(index).m_name);
         // the attributes behind it moved down: so does the copy the runner takes
         {
             QMutexLocker locker(&m_commandTrackMutex);
@@ -1234,18 +1250,15 @@ void Show::write(MasterTimer* timer, QList<Universe *> universes)
     if (m_trackIntensityChanged.exchange(false, std::memory_order_acq_rel))
     {
         QVector<qreal> intensities;
+        QList<Track *> tracks;
         {
             QMutexLocker locker(&m_commandTrackMutex);
             // a deep copy: a shared one leaves the buffer the GUI writes in place once its ref drops
             intensities = QVector<qreal>(m_trackIntensities.cbegin(), m_trackIntensities.cend());
+            tracks = m_intensityTracks;
         }
-        int i = 0;
-        foreach (Track *track, m_tracks)
-        {
-            if (i < intensities.count())
-                m_runner->adjustIntensity(intensities.at(i), track);
-            i++;
-        }
+        for (int i = 0; i < tracks.count() && i < intensities.count(); i++)
+            m_runner->adjustIntensity(intensities.at(i), tracks.at(i));
     }
 
     // its clip pauses it once it played the clip's position: a move goes

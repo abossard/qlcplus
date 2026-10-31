@@ -57,6 +57,8 @@ private slots:
     void parametersAreKeptWithTheInputsUniverse();
     void aPortEditRebindsWhenFinished_data();
     void aPortEditRebindsWhenFinished();
+    void theSamePortBindsOnceItIsFree_data();
+    void theSamePortBindsOnceItIsFree();
     void aSavedPortRestartsAnInputOpenedOnABusyPort();
     void openingAnOpenInputBindsABusyPortAgain();
     void bonjourAdvertisesOnlyAListeningServer_data();

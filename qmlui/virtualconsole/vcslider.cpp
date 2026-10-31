@@ -1231,7 +1231,7 @@ void VCSlider::updateClickAndGoResource()
 
         const QLCChannel *ch = fixture->channel(scv.channel);
         if (ch == nullptr)
-            return;
+            continue;
 
         for (QLCCapability *cap : ch->capabilities())
         {
