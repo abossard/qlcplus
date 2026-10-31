@@ -19,6 +19,9 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
   const skip = md.length === 0;
 
   it.each([
+    { number: '48', commit: '4e09ecbf0',
+      cases: ['48.1', '48.2', '48.3', '48.4'],
+      checks: [2, 2, 2, 1], tags: [[], [], [], []] },
     // 47.3 to 47.5 need the set recorded with VirtualDJ in 47.2
     { number: '47', commit: '162a4fe22',
       cases: ['47.1', '47.2', '47.3', '47.4', '47.5', '47.6', '47.7'],

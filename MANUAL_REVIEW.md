@@ -3237,3 +3237,73 @@ cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
 - All five incoming Doc regressions pass: fixture move, delete/LTP zeroing, rename preserving values, universe-end straddling and a move temporarily overlapping another fixture. Existing fork audio tests also pass. [Doc results](build/upstream-integration-20261030/after-doc.json), [Universe results](build/upstream-integration-20261030/after-universe.json), [MCP results](build/upstream-integration-20261030/after-mcp-delete.json).
 - Review parser suites pass `53` tests. Independent native-canvas parsing preserves all previous sections and check identities, recognizes cases `46.1` and `46.2`, and confirms four unique pending checks. The TypeScript tests additionally verify both `DMX` tags. The first `234754` entry-time bytes remain unchanged with SHA-256 `4880c542f508ccde08ac85e84cee36e1d8e5b9d7379476107528c007ec8937f4`; protected native tests remain byte-identical and prior parser edits are preserved. [Parser results](build/upstream-integration-20261030/review-parser-tests.log), [review preservation](build/upstream-integration-20261030/review-preservation.json).
 - Native tests used isolated HOME/config/runtime/TMPDIR and working directories, offscreen/software rendering and sleep-inclusive macOS deadlines. Physical output, native client/server interaction, visual judgment and other platforms remain unverified and unsigned.
+
+---
+
+## 48. Upstream native workspace transfer and AppImage icons (4e09ecbf0)
+
+### 48.1 Automatically authorized native clients
+
+- **Prerequisite:** Use an isolated test network, a server and a separate native client. Enable automatic authorization only on that test server.
+- **Do:** Create a never-saved workspace with recognizable fixtures and VC controls, then connect the client. Save the server workspace, change it without saving, disconnect and reconnect the client.
+- **Verify:**
+- ☐ Both connections show the current server workspace, including unsaved changes, without missing controls or an older saved version
+- ☐ Connecting leaves the server's filename and unsaved indicator unchanged; the saved file still contains the earlier version
+
+### 48.2 Manually approved native clients
+
+- **Prerequisite:** Use the same isolated test network with automatic authorization disabled.
+- **Do:** Repeat the never-saved and modified-saved workspace connections, approving each request in the server's connection popup. Reject a further request.
+- **Verify:**
+- ☐ Approval loads the current workspace on the client and closes the popup without errors, while preserving the server's unsaved state
+- ☐ Rejection does not grant the client access or transfer the workspace
+
+### 48.3 Linux AppImage launch and icon
+
+- **Prerequisite:** Use a Linux AppImage built from this integration, not the macOS development binary.
+- **Do:** Launch the AppImage from a desktop file manager and inspect its application icon and fixture/VC views.
+- **Verify:**
+- ☐ The AppImage builds and launches without a missing or unsupported icon error; its desktop icon is recognizable
+- ☐ Existing fork features, including MCP and the web-dmx interface in the MCP build, remain available
+
+### 48.4 Sign-off
+
+- ☐ Record reviewer, date, build, workspace and platforms. Leave native peer interaction and Linux packaging unsigned until exercised.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Automatic native workspace transfer | | | | | |
+| Manual native workspace transfer | | | | | |
+| Linux AppImage launch and icon | | | | | |
+
+#### Automated integration evidence, 2026-10-31
+
+- Fetched `mcallegari/qlcplus:master` through `upstream` at `4e09ecbf0dfc31ee27de2c7eaa28a51ac080ba61`. `origin` remains `abossard/qlcplus`. The three incoming commits are `4708ed8bf` (current workspace for authorized native clients), `7bdb89600` (PR #2233 merge), and `4e09ecbf0` (PNG AppImage icon).
+- Local merge `2efcbf0738a3a8e63ba730a9aa29d5c104302282` has exact parents `700b3e69579e41ac2045f1f93d1b3ecc3a41fdfd` and `4e09ecbf0dfc31ee27de2c7eaa28a51ac080ba61`. Its tree matches conflict-free `git merge-tree` output `249225a83146fffdc0ee8583332414f93788b23b`. Only the four incoming paths are in the merge, with no additional production refactors. Fork app startup, MCP and packaging changes remain intact.
+
+```sh
+cmake --build build --target upstreamintegration_test -j8
+python3 build/upstream-integration-20261031/run-tests.py before-focused build/qmlui/test/upstreamintegration/upstreamintegration_test clientWorkspaceRequest
+python3 build/upstream-integration-20261031/run-tests.py before-ui build/qmlui/test/upstreamintegration/upstreamintegration_test
+# Merge the pinned upstream commit, then:
+cmake --build build --target upstreamintegration_test mcp_workspace_tools_test -j8
+python3 build/upstream-integration-20261031/run-tests.py after-focused build/qmlui/test/upstreamintegration/upstreamintegration_test clientWorkspaceRequest
+python3 build/upstream-integration-20261031/run-tests.py after-ui build/qmlui/test/upstreamintegration/upstreamintegration_test
+python3 build/upstream-integration-20261031/run-tests.py after-mcp build/mcp/test/mcp_workspace_tools_test
+cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
+```
+
+| Execution | Passed | Failed | Skipped | Exit |
+|-----------|--------|--------|---------|------|
+| Before merge: native workspace request regressions | 2 | 4 | 0 | 4 |
+| After merge: native workspace request regressions | 6 | 0 | 0 | 0 |
+| Before merge: full upstreamintegration suite | 713 | 19 | 8 | 19 |
+| After merge: full upstreamintegration suite | 717 | 15 | 8 | 15 |
+| After merge: MCP workspace tools | 36 | 0 | 0 | 0 |
+| Review parser suites | 57 | 0 | 0 | 0 |
+
+- The four parameterized request rows cover automatic and explicit requests with never-saved and modified-saved workspaces. They verify current serialized scene content, unchanged saved bytes, preserved filename/modified state and public slot visibility. They use an absent test session: serialization and routing are verified, but TCP transfer and approval/rejection interaction are not. Those remain pending in 48.1 and 48.2.
+- The full UI suite is **not green**. Its fifteen remaining `timelineViewport` width failures exactly match the first-parent baseline; the four new request failures disappear and no new failures appear. Eight screenshot rows require opt-in `QLC_VC_VISUAL_DIR`. Neither run timed out. [Before results](build/upstream-integration-20261031/before-ui.json), [after results](build/upstream-integration-20261031/after-ui.json), [focused results](build/upstream-integration-20261031/after-focused.json), [MCP results](build/upstream-integration-20261031/after-mcp.json).
+- Both native builds succeeded in the existing macOS Release configuration. Tests used isolated HOME/config/runtime/TMPDIR, offscreen/software rendering and sleep-inclusive deadlines, without restarting the running desktop application. [Before build](build/upstream-integration-20261031/build-before.log), [after build](build/upstream-integration-20261031/build-after.log).
+- A scratch AppDir reproduced the upstream SVG/PNG copies and `.DirIcon` symlink. The symlink resolves to the exact source PNG (96 x 96 RGBA). This is an asset-layout check on macOS, not a Linux build, AppImage packaging run or desktop icon review.
+- Both review parser suites pass 57 tests. Independent native-canvas parsing preserves every previous section and check identity, recognizes 48.1 through 48.4, and confirms seven unique pending checks. All 250731 original bytes remain an exact prefix (SHA-256 `4293f1d640d747704b1879d025140459b11ed510fb88d25fbc6326752b654e61`). No existing checkbox or sign-off changed. [Parser results](build/upstream-integration-20261031/parser-tests.log), [preservation and baseline comparison](build/upstream-integration-20261031/verification.json).

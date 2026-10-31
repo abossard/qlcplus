@@ -91,6 +91,7 @@
 #include "uimanager.h"
 #include "listmodel.h"
 #include "simpledesk.h"
+#include "networkmanager.h"
 #include "efxfixture.h"
 #include "mainview2d.h"
 #include "palettemanager.h"
@@ -111,6 +112,8 @@ class UpstreamIntegration_Test : public QObject
 private slots:
     void initTestCase();
     void cleanupTestCase();
+    void clientWorkspaceRequest_data();
+    void clientWorkspaceRequest();
     void C2_importFunctionVisibility_data();
     void C2_importFunctionVisibility();
     void importRefusedFile_data();
@@ -4714,6 +4717,68 @@ void UpstreamIntegration_Test::initTestCase()
 void UpstreamIntegration_Test::cleanupTestCase()
 {
     m_app.reset();
+}
+
+void UpstreamIntegration_Test::clientWorkspaceRequest_data()
+{
+    QTest::addColumn<bool>("automatic");
+    QTest::addColumn<bool>("saved");
+    for (bool automatic : {false, true})
+        for (bool saved : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2")
+                .arg(automatic ? "automatic" : "explicit")
+                .arg(saved ? "modified-saved" : "never-saved")))
+                << automatic << saved;
+}
+
+void UpstreamIntegration_Test::clientWorkspaceRequest()
+{
+    QFETCH(bool, automatic);
+    QFETCH(bool, saved);
+    QTemporaryDir files;
+    QVERIFY(files.isValid());
+    const QString oldFileName = m_app->fileName();
+    const bool wasModified = m_app->doc()->isModified();
+    const QString snapshot = QDir::temp().filePath("qlcplus_netproject.qxw");
+    QVERIFY2(!QFile::exists(snapshot), "The isolated request snapshot must not already exist");
+    auto *scene = new Scene(m_app->doc());
+    QVERIFY(m_app->doc()->addFunction(scene));
+    const quint32 sceneID = scene->id();
+    const auto cleanup = qScopeGuard([&]() {
+        m_app->doc()->deleteFunction(sceneID);
+        m_app->setFileName(oldFileName);
+        if (wasModified) m_app->doc()->setModified();
+        else m_app->doc()->resetModified();
+        if (QFile::exists(snapshot)) QVERIFY(QFile::remove(snapshot));
+    });
+    scene->setName("Saved client scene");
+    const QString original = files.filePath("saved.qxw");
+    QCOMPARE(m_app->saveXML(original, App::ClientCopy), QFile::NoError);
+    QFile previous(original);
+    QVERIFY(previous.open(QIODevice::ReadOnly));
+    const QByteArray savedWorkspace = previous.readAll();
+    previous.close();
+    m_app->setFileName(saved ? original : QString());
+    scene->setName("Unsaved client scene");
+    m_app->doc()->setModified();
+    const int slot = m_app->metaObject()->indexOfSlot("slotClientProjectRequest(QString)");
+    QVERIFY(slot >= 0);
+    if (!automatic)
+        QCOMPARE(m_app->metaObject()->method(slot).access(), QMetaMethod::Public);
+    if (automatic)
+        emit m_app->m_networkManager->clientAutoAuthorized("test-no-client");
+    else
+        QVERIFY(QMetaObject::invokeMethod(m_app.get(), "slotClientProjectRequest",
+                                         Q_ARG(QString, "test-no-client")));
+    QFile current(snapshot);
+    QVERIFY(current.open(QIODevice::ReadOnly));
+    const QByteArray workspace = current.readAll();
+    QVERIFY(workspace.contains("Unsaved client scene"));
+    QVERIFY(!workspace.contains("Saved client scene"));
+    QVERIFY(previous.open(QIODevice::ReadOnly));
+    QCOMPARE(previous.readAll(), savedWorkspace);
+    QCOMPARE(m_app->fileName(), saved ? original : QString());
+    QVERIFY(m_app->doc()->isModified());
 }
 
 namespace
