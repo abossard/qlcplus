@@ -79,6 +79,9 @@ private slots:
 
     void adjustIntensity();
     void adjustMasterIntensityAcrossRunningCrossfadeSteps();
+    void randomSingleStep();
+    void randomBackwardRound();
+    void randomOrderFollowsSteps();
 
 private:
     Doc* m_doc;

@@ -2032,8 +2032,8 @@ Rectangle
         id: horScrollBar
         visible: showMgrContainer.timelineShown
         x: timelineHeader.x
-        y: (showMgrContainer.editorTab === 2 ? showMgrContainer.timelineBottom : showMgrContainer.height) - height
-        z: 10
+        y: showMgrContainer.timelineBottom - height
+        z: 5
         width: timelineHeader.width
         orientation: Qt.Horizontal
         onPressedChanged: showMgrContainer.noteUserScroll()
