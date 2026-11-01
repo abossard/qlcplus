@@ -3307,3 +3307,71 @@ cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
 - Both native builds succeeded in the existing macOS Release configuration. Tests used isolated HOME/config/runtime/TMPDIR, offscreen/software rendering and sleep-inclusive deadlines, without restarting the running desktop application. [Before build](build/upstream-integration-20261031/build-before.log), [after build](build/upstream-integration-20261031/build-after.log).
 - A scratch AppDir reproduced the upstream SVG/PNG copies and `.DirIcon` symlink. The symlink resolves to the exact source PNG (96 x 96 RGBA). This is an asset-layout check on macOS, not a Linux build, AppImage packaging run or desktop icon review.
 - Both review parser suites pass 57 tests. Independent native-canvas parsing preserves every previous section and check identity, recognizes 48.1 through 48.4, and confirms seven unique pending checks. All 250731 original bytes remain an exact prefix (SHA-256 `4293f1d640d747704b1879d025140459b11ed510fb88d25fbc6326752b654e61`). No existing checkbox or sign-off changed. [Parser results](build/upstream-integration-20261031/parser-tests.log), [preservation and baseline comparison](build/upstream-integration-20261031/verification.json).
+
+---
+
+## 49. Upstream random Chaser and Show Manager scrollbar (d86decb38)
+
+### 49.1 Timeline scrollbar above the editor bottom panel
+
+- **Do:** Open a Show with enough timeline content to scroll horizontally. Open the Scene editor bottom panel, drag the horizontal scrollbar, then close the panel. Repeat in the split timeline/recordings view, resize the window, and switch to recordings-only view.
+- **Verify:**
+- ☐ The scrollbar stays above the bottom panel in timeline view and at the timeline/recordings boundary in split view, without overlapping editor controls or covering the recordings table
+- ☐ Dragging remains usable with the panel open or closed; recordings-only view hides the timeline scrollbar and leaves the table usable
+
+### 49.2 Random Chaser playback continuity [DMX]
+
+- **Prerequisite:** Use a scratch Chaser with clearly different lighting looks and connected fixtures.
+- **Do:** Run one step in Random mode, then run several distinct steps in Random/Backward mode across multiple rounds. Add and remove steps while the Chaser runs.
+- **Verify:**
+- ☐ Single-step playback remains visually continuous; backward random round transitions do not visibly stall, flash an unrelated look, or immediately repeat the preceding distinct step
+- ☐ Added looks become visible and removed looks stop appearing without a perceptible interruption; the fork's configured step durations still feel correct
+
+### 49.3 Sign-off
+
+- ☐ Record reviewer, date, build, workspace and hardware. Leave visual interaction and physical output unsigned until exercised.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Timeline and split-view scrollbar interaction | | | | | |
+| Random Chaser physical playback | | | | | |
+
+#### Automated integration evidence, 2026-11-01
+
+- Fetched `mcallegari/qlcplus:master` through `upstream` at `d86decb384b09fd6bd691348eb808238314c10fc`. `origin` remains `abossard/qlcplus`. Incoming production commits are `317fe197e` (random Chaser index/order fixes) and `b584adbdf` (Show Manager scrollbar bottom-panel clearance and stacking), plus three merge commits.
+- Local merge `bca62f0ba97154ab722fd8769da1d8047708deeb` has exact parents `e3297f3cb68801b0a1b3758c06dc20a7799f6628` and `d86decb384b09fd6bd691348eb808238314c10fc`. The five incoming source/test paths are the only merge changes. The sole conflict was scrollbar placement: it now uses the existing `timelineBottom` boundary and upstream's `z: 5`, retaining split layout, recordings-only visibility and scroll-activity tracking. The Chaser body differs from upstream only in the existing fork step-duration forwarding; the header is upstream-exact.
+
+```sh
+cmake --build build --target chaserrunner_test chaser_test upstreamintegration_test -j8
+python3 build/upstream-integration-20261101/run-tests.py before-chaserrunner build/engine/test/chaserrunner/chaserrunner_test
+python3 build/upstream-integration-20261101/run-tests.py before-chaser build/engine/test/chaser/chaser_test
+# Add the parameterized scrollbar regression, rebuild upstreamintegration_test, then:
+python3 build/upstream-integration-20261101/run-tests.py before-focused build/qmlui/test/upstreamintegration/upstreamintegration_test timelineScrollbarPanel
+python3 build/upstream-integration-20261101/run-tests.py before-ui build/qmlui/test/upstreamintegration/upstreamintegration_test
+# Merge the pinned upstream commit, resolve the scrollbar conflict, then:
+cmake --build build --target chaserrunner_test chaser_test upstreamintegration_test mcp_show_tools_test -j8
+python3 build/upstream-integration-20261101/run-tests.py after-chaserrunner build/engine/test/chaserrunner/chaserrunner_test
+python3 build/upstream-integration-20261101/run-tests.py after-chaser build/engine/test/chaser/chaser_test
+python3 build/upstream-integration-20261101/run-tests.py after-focused build/qmlui/test/upstreamintegration/upstreamintegration_test timelineScrollbarPanel
+python3 build/upstream-integration-20261101/run-tests.py after-ui build/qmlui/test/upstreamintegration/upstreamintegration_test
+python3 build/upstream-integration-20261101/run-tests.py after-mcp build/mcp/test/mcp_show_tools_test
+cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
+```
+
+| Execution | Passed | Failed | Skipped | Exit |
+|-----------|--------|--------|---------|------|
+| Before merge: ChaserRunner | 37 | 0 | 0 | 0 |
+| After merge: ChaserRunner, including three upstream regressions | 40 | 0 | 0 | 0 |
+| Before and after merge: Chaser (each run) | 23 | 0 | 0 | 0 |
+| Before merge: scrollbar regressions | 6 | 2 | 0 | 2 |
+| After merge: scrollbar regressions | 8 | 0 | 0 | 0 |
+| Before merge: full upstreamintegration suite with scrollbar regressions | 721 | 17 | 8 | 17 |
+| After merge: full upstreamintegration suite | 723 | 15 | 8 | 15 |
+| After merge: MCP Show tools | 72 | 0 | 0 | 0 |
+| Review parser suites | 58 | 0 | 0 | 0 |
+
+- The six parameterized layout rows cover timeline, recordings-only and split modes with the bottom panel hidden and visible. They reproduce the original timeline overlap and split-view stacking failure, then pass without weakening assertions. Existing native scrolling, editing and recording tests remain intact. [Focused results](build/upstream-integration-20261101/after-focused.json).
+- The full UI suite is **not green**. Its fifteen `timelineViewport` width failures exactly match the freshly rebuilt first-parent baseline; both scrollbar failures disappear and no new failures appear. Eight opt-in screenshot rows remain skipped without `QLC_VC_VISUAL_DIR`. Neither run timed out. [Before results](build/upstream-integration-20261101/before-ui.json), [after results](build/upstream-integration-20261101/after-ui.json).
+- Both builds succeeded in the existing macOS Release configuration, including the native application dependency and MCP Show tools. Tests used isolated HOME/config/runtime/TMPDIR and working directories, offscreen/software rendering and sleep-inclusive deadlines. The running desktop application was not restarted. [Before build](build/upstream-integration-20261101/build-before.log), [after build](build/upstream-integration-20261101/build-after.log), [engine results](build/upstream-integration-20261101/after-chaserrunner.json), [MCP results](build/upstream-integration-20261101/after-mcp.json).
+- Physical Chaser output, native pointer interaction, visual judgment and other platforms remain unverified and unsigned. The automation above does not sign off 49.1 or 49.2.
+- Both review parser suites pass 58 tests. Independent native-canvas parsing preserves every previous section and check identity, recognizes 49.1 through 49.3, and confirms five unique pending checks. All 257307 original bytes remain an exact prefix (SHA-256 `342268698264437796c37ffbf028bd0ce50cc7b1a5213d75bbf1e5dc5ceefc87`). No existing checkbox or sign-off changed. [Parser results](build/upstream-integration-20261101/parser-tests.log), [merge seams, preservation and baseline comparison](build/upstream-integration-20261101/verification.json).

@@ -230,6 +230,8 @@ private slots:
     void externalFunctionRename();
     void timelineViewport_data();
     void timelineViewport();
+    void timelineScrollbarPanel_data();
+    void timelineScrollbarPanel();
     void previewRepeatBounds_data();
     void previewRepeatBounds();
     void editorPublication_data();
@@ -8926,6 +8928,54 @@ void UpstreamIntegration_Test::externalFunctionRename()
     QVERIFY(tree->removeItem(prefix + previous));
     function->setName("Missing tree entry");
     QVERIFY(!tree->itemAtPath(prefix + function->name()));
+}
+
+void UpstreamIntegration_Test::timelineScrollbarPanel_data()
+{
+    QTest::addColumn<int>("editorTab");
+    QTest::addColumn<bool>("panelVisible");
+    for (int tab : {0, 1, 2})
+        for (bool visible : {false, true})
+            QTest::newRow(qPrintable(QString("tab-%1-panel-%2").arg(tab).arg(visible)))
+                    << tab << visible;
+}
+
+void UpstreamIntegration_Test::timelineScrollbarPanel()
+{
+    QFETCH(int, editorTab);
+    QFETCH(bool, panelVisible);
+    QQuickItem container(m_app->contentItem());
+    container.setSize(QSizeF(1200, 800));
+    QQmlContext context(m_app->rootContext());
+    context.setContextProperty("mainView", m_app->rootObject());
+    QQmlComponent component(m_app->engine(), QUrl("qrc:/ShowManager.qml"));
+    std::unique_ptr<QObject> object(component.create(&context));
+    auto *panel = qobject_cast<QQuickItem*>(object.get());
+    QVERIFY2(panel, qPrintable(component.errorString()));
+    panel->setParentItem(&container);
+    const auto item = [panel](const char *name) {
+        QQmlExpression expression(qmlContext(panel), panel, QString::fromLatin1(name));
+        return qobject_cast<QQuickItem*>(expression.evaluate().value<QObject*>());
+    };
+    auto *scrollbar = item("horScrollBar");
+    auto *bottomPanel = item("bottomPanel");
+    QVERIFY(scrollbar && bottomPanel);
+    QVERIFY(panel->setProperty("editorTab", editorTab));
+    bottomPanel->setHeight(180);
+    bottomPanel->setVisible(panelVisible);
+    QCoreApplication::processEvents();
+    QCOMPARE(scrollbar->isVisible(), editorTab != 1);
+    if (editorTab == 1)
+        return;
+    const qreal boundary = editorTab == 2
+            ? panel->property("timelineBottom").toReal()
+            : panel->height() - (panelVisible ? bottomPanel->height() : 0);
+    QVERIFY(qAbs(scrollbar->y() + scrollbar->height() - boundary) < 0.01);
+    if (panelVisible)
+    {
+        QVERIFY(scrollbar->y() + scrollbar->height() <= bottomPanel->y());
+        QVERIFY(scrollbar->z() < bottomPanel->z());
+    }
 }
 
 void UpstreamIntegration_Test::timelineViewport_data()
