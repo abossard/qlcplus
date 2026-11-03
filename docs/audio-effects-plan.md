@@ -1,4 +1,6 @@
-Got it — switching to design-doc mode. The 5 `.js` files I already wrote are still on disk as a reference implementation, but the canonical artifact for the GPT-5.5 review is the plan below. Treat the JS as a sketch, not a commitment.
+# Audio Effects Plan (LedFx-style scripts)
+
+> **Superseded for new work.** Execution now follows [audio-blueprints.md](audio-blueprints.md). These five scripts exist and keep working, but per-script DSP and `LedFx.*` helpers are not extended further; scripts move to `AudioFeatures` in Flow A.
 
 ---
 

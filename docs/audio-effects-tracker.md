@@ -1,5 +1,7 @@
 # Audio-Reactive Effects — Implementation Tracker
 
+> **Superseded for new work.** Execution now follows [audio-blueprints.md](audio-blueprints.md). Do not wire more per-script Gain/Floor/Reactivity controls; DSP moves into `AudioFeatures` (Flow A).
+
 ## Plan
 
 ### Step 0: Fix audiospectrum.js sensitivity

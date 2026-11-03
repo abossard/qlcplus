@@ -1,5 +1,7 @@
 # Audio DSP Modernization Plan
 
+> **Execution order now lives in [audio-blueprints.md](audio-blueprints.md)** (nested minimal flows). This file is the long-range reference. Its M0-M5 verification snapshot is out of date: aubio landed in `29f2cb7f5`, and playback-following (own playback, VirtualDJ) now comes before fingerprinting.
+
 ## Goal
 
 Replace QLC+'s minimal audio analysis (32 log bands + spectral-flux beat detector, mic-only) with a scientifically grounded pipeline that powers RGB scripts, Audio Trigger widgets, and AI-driven cue generation, and that is musically aware enough for EDM stage lighting.

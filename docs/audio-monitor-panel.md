@@ -1,5 +1,7 @@
 # Global Audio Monitor Panel — Implementation Plan
 
+> **Note:** Steps 1–2 are done. Remaining panel work waits for a blueprint in [audio-blueprints.md](audio-blueprints.md) that needs it. The `dataProcessed(double*)` thread-safety concern below still applies.
+
 ## Status
 
 **Step 1 (band splits) and Step 2 (VCAudioTriggers enhancement) are DONE.**
