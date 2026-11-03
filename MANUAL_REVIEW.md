@@ -3375,3 +3375,48 @@ cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
 - Both builds succeeded in the existing macOS Release configuration, including the native application dependency and MCP Show tools. Tests used isolated HOME/config/runtime/TMPDIR and working directories, offscreen/software rendering and sleep-inclusive deadlines. The running desktop application was not restarted. [Before build](build/upstream-integration-20261101/build-before.log), [after build](build/upstream-integration-20261101/build-after.log), [engine results](build/upstream-integration-20261101/after-chaserrunner.json), [MCP results](build/upstream-integration-20261101/after-mcp.json).
 - Physical Chaser output, native pointer interaction, visual judgment and other platforms remain unverified and unsigned. The automation above does not sign off 49.1 or 49.2.
 - Both review parser suites pass 58 tests. Independent native-canvas parsing preserves every previous section and check identity, recognizes 49.1 through 49.3, and confirms five unique pending checks. All 257307 original bytes remain an exact prefix (SHA-256 `342268698264437796c37ffbf028bd0ce50cc7b1a5213d75bbf1e5dc5ceefc87`). No existing checkbox or sign-off changed. [Parser results](build/upstream-integration-20261101/parser-tests.log), [merge seams, preservation and baseline comparison](build/upstream-integration-20261101/verification.json).
+
+---
+
+## 50. Upstream VC external controls, kiosk and Simple Desk reset (c984562d2)
+
+### 50.1 Page activation after project load [MIDI]
+
+- **Prerequisite:** Use a scratch workspace with two VC pages and a controller assignment that selects each page.
+- **Do:** Save and reopen the project, select the other page, then use each controller assignment. Repeat with the fork's Normal, Override and Inherit page input modes and nested widget assignments.
+- **Verify:**
+- ☐ Each page selection assignment works immediately after reopening, without reassignment or opening the input editor
+- ☐ Existing widget assignments, page input modes and the console outline remain usable after page changes
+
+### 50.2 Animation preset controller and keyboard persistence [MIDI]
+
+- **Do:** Create several Animation presets, including the fork's text and color-knob presets. Assign distinct controller inputs and keyboard shortcuts, save and reopen the project, then activate the presets using those assignments.
+- **Verify:**
+- ☐ Controller and keyboard assignments remain attached to the correct presets and visibly apply the intended text, color or animation
+- ☐ Preset editing, ordering and the main animation fader still work without assigning one preset's controls to another
+
+### 50.3 Simple Desk universe reset, undo and redo [DMX]
+
+- **Prerequisite:** Use isolated test fixtures, not a live show.
+- **Do:** Override channels on two universes, including a zero-valued override. Reset one universe, undo the reset, then redo it while watching the desk and physical output.
+- **Verify:**
+- ☐ Reset releases only the selected universe's overrides; undo restores its exact values, including the zero-valued override, and redo releases them again
+- ☐ The other universe remains unchanged and physical output follows each operation without a stuck channel or unexpected flash
+
+### 50.4 Kiosk snapping controls
+
+- **Do:** Compare the VC toolbar in normal editing mode and kiosk mode, then return to normal editing.
+- **Verify:**
+- ☐ The widgets-snapping toggle is hidden in kiosk mode and available again when VC editing is permitted
+- ☐ Page selection and performance controls remain usable, and returning to editing preserves the current snapping configuration
+
+### 50.5 Sign-off
+
+- ☐ Record reviewer, date, build, workspace and hardware. Leave controller delivery, physical output and visual interaction unsigned until exercised.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Loaded VC page controller activation | | | | | |
+| Animation preset controller and keyboard activation | | | | | |
+| Simple Desk reset physical output | | | | | |
+| Kiosk toolbar interaction | | | | | |

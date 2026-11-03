@@ -80,6 +80,7 @@
 #include "collectioneditor.h"
 #include "efxeditor.h"
 #include "vcbutton.h"
+#include "vcanimation.h"
 #include "virtualconsole.h"
 #include "vcframe.h"
 #include "vcslider.h"
@@ -112,6 +113,14 @@ class UpstreamIntegration_Test : public QObject
 private slots:
     void initTestCase();
     void cleanupTestCase();
+    void animationPresetInputs_data();
+    void animationPresetInputs();
+    void loadedPageInput_data();
+    void loadedPageInput();
+    void deskResetHistory_data();
+    void deskResetHistory();
+    void kioskSnapping_data();
+    void kioskSnapping();
     void clientWorkspaceRequest_data();
     void clientWorkspaceRequest();
     void C2_importFunctionVisibility_data();
@@ -4719,6 +4728,209 @@ void UpstreamIntegration_Test::initTestCase()
 void UpstreamIntegration_Test::cleanupTestCase()
 {
     m_app.reset();
+}
+
+void UpstreamIntegration_Test::animationPresetInputs_data()
+{
+    QTest::addColumn<int>("presetID");
+    QTest::addColumn<bool>("keyboard");
+    for (int presetID : {32, 63})
+        for (bool keyboard : {false, true})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(presetID).arg(keyboard)))
+                << presetID << keyboard;
+}
+
+void UpstreamIntegration_Test::animationPresetInputs()
+{
+    QFETCH(int, presetID);
+    QFETCH(bool, keyboard);
+    VCAnimation original(m_app->doc());
+    const int id = original.addTextPreset("Restored preset");
+    QVERIFY(id >= 0);
+    // Load nonsequential IDs as well as the IDs allocated by the editor.
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    QVERIFY(original.saveXML(&writer));
+    xml.replace(QString("Control ID=\"%1\"").arg(id),
+                QString("Control ID=\"%1\"").arg(presetID));
+    const QString binding = keyboard ? QString("<Key>Ctrl+G</Key>")
+        : QString("<Input Universe=\"0\" Channel=\"9\" LowerValue=\"12\" UpperValue=\"201\"/>");
+    xml.replace("</Control>", binding + "</Control>");
+    VCAnimation loaded(m_app->doc());
+    QBuffer buffer;
+    buffer.setData(xml.toUtf8());
+    QVERIFY(buffer.open(QIODevice::ReadOnly));
+    QXmlStreamReader reader(&buffer);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(loaded.loadXML(reader));
+    QVERIFY(!reader.hasError());
+    for (int pass = 0; pass < 2; ++pass)
+    {
+        VCAnimation *widget = pass == 0 ? &loaded : &original;
+        if (keyboard)
+        {
+            QCOMPARE(widget->keySequenceMap().value(QKeySequence("Ctrl+G"), UINT_MAX), quint32(presetID));
+        }
+        else
+        {
+            const auto source = widget->inputSource(presetID, 0, 9);
+            QVERIFY(source);
+            QCOMPARE(source->feedbackValue(QLCInputFeedback::LowerValue), uchar(12));
+            QCOMPARE(source->feedbackValue(QLCInputFeedback::UpperValue), uchar(201));
+        }
+        if (pass == 0)
+        {
+            QString saved;
+            QXmlStreamWriter output(&saved);
+            QVERIFY(loaded.saveXML(&output));
+            buffer.close();
+            buffer.setData(saved.toUtf8());
+            QVERIFY(buffer.open(QIODevice::ReadOnly));
+            QXmlStreamReader roundtrip(&buffer);
+            QVERIFY(roundtrip.readNextStartElement());
+            QVERIFY(original.loadXML(roundtrip));
+            QVERIFY(!roundtrip.hasError());
+        }
+    }
+}
+
+void UpstreamIntegration_Test::loadedPageInput_data()
+{
+    QTest::addColumn<int>("targetPage");
+    QTest::newRow("first-page") << 0;
+    QTest::newRow("second-page") << 1;
+}
+
+void UpstreamIntegration_Test::loadedPageInput()
+{
+    QFETCH(int, targetPage);
+    VirtualConsole *vc = m_app->virtualConsole();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QString oldContext = contexts->currentContext();
+    contexts->switchToContext("VC");
+    QTRY_VERIFY(m_app->rootObject()->findChild<QObject *>("virtualConsole"));
+    QString snapshot;
+    QXmlStreamWriter writer(&snapshot);
+    QVERIFY(vc->saveXML(&writer));
+    const int selected = vc->selectedPage();
+    const auto load = [&](const QString &xml) {
+        for (int i = 0; i < vc->pagesCount(); ++i)
+        {
+            vc->page(i)->deleteAllInputSources();
+            vc->page(i)->deleteAllKeySequences();
+            vc->page(i)->resetInputSourcesMap();
+        }
+        QBuffer buffer;
+        buffer.setData(xml.toUtf8());
+        if (!buffer.open(QIODevice::ReadOnly)) return false;
+        QXmlStreamReader reader(&buffer);
+        if (!reader.readNextStartElement() || !vc->loadXML(reader) || reader.hasError()) return false;
+        vc->postLoad();
+        return true;
+    };
+    const auto restore = qScopeGuard([&]() {
+        QVERIFY(load(snapshot));
+        vc->setSelectedPage(selected);
+        contexts->switchToContext(oldContext);
+    });
+    QVERIFY(load(QStringLiteral("<VirtualConsole><Frame Caption=\"First\"/>"
+                                "<Frame Caption=\"Second\"/></VirtualConsole>")));
+    vc->createAndAddInputSource(vc->page(targetPage), 0, 9);
+    QString assigned;
+    QXmlStreamWriter assignedWriter(&assigned);
+    QVERIFY(vc->saveXML(&assignedWriter));
+    QVERIFY(load(assigned));
+    QCOMPARE(vc->pagesCount(), 2);
+    QCOMPARE(vc->page(targetPage)->inputSources().size(), 1);
+    QCOMPARE(vc->page(targetPage)->pageInputSources(), QList<quint32>{9});
+    vc->setSelectedPage(1 - targetPage);
+    QVERIFY(QMetaObject::invokeMethod(vc, "slotInputValueChanged", Qt::DirectConnection,
+        Q_ARG(quint32, 0), Q_ARG(quint32, 9), Q_ARG(uchar, 255)));
+    QTRY_COMPARE(vc->selectedPage(), targetPage);
+}
+
+void UpstreamIntegration_Test::deskResetHistory_data()
+{
+    QTest::addColumn<int>("universe");
+    QTest::newRow("first-universe") << 0;
+    QTest::newRow("second-universe") << 1;
+}
+
+void UpstreamIntegration_Test::deskResetHistory()
+{
+    QFETCH(int, universe);
+    SimpleDesk *desk = m_app->simpleDesk();
+    Tardis *history = Tardis::instance();
+    const quint32 previousFilter = desk->universeFilter();
+    const auto restore = qScopeGuard([&]() {
+        for (uint address : {0u, 511u, 512u, 1023u}) desk->resetAbsoluteChannel(address);
+        desk->setUniverseFilter(previousFilter);
+        history->resetHistory();
+    });
+    for (uint address : {0u, 511u, 512u, 1023u})
+        desk->setAbsoluteChannelValue(address, address % 512 == 0 ? 0 : 203);
+    history->resetHistory();
+    desk->setUniverseFilter(universe);
+    QVERIFY(desk->hasChannel(0));
+    QVERIFY(desk->hasChannel(511));
+    desk->resetUniverse(universe);
+    QVERIFY(!desk->hasChannel(0));
+    QVERIFY(!desk->hasChannel(511));
+    const auto recorded = [&]() {
+        QMutexLocker locker(&history->m_historyMutex);
+        return !history->m_history.isEmpty() &&
+            Tardis::actionToString(history->m_history.last().m_action) == "SimpleDeskResetUniverse";
+    };
+    QTRY_VERIFY(recorded());
+    history->undoAction();
+    QVERIFY(desk->hasChannel(0));
+    QVERIFY(desk->hasChannel(511));
+    QCOMPARE(desk->value(0), uchar(0));
+    QCOMPARE(desk->value(511), uchar(203));
+    history->redoAction();
+    QVERIFY(!desk->hasChannel(0));
+    QVERIFY(!desk->hasChannel(511));
+    desk->setUniverseFilter(1 - universe);
+    QVERIFY(desk->hasChannel(0));
+    QVERIFY(desk->hasChannel(511));
+    QCOMPARE(desk->value(511), uchar(203));
+}
+
+void UpstreamIntegration_Test::kioskSnapping_data()
+{
+    QTest::addColumn<bool>("editing");
+    QTest::newRow("normal") << true;
+    QTest::newRow("kiosk") << false;
+}
+
+void UpstreamIntegration_Test::kioskSnapping()
+{
+    QFETCH(bool, editing);
+    const int mask = m_app->accessMask();
+    auto *contexts = qobject_cast<ContextManager *>(
+        m_app->rootContext()->contextProperty("contextManager").value<QObject *>());
+    QVERIFY(contexts);
+    const QString oldContext = contexts->currentContext();
+    const auto restore = qScopeGuard([&]() {
+        m_app->setAccessMask(mask);
+        contexts->switchToContext(oldContext);
+    });
+    contexts->switchToContext("VC");
+    QTRY_VERIFY(m_app->rootObject()->findChild<QObject *>("virtualConsole"));
+    m_app->setAccessMask(editing ? mask | App::AC_VCEditing : mask & ~App::AC_VCEditing);
+    auto *vcItem = m_app->rootObject()->findChild<QObject *>("virtualConsole");
+    QVERIFY(vcItem);
+    QQmlExpression snapping(qmlContext(vcItem), vcItem,
+        "(function() { var items = rowLayout1.children; "
+        "for (var i = 0; i < items.length; ++i) "
+        "if (items[i].tooltip === 'Enable/Disable widgets snapping') return items[i]; "
+        "return null; })()");
+    QObject *button = snapping.evaluate().value<QObject *>();
+    QVERIFY2(!snapping.hasError(), qPrintable(snapping.error().toString()));
+    QVERIFY(button);
+    QTRY_COMPARE(button->property("visible").toBool(), editing);
 }
 
 void UpstreamIntegration_Test::clientWorkspaceRequest_data()

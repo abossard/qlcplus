@@ -22,6 +22,7 @@
 #include <QDebug>
 
 #include "vcanimationpreset.h"
+#include "vcwidget.h"
 
 VCAnimationPreset::VCAnimationPreset(quint8 id)
     : m_id(id)
@@ -163,7 +164,7 @@ bool VCAnimationPreset::compare(const VCAnimationPreset *left, const VCAnimation
     return *left < *right;
 }
 
-bool VCAnimationPreset::loadXML(QXmlStreamReader &root)
+bool VCAnimationPreset::loadXML(QXmlStreamReader &root, VCWidget *widget)
 {
     if (root.name() != KXMLQLCVCAnimationPreset)
     {
@@ -202,6 +203,14 @@ bool VCAnimationPreset::loadXML(QXmlStreamReader &root)
                 m_properties[pName] = pValue;
             }
         }
+        else if (root.name() == KXMLQLCVCWidgetInput)
+        {
+            widget->loadXMLInputSource(root, m_id);
+        }
+        else if (root.name() == KXMLQLCVCWidgetKey)
+        {
+            widget->loadXMLInputKey(root, m_id);
+        }
         else
         {
             qWarning() << Q_FUNC_INFO << "Unknown VCAnimationPreset tag:" << root.name().toString();
@@ -212,7 +221,7 @@ bool VCAnimationPreset::loadXML(QXmlStreamReader &root)
     return true;
 }
 
-bool VCAnimationPreset::saveXML(QXmlStreamWriter *doc) const
+bool VCAnimationPreset::saveXML(QXmlStreamWriter *doc, const VCWidget *widget) const
 {
     Q_ASSERT(doc != nullptr);
 
@@ -246,6 +255,9 @@ bool VCAnimationPreset::saveXML(QXmlStreamWriter *doc) const
             doc->writeEndElement();
         }
     }
+
+    /* External controls */
+    widget->saveXMLInputControl(doc, m_id, false);
 
     /* End the <Control> tag */
     doc->writeEndElement();

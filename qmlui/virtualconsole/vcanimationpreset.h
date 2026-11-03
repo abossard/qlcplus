@@ -26,6 +26,7 @@
 
 class QXmlStreamReader;
 class QXmlStreamWriter;
+class VCWidget;
 
 /** XML tags shared with the legacy VCMatrix widget so presets created in
  *  one editor remain readable by the other. */
@@ -103,8 +104,10 @@ public:
      * Load & Save
      ***********************************************************************/
 public:
-    bool loadXML(QXmlStreamReader &root);
-    bool saveXML(QXmlStreamWriter *doc) const;
+    /** The preset external controls (<Input>/<Key>) are owned by $widget,
+     *  which is used to load/save them with the preset ID */
+    bool loadXML(QXmlStreamReader &root, VCWidget *widget);
+    bool saveXML(QXmlStreamWriter *doc, const VCWidget *widget) const;
 
 public:
     /** Preset unique ID. Note that id = 0 is reserved for the main fader */
