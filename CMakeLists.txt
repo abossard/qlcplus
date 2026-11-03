@@ -3,6 +3,7 @@ project(qlcplus VERSION 4.14.2 LANGUAGES C CXX)
 
 option(qmlui "Build for QLC+ 5 QML UI" OFF)
 option(mcp_server "Build MCP server for AI agent integration" OFF)
+option(audio_aubio "Vendor and build aubio for live audio analysis" ON)
 
 # Set Release build type by default
 if(NOT CMAKE_BUILD_TYPE)
@@ -72,6 +73,7 @@ if(WIN32)
 endif()
 
 add_subdirectory(hotplugmonitor)
+add_subdirectory(thirdparty)
 add_subdirectory(engine)
 if(mcp_server)
     add_subdirectory(mcp)
