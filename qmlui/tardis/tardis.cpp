@@ -52,6 +52,7 @@
 #include "vcframe.h"
 #include "rgbtext.h"
 #include "chaser.h"
+#include "script.h"
 #include "scene.h"
 #include "audio.h"
 #include "video.h"
@@ -392,6 +393,19 @@ void Tardis::forwardActionToNetwork(int code, TardisAction &action, bool undo)
         if (!before.isEmpty()) netAction.m_oldValue = before.value("parentID");
     }
 
+    /* A null value means a Scene or Sequence step value removal, but null
+     * values are not transmitted. Send the removed value with the unset code */
+    if (netAction.m_newValue.isNull())
+    {
+        if (code == SceneSetChannelValue || code == SceneUnsetChannelValue)
+            code = SceneUnsetChannelValue;
+        else if (code == ChaserSetStepValue || code == ChaserUnsetStepValue)
+            code = ChaserUnsetStepValue;
+
+        if (code == SceneUnsetChannelValue || code == ChaserUnsetStepValue)
+            netAction.m_newValue = netAction.m_oldValue;
+    }
+
     QMetaObject::invokeMethod(m_networkManager, "sendAction", Qt::QueuedConnection,
             Q_ARG(int, code),
             Q_ARG(TardisAction, netAction));
@@ -445,7 +459,11 @@ void Tardis::run()
                     if (isEditorStep(m_history.at(i)) || inWindow(action, m_history.at(i)) == false)
                         break;
 
-                    if (action.m_action == m_history.at(i).m_action &&
+                    /* Moves are not value changes: two consecutive moves
+                     * cannot be merged into a single one */
+                    if (action.m_action != ChaserMoveStep &&
+                        action.m_action != ShowManagerMoveTrack &&
+                        action.m_action == m_history.at(i).m_action &&
                         action.m_objID == m_history.at(i).m_objID &&
                         action.m_oldValue == m_history.at(i).m_newValue)
                     {
@@ -985,6 +1003,13 @@ int Tardis::processAction(TardisAction &action, bool undo)
             member(qobject_cast<Function *>(m_doc->function(action.m_objID)), value->toUInt());
         }
         break;
+        case FunctionSetAutostart:
+        {
+            // setStartupFunctionID toggles, so call it only on an actual change
+            if (m_functionManager->startupFunctionID() != value->toUInt())
+                m_functionManager->setStartupFunctionID(value->toUInt());
+        }
+        break;
 
         /* *********************** Scene editing actions *********************** */
 
@@ -1001,6 +1026,11 @@ int Tardis::processAction(TardisAction &action, bool undo)
                     SceneValue otherValue = undo ? action.m_newValue.value<SceneValue>() : action.m_oldValue.value<SceneValue>();
                     scene->unsetValue(otherValue.fxi, otherValue.channel);
                 }
+                else if (action.m_action == SceneUnsetChannelValue && undo == false)
+                {
+                    // removal received from the network, with the removed value
+                    scene->unsetValue(scv.fxi, scv.channel);
+                }
                 else
                 {
                     scene->setValue(scv.fxi, scv.channel, scv.value);
@@ -1011,27 +1041,25 @@ int Tardis::processAction(TardisAction &action, bool undo)
 
         case SceneAddFixture:
         {
-            SceneValue scv = value->value<SceneValue>();
             Scene *scene = qobject_cast<Scene *>(m_doc->function(action.m_objID));
 
             if (undo)
-                scene->removeFixture(scv.fxi);
+                scene->removeFixture(value->toUInt());
             else
-                scene->addFixture(scv.fxi);
+                scene->addFixture(value->toUInt());
         }
-        break;
+        return undo ? SceneRemoveFixture : SceneAddFixture;
 
         case SceneRemoveFixture:
         {
-            SceneValue scv = value->value<SceneValue>();
             Scene *scene = qobject_cast<Scene *>(m_doc->function(action.m_objID));
 
             if (undo)
-                scene->addFixture(scv.fxi);
+                scene->addFixture(value->toUInt());
             else
-                scene->removeFixture(scv.fxi);
+                scene->removeFixture(value->toUInt());
         }
-        break;
+        return undo ? SceneAddFixture : SceneRemoveFixture;
 
         case SceneAddFixtureGroup:
         {
@@ -1041,7 +1069,7 @@ int Tardis::processAction(TardisAction &action, bool undo)
             else
                 scene->addFixtureGroup(value->toUInt());
         }
-        break;
+        return undo ? SceneRemoveFixtureGroup : SceneAddFixtureGroup;
 
         case SceneRemoveFixtureGroup:
         {
@@ -1051,7 +1079,7 @@ int Tardis::processAction(TardisAction &action, bool undo)
             else
                 scene->removeFixtureGroup(value->toUInt());
         }
-        break;
+        return undo ? SceneAddFixtureGroup : SceneRemoveFixtureGroup;
 
         case SceneAddPalette:
         {
@@ -1061,7 +1089,7 @@ int Tardis::processAction(TardisAction &action, bool undo)
             else
                 scene->addPalette(value->toUInt());
         }
-        break;
+        return undo ? SceneRemovePalette : SceneAddPalette;
 
         case SceneRemovePalette:
         {
@@ -1071,7 +1099,7 @@ int Tardis::processAction(TardisAction &action, bool undo)
             else
                 scene->removePalette(value->toUInt());
         }
-        break;
+        return undo ? SceneAddPalette : SceneRemovePalette;
 
         /* *********************** Chaser editing actions *********************** */
 
@@ -1086,8 +1114,8 @@ int Tardis::processAction(TardisAction &action, bool undo)
         case ChaserMoveStep:
         {
             Chaser *chaser = qobject_cast<Chaser *>(m_doc->function(action.m_objID));
-            chaser->moveStep(undo ? action.m_newValue.toInt() : action.m_oldValue.toInt(),
-                             undo ? action.m_oldValue.toInt() : action.m_newValue.toInt());
+            UIntPair pairValue = value->value<UIntPair>(); // source index on first, destination index on second
+            chaser->moveStep(int(pairValue.first), int(pairValue.second));
         }
         break;
 
@@ -1125,6 +1153,61 @@ int Tardis::processAction(TardisAction &action, bool undo)
             ChaserStep step = chaser->steps().at(int(pairValue.first));
             step.duration = pairValue.second;
             chaser->replaceStep(step, int(pairValue.first));
+        }
+        break;
+        case ChaserSetFadeInMode:
+        {
+            auto member = std::mem_fn(&Chaser::setFadeInMode);
+            member(qobject_cast<Chaser *>(m_doc->function(action.m_objID)), Chaser::SpeedMode(value->toInt()));
+        }
+        break;
+        case ChaserSetFadeOutMode:
+        {
+            auto member = std::mem_fn(&Chaser::setFadeOutMode);
+            member(qobject_cast<Chaser *>(m_doc->function(action.m_objID)), Chaser::SpeedMode(value->toInt()));
+        }
+        break;
+        case ChaserSetDurationMode:
+        {
+            auto member = std::mem_fn(&Chaser::setDurationMode);
+            member(qobject_cast<Chaser *>(m_doc->function(action.m_objID)), Chaser::SpeedMode(value->toInt()));
+        }
+        break;
+        case ChaserSetStepNote:
+        {
+            Chaser *chaser = qobject_cast<Chaser *>(m_doc->function(action.m_objID));
+            StringIntPair pairValue = value->value<StringIntPair>(); // note on first, index on second
+            if (chaser == nullptr || pairValue.second < 0 || pairValue.second >= chaser->stepsCount())
+                break;
+            ChaserStep step = chaser->steps().at(pairValue.second);
+            step.note = pairValue.first;
+            chaser->replaceStep(step, pairValue.second);
+        }
+        break;
+        case ChaserSetStepValue:
+        case ChaserUnsetStepValue:
+        {
+            Chaser *chaser = qobject_cast<Chaser *>(m_doc->function(action.m_objID));
+            // a null value means the step value didn't exist, so take the step index
+            // and channel from the other value
+            QVariantList stepValue = value->isNull() ?
+                        (undo ? action.m_newValue.toList() : action.m_oldValue.toList()) : value->toList();
+            if (chaser == nullptr || stepValue.count() != 2)
+                break;
+
+            int index = stepValue.at(0).toInt(); // step index on first, SceneValue on second
+            if (index < 0 || index >= chaser->stepsCount())
+                break;
+
+            ChaserStep step = chaser->steps().at(index);
+            SceneValue scv = stepValue.at(1).value<SceneValue>();
+
+            if (value->isNull() || (action.m_action == ChaserUnsetStepValue && undo == false))
+                step.unSetValue(scv);
+            else
+                step.setValue(scv);
+
+            chaser->replaceStep(step, index);
         }
         break;
 
@@ -1214,6 +1297,33 @@ int Tardis::processAction(TardisAction &action, bool undo)
         {
             auto member = std::mem_fn(&EFX::setYPhase);
             member(qobject_cast<EFX *>(m_doc->function(action.m_objID)), value->toInt());
+        }
+        break;
+        case EFXSetDimmerControl:
+        {
+            auto member = std::mem_fn(&EFX::setDimmerControlEnabled);
+            member(qobject_cast<EFX *>(m_doc->function(action.m_objID)), value->toBool());
+        }
+        break;
+        case EFXSetFixtureMode:
+        case EFXSetFixtureReversed:
+        case EFXSetFixtureOffset:
+        {
+            EFX *efx = qobject_cast<EFX *>(m_doc->function(action.m_objID));
+            QVariantList fxValue = value->toList(); // fixture ID, head index, value
+            if (efx == nullptr || fxValue.count() != 3)
+                break;
+
+            EFXFixture *ef = efx->fixture(fxValue.at(0).toUInt(), fxValue.at(1).toInt());
+            if (ef == nullptr)
+                break;
+
+            if (action.m_action == EFXSetFixtureMode)
+                ef->setMode(EFXFixture::Mode(fxValue.at(2).toInt()));
+            else if (action.m_action == EFXSetFixtureReversed)
+                ef->setDirection(fxValue.at(2).toInt() ? Function::Backward : Function::Forward);
+            else
+                ef->setStartOffset(fxValue.at(2).toInt());
         }
         break;
 
@@ -1382,6 +1492,18 @@ int Tardis::processAction(TardisAction &action, bool undo)
             }
         }
         break;
+        case RGBMatrixSetBlendMode:
+        {
+            auto member = std::mem_fn(&RGBMatrix::setBlendMode);
+            member(qobject_cast<RGBMatrix *>(m_doc->function(action.m_objID)), Universe::BlendMode(value->toInt()));
+        }
+        break;
+        case RGBMatrixSetControlMode:
+        {
+            auto member = std::mem_fn(&RGBMatrix::setControlMode);
+            member(qobject_cast<RGBMatrix *>(m_doc->function(action.m_objID)), RGBMatrix::ControlMode(value->toInt()));
+        }
+        break;
 
         /* *********************** Audio editing actions *********************** */
 
@@ -1439,6 +1561,15 @@ int Tardis::processAction(TardisAction &action, bool undo)
         }
         break;
 
+        /* *********************** Script editing actions *********************** */
+
+        case ScriptSetContent:
+        {
+            auto member = std::mem_fn(&Script::setData);
+            member(qobject_cast<Script *>(m_doc->function(action.m_objID)), value->toString());
+        }
+        break;
+
         /* ************************ Show Manager actions ************************** */
 
         case ShowManagerAddTrack:
@@ -1485,6 +1616,61 @@ int Tardis::processAction(TardisAction &action, bool undo)
             if (ShowClipEditor::applyClip(m_doc, action.m_objID, value->toString(), m_replayingHistory) ==
                 ShowClipEditor::ClipEdit::Waits)
                 return -1;
+        break;
+
+        case ShowManagerItemSetLock:
+        {
+            Show *show = m_showManager->currentShow();
+            if (show != nullptr)
+            {
+                ShowFunction *sf = show->showFunction(action.m_objID);
+                if (sf != nullptr)
+                    sf->setLocked(value->toBool());
+            }
+        }
+        break;
+
+        case ShowManagerSetTimeDivision:
+        {
+            Show *show = qobject_cast<Show *>(m_doc->function(action.m_objID));
+            Show::TimeDivision division = Show::TimeDivision(value->toInt());
+            if (show == nullptr)
+                break;
+
+            if (show == m_showManager->currentShow())
+            {
+                m_showManager->setTimeDivision(division);
+            }
+            else
+            {
+                show->setTimeDivisionType(division);
+                show->setTempoType(division == Show::Time ? Function::Time : Function::Beats);
+            }
+        }
+        break;
+
+        case ShowManagerTrackSetMute:
+        {
+            Show *show = qobject_cast<Show *>(m_doc->function(action.m_objID));
+            UIntPair pairValue = value->value<UIntPair>(); // track ID on first, mute flag on second
+            Track *track = show ? show->track(pairValue.first) : nullptr;
+            if (track != nullptr)
+                track->setMute(pairValue.second ? true : false);
+        }
+        break;
+
+        case ShowManagerMoveTrack:
+        {
+            Show *show = qobject_cast<Show *>(m_doc->function(action.m_objID));
+            UIntPair pairValue = value->value<UIntPair>(); // track ID on first, direction on second
+            Track *track = show ? show->track(pairValue.first) : nullptr;
+            if (track == nullptr)
+                break;
+
+            show->moveTrack(track, int(pairValue.second));
+            if (show == m_showManager->currentShow())
+                m_showManager->refreshView();
+        }
         break;
 
         case ShowManagerItemSetTrack:

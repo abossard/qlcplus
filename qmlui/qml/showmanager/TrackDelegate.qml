@@ -121,8 +121,7 @@ Rectangle
         enabled: !showManager.readOnly
         tooltip: qsTr("Mute this track")
         onActiveFocusChanged: if (activeFocus) trackRoot.controlFocused(this)
-        // routed through ShowManager so the readOnly guard applies
-        onToggled: showManager.setTrackMute(trackRef, checked)
+        onToggled: if (trackRef) showManager.setTrackMute(trackRef.id, checked)
 
         RobotoText
         {

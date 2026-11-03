@@ -113,6 +113,10 @@ class UpstreamIntegration_Test : public QObject
 private slots:
     void initTestCase();
     void cleanupTestCase();
+    void upstreamActionCodes_data();
+    void upstreamActionCodes();
+    void upstreamTrackHistory_data();
+    void upstreamTrackHistory();
     void animationPresetInputs_data();
     void animationPresetInputs();
     void loadedPageInput_data();
@@ -4728,6 +4732,124 @@ void UpstreamIntegration_Test::initTestCase()
 void UpstreamIntegration_Test::cleanupTestCase()
 {
     m_app.reset();
+}
+
+void UpstreamIntegration_Test::upstreamActionCodes_data()
+{
+    QTest::addColumn<int>("action");
+    QTest::addColumn<int>("wireCode");
+    const QList<QPair<int, int>> codes = {
+        {Tardis::FunctionSetAutostart, 0x100A},
+        {Tardis::ChaserSetFadeInMode, 0x1207},
+        {Tardis::ChaserSetFadeOutMode, 0x1208},
+        {Tardis::ChaserSetDurationMode, 0x1209},
+        {Tardis::ChaserSetStepNote, 0x120A},
+        {Tardis::ChaserSetStepValue, 0x120B},
+        {Tardis::ChaserUnsetStepValue, 0x120C},
+        {Tardis::EFXSetDimmerControl, 0x130F},
+        {Tardis::EFXSetFixtureMode, 0x1310},
+        {Tardis::EFXSetFixtureReversed, 0x1311},
+        {Tardis::EFXSetFixtureOffset, 0x1312},
+        {Tardis::RGBMatrixSetBlendMode, 0x150F},
+        {Tardis::RGBMatrixSetControlMode, 0x1510},
+        {Tardis::ScriptSetContent, 0x1800},
+        {Tardis::ShowManagerSetTimeDivision, 0xB007},
+        {Tardis::ShowManagerTrackSetMute, 0xB008},
+        {Tardis::ShowManagerMoveTrack, 0xB009},
+        {Tardis::ShowManagerItemSetLock, 0xB00A},
+        {Tardis::ShowManagerCommandEdit, 0xB100},
+        {Tardis::ShowManagerItemSetClip, 0xB101},
+    };
+    for (const auto &code : codes)
+        QTest::newRow(qPrintable(Tardis::actionToString(code.first))) << code.first << code.second;
+}
+
+void UpstreamIntegration_Test::upstreamActionCodes()
+{
+    QFETCH(int, action);
+    QFETCH(int, wireCode);
+    QCOMPARE(action, wireCode);
+    QVERIFY(!Tardis::actionToString(action).isEmpty());
+}
+
+void UpstreamIntegration_Test::upstreamTrackHistory_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::addColumn<bool>("readOnly");
+    for (const QString &operation : {"mute-id", "mute-pointer", "solo", "move"})
+        for (bool readOnly : {false, true})
+            QTest::newRow(qPrintable(operation + (readOnly ? "-read-only" : "-editable")))
+                << operation << readOnly;
+}
+
+void UpstreamIntegration_Test::upstreamTrackHistory()
+{
+    QFETCH(QString, operation);
+    QFETCH(bool, readOnly);
+    Doc *doc = m_app->doc();
+    auto *manager = qobject_cast<ShowManager *>(
+        m_app->rootContext()->contextProperty("showManager").value<QObject *>());
+    QVERIFY(manager);
+    Tardis *history = Tardis::instance();
+    const quint32 previousShow = manager->currentShowID();
+    const bool previousReadOnly = manager->readOnly();
+    auto *show = new Show(doc);
+    QVERIFY(doc->addFunction(show));
+    const auto cleanup = qScopeGuard([&]() {
+        history->resetHistory();
+        manager->setReadOnly(false);
+        manager->setCurrentShowID(previousShow);
+        manager->setReadOnly(previousReadOnly);
+        doc->deleteFunction(show->id());
+    });
+    auto *first = new Track(Function::invalidId(), show);
+    auto *second = new Track(Function::invalidId(), show);
+    QVERIFY(show->addTrack(first, 4));
+    QVERIFY(show->addTrack(second, 9));
+    manager->setReadOnly(false);
+    manager->setCurrentShowID(show->id());
+    history->enqueueAction(Tardis::FunctionSetName, show->id(), "fence-before", "fence-after");
+    const auto fenceDrained = [&]() {
+        QMutexLocker locker(&history->m_historyMutex);
+        return !history->m_history.isEmpty() &&
+            history->m_history.last().m_newValue.toString() == "fence-after";
+    };
+    QTRY_VERIFY(fenceDrained());
+    history->resetHistory();
+    manager->setReadOnly(readOnly);
+    if (operation == "mute-id")
+        manager->setTrackMute(int(first->id()), true);
+    else if (operation == "mute-pointer")
+        manager->setTrackMute(first, true);
+    else if (operation == "solo")
+        manager->setTrackSolo(int(first->id()), true);
+    else
+        manager->moveTrack(0, 1);
+
+    const auto verifyState = [&](bool changed) {
+        QCOMPARE(first->isMute(), changed && operation.startsWith("mute"));
+        QCOMPARE(second->isMute(), changed && operation == "solo");
+        QCOMPARE(first->id(), changed && operation == "move" ? 9u : 4u);
+        QCOMPARE(second->id(), changed && operation == "move" ? 4u : 9u);
+    };
+    verifyState(!readOnly);
+    if (readOnly)
+    {
+        QMutexLocker locker(&history->m_historyMutex);
+        QVERIFY(history->m_history.isEmpty());
+        return;
+    }
+    const int expected = operation == "move" ? Tardis::ShowManagerMoveTrack : Tardis::ShowManagerTrackSetMute;
+    const auto recorded = [&]() {
+        QMutexLocker locker(&history->m_historyMutex);
+        return !history->m_history.isEmpty() && history->m_history.last().m_action == expected &&
+            history->m_history.last().m_objID == show->id();
+    };
+    QTRY_VERIFY(recorded());
+    history->undoAction();
+    verifyState(false);
+    history->redoAction();
+    verifyState(true);
 }
 
 void UpstreamIntegration_Test::animationPresetInputs_data()

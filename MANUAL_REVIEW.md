@@ -3420,3 +3420,95 @@ cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
 | Animation preset controller and keyboard activation | | | | | |
 | Simple Desk reset physical output | | | | | |
 | Kiosk toolbar interaction | | | | | |
+
+**Automated evidence, recorded 2026-11-03 for the completed c984562d2 merge:**
+
+- The preserved 2026-11-02 run reports 12 focused tests passed, including animation input/key XML roundtrips, loaded page activation, universe-reset undo/redo and kiosk visibility. Its full UI run reports 733 passed, 15 failed and 8 skipped. The nine upstream regression failures in its first-parent run disappear; the fifteen `timelineViewport` width failures remain unchanged. [Focused results](build/upstream-integration-20261102/after-focused.json), [first-parent results](build/upstream-integration-20261102/before-ui.json), [integrated results](build/upstream-integration-20261102/after-ui.json).
+- Merge `77ee34fbd` preserves the existing staged resolutions, added tests and all section 50 review entries. Its only conflicting production resolution retains fork notifications and adds the page-input lookup rebuild. This is recorded prior-run evidence, not a new execution of that historical tree.
+- Section 50 controller delivery, keyboard operation, kiosk interaction and physical DMX output remain pending human review.
+
+---
+
+## 51. Upstream editor undo/redo and network actions (28cf5cac8)
+
+### 51.1 Function autostart and creation history
+
+- **Do:** In a scratch workspace, select, change and clear the startup function. Create and clone a Sequence with its bound Scene, then import audio/video functions. Undo and redo each operation.
+- **Verify:**
+- ☐ Startup selection returns to its exact prior state without a second toggle, and recreated functions retain their source files and bound Scenes
+- ☐ Function lists, editors and any connected peer show the same created, removed and restored functions without orphaned copies
+
+### 51.2 Scene component and channel history
+
+- **Do:** Add/remove fixtures, fixture groups and palettes from a Scene. Change and remove channel values, paste to matching fixtures and dump DMX into an existing Scene. Undo and redo while comparing both peer views.
+- **Verify:**
+- ☐ Component IDs and channel values, including absent and zero-valued channels, restore exactly rather than affecting another fixture
+- ☐ Remote channel removal actually removes the value, and undo restores it without leaving a stale editor row
+
+### 51.3 Chaser and Sequence editing history
+
+- **Do:** Change fade-in, fade-out and duration modes, tempo and step notes. Reorder and shuffle several distinct steps, then edit/remove Sequence step channel values. Undo and redo the edits.
+- **Verify:**
+- ☐ Step order, notes, speed modes and explicit channel values restore exactly, including consecutive moves and removed values
+- ☐ The editor and connected peer remain consistent, and the fork's common-speed conversion and recording history still work
+
+### 51.4 EFX fixture controls [DMX]
+
+- **Do:** With isolated fixtures, change dimmer control, per-head mode, direction and offsets, including bulk offset distribution. Undo and redo while watching the preview and physical output.
+- **Verify:**
+- ☐ Each control restores the intended fixture/head state and bulk offsets restore their original distribution
+- ☐ Motion, intensity and transitions remain visually correct on the fixtures, with no unexpected direction reversal or flash
+
+### 51.5 RGB Matrix and Script history [DMX]
+
+- **Do:** Change Matrix blend/control modes, convert its output to a Sequence, and edit Script content. Undo and redo while comparing function lists, preview, connected peer and isolated fixture output.
+- **Verify:**
+- ☐ Modes, generated Sequence/Scene functions and Script text restore consistently without duplicated generated functions
+- ☐ Matrix blending and Script output remain visually correct and peer changes do not leave stale preview content
+
+### 51.6 Show tracks, time division and clip history
+
+- **Do:** Use a Show with several tracks, including saved nonsequential track IDs. Mute and solo tracks, reorder them, lock selected items and change time division. Undo and redo, then repeat editing attempts while the Show is read-only. Exercise keyboard focus and the fork's recording/clip undo.
+- **Verify:**
+- ☐ Undo/redo affects the intended tracks and items; mute/solo/reorder are blocked while read-only, and keyboard navigation remains usable
+- ☐ Time-division changes preserve clip timing, and fork recording/clip history remains separate from upstream actions without misdispatch
+
+### 51.7 Peer compatibility and sign-off
+
+- **Do:** Exercise the preceding edits between isolated server/client workspaces, including an upstream peer where supported. Record peer versions, reviewer, date, workspace and hardware.
+- ☐ Sign off only exercised peer delivery, native interaction and physical output. Upstream action numbers are preserved; fork-only recording/clip actions now use 0xB100/0xB101, so older fork peers using the former colliding codes are not compatible for those actions and must be upgraded together.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Function, Scene and Chaser editor interaction | | | | | |
+| EFX, Matrix and Script physical output | | | | | |
+| Show keyboard, read-only and history behavior | | | | | |
+| Server/client action delivery | | | | | |
+
+**Automated evidence, 2026-11-03:**
+
+```bash
+cmake --build build --target upstreamintegration_test mcp_show_tools_test mcp_function_authoring_test mcp_script_tool_test -j8
+python3 build/upstream-integration-20261103/run-tests.py after-focused-final build/qmlui/test/upstreamintegration/upstreamintegration_test upstreamActionCodes upstreamTrackHistory animationPresetInputs loadedPageInput deskResetHistory kioskSnapping
+python3 build/upstream-integration-20261103/run-tests.py after-ui-confirm build/qmlui/test/upstreamintegration/upstreamintegration_test
+cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
+```
+
+| Execution | Passed | Failed | Skipped | Exit |
+|-----------|--------|--------|---------|------|
+| Recorded c984562d2 baseline, full UI suite | 733 | 15 | 8 | 15 |
+| Latest upstream, existing UI suite before new tests | 733 | 15 | 8 | 15 |
+| Focused upstream and fork compatibility regressions | 40 | 0 | 0 | 0 |
+| First expanded full UI run | 760 | 16 | 8 | 16 |
+| Isolated track/history recheck | 15 | 0 | 0 | 0 |
+| Expanded full UI confirmation | 761 | 15 | 8 | 15 |
+| MCP Show tools | 72 | 0 | 0 | 0 |
+| MCP function authoring | 181 | 0 | 0 | 0 |
+| MCP Script tools | 79 | 0 | 0 | 0 |
+| Review parser suites | 60 | 0 | 0 | 0 |
+
+- Builds succeeded in the existing macOS configuration, including the native application and MCP library. The 20 parameterized code rows preserve all 18 new upstream action numbers and reserve two fork-only codes. Eight native track rows exercise mute by ID and pointer, solo by nonsequential track ID, reorder, undo/redo and read-only refusal. [Build](build/upstream-integration-20261103/build-final.log), [focused results](build/upstream-integration-20261103/after-focused-final.json), [MCP Show](build/upstream-integration-20261103/after-mcp-show.json), [MCP functions](build/upstream-integration-20261103/after-mcp-function.json), [MCP Script](build/upstream-integration-20261103/after-mcp-script.json).
+- The full UI suite is **not green**. The confirmation run's fifteen `timelineViewport` width failures exactly match the recorded c984562d2 baseline and the latest-upstream run before adding tests. Eight opt-in screenshot rows remain skipped without `QLC_VC_VISUAL_DIR`. [Existing-suite run](build/upstream-integration-20261103/after-existing.json), [confirmation](build/upstream-integration-20261103/after-ui-confirm.json).
+- The first expanded run also failed `tardisHistory(queued)` on `callbackLockAvailable`. That assertion passes in the isolated track/history recheck and in the full confirmation without changing production code or weakening assertions. Its transient cause is not established; the first failed result is retained, not counted as green. [First expanded run](build/upstream-integration-20261103/after-ui-final.json), [history recheck](build/upstream-integration-20261103/after-history-recheck.json).
+- Tests used isolated HOME, settings, runtime, temporary and working directories with offscreen/software rendering. None timed out. The desktop application was not restarted. Real peer delivery, keyboard/pointer interaction, physical output and other platforms remain unverified and unsigned.
+- Both review parsers retain all previous section/check identities and recognize thirteen unique pending checks in 51.1 through 51.7. The entire document present at task start remains an exact byte prefix; no previous checkbox or sign-off was changed. [Parser results](build/upstream-integration-20261103/parser-tests.log), [preservation and merge verification](build/upstream-integration-20261103/verification.json).

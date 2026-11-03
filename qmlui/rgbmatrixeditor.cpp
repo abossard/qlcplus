@@ -635,6 +635,7 @@ void RGBMatrixEditor::setBlendMode(int mode)
     if (m_matrix == nullptr || mode == m_matrix->blendMode())
         return;
 
+    Tardis::instance()->enqueueAction(Tardis::RGBMatrixSetBlendMode, m_matrix->id(), m_matrix->blendMode(), mode);
     m_matrix->setBlendMode(Universe::BlendMode(mode));
     updateColors();
     initPreviewData();
@@ -659,6 +660,7 @@ void RGBMatrixEditor::setControlMode(int mode)
     if (m_matrix == nullptr || mode == m_matrix->controlMode())
         return;
 
+    Tardis::instance()->enqueueAction(Tardis::RGBMatrixSetControlMode, m_matrix->id(), m_matrix->controlMode(), mode);
     m_matrix->setControlMode(RGBMatrix::ControlMode(mode));
     updateColors();
     initPreviewData();
@@ -742,7 +744,9 @@ void RGBMatrixEditor::saveToSequence()
                     grpScene->setValue(head.fxi, channel, 0);
             }
         }
-        m_doc->addFunction(grpScene);
+        if (m_doc->addFunction(grpScene))
+            Tardis::instance()->enqueueAction(Tardis::FunctionCreate, grpScene->id(), QVariant(),
+                                              Tardis::instance()->actionToByteArray(Tardis::FunctionCreate, grpScene->id()));
 
         int totalSteps = m_matrix->stepsCount();
         int increment = 1;
@@ -874,7 +878,9 @@ void RGBMatrixEditor::saveToSequence()
             m_previewStepHandler->updateStepColor(currentStep, m_matrix->getColor(0), m_matrix->stepsCount());
         }
 
-        m_doc->addFunction(sequence);
+        if (m_doc->addFunction(sequence))
+            Tardis::instance()->enqueueAction(Tardis::FunctionCreate, sequence->id(), QVariant(),
+                                              Tardis::instance()->actionToByteArray(Tardis::FunctionCreate, sequence->id()));
 
         if (testRunning == true)
             m_matrix->start(m_doc->masterTimer(), FunctionParent::master());

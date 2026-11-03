@@ -293,7 +293,11 @@ public:
     int selectedTrackId() const;
     void setSelectedTrackId(int id);
 
-    Q_INVOKABLE void setTrackSolo(int index, bool solo);
+    /** Mute every track of the current Show except the one with the provided ID */
+    Q_INVOKABLE void setTrackSolo(int trackId, bool solo);
+
+    /** Set the mute state of the track with the provided ID */
+    Q_INVOKABLE void setTrackMute(int trackId, bool mute);
 
     /** Guarded track mutations (QML must not write Track properties
      *  directly — direct writes would bypass the readOnly enforcement) */

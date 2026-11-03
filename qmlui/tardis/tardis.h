@@ -109,6 +109,7 @@ public:
         FunctionSetFadeIn,
         FunctionSetFadeOut,
         FunctionSetDuration,
+        FunctionSetAutostart,
 
         /* Scene editing actions */
         SceneSetChannelValue = 0x1100,
@@ -128,6 +129,12 @@ public:
         ChaserSetStepHold,
         ChaserSetStepFadeOut,
         ChaserSetStepDuration,
+        ChaserSetFadeInMode,
+        ChaserSetFadeOutMode,
+        ChaserSetDurationMode,
+        ChaserSetStepNote,
+        ChaserSetStepValue,
+        ChaserUnsetStepValue,
 
         /* EFX editing actions */
         EFXAddFixture = 0x1300,
@@ -145,6 +152,10 @@ public:
         EFXSetYFrequency,
         EFXSetXPhase,
         EFXSetYPhase,
+        EFXSetDimmerControl,
+        EFXSetFixtureMode,
+        EFXSetFixtureReversed,
+        EFXSetFixtureOffset,
 
         /* Collection editing actions */
         CollectionAddFunction = 0x1400,
@@ -166,6 +177,8 @@ public:
         RGBMatrixSetImage,
         RGBMatrixSetOffset,
         RGBMatrixSetAnimationStyle,
+        RGBMatrixSetBlendMode,
+        RGBMatrixSetControlMode,
 
         /* Audio editing actions */
         AudioSetSource = 0x1600,
@@ -179,6 +192,9 @@ public:
         VideoSetRotation,
         VideoSetLayer,
 
+        /* Script editing actions */
+        ScriptSetContent = 0x1800,
+
         /* Show Manager actions */
         ShowManagerAddTrack = 0xB000,
         ShowManagerDeleteTrack,
@@ -187,8 +203,14 @@ public:
         ShowManagerItemSetStartTime,
         ShowManagerItemSetDuration,
         ShowManagerItemSetTrack,
-        /** One Recordings editor step: an ID-addressed ShowCommandEdit of objID */
-        ShowManagerCommandEdit,
+        ShowManagerSetTimeDivision,
+        ShowManagerTrackSetMute,
+        ShowManagerMoveTrack,
+        ShowManagerItemSetLock,
+
+        /** Fork-only actions, separate from upstream's Show Manager codes.
+         *  One Recordings editor step: an ID-addressed ShowCommandEdit of objID */
+        ShowManagerCommandEdit = 0xB100,
         /** Start, duration and clip automation of ShowFunction objID in the
          *  Show its ShowClipEditor XML names */
         ShowManagerItemSetClip,
