@@ -76,6 +76,9 @@ set(SRC_FILES
     showfactory.cpp showfactory.h
     audiobpmtag.cpp audiobpmtag.h
     djmanager.cpp djmanager.h
+    edmanalysismanager.cpp edmanalysismanager.h
+    edmanalysisprogress.cpp edmanalysisprogress.h
+    edmanalysisreader.cpp edmanalysisreader.h
     djsetrecorder.cpp djsetrecorder.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h
@@ -115,6 +118,9 @@ set(SRC_FILES
     pagebuilder.cpp pagebuilder.h
     consolepagecreator.cpp consolepagecreator.h
 )
+
+# fork: where the offline audio analysis tool lives in a source checkout
+add_compile_definitions(EDM_ANALYSIS_TOOL_DIR="${CMAKE_SOURCE_DIR}/tools/edm-analysis")
 
 # This is most of the Android deployment code
 if(ANDROID)

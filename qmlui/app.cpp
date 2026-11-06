@@ -72,6 +72,7 @@
 #include "vdjbridge.h"
 #include "showfactory.h"
 #include "djmanager.h"
+#include "edmanalysismanager.h"
 #include "djsetrecorder.h"
 #include "stagewizard.h"
 #include "consolepagecreator.h"
@@ -368,6 +369,8 @@ void App::startup()
     m_contextManager->registerContext(m_ioManager);
     if (m_djManager != nullptr)
         m_contextManager->registerContext(m_djManager);
+    m_edmAnalysis = new EdmAnalysisManager(this, m_doc, this);
+    m_contextManager->registerContext(m_edmAnalysis);
 
     // register an uncreatable type just to use the enums in QML
     qmlRegisterUncreatableType<ContextManager>("org.qlcplus.classes", 1, 0, "ContextManager", "Can't create a ContextManager!");

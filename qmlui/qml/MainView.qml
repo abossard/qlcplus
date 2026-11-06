@@ -79,6 +79,8 @@ Rectangle
             item = fcEntry
         else if (ctx === "DJMGR")
             item = songEntry
+        else if (ctx === "AUDIOANALYSIS")
+            item = analysisEntry
 
         if (item)
         {
@@ -405,6 +407,30 @@ Rectangle
                 {
                     songEntry.visible = false
                     contextManager.detachContext("DJMGR")
+                }
+            }
+            MenuBarEntry
+            {
+                id: analysisEntry
+                objectName: "audioAnalysisEntry"
+                Layout.alignment: Qt.AlignTop
+                property string ctxName: "AUDIOANALYSIS"
+                property string ctxRes: "qrc:/AudioAnalysis.qml"
+
+                visible: qlcplus.accessMask & App.AC_ShowManager
+                imgSource: "qrc:/audiocard.svg"
+                entryText: qsTr("Audio Analysis")
+                tooltip: qsTr("Audio Analysis")
+                ButtonGroup.group: menuBarGroup
+                onCheckedChanged:
+                {
+                    if (checked === true)
+                        switchToContext(analysisEntry.ctxName, analysisEntry.ctxRes)
+                }
+                onRightClicked:
+                {
+                    analysisEntry.visible = false
+                    contextManager.detachContext("AUDIOANALYSIS")
                 }
             }
             Rectangle

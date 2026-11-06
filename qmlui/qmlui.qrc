@@ -55,6 +55,7 @@
     <file alias="SidePanel.qml">qml/SidePanel.qml</file>
     <file alias="SimpleDesk.qml">qml/SimpleDesk.qml</file>
     <file alias="DjManager.qml">qml/djmanager/DjManager.qml</file>
+    <file alias="AudioAnalysis.qml">qml/edmanalysis/AudioAnalysis.qml</file>
     <file alias="SingleAxisTool.qml">qml/SingleAxisTool.qml</file>
     <file alias="SubMenu.qml">qml/SubMenu.qml</file>
     <file alias="TimeEditTool.qml">qml/TimeEditTool.qml</file>
