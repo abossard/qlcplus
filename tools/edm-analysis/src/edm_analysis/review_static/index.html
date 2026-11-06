@@ -1,0 +1,996 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a19">
+<title>EDM Analysis Review</title>
+<style>
+:root {
+  --surface-0: #f3f2ef; --surface-1: #fcfcfb; --surface-2: #ecebe7; --border: #d9d8d2;
+  --text-primary: #1d1d1b; --text-secondary: #55554f; --text-muted: #85857d;
+  --accent: #2a78d6; --good: #008300; --bad: #d03b3b; --warn: #b87700;
+  --sec-drop: #2a78d6; --sec-buildup: #eb6834; --sec-breakdown: #1baf7a; --sec-intro: #eda100; --sec-outro: #e87ba4; --sec-groove: #008300;
+  --lane-lo: #ecebe7; --lane-hi: #1c5cab; --wave: #85857d; --playhead: #d03b3b; --mark: #6250d6; --ref: #85857d;
+  --bar-h: 65px; --top-h: 52px; --side: 320px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #262624; --border: #3a3a37;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8d8c84;
+    --accent: #3987e5; --good: #2fa52f; --bad: #e66767; --warn: #d9a020;
+    --sec-drop: #3987e5; --sec-buildup: #d95926; --sec-breakdown: #199e70; --sec-intro: #c98500; --sec-outro: #d55181; --sec-groove: #008300;
+    --lane-lo: #262624; --lane-hi: #86b6ef; --wave: #8d8c84; --playhead: #e66767; --mark: #9085e9; --ref: #5f5e58;
+  }
+}
+:root[data-theme="dark"] {
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #262624; --border: #3a3a37;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8d8c84;
+  --accent: #3987e5; --good: #2fa52f; --bad: #e66767; --warn: #d9a020;
+  --sec-drop: #3987e5; --sec-buildup: #d95926; --sec-breakdown: #199e70; --sec-intro: #c98500; --sec-outro: #d55181; --sec-groove: #008300;
+  --lane-lo: #262624; --lane-hi: #86b6ef; --wave: #8d8c84; --playhead: #e66767; --mark: #9085e9; --ref: #5f5e58;
+}
+/* Phone portrait first: one screen at a time, controls in the thumb zone at the bottom. */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--surface-0); color: var(--text-primary); font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, input, textarea { font: inherit; color: inherit; }
+button { min-height: 44px; min-width: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-1); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+button:active { background: var(--surface-2); }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.v-ok.on { background: var(--good); border-color: var(--good); }
+button.v-wrong.on { background: var(--bad); border-color: var(--bad); }
+button.v-off.on { background: var(--warn); border-color: var(--warn); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+kbd { font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; color: var(--text-secondary); }
+@media (hover: none), (max-width: 1023px) { kbd { display: none; } }
+input[type=search], input[type=password], input[inputmode], textarea { font-size: 16px; width: 100%; padding: 10px 12px; min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-0); }
+textarea { min-height: 88px; resize: vertical; }
+.status { font-size: 13px; color: var(--text-muted); }
+
+header.top { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 8px; height: calc(var(--top-h) + env(safe-area-inset-top)); padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left)); background: var(--surface-1); border-bottom: 1px solid var(--border); }
+header.top h1 { flex: 1; min-width: 0; margin: 0; font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+header.top .icon { border: none; background: none; font-size: 20px; padding: 0; }
+#progress { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+
+aside, main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+body[data-view="list"] main, body[data-view="track"] aside, body[data-view="summary"] aside, body[data-view="round"] aside { display: none; }
+body[data-view="track"] { padding-bottom: calc(var(--bar-h) + env(safe-area-inset-bottom) + 16px); }
+html, main { scroll-padding: calc(var(--top-h) + 8px) 0 calc(var(--bar-h) + env(safe-area-inset-bottom) + 8px); }
+aside .search { position: sticky; top: calc(var(--top-h) + env(safe-area-inset-top)); z-index: 5; padding: 12px 0 8px; background: var(--surface-0); }
+.filters { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.filters button { padding: 6px 4px; font-size: 14px; }
+#list { padding-bottom: 24px; }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; min-height: 60px; padding: 8px 4px; border-bottom: 1px solid var(--surface-2); cursor: pointer; }
+.row.active { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.row .t { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .m { font-size: 12px; color: var(--text-muted); grid-column: 1 / 3; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--surface-2); color: var(--text-secondary); white-space: nowrap; }
+.badge.ok { color: var(--good); } .badge.bad { color: var(--bad); }
+
+.track { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
+.track h2 { font-size: 17px; margin: 0; overflow-wrap: anywhere; }
+.meta { color: var(--text-secondary); font-size: 13px; display: flex; gap: 4px 12px; flex-wrap: wrap; }
+.panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 12px; min-width: 0; }
+.panel h3 { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin: 0 0 8px; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.panel h3 .status { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tools button { font-size: 14px; padding: 6px 4px; }
+canvas { display: block; width: 100%; border-radius: 6px; touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.legend { display: flex; gap: 6px 12px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.tally { font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+details.help { font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+details.help summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--text-primary); }
+
+/* Sticky transport in the thumb zone */
+#transport { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; display: none; gap: 6px; padding: 8px max(12px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: var(--surface-1); border-top: 1px solid var(--border); }
+body[data-view="track"] #transport { display: flex; }
+#transport button { flex: 1 1 0; min-height: 48px; padding: 4px; font-size: 14px; }
+#transport #play { flex: 1.6 1 0; font-size: 18px; }
+
+/* Sheets: bottom sheets on phones and tablets, a popover or side panel on desktop */
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; max-height: 80vh; overflow-y: auto; overscroll-behavior: contain; padding: 8px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: var(--surface-1); border-top: 1px solid var(--border); border-radius: 16px 16px 0 0; box-shadow: 0 -8px 24px rgba(0,0,0,.25); display: none; }
+.sheet.open { display: block; }
+.sheet .grab { width: 40px; height: 4px; border-radius: 2px; background: var(--border); margin: 0 auto 8px; }
+.sheet .title { font-size: 15px; margin: 4px 0 10px; }
+.sheet .choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sheet .choices .wide { grid-column: 1 / -1; }
+.sheet .choices button { text-align: left; }
+.sheet .close { width: 100%; margin-top: 12px; }
+#scrim { position: fixed; inset: 0; z-index: 35; background: rgba(0,0,0,.35); display: none; }
+#scrim.open { display: block; }
+.rate-row { margin-bottom: 14px; }
+.rate-row .label { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+.vbtns { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+.tile .k { font-size: 12px; color: var(--text-muted); } .tile .v { font-size: 24px; font-weight: 600; } .tile .s { font-size: 12px; color: var(--text-secondary); }
+.scroll-x { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+td, th { padding: 8px 6px; border-bottom: 1px solid var(--surface-2); text-align: left; }
+th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
+.empty { color: var(--text-muted); padding: 40px 0; text-align: center; }
+#tip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; z-index: 50; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+
+#login { position: fixed; inset: 0; z-index: 60; display: none; align-items: center; justify-content: center; padding: 16px; background: var(--surface-0); }
+#login.open { display: flex; }
+#login form { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; }
+#login input { font-size: 24px; text-align: center; letter-spacing: .3em; }
+#login .error { color: var(--bad); min-height: 20px; font-size: 14px; }
+
+/* Question screen: one Probe at a time, answers in the thumb zone */
+body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: none; }
+.quiz { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; min-height: calc(100vh - var(--top-h) - env(safe-area-inset-top)); min-height: calc(100dvh - var(--top-h) - env(safe-area-inset-top)); }
+.q-theory { font-size: 12px; color: var(--text-muted); }
+.q-title { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.q-prompt { font-size: 24px; line-height: 1.25; font-weight: 600; margin: 4px 0; overflow-wrap: anywhere; }
+.q-plays { display: grid; gap: 8px; }
+.q-play { position: relative; overflow: hidden; min-height: 64px; font-size: 18px; }
+/* playback progress and the marker run in a strip along the bottom edge, clear of the label */
+.q-fill { position: absolute; left: 0; bottom: 0; height: 8px; width: calc(var(--p, 0) * 100%); background: var(--accent); pointer-events: none; }
+.q-mark { position: absolute; bottom: 0; height: 16px; left: clamp(4px, calc(var(--m) * 100%), calc(100% - 4px)); width: 3px; margin-left: -1px; background: var(--playhead); pointer-events: none; }
+.q-label { position: relative; }
+.q-bar { position: sticky; bottom: 0; margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 8px 0 calc(12px + env(safe-area-inset-bottom)); background: var(--surface-0); }
+.q-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.q-nav button { border: none; background: none; color: var(--text-secondary); }
+.q-answers { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.q-answers button { min-height: 56px; font-size: 18px; }
+
+/* Tablet: more room, two columns for the tool grid, sheets centred */
+@media (min-width: 700px) {
+  .tools { grid-template-columns: repeat(5, 1fr); }
+  .sheet { left: 50%; right: auto; width: 560px; transform: translateX(-50%); }
+  #transport { justify-content: center; }
+  #transport button { flex: 0 1 110px; }
+  #transport #play { flex: 0 1 160px; }
+  .quiz { width: 100%; max-width: 640px; margin: 0 auto; }
+}
+/* Desktop: track list on the left, rating panel inline, popover menus near the pointer */
+@media (min-width: 1024px) {
+  body { display: grid; grid-template-columns: var(--side) 1fr; grid-template-rows: auto 1fr; height: 100vh; }
+  header.top { grid-column: 1 / -1; }
+  body[data-view] aside { display: block; overflow-y: auto; border-right: 1px solid var(--border); background: var(--surface-1); padding: 0 12px; }
+  aside .search { top: 0; background: var(--surface-1); }
+  body[data-view] main { display: block; overflow-y: auto; padding: 0 24px; }
+  body[data-view="track"] { padding-bottom: 0; }
+  body[data-view="track"] main { margin-bottom: var(--bar-h); padding-bottom: 24px; }
+  #transport { left: var(--side); }
+  #btnList, #btnRate { display: none; }
+  .track .overview-panel { order: 1; } .track .zoom-panel { order: 2; } .track .tools-panel { order: 0; } .track #rate { order: 3; }
+  #rate { position: static; z-index: auto; display: block; transform: none; width: auto; max-height: none; border-radius: 12px; border: 1px solid var(--border); box-shadow: none; padding: 12px; }
+  #rate .grab, #rate .close { display: none; }
+  .rate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+  #menu.popover { left: var(--x); top: var(--y); right: auto; bottom: auto; width: 280px; transform: none; border-radius: 12px; border: 1px solid var(--border); }
+  button { min-height: 36px; }
+}
+</style>
+</head>
+<body data-view="list">
+<header class="top">
+  <button class="icon" id="btnList" aria-label="Track list">☰</button>
+  <h1 id="heading">EDM Analysis Review</h1>
+  <span id="progress"></span>
+  <button id="btnRound" hidden>Questions</button>
+  <button class="icon" id="btnSummary" aria-label="Accuracy summary">📊</button>
+</header>
+<aside>
+  <div class="search">
+    <input id="search" type="search" placeholder="Filter tracks…" aria-label="Filter tracks" autocomplete="off">
+    <div class="filters">
+      <button data-f="all" class="on">All</button><button data-f="unrated">Unrated</button><button data-f="rated">Rated</button><button data-f="tempo">Tempo ≠</button>
+    </div>
+  </div>
+  <div id="list"></div>
+</aside>
+<main id="main"><div class="empty">Pick a track, or tap Next.</div></main>
+<nav id="transport" aria-label="Playback">
+  <button id="back" aria-label="Back 4 bars">−4</button>
+  <button id="play" class="primary" aria-label="Play">▶</button>
+  <button id="fwd" aria-label="Forward 4 bars">+4</button>
+  <button id="click" aria-pressed="false">Click</button>
+  <button id="btnRate">Rate</button>
+  <button id="btnNext">Next</button>
+</nav>
+<div id="scrim"></div>
+<div id="menu" class="sheet" role="dialog" aria-modal="true"></div>
+<div id="tip"></div>
+<div id="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+  <form id="loginForm">
+    <h2 id="loginTitle" style="margin:0">Enter the PIN</h2>
+    <div class="status">It is printed where the review site was started.</div>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="one-time-code" maxlength="12" aria-label="PIN">
+    <button class="primary" type="submit">Open</button>
+    <div class="error" id="loginError" role="alert"></div>
+  </form>
+</div>
+<audio id="audio" preload="metadata" playsinline></audio>
+<script>
+const LABELS = ["drop", "buildup", "breakdown", "intro", "outro", "groove"];
+const LANES = ["kick", "hihat", "bass", "instruments", "vocal"];
+const audio = document.getElementById("audio");
+const $ = (s, el = document) => el.querySelector(s);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const desktop = () => innerWidth >= 1024;
+const roomy = () => innerWidth >= 700 && !matchMedia("(pointer: coarse)").matches;
+let tracks = [], filter = "all", doc = null, rating = null, currentId = null, clickOn = false, excerptStart = null, excerptEnd = null, saveTimer = null;
+
+// ---------- server ----------
+class NeedPin extends Error {}
+async function api(path, opts) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts });
+  if (r.status === 401) { showLogin(); throw new NeedPin(); }
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+  return r.json();
+}
+function showLogin() { $("#login").classList.add("open"); setTimeout(() => $("#pin").focus(), 50); }
+$("#loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: $("#pin").value }) });
+  if (!r.ok) { $("#loginError").textContent = (await r.json().catch(() => ({}))).error || "Not accepted"; $("#pin").select(); return; }
+  $("#login").classList.remove("open"); $("#pin").value = ""; $("#loginError").textContent = "";
+  start();
+});
+
+// ---------- views ----------
+function setView(v) {
+  document.body.dataset.view = v;
+  if (v !== "track") { closeSheets(); audio.pause(); }
+  $("#heading").textContent = v === "track" && doc ? doc.track.title : v === "summary" ? "Accuracy summary"
+    : v === "round" && quiz ? `Round ${quiz.round} · ${quiz.progress.answered}/${quiz.progress.total}` : "EDM Analysis Review";
+}
+$("#btnList").addEventListener("click", () => { setView("list"); history.replaceState(null, "", location.pathname); });
+$("#btnSummary").addEventListener("click", showSummary);
+$("#btnNext").addEventListener("click", nextUnrated);
+
+async function loadTracks() {
+  tracks = await api("/api/tracks");
+  renderList();
+  updateProgress();
+}
+function updateProgress() { $("#progress").textContent = `${tracks.filter(t => t.rated).length}/${tracks.length} rated`; }
+
+function tempoBadge(t) {
+  if (t.tempo === "match") return `<span class="badge ok">${t.bpm.toFixed(1)}</span>`;
+  if (t.tempo === "untagged" || !t.tempo) return `<span class="badge">${t.bpm ? t.bpm.toFixed(1) : "?"}</span>`;
+  return `<span class="badge bad" title="filename says ${t.filename_bpm}">${t.bpm.toFixed(1)} ≠ ${t.filename_bpm}</span>`;
+}
+
+function renderList() {
+  const q = $("#search").value.toLowerCase();
+  const rows = tracks.filter(t => t.title.toLowerCase().includes(q))
+    .filter(t => filter === "all" || (filter === "rated" ? t.rated : filter === "unrated" ? !t.rated : t.tempo !== "match" && t.tempo !== "untagged"));
+  $("#list").innerHTML = rows.map(t => `<div class="row ${t.id === currentId ? "active" : ""}" data-id="${t.id}" role="button" tabindex="0">
+      <span class="t">${t.rated ? "✓ " : ""}${esc(t.title)}</span>${tempoBadge(t)}
+      <span class="m">${t.drops} drop${t.drops === 1 ? "" : "s"} · ${(t.sections || []).length} sections${t.overall ? " · rated " + t.overall + "/5" : ""}</span></div>`).join("")
+    || `<div class="empty">No tracks match.</div>`;
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+$("#list").addEventListener("click", e => { const r = e.target.closest(".row"); if (r) openTrack(r.dataset.id); });
+$("#list").addEventListener("keydown", e => { const r = e.target.closest(".row"); if (r && e.key === "Enter") openTrack(r.dataset.id); });
+$("#search").addEventListener("input", renderList);
+document.querySelectorAll(".filters button").forEach(b => b.addEventListener("click", () => {
+  filter = b.dataset.f; document.querySelectorAll(".filters button").forEach(x => x.classList.toggle("on", x === b)); renderList();
+}));
+
+function nextUnrated() {
+  const i = tracks.findIndex(t => t.id === currentId);
+  const order = [...tracks.slice(i + 1), ...tracks.slice(0, i + 1)];
+  const t = order.find(t => !t.rated && t.id !== currentId);
+  if (t) openTrack(t.id);
+}
+
+// ---------- track view ----------
+// Marker tools: a tap marks at the finger, number keys mark at the playhead.
+const TOOLS = [
+  { kind: null, text: "Seek" },
+  { kind: "beat", text: "beat", key: "1" }, { kind: "downbeat", text: "bar 1", key: "2" },
+  { kind: "buildup", text: "buildup", key: "3" }, { kind: "drop", text: "drop", key: "4" },
+  { kind: "breakdown", text: "breakdown", key: "5" }, { kind: "vocal_in", text: "vocal in", key: "6" },
+  { kind: "vocal_out", text: "vocal out", key: "7" }, { kind: "scene", text: "scene", key: "8" },
+];
+const FREE_KINDS = new Set(["beat", "downbeat"]);  // grid taps keep their exact time
+const SECTION_EVENTS = new Set(["drop", "buildup", "breakdown"]);  // these are the start of their section
+let tool = null, drag = null, views = {}, reference = {};
+
+function period() { return doc.grid.period; }
+function gridShift() { return (rating.grid.shift_beats || 0) * period() + (rating.grid.offset_ms || 0) / 1000; }
+function barTime(k) { const b = doc.bars.start; return k < b.length ? b[k] : b[b.length - 1] + (k - b.length + 1) * 4 * period(); }
+function barAt(t) { const b = doc.bars.start; let k = 0; while (k + 1 < b.length && b[k + 1] <= t) k++; if (k + 1 < b.length && b[k + 1] - t < t - b[k]) k++; return k; }
+function fmt(t) { const m = Math.floor(t / 60), s = t - 60 * m; return `${m}:${s.toFixed(1).padStart(4, "0")}`; }
+function evBar(e) { return e.bar + (e.offset_bars || 0); }
+function secStart(i) { const s = rating.sections[i]; return s.true_start_bar ?? s.start_bar; }
+function secEnd(i) { return i + 1 < rating.sections.length ? secStart(i + 1) : rating.sections[i].end_bar; }
+// The first section also covers any beatless audio before bar 0.
+function secStartTime(i) { return i === 0 ? 0 : barTime(secStart(i)); }
+
+async function openTrack(id) {
+  currentId = id;
+  renderList();
+  [doc, rating, reference] = await Promise.all([api(`/api/track/${id}`), api(`/api/ratings/${id}`), api(`/api/reference/${id}`)]);
+  rating = normalizeRating(rating);
+  audio.src = audioUrl();
+  excerptEnd = null;
+  history.replaceState(null, "", "#" + id);
+  setView("track");
+  renderTrack();
+  scrollTo(0, 0);
+}
+
+function normalizeRating(r) {
+  const byKey = (list, key) => Object.fromEntries((list || []).map(x => [key(x), x]));
+  const ev = byKey(r.events, e => e.kind + "@" + e.bar), sec = byKey(r.sections, s => s.start_bar + ":" + s.label);
+  return {
+    grid: { beats: null, downbeat: null, shift_beats: 0, offset_ms: 0, ...(r.grid || {}) },
+    events: doc.events.map(e => ({ kind: e.kind, bar: e.bar, verdict: null, offset_bars: 0, ...(ev[e.kind + "@" + e.bar] || {}) })),
+    sections: [...doc.sections.map(s => ({ label: s.label, start_bar: s.start_bar, end_bar: s.end_bar, verdict: null, correct_label: null, true_start_bar: null, ...(sec[s.start_bar + ":" + s.label] || {}) })),
+               ...(r.sections || []).filter(s => s.added)].sort((a, b) => (a.true_start_bar ?? a.start_bar) - (b.true_start_bar ?? b.start_bar)),
+    missed: r.missed || [], overall: r.overall || null, notes: r.notes || "", prefilled: !!r.prefilled,
+  };
+}
+
+function zoomBars() { return innerWidth < 700 ? 8 : 16; }
+
+function renderTrack() {
+  const t = doc.track, g = doc.grid;
+  const tag = t.filename_bpm ? ` · file ${t.filename_bpm}${t.filename_key ? " " + t.filename_key : ""}` : "";
+  $("#main").innerHTML = `<div class="track">
+    <div><h2>${esc(t.title)}</h2>
+      <div class="meta"><span><b>${g.bpm.toFixed(2)} BPM</b>${tag}</span><span>grid ${(g.confidence * 100).toFixed(0)}%</span><span>${fmt(t.duration)}</span><span>stems ${doc.analyzer.stems}</span><span>v${doc.analyzer.version}</span></div></div>
+    <div class="panel zoom-panel">
+      <h3><span>Excerpt · ${zoomBars()} bars</span><span class="status" id="pos"></span></h3>
+      <canvas id="zoom" aria-label="Waveform around the playhead"></canvas>
+      <div class="status" style="margin-top:6px">Drag the bold bar-1 tick to shift the grid. Tap a band or marker to judge it.</div>
+    </div>
+    <div class="panel tools-panel">
+      <h3><span>Tap to mark</span></h3>
+      <div class="tools" id="tools">${TOOLS.map((x, i) => `<button data-tool="${i}" class="${(x.kind ?? null) === tool ? "on" : ""}">${x.text}${x.key ? ` <kbd>${x.key}</kbd>` : ""}</button>`).join("")}</div>
+    </div>
+    <div class="panel overview-panel">
+      <h3><span>Whole track</span></h3>
+      <canvas id="overview" aria-label="Whole track: sections, waveform, energy and stems"></canvas>
+      <div class="tally" id="tally"></div>
+      <details class="help"><summary>How to review</summary>
+        <div class="legend">${LABELS.map(l => `<span><span class="swatch" style="background:var(--sec-${l})"></span>${l}</span>`).join("")}</div>
+        <p>Tap a marker or a section band to confirm or change it. Drop, buildup and breakdown are section starts: drag one to move the section edge; with a marker tool, a tap splits the section there.</p>
+        <p>Drag markers and section edges sideways to move them (snaps to bars, <kbd>Shift</kbd> = free). Grey row: VirtualDJ breaks and Mixed In Key energy cues. Lanes: stem level per bar, darker = louder.</p>
+        <p>Keyboard: <kbd>Space</kbd> play, <kbd>←</kbd>/<kbd>→</kbd> 4 bars, <kbd>C</kbd> click, <kbd>N</kbd> next, <kbd>1</kbd>–<kbd>8</kbd> mark at the playhead, <kbd>Y</kbd>/<kbd>X</kbd>/<kbd>P</kbd> in a box.</p>
+      </details>
+    </div>
+    <section id="rate" class="sheet" aria-label="Rate this track">
+      <div class="grab"></div>
+      <div class="rate-grid">
+        <div>
+          <div class="rate-row"><div class="label">Beats (turn Click on and listen)</div><div class="vbtns" data-grid="beats">${vbtn("ok", "On beat")}${vbtn("off", "Drifts")}${vbtn("wrong", "Off")}</div></div>
+          <div class="rate-row"><div class="label">Bar 1 (loud click on the downbeat)</div><div class="vbtns" data-grid="downbeat">${vbtn("ok", "Correct")}${vbtn("wrong", "Wrong")}</div></div>
+          <div class="status" id="gridnote"></div>
+        </div>
+        <div>
+          <div class="rate-row"><div class="label">Usable for lighting? 1 useless, 5 perfect</div><div class="vbtns" id="overall">${[1, 2, 3, 4, 5].map(n => `<button data-n="${n}" aria-label="Overall ${n}">${n}</button>`).join("")}</div></div>
+          <textarea id="notes" placeholder="Notes (what is wrong, what you hear)…" aria-label="Notes"></textarea>
+          <div class="status" id="saved" role="status"></div>
+        </div>
+      </div>
+      <button class="close" data-close>Done</button>
+    </section>
+  </div>`;
+  $("#tools").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setTool(TOOLS[+b.dataset.tool].kind); });
+  document.querySelectorAll("[data-grid]").forEach(row => row.addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    rating.grid[row.dataset.grid] = rating.grid[row.dataset.grid] === b.dataset.v ? null : b.dataset.v; changed();
+  }));
+  $("#overall").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; rating.overall = +b.dataset.n; changed(); });
+  $("#notes").value = rating.notes;
+  $("#notes").addEventListener("input", e => { rating.notes = e.target.value; save(); });
+  $("#rate [data-close]").addEventListener("click", closeSheets);
+  setupCanvas($("#zoom"), "zoom");
+  setupCanvas($("#overview"), "overview");
+  renderRatings();
+  draw();
+}
+
+$("#btnRate").addEventListener("click", () => openSheet($("#rate")));
+// A tap that opens a sheet is followed by a click on the backdrop it just showed; ignore that one.
+let scrimSince = 0;
+function showScrim() { $("#scrim").classList.add("open"); scrimSince = performance.now(); }
+$("#scrim").addEventListener("click", () => { if (performance.now() - scrimSince > 400) { closeSheets(); hideMenu(); } });
+function openSheet(el) { closeSheets(); el.classList.add("open"); if (!desktop()) showScrim(); }
+function closeSheets() { document.querySelectorAll(".sheet.open").forEach(s => { if (!(desktop() && s.id === "rate")) s.classList.remove("open"); }); $("#scrim").classList.remove("open"); menuKeys = null; }
+function hideMenu() { const m = $("#menu"); m.classList.remove("open", "popover"); $("#scrim").classList.remove("open"); menuKeys = null; }
+
+function setTool(kind) { tool = kind; document.querySelectorAll("#tools button").forEach(b => b.classList.toggle("on", TOOLS[+b.dataset.tool].kind === tool)); }
+function vbtn(v, text) { const cls = { ok: "v-ok", off: "v-off", wrong: "v-wrong" }[v]; return `<button class="${cls}" data-v="${v}">${text}</button>`; }
+function changed() { renderRatings(); save(); draw(); }
+
+function splitSection(kind, bar) {
+  const i = rating.sections.findIndex((s, j) => bar >= secStart(j) && bar < secEnd(j));
+  if (i < 0) return;
+  if (secStart(i) === bar) return relabel(i, kind);
+  rating.sections.splice(i + 1, 0, { label: kind, start_bar: bar, end_bar: secEnd(i), verdict: "ok", correct_label: null, true_start_bar: null, added: true });
+  changed();
+}
+
+function addMark(kind, t, free) {
+  const bar = barAt(t);
+  if (SECTION_EVENTS.has(kind)) return splitSection(kind, bar);
+  rating.missed.push({ kind, bar, time: +(free || FREE_KINDS.has(kind) ? t : barTime(bar)).toFixed(3) });
+  changed();
+}
+
+function moved(n) { return n ? `moved ${n > 0 ? "+" : ""}${n} bar${Math.abs(n) === 1 ? "" : "s"}` : ""; }
+
+function renderRatings() {
+  document.querySelectorAll("[data-grid]").forEach(row => row.querySelectorAll("button").forEach(b => b.classList.toggle("on", rating.grid[row.dataset.grid] === b.dataset.v)));
+  document.querySelectorAll("#overall button").forEach(b => b.classList.toggle("on", rating.overall === +b.dataset.n));
+  const sh = rating.grid.shift_beats || 0, off = rating.grid.offset_ms || 0;
+  $("#gridnote").textContent = sh || off ? `You shifted the grid by ${sh} beat${Math.abs(sh) === 1 ? "" : "s"}${off ? ` and ${off.toFixed(0)} ms` : ""}.` : "";
+  const ev = rating.events.filter(e => !SECTION_EVENTS.has(e.kind)), sec = rating.sections, n = (list, f) => list.filter(f).length;
+  $("#tally").innerHTML = `Sections <b>${n(sec, s => s.verdict === "ok")}</b> ✓ · <b>${n(sec, s => s.verdict === "wrong")}</b> relabelled · ${n(sec, s => !s.verdict)} to check
+    · Vocals <b>${n(ev, e => e.verdict === "ok")}</b> ✓ · <b>${n(ev, e => e.verdict === "off")}</b> moved · <b>${n(ev, e => e.verdict === "wrong")}</b> ✗ · ${n(ev, e => !e.verdict)} to check
+    · Your markers <b>${rating.missed.length}</b>${rating.prefilled ? " · pre-filled from your earlier review" : ""}`;
+  $("#btnRate").textContent = rating.overall ? `Rate ${rating.overall}★` : "Rate";
+}
+
+function setEventVerdict(i, v) {
+  const e = rating.events[i];
+  e.verdict = e.verdict === v ? (e.offset_bars ? "off" : null) : v;
+  if (e.verdict !== "off") e.offset_bars = 0;
+  changed();
+}
+
+function relabel(i, label) {
+  const s = rating.sections[i];
+  s.correct_label = label && label !== s.label ? label : null;
+  s.verdict = s.correct_label ? "wrong" : label === s.label ? "ok" : null;
+  changed();
+}
+
+function save() {
+  const id = currentId, body = JSON.stringify(rating);
+  $("#saved").textContent = "saving…";
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await api(`/api/ratings/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    } catch (e) {
+      if (!(e instanceof NeedPin)) $("#saved").textContent = "not saved: " + e.message;
+      return;
+    }
+    if (id === currentId) $("#saved").textContent = "saved " + new Date().toLocaleTimeString();
+    const t = tracks.find(t => t.id === id); if (t) { t.rated = true; t.overall = rating.overall; }
+    updateProgress();
+    renderList();
+  }, 400);
+}
+
+// ---------- playback ----------
+// iOS Safari ignores currentTime before the metadata is in, so seeks wait for it.
+function seekTo(t, play) {
+  const go = () => { audio.currentTime = t; if (play) audio.play().catch(() => {}); };
+  if (audio.readyState >= 1) go(); else { audio.addEventListener("loadedmetadata", go, { once: true }); audio.load(); if (play) audio.play().catch(() => {}); }
+}
+function togglePlay() { if (!doc) return; if (audio.paused) { excerptEnd = null; audio.play().catch(() => {}); } else audio.pause(); }
+function seekBars(n) { if (doc) seekTo(Math.max(0, barTime(Math.max(0, barAt(audio.currentTime) + n)))); }
+const PREROLL_BARS = 1, EXCERPT_BARS = 4;
+function playExcerpt(bar) { excerptStart = barTime(Math.max(0, bar - PREROLL_BARS)); excerptEnd = barTime(bar + EXCERPT_BARS); seekTo(excerptStart, true); }
+$("#play").addEventListener("click", togglePlay);
+$("#back").addEventListener("click", () => seekBars(-4));
+$("#fwd").addEventListener("click", () => seekBars(4));
+$("#click").addEventListener("click", toggleClick);
+audio.addEventListener("play", () => { $("#play").textContent = "❚❚"; $("#play").setAttribute("aria-label", "Pause"); });
+audio.addEventListener("pause", () => { $("#play").textContent = "▶"; $("#play").setAttribute("aria-label", "Play"); });
+
+// Clicks are mixed into the audio by the server, sample-exact, and follow the reviewer's grid shift.
+function audioUrl() {
+  const g = rating.grid;
+  return clickOn ? `/audio/${currentId}?click=1&shift=${g.shift_beats || 0}&offset=${Math.round(g.offset_ms || 0)}` : `/audio/${currentId}`;
+}
+function reloadAudio() {
+  const t = audio.currentTime, playing = !audio.paused;
+  audio.src = audioUrl();
+  seekTo(t, playing);
+}
+function toggleClick() {
+  if (!doc) return;
+  clickOn = !clickOn;
+  const b = $("#click"); b.classList.toggle("on", clickOn); b.setAttribute("aria-pressed", clickOn); b.textContent = clickOn ? "Click…" : "Click";
+  reloadAudio();
+}
+audio.addEventListener("canplay", () => { $("#click").textContent = "Click"; });
+function isDownbeatIndex(i) { const first = doc.beats.findIndex(b => Math.abs(b - doc.bars.start[0]) < 0.002); return ((i - first - (rating.grid.shift_beats || 0)) % 4 + 4) % 4 === 0; }
+
+document.addEventListener("keydown", e => {
+  if (e.target.matches?.("input, textarea, select")) return;
+  const t = TOOLS.find(x => x.key === e.key);
+  if (menuKeys && ["y", "x", "p"].includes(e.key.toLowerCase())) {
+    const k = e.key.toLowerCase(), pick = menuKeys;
+    if (k !== "p") hideMenu();
+    return pick(k === "y" ? { v: "ok" } : k === "x" ? { v: "wrong" } : { play: "1" });
+  }
+  if (e.code === "Space" && doc) { e.preventDefault(); togglePlay(); }
+  else if (t && doc) addMark(t.kind, audio.currentTime, e.shiftKey);
+  else if (e.key === "c" && doc) toggleClick();
+  else if (e.key === "n") nextUnrated();
+  else if (e.key === "Escape") { setTool(null); hideMenu(); closeSheets(); }
+  else if (e.key === "ArrowLeft" && doc) seekBars(-4);
+  else if (e.key === "ArrowRight" && doc) seekBars(4);
+});
+
+// ---------- canvas interaction ----------
+// Touch layouts get taller section bands (44 px tap targets) and a wider grab radius.
+function rows(name) {
+  const big = !roomy();
+  if (name === "zoom") return big ? { sec: [0, 44], ref: [46, 12], wave: [60, 130] } : { sec: [0, 18], ref: [20, 12], wave: [34, 94] };
+  return big ? { sec: [0, 44], ref: [46, 14], wave: [62, 60], energy: [124, 26], lanes: [152, 110] }
+             : { sec: [0, 26], ref: [28, 14], wave: [44, 70], energy: [118, 28], lanes: [150, 150] };
+}
+function canvasHeight(name) { const r = rows(name), last = r.lanes || r.wave; return last[0] + last[1]; }
+const grabPx = e => e.pointerType === "mouse" ? 6 : 18;
+
+function setupCanvas(c, name) {
+  const resize = () => { const r = c.getBoundingClientRect(), h = canvasHeight(name); if (c.style.height !== h + "px") c.style.height = h + "px"; c.width = r.width * devicePixelRatio; c.height = h * devicePixelRatio; draw(); };
+  new ResizeObserver(resize).observe(c);
+  c.addEventListener("pointerdown", e => pointerDown(e, name));
+  c.addEventListener("pointermove", e => pointerMove(e, name));
+  c.addEventListener("pointerup", e => pointerUp(e, name));
+  c.addEventListener("pointercancel", () => { if (drag && drag.moved) changed(); drag = null; });
+  c.addEventListener("contextmenu", e => { e.preventDefault(); rightClick(e, name); });
+  c.addEventListener("pointerleave", () => { $("#tip").style.display = "none"; });
+  // A tap opens a sheet under the finger; without this the browser's follow-up click would press a button in it.
+  c.addEventListener("touchend", e => { if (e.cancelable) e.preventDefault(); }, { passive: false });
+}
+
+function local(e, name) {
+  const v = views[name], r = e.currentTarget.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  return { x, y, t: v.t0 + x / r.width * (v.t1 - v.t0), pxPerSec: r.width / (v.t1 - v.t0), rows: v.rows, grab: grabPx(e) };
+}
+
+function handles(name) {
+  // Everything that can be grabbed, as {time, type, i}
+  const h = [];
+  rating.events.forEach((e, i) => { if (!SECTION_EVENTS.has(e.kind)) h.push({ time: barTime(evBar(e)), type: "event", i }); });
+  for (let i = 1; i < rating.sections.length; i++) h.push({ time: barTime(secStart(i)), type: "boundary", i });
+  rating.missed.forEach((m, i) => h.push({ time: m.time ?? barTime(m.bar), type: "mark", i }));
+  if (name === "zoom" && !tool) {  // the grid is dragged in Seek mode; with a marker tool a tap on a bar line adds the marker
+    const first = doc.bars.start[0] + gridShift();
+    const k = barAt(views.zoom.t0 + 0.001);
+    for (let j = k; j <= k + zoomBars(); j++) h.push({ time: first + (barTime(j) - doc.bars.start[0]), type: "downbeat" });
+  }
+  return h;
+}
+
+function inSectionBand(p) { return p.y <= p.rows.sec[0] + p.rows.sec[1]; }
+
+function hitHandle(p, name) {
+  if (inSectionBand(p)) {
+    for (let i = 1; i < rating.sections.length; i++)
+      if (Math.abs((barTime(secStart(i)) - p.t) * p.pxPerSec) <= p.grab / 2) return { type: "boundary", i };
+    return null;
+  }
+  let best = null, bestD = tool ? p.grab / 2 : p.grab;  // with a marker tool, taps near a marker still add
+  for (const h of handles(name)) { const d = Math.abs((h.time - p.t) * p.pxPerSec); if (d <= bestD) { best = h; bestD = d; } }
+  return best;
+}
+
+// The action runs on release, so a vertical swipe that starts on a canvas scrolls the page instead.
+function pointerDown(e, name) {
+  if (e.button !== 0 || !doc) return;
+  const p = local(e, name), h = hitHandle(p, name);
+  drag = { ...(h || { type: "tap" }), p, name, startT: p.t, startX: e.clientX, moved: false, shift0: rating.grid.shift_beats || 0, off0: rating.grid.offset_ms || 0, shiftKey: e.shiftKey };
+  if (h) e.currentTarget.setPointerCapture(e.pointerId);
+}
+
+function pointerMove(e, name) {
+  if (!doc || !views[name]) return;
+  const p = local(e, name);
+  if (!drag) {
+    if (e.pointerType !== "mouse") return;
+    const h = hitHandle(p, name);
+    e.currentTarget.style.cursor = h ? "ew-resize" : tool ? "copy" : "crosshair";
+    return showTip(e, p.t);
+  }
+  if (drag.type === "tap" || drag.name !== name) return;
+  if (!drag.moved && Math.abs(e.clientX - drag.startX) < 4) return;
+  drag.moved = true;
+  const free = e.shiftKey, bar = barAt(p.t);
+  if (drag.type === "event") {
+    const ev = rating.events[drag.i];
+    ev.offset_bars = bar - ev.bar;
+    ev.verdict = ev.offset_bars ? "off" : ev.verdict === "off" ? null : ev.verdict;
+  } else if (drag.type === "mark") {
+    const m = rating.missed[drag.i];
+    m.time = +(free || FREE_KINDS.has(m.kind) ? p.t : barTime(bar)).toFixed(3); m.bar = barAt(m.time);
+  } else if (drag.type === "boundary") {
+    const lo = secStart(drag.i - 1) + 1, hi = secEnd(drag.i) - 1;
+    rating.sections[drag.i].true_start_bar = Math.min(hi, Math.max(lo, bar));
+  } else if (drag.type === "downbeat") {
+    const dt = p.t - drag.startT;
+    if (free) rating.grid.offset_ms = Math.round(drag.off0 + dt * 1000);
+    else rating.grid.shift_beats = drag.shift0 + Math.round(dt / period());
+  }
+  draw();
+}
+
+function pointerUp(e, name) {
+  if (!drag || drag.name !== name) return;
+  const d = drag; drag = null;
+  if (!d.moved) {
+    if (d.type === "event") return showEventMenu(e, d.i);
+    if (d.type === "mark") return showMarkMenu(e, d.i);
+    if (d.type === "boundary") return showSectionMenu(e, d.i);
+    if (d.type !== "tap") return;
+    const p = d.p;
+    if (inSectionBand(p)) {
+      const i = rating.sections.findIndex((s, j) => p.t >= secStartTime(j) && p.t < barTime(secEnd(j)));
+      if (i >= 0) return showSectionMenu(e, i);
+    }
+    if (tool) return addMark(tool, p.t, d.shiftKey);
+    excerptEnd = null; seekTo(p.t);
+    return;
+  }
+  if (d.type === "downbeat") {
+    if ((rating.grid.shift_beats || 0) % 4 !== 0) rating.grid.downbeat = "wrong";
+    if (clickOn) reloadAudio();
+  }
+  if (d.type === "boundary") { const s = rating.sections[d.i]; if (s.true_start_bar === s.start_bar) s.true_start_bar = null; }
+  changed();
+}
+
+function rightClick(e, name) {
+  if (!doc) return;
+  const h = hitHandle(local(e, name), name);
+  if (!h) return;
+  if (h.type === "event") { const ev = rating.events[h.i]; ev.verdict = ev.verdict === "wrong" ? null : "wrong"; ev.offset_bars = 0; }
+  else if (h.type === "mark") rating.missed.splice(h.i, 1);
+  else if (h.type === "downbeat") { rating.grid.shift_beats = 0; rating.grid.offset_ms = 0; if (clickOn) reloadAudio(); }
+  else return;
+  changed();
+}
+
+let menuKeys = null;  // Y / X / P act on the open box
+function openMenu(e, title, html, onPick) {
+  const m = $("#menu");
+  m.innerHTML = `<div class="grab"></div><div class="title">${title}</div><div class="choices">${html}</div><button class="close" data-close>Close</button>`;
+  closeSheets();
+  m.classList.add("open");
+  if (desktop()) {
+    m.classList.add("popover");
+    m.style.setProperty("--x", Math.min(e.clientX, innerWidth - 296) + "px");
+    m.style.setProperty("--y", Math.max(8, Math.min(e.clientY + 8, innerHeight - m.offsetHeight - 8)) + "px");
+  } else showScrim();
+  m.onclick = ev => {
+    const b = ev.target.closest("button"); if (!b) return;
+    if (b.dataset.close !== undefined) return hideMenu();
+    onPick(b.dataset); if (!b.dataset.keep) hideMenu();
+  };
+  menuKeys = onPick;
+}
+document.addEventListener("pointerdown", e => { if (desktop() && $("#menu").classList.contains("open") && !e.target.closest("#menu, canvas")) hideMenu(); });
+
+function showEventMenu(e, i) {
+  const ev = rating.events[i];
+  openMenu(e, `<b>${ev.kind.replace("_", " ")}</b> · bar ${evBar(ev)}${ev.offset_bars ? ` (${moved(ev.offset_bars)})` : ""}`,
+    `<button data-v="ok" class="v-ok ${ev.verdict === "ok" ? "on" : ""}">✓ Correct <kbd>Y</kbd></button>
+     <button data-v="wrong" class="v-wrong ${ev.verdict === "wrong" ? "on" : ""}">✗ Not there <kbd>X</kbd></button>
+     ${ev.offset_bars ? `<button data-reset="1" class="wide">↺ Back to bar ${ev.bar}</button>` : ""}
+     <button data-play="1" data-keep="1" class="wide">▶ Play from 1 bar before <kbd>P</kbd></button>
+     <div class="status wide">Wrong place? Drag the marker sideways.</div>`,
+    d => {
+      if (d.play) return playExcerpt(evBar(ev));
+      if (d.reset) { ev.offset_bars = 0; ev.verdict = null; return changed(); }
+      setEventVerdict(i, d.v);
+    });
+}
+
+function showMarkMenu(e, i) {
+  const m = rating.missed[i];
+  openMenu(e, `<b>★ ${m.kind.replace("_", " ")}</b> (yours) · bar ${m.bar}`,
+    `<button data-play="1" data-keep="1">▶ Play <kbd>P</kbd></button>
+     <button data-v="wrong" class="v-wrong">Remove <kbd>X</kbd></button>`,
+    d => { if (d.play) return playExcerpt(m.bar); if (d.v === "wrong") { rating.missed.splice(i, 1); changed(); } });
+}
+
+function showSectionMenu(e, i) {
+  const s = rating.sections[i], current = s.correct_label || s.label;
+  openMenu(e, `<b>${current}</b> · bars ${secStart(i)}–${secEnd(i)}`,
+    `<button data-v="ok" class="v-ok wide ${s.verdict === "ok" ? "on" : ""}">✓ ${s.label} is right <kbd>Y</kbd></button>
+     <div class="status wide">or it is…</div>` +
+    [...LABELS, "other"].filter(l => l !== s.label).map(l => `<button data-l="${l}" class="${s.correct_label === l ? "on" : ""}"><span class="swatch" style="background:var(--sec-${l}, var(--text-muted))"></span>${l}</button>`).join("") +
+    `<button data-play="1" data-keep="1" class="wide">▶ Play from 1 bar before <kbd>P</kbd></button>` +
+    (s.added ? `<button data-remove="1" class="wide">Remove this split</button>` : `<div class="status wide">Starts at the wrong bar? Drag its edge sideways.</div>`),
+    d => {
+      if (d.play) return playExcerpt(secStart(i));
+      if (d.remove) { rating.sections.splice(i, 1); return changed(); }
+      if (d.v === "ok") { s.verdict = s.verdict === "ok" ? null : "ok"; s.correct_label = null; return changed(); }
+      if (d.v === "wrong") return;  // X has no meaning without a new label
+      relabel(i, d.l);
+    });
+}
+
+function showTip(e, t) {
+  if (t == null || !doc) return;
+  const k = barAt(t), lv = doc.bars.levels, sec = doc.sections.find(s => k >= s.start_bar && k < s.end_bar);
+  const tip = $("#tip");
+  tip.innerHTML = `<b>${fmt(t)}</b> · bar ${k}${sec ? " · " + sec.label : ""}<br>` +
+    ["loud", ...LANES].map(n => `${n}: ${lv[n] && lv[n][k] != null ? (lv[n][k] * 100).toFixed(0) + "%" : "–"}`).join("<br>");
+  tip.style.display = "block";
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + "px";
+  tip.style.top = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8) + "px";
+}
+
+// ---------- drawing ----------
+function mix(a, b, f) {
+  const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const A = p(a), B = p(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * f)).join(",")})`;
+}
+
+let labelEdge = {};  // right edge of the last label per row, so labels never overlap on narrow screens
+function marker(ctx, x, top, H, s, color, width, dash, label, labelTop = top) {
+  ctx.strokeStyle = color; ctx.lineWidth = width * s; ctx.setLineDash(dash.map(d => d * s));
+  ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, H); ctx.stroke(); ctx.setLineDash([]);
+  const w = label ? ctx.measureText(label).width + 8 * s : 0;
+  if (label && x >= (labelEdge[labelTop] ?? -Infinity)) {
+    labelEdge[labelTop] = x + w + 2 * s;
+    ctx.fillStyle = color; ctx.fillRect(x, labelTop, w, 15 * s);
+    ctx.fillStyle = css("--surface-1"); ctx.fillText(label, x + 4 * s, labelTop + 7.5 * s);
+  }
+}
+
+function drawTimeline(c, name, t0, t1, opts) {
+  views[name] = { t0, t1, rows: opts.rows };
+  labelEdge = {};
+  const ctx = c.getContext("2d"), W = c.width, H = c.height, s = devicePixelRatio;
+  if (!W || !H) return;
+  const X = t => (t - t0) / (t1 - t0) * W;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = css("--surface-1"); ctx.fillRect(0, 0, W, H);
+  ctx.font = `${12 * s}px -apple-system, sans-serif`; ctx.textBaseline = "middle";
+  const R = opts.rows, secBottom = (R.sec[0] + R.sec[1]) * s;
+  // sections, as the reviewer corrected them
+  rating.sections.forEach((sec, i) => {
+    const label = sec.correct_label || sec.label, x0 = X(secStartTime(i)), x1 = X(barTime(secEnd(i)));
+    if (x1 < 0 || x0 > W) return;
+    ctx.fillStyle = css("--sec-" + label) || css("--text-muted"); ctx.fillRect(x0 + s, R.sec[0] * s, Math.max(1, x1 - x0 - 2 * s), R.sec[1] * s);
+    if (x1 - x0 > 40 * s) { ctx.fillStyle = "#fff"; ctx.fillText(label + (sec.verdict === "ok" ? " ✓" : sec.correct_label ? " ✎" : ""), Math.max(x0, 0) + 5 * s, (R.sec[0] + R.sec[1] / 2) * s); }
+  });
+  // reference from VirtualDJ: its break regions, and Mixed In Key energy cues stored as VDJ cue points
+  if (R.ref) {
+    const y = R.ref[0] * s, h = R.ref[1] * s;
+    ctx.fillStyle = css("--surface-2"); ctx.fillRect(0, y, W, h);
+    (reference.breaks || []).forEach(([a, b]) => {
+      const x0 = X(a), x1 = X(b); if (x1 < 0 || x0 > W) return;
+      ctx.fillStyle = css("--ref"); ctx.fillRect(x0, y, x1 - x0, h);
+      if (x1 - x0 > 50 * s) { ctx.fillStyle = "#fff"; ctx.fillText("VDJ break", Math.max(x0, 0) + 4 * s, y + h / 2); }
+    });
+    (reference.cues || []).forEach(c => {
+      const x = X(c.pos); if (x < 0 || x > W) return;
+      const m = /Energy\s*(\d+)/.exec(c.name), label = m ? "E" + m[1] : c.name;
+      ctx.fillStyle = css("--text-primary"); ctx.fillRect(x, y, 2 * s, h);
+      ctx.fillText(label, x + 3 * s, y + h / 2);
+    });
+    if (!(reference.breaks || []).length && !(reference.cues || []).length) { ctx.fillStyle = css("--text-muted"); ctx.fillText("no VirtualDJ reference", 4 * s, y + h / 2); }
+  }
+  // waveform
+  const pk = doc.peaks.values, rate = doc.peaks.rate, mid = (R.wave[0] + R.wave[1] / 2) * s, amp = R.wave[1] / 2 * s;
+  ctx.fillStyle = css("--wave");
+  const i0 = Math.max(0, Math.floor(t0 * rate)), i1 = Math.min(pk.length, Math.ceil(t1 * rate));
+  const step = Math.max(1, Math.floor((i1 - i0) / W));
+  for (let i = i0; i < i1; i += step) { let m = 0; for (let j = i; j < i + step && j < i1; j++) m = Math.max(m, pk[j]); ctx.fillRect(X(i / rate), mid - m * amp, Math.max(1, (W / (i1 - i0)) * step - 0.5), 2 * m * amp || 1); }
+  // beat grid (zoom): detected grid in muted ink, corrected bar starts in accent when shifted
+  if (opts.beats) {
+    const shift = gridShift(), shifted = Math.abs(shift) > 0.001;
+    doc.beats.forEach((b, i) => {
+      if (b + shift < t0 || b + shift > t1) return;
+      const down = isDownbeatIndex(i);
+      ctx.fillStyle = down ? (shifted ? css("--accent") : css("--text-primary")) : css("--text-muted");
+      ctx.fillRect(X(b + (rating.grid.offset_ms || 0) / 1000), R.wave[0] * s, (down ? 3 : 1) * s, R.wave[1] * s);
+    });
+  }
+  const starts = doc.bars.start, lv = doc.bars.levels, bw = 4 * period();
+  if (R.energy) {
+    const y0 = (R.energy[0] + R.energy[1]) * s, h = R.energy[1] * s;
+    ctx.fillStyle = css("--text-muted"); ctx.fillText("energy", 4 * s, (R.energy[0] + 6) * s);
+    ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2 * s; ctx.beginPath();
+    starts.forEach((t, k) => { if (lv.loud[k] == null) return; const x = X(t + bw / 2), y = y0 - lv.loud[k] * h; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+  if (R.lanes) {
+    const lh = R.lanes[1] / LANES.length, lo = css("--lane-lo"), hi = css("--lane-hi");
+    LANES.forEach((ln, li) => {
+      const y = (R.lanes[0] + li * lh) * s;
+      (lv[ln] || []).forEach((v, k) => { if (v == null) return; ctx.fillStyle = mix(lo, hi, v); ctx.fillRect(X(starts[k]), y + s, Math.max(1, X(starts[k] + bw) - X(starts[k]) - 0.5), lh * s - 2 * s); });
+      ctx.fillStyle = css("--text-primary"); ctx.globalAlpha = 0.85; ctx.fillText(ln, 4 * s, y + lh * s / 2); ctx.globalAlpha = 1;
+    });
+  }
+  const labels = opts.eventLabels;
+  rating.sections.forEach((sec, i) => {
+    const label = sec.correct_label || sec.label;
+    if (i === 0 || !SECTION_EVENTS.has(label)) return;
+    const x = X(barTime(secStart(i))); if (x < 0 || x > W) return;
+    const color = sec.verdict === "ok" ? css("--good") : sec.verdict === "wrong" ? css("--warn") : css("--text-primary");
+    if (sec.true_start_bar != null && sec.true_start_bar !== sec.start_bar) marker(ctx, X(barTime(sec.start_bar)), secBottom, H, s, css("--text-muted"), 1, [2, 4], "");
+    marker(ctx, x, secBottom, H, s, color, label === "drop" ? 2.5 : 1.5, [], label + (sec.verdict === "ok" ? " ✓" : sec.added ? " ★" : ""), R.wave[0] * s);
+  });
+  rating.events.forEach(ev => {
+    if (SECTION_EVENTS.has(ev.kind)) return;
+    const x = X(barTime(evBar(ev))); if (x < 0 || x > W) return;
+    const color = ev.verdict === "ok" ? css("--good") : ev.verdict === "wrong" ? css("--bad") : ev.verdict === "off" ? css("--warn") : css("--text-primary");
+    if (ev.offset_bars) marker(ctx, X(barTime(ev.bar)), secBottom, H, s, css("--text-muted"), 1, [2, 4], "");
+    marker(ctx, x, secBottom, H, s, color, ev.kind === "drop" ? 2 : 1.5, ev.kind.startsWith("vocal") ? [3, 3] : ev.verdict === "wrong" ? [6, 4] : [],
+           labels ? ev.kind.replace("_", " ") + (ev.verdict === "wrong" ? " ✗" : ev.verdict === "ok" ? " ✓" : "") : "", (R.wave[0] + 34) * s);
+  });
+  rating.missed.forEach(m => {
+    const x = X(m.time ?? barTime(m.bar)); if (x < 0 || x > W) return;
+    marker(ctx, x, secBottom, H, s, css("--mark"), 2, [6, 3], labels || !FREE_KINDS.has(m.kind) ? "★ " + m.kind.replace("_", " ") : "", (R.wave[0] + 16) * s);
+  });
+  if (excerptEnd) { ctx.fillStyle = css("--accent"); ctx.globalAlpha = 0.08; const a = X(excerptStart); ctx.fillRect(a, 0, X(excerptEnd) - a, H); ctx.globalAlpha = 1; }
+  const px = X(audio.currentTime); ctx.fillStyle = css("--playhead"); ctx.fillRect(px - s, 0, 2 * s, H);
+}
+
+function zoomWindow() { const n = zoomBars(), k = barAt(audio.currentTime), a = Math.max(0, k - n / 2); return [a ? barTime(a) : 0, barTime(a + n)]; }
+
+function draw() {
+  if (!doc || !$("#overview")) return;
+  drawTimeline($("#overview"), "overview", 0, doc.track.duration, { rows: rows("overview"), eventLabels: false });
+  if (!(drag && drag.name === "zoom" && drag.moved)) views.zoomRange = zoomWindow();
+  const [a, b] = views.zoomRange;
+  drawTimeline($("#zoom"), "zoom", a, b, { rows: rows("zoom"), beats: true, eventLabels: true });
+  const pos = $("#pos"); if (pos) pos.textContent = `${fmt(audio.currentTime)} · bar ${barAt(audio.currentTime)}`;
+}
+function tick() {
+  if (excerptEnd && audio.currentTime >= excerptEnd) { audio.pause(); excerptEnd = null; }
+  if (doc && !audio.paused && !drag) draw();
+  if (quizPlay !== null && document.body.dataset.view === "round") showPlayProgress();
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+audio.addEventListener("seeked", draw);
+
+// ---------- question screen: one Probe of the current Review round at a time ----------
+let quiz = null, quizIndex = 0, quizShown = 0, quizPlay = null, quizLoading = null, quizBusy = false;
+const quizPlayed = new Set();
+const DOUBLE_TAP_MS = 350;  // a second tap this soon after a new question is the old answer's double tap
+
+async function loadRound() {
+  const r = await api("/api/round");
+  quiz = r.round ? r : null;
+  $("#btnRound").hidden = !quiz;
+}
+function openProbes() { return quiz.probes.filter(p => p.answer == null).length; }
+// Next unanswered after i (wrapping); once all are answered, simply the next one, then the done screen.
+function nextProbe(i) {
+  const n = quiz.probes.length;
+  for (let d = 1; d <= n; d++) { const k = (i + d) % n; if (quiz.probes[k].answer == null) return k; }
+  return i + 1 < n ? i + 1 : -1;
+}
+function showRound(i) {
+  currentId = null; doc = null; renderList();
+  history.replaceState(null, "", location.pathname);
+  goProbe(i);
+}
+function goProbe(i) {
+  quizIndex = i < 0 ? quiz.probes.length : i;
+  setView("round");
+  renderProbe();
+  scrollTo(0, 0);
+}
+$("#btnRound").addEventListener("click", async () => { await loadRound(); if (quiz) showRound(openProbes() ? nextProbe(-1) : -1); });
+
+function playName(p, k) { return p.question === "ab" ? "Play " + String.fromCharCode(65 + k) : p.plays.length > 1 ? `Play ${k + 1}` : "Play"; }
+function answerSpan(k, n) { return k < 2 ? 3 : 6 / (n - 2); }  // two big answers on top, the rest share the row below
+
+function renderProbe() {
+  const p = quiz.probes[quizIndex];
+  audio.pause(); excerptEnd = null; quizPlay = quizLoading = null; quizShown = performance.now();
+  if (!p) {
+    $("#main").innerHTML = `<div class="quiz q-done">
+      <p class="q-prompt">Round ${quiz.round} done</p>
+      <div class="status">All ${quiz.probes.length} questions answered. Thank you.</div>
+      <div class="q-bar"><div class="q-answers">
+        <button id="qReview" style="grid-column: span 3">Change answers</button><button id="qSongs" style="grid-column: span 3">Browse songs</button>
+      </div></div></div>`;
+    $("#qReview").addEventListener("click", () => goProbe(0));
+    $("#qSongs").addEventListener("click", () => setView("list"));
+    return;
+  }
+  const theory = quiz.theories.find(t => t.id === p.theory), n = p.options.length;
+  const mark = pl => pl.mark == null ? "" : `<span class="q-mark" style="--m:${Math.min(1, Math.max(0, (pl.mark - pl.start) / (pl.end - pl.start)))}"></span>`;
+  $("#main").innerHTML = `<div class="quiz" data-probe="${esc(p.id)}">
+    <div class="q-theory">${theory ? esc(theory.text) : ""}</div>
+    <div class="q-title">${esc(p.title)}</div>
+    <p class="q-prompt">${esc(p.prompt)}</p>
+    <div class="q-plays">${p.plays.map((pl, k) => `<button class="q-play" data-k="${k}"><span class="q-fill"></span>${mark(pl)}<span class="q-label"></span></button>`).join("")}</div>
+    <div class="status q-status" role="status"></div>
+    <div class="q-bar">
+      <div class="q-nav"><button id="qBack" ${quizIndex ? "" : "disabled"}>‹ Back</button><span class="status">${quizIndex + 1} of ${quiz.probes.length}</span><button id="qSkip">Skip ›</button></div>
+      <div class="q-answers">${p.options.map((o, k) => `<button data-v="${esc(o.value)}" class="${p.answer === o.value ? "on" : ""}" style="grid-column: span ${answerSpan(k, n)}">${esc(o.label)}</button>`).join("")}</div>
+    </div></div>`;
+  labelPlays();
+  document.querySelectorAll(".q-play").forEach(b => b.addEventListener("click", () => playProbe(+b.dataset.k)));
+  document.querySelectorAll(".q-answers button").forEach(b => b.addEventListener("click", () => answerProbe(b.dataset.v)));
+  $("#qBack").addEventListener("click", () => goProbe(quizIndex - 1));
+  $("#qSkip").addEventListener("click", () => goProbe((quizIndex + 1) % quiz.probes.length));
+}
+function labelPlays() {
+  const p = quiz.probes[quizIndex];
+  document.querySelectorAll(".q-play").forEach(b => {
+    const k = +b.dataset.k, name = playName(p, k);
+    b.querySelector(".q-label").textContent = quizLoading === k ? name.replace("Play", "Loading") + "…"
+      : quizPlayed.has(p.id + ":" + k) ? `↻ ${name} again` : `▶ ${name}`;
+  });
+}
+// Called from the tap itself, so iOS lets it start the audio.
+function playProbe(k) {
+  const p = quiz.probes[quizIndex], pl = p.plays[k];
+  const url = `/audio/${p.track}` + (pl.click_shift != null ? `?click=1&shift=${pl.click_shift}` : "");
+  if (!audio.src.endsWith(url)) audio.src = url;
+  // A click mix is rendered on its first request, which takes a few seconds.
+  quizPlay = k; quizPlayed.add(p.id + ":" + k); quizLoading = audio.readyState < 1 ? k : null; labelPlays();
+  excerptStart = pl.start; excerptEnd = pl.end;
+  seekTo(pl.start, true);
+}
+function showPlayProgress() {
+  const p = quiz.probes[quizIndex], b = p && document.querySelector(`.q-play[data-k="${quizPlay}"]`);
+  if (!b) return;
+  const pl = p.plays[quizPlay];
+  b.style.setProperty("--p", Math.min(1, Math.max(0, (audio.currentTime - pl.start) / (pl.end - pl.start))));
+}
+audio.addEventListener("playing", () => { if (quizLoading !== null && quiz) { quizLoading = null; labelPlays(); } });
+audio.addEventListener("error", () => {
+  if (quizLoading === null || !quiz) return;
+  quizLoading = null; labelPlays(); $(".q-status").textContent = "Could not load the audio. Try again.";
+});
+
+async function answerProbe(v) {
+  if (quizBusy || performance.now() - quizShown < DOUBLE_TAP_MS) return;
+  const p = quiz.probes[quizIndex];
+  quizBusy = true;
+  try {
+    await api(`/api/answers/${p.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer: v }) });
+  } catch (e) {
+    if (!(e instanceof NeedPin)) $(".q-status").textContent = "Not saved: " + e.message;
+    return;
+  } finally { quizBusy = false; }
+  p.answer = v;
+  quiz.progress.answered = quiz.probes.length - openProbes();
+  goProbe(nextProbe(quizIndex));
+}
+
+// ---------- summary ----------
+const pct = v => v == null ? "–" : (v * 100).toFixed(0) + "%";
+async function showSummary() {
+  currentId = null; doc = null; renderList();
+  const s = await api("/api/summary");
+  setView("summary");
+  const tempoTotal = Object.values(s.tempo).reduce((a, b) => a + b, 0) - s.tempo.untagged;
+  const evRows = Object.entries(s.events).map(([k, c]) => `<tr><td>${k}</td><td>${c.ok}</td><td>${c.off}</td><td>${c.wrong}</td><td>${c.missed}</td><td>${pct(c.precision)}</td><td>${pct(c.recall)}</td></tr>`).join("");
+  $("#main").innerHTML = `<div class="track"><div class="meta">From your ratings. Precision = share of predicted events that were right; recall = share of real events that were found (on the right bar).</div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Tracks rated</div><div class="v">${s.tracks_rated}</div><div class="s">of ${s.tracks_analyzed} analyzed</div></div>
+      <div class="tile"><div class="k">Tempo = filename BPM</div><div class="v">${pct(tempoTotal ? s.tempo.match / tempoTotal : null)}</div><div class="s">${s.tempo.match} match · ${s.tempo.double} double · ${s.tempo.half} half · ${s.tempo.mismatch} other</div></div>
+      <div class="tile"><div class="k">Beats on the beat</div><div class="v">${pct(s.beats_ok)}</div></div>
+      <div class="tile"><div class="k">Bar 1 correct</div><div class="v">${pct(s.downbeat_ok)}</div></div>
+      <div class="tile"><div class="k">Section labels right</div><div class="v">${pct(s.section_label_accuracy)}</div></div>
+      <div class="tile"><div class="k">Usable for lighting</div><div class="v">${s.overall_mean == null ? "–" : s.overall_mean.toFixed(1)}</div><div class="s">mean of 1–5</div></div>
+    </div>
+    <div class="panel"><h3>Events</h3><div class="scroll-x"><table><tr><th>Kind</th><th>✓</th><th>Off</th><th>✗</th><th>Missed</th><th>Prec.</th><th>Recall</th></tr>${evRows || `<tr><td colspan=7 class="status">No event ratings yet</td></tr>`}</table></div></div>
+    <div class="panel"><h3>Label confusion (predicted → your label)</h3><table>${Object.entries(s.label_confusion).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr><td>${k.replace("->", " → ")}</td><td>${n}</td></tr>`).join("") || `<tr><td class="status">None yet</td></tr>`}</table></div></div>`;
+}
+
+async function start() {
+  try {
+    await Promise.all([loadTracks(), loadRound()]);
+    const id = location.hash.slice(1);
+    if (/^[0-9a-f]{16}$/.test(id)) openTrack(id);
+    else if (quiz && openProbes()) showRound(nextProbe(-1));
+  } catch (e) { if (!(e instanceof NeedPin)) $("#main").innerHTML = `<div class="empty">Could not load: ${esc(e.message)}</div>`; }
+}
+start();
+</script>
+</body>
+</html>
