@@ -6,6 +6,13 @@
 
 <h1 align="center">Q Light Controller+</h1>
 
+## Linux Builds (AppImage)
+
+Pre-built, self-contained AppImages for **x86\_64** and **aarch64** are
+attached to every [tagged release](../../releases).  See
+[docs/LINUX_BUILDS.md](docs/LINUX_BUILDS.md) for download, verification, and
+run instructions.
+
 > ## ⚠️ EXPERIMENTAL FORK — USE AT YOUR OWN RISK ⚠️
 >
 > **This fork was largely vibe-coded with AI pair-programming.**
