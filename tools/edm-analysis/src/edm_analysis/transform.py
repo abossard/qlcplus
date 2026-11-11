@@ -27,19 +27,20 @@ def snap(doc, t):
     return bar, round(float((t - starts[bar]) / doc["grid"]["period"]), 3)
 
 
-def _claim(tid, doc, source, kind, t, label=None, score=None):
+def _claim(tid, doc, source, kind, t, label=None, score=None, sources=None):
     bar, offset = snap(doc, t)
     return {"track": tid, "source": source, "kind": kind, "label": label, "time": round(float(t), 3),
-            "bar": bar, "offset_beats": offset, "score": None if score is None else float(score)}
+            "bar": bar, "offset_beats": offset, "score": None if score is None else float(score),
+            "sources": None if sources is None else "+".join(sources)}
 
 
 def _section_claims(tid, doc, source, sections):
     starts, out = doc["bars"]["start"], []
     for s in sections:
         t = starts[s["start_bar"]] if s["start_bar"] < len(starts) else s.get("start", 0.0)
-        out.append(_claim(tid, doc, source, "section", t, s["label"], s.get("confidence")))
+        out.append(_claim(tid, doc, source, "section", t, s["label"], s.get("confidence"), s.get("sources")))
         if s["label"] in START_KINDS and s["start_bar"] > 0:
-            out.append(_claim(tid, doc, source, s["label"], t, s["label"], s.get("confidence")))
+            out.append(_claim(tid, doc, source, s["label"], t, s["label"], s.get("confidence"), s.get("sources")))
     return out
 
 
@@ -47,7 +48,10 @@ def claims_ours(tid, doc):
     """Our bar 1 and the rules' sections, and the fused sections where the document is a fusion (doc["rules"] keeps the rules')."""
     out = [_claim(tid, doc, "rules", "bar1", doc["grid"]["first_downbeat"], score=doc["grid"].get("bar1_confidence"))]
     out += _section_claims(tid, doc, "rules", doc.get("rules", doc)["sections"])
-    return out + (_section_claims(tid, doc, "fused", doc["sections"]) if "rules" in doc else [])
+    if "rules" not in doc:
+        return out
+    lifts = [_claim(tid, doc, "fused", "lift", doc["bars"]["start"][e["bar"]], "lift", sources=e.get("sources", [])) for e in doc["events"] if e["kind"] == "lift"]
+    return out + _section_claims(tid, doc, "fused", doc["sections"]) + lifts
 
 
 def claims_candidate(tid, doc, name, loaded):

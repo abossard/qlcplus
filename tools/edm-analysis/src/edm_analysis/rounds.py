@@ -69,10 +69,9 @@ def load_answers(out_dir):
 
 
 def options(probe):
-    """The buttons of a probe as (answer, label); a probe may name what its 'none' means."""
-    if probe["question"] == "yesno" and probe["claim"]["kind"] in START_KINDS:
-        return START_OPTIONS
-    return [(v, probe.get("none_label", label) if v == "none" else label) for v, label in OPTIONS[probe["question"]]]
+    """The buttons of a probe as (answer, label); a probe may name what its 'none' means, and a yes/no with a 'none' is a start question."""
+    base = START_OPTIONS if probe["question"] == "yesno" and (probe["claim"]["kind"] in START_KINDS or "none_label" in probe) else OPTIONS[probe["question"]]
+    return [(v, probe.get("none_label", label) if v == "none" else label) for v, label in base]
 
 
 def validate_answer(probe, answer):
@@ -85,7 +84,8 @@ def validate_answer(probe, answer):
         if bar and q in TAP:
             if int(bar[1]) >= probe.get("before", int(bar[1]) + 1):
                 return f"bar must be before bar {probe['before']}"
-            return None if abs(int(bar[1]) - probe["claim"]["bar"]) <= MAX_TAP else f"bar must be within {MAX_TAP} bars of the marker"
+            near = probe.get("near", probe["claim"]["bar"])
+            return None if abs(int(bar[1]) - near) <= MAX_TAP else f"bar must be within {MAX_TAP} bars of the marker"
     forms = ["is:<label>"] if q == "label" else ["bar:<n>"] if q in TAP else []
     return f"answer must be one of {', '.join(allowed + forms)}"
 
@@ -142,6 +142,8 @@ THEORIES = {
     "drop": "Where our drop and VirtualDJ's break end disagree, VirtualDJ is right",
     "detectors": "Where the detectors disagree about a drop, one of them has the exact bar",
     "buildup": "Every drop has a buildup, and we know where it starts",
+    "entry": "The first time the beat comes in is not a drop",
+    "lift": "A second hit inside a drop is not a new drop",
     "intro": "Long loud intros hide a new part at Mixed In Key's energy cues",
     "labels": "Section labels are right",
     "calibration": "The confidence numbers are honest",
@@ -240,6 +242,19 @@ def _buildup_locate(tid, doc, drop, sources, theory):
     return _probe(tid, doc, theory, "locate", "Tap the bar where the buildup starts", claim, [play], alternatives, none_label="No buildup", before=drop)
 
 
+def _lift(tid, doc, bar):
+    """Does a new drop start at the lift bar? Our Claim: it does not, so 'none' is exact, 'yes' names the lift bar and
+    a tap is exact only on the start of the drop the lift is inside. A "missed" Claim, so gold_rows skips it."""
+    inside = [s for s in doc["sections"] if s["start_bar"] < bar]
+    if not inside:
+        return None
+    t = _bar_time(doc, bar)
+    return _probe(tid, doc, "lift", "yesno", "Does a new drop start at the marker?",
+                  {"kind": "missed", "bar": inside[-1]["start_bar"], "time": t, "confidence": UNKNOWN},
+                  [{"id": "main", **_excerpt(doc, t)}], {"yes": {"source": "lift", "bar": bar}, "none": {"source": "ours"}},
+                  none_label=START_OPTIONS[1][1], near=bar)
+
+
 def theory_candidates(tid, doc, vdj, rng, drops=None, buildups=None):
     """{theory: [probe]} for one track whose analysis carries confidence. drops: {Candidate: drop bars} where
     Candidates have output for the track; its drops are then located by tapping, not compared with A/B.
@@ -292,6 +307,13 @@ def theory_candidates(tid, doc, vdj, rng, drops=None, buildups=None):
                                             {"kind": "label", "label": s["label"], "bar": s["start_bar"], "end_bar": s["end_bar"],
                                              "time": t, "confidence": s.get("label_confidence", 50)},
                                             [{"id": "main", **_excerpt(doc, t, 1, 4)}]))
+        for s in starts:
+            if s["label"] == "drop" and not any(x["label"] in ("breakdown", "buildup") and x["start_bar"] < s["start_bar"] for x in doc["sections"]):
+                t = _bar_time(doc, s["start_bar"])
+                out["entry"].append(_probe(tid, doc, "entry", "label", "Is this part a drop?",
+                                           {"kind": "label", "label": "drop", "bar": s["start_bar"], "end_bar": s["end_bar"], "time": t,
+                                            "confidence": s.get("label_confidence", 50)}, [{"id": "main", **_excerpt(doc, t, 4, 4)}]))
+        out["lift"] = [p for p in (_lift(tid, doc, e["bar"]) for e in doc.get("events", []) if e["kind"] == "lift" and e["bar"] > 0) if p]
         others = {**(drops or {}), "vdj": ends}
         out["calibration"] = [_yesno_start(tid, doc, s, "calibration", _near(s["start_bar"], others) if s["label"] == "drop" else None)
                               for s in starts]
@@ -350,9 +372,9 @@ def _rank(p):
 
 
 def _said(record):
-    """What an answer means: 'yes' to a drop at bar 16 and 'bar:16' are the same."""
+    """What an answer means: 'yes' to a drop at bar 16 and 'bar:16' are the same, and on a start question so are 'no' and 'none'."""
     bar = gold_bar(record)
-    return record["answer"] if bar is None else bar
+    return bar if bar is not None else "none" if record["answer"] == "no" and record["claim"]["kind"] in START_KINDS else record["answer"]
 
 
 def _groups(answers):
@@ -435,9 +457,9 @@ def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, se
         take(p, "unsure")
     # disputed grids first, then the least confident grids; every other pool by confidence
     pools = {t: sorted((p for c in cands.values() for p in c[t]), key=lambda p: (p["theory"] != t, _rank(p), rng.random()))
-             for t in ("grid", "detectors", "buildup", "drop", "intro", "labels")}
+             for t in ("grid", "detectors", "buildup", "entry", "lift", "drop", "intro", "labels")}
     while len(probes) < n_unsure and any(pools.values()):
-        for t in (*pools, "detectors", "buildup"):   # the pools that tell most per answer get two turns
+        for t in (*pools, "detectors", "buildup", "entry"):   # the pools that tell most per answer get two turns
             while pools[t] and not take(pools[t].pop(0), "unsure"):
                 pass
             if len(probes) >= n_unsure:
@@ -458,7 +480,7 @@ def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, se
         take(rng.choice(cands[tid]["calibration"]), "style")
         reviewed[groups[tid]] = reviewed.get(groups[tid], 0) + 1
 
-    pool = [p for tid in fresh if tid not in used for p in cands[tid]["calibration"] + cands[tid]["grid"][:1]]
+    pool = [p for tid in fresh if tid not in used for p in cands[tid]["calibration"] + cands[tid]["grid"][:1] + cands[tid]["entry"]]
     rng.shuffle(pool)
     for p in pool:
         if len(probes) >= size:
@@ -488,6 +510,7 @@ CONFIRMS = {"detectors": lambda r: gold_bar(r) in [b for src, b in source_bars(r
             "grid": lambda r: r.get("alternatives", {}).get(r["answer"], {}).get("source") == "vdj",
             "drop": lambda r: r.get("alternatives", {}).get(r["answer"], {}).get("source") == "vdj",
             "buildup": lambda r: r["claim"]["kind"] == "buildup" and _exact(r),
+            "entry": lambda r: r["answer"] != "yes", "lift": _exact,
             "intro": lambda r: r["answer"] == "yes", "labels": lambda r: r["answer"] == "yes",
             "followup": lambda r: r["answer"] == "yes"}
 

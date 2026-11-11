@@ -60,6 +60,14 @@ _Avoid_: algorithm, model
 How the Analysis's sections and events are made from the rules and the Candidates' outputs: drops from the best evidence, a buildup before each drop, labels from what the evidence supports. Each fused Claim lists the Candidates that put it on its exact bar (`sources`). Without Candidate output the Fusion falls back to the rules. The rules' own output stays available as source "rules", the Fusion as source "fused".
 _Avoid_: ensemble, merge
 
+**Lift**:
+A step inside a drop: a drop that directly follows a drop is the same drop, so the later detector or EDMFormer hit is an event of kind `lift` (bar, time, sources), not a section start and not a drop Claim.
+_Avoid_: second drop
+
+**First beat entry**:
+A drop with no breakdown and no buildup before it, so the track enters on a full beat (`fusion.entry_drops`). Not relabelled until the reviewer says whether it counts as a drop.
+_Avoid_: intro drop
+
 **Reviewer error rate**:
 The assumed share (10 %) of the reviewer's answers that are wrong, so even a perfect source reads about 0.9 on Gold. Exact rates on Gold are reported as observed and as read under this rate; the Target itself is not changed.
 _Avoid_: noise, tolerance

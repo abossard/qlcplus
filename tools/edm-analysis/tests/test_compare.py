@@ -216,8 +216,18 @@ def test_gold_shares_come_with_what_they_mean_under_the_reviewers_error_rate(kin
 
 def test_the_structure_counts_drops_with_a_buildup_and_the_buildup_lengths():
     out = compare(FUSED_CLAIMS)["structure"]
-    assert out["rules"] == {"drops": 2, "with_buildup": 1, "buildup_lengths": {8: 1}}
-    assert out["fused"] == {"drops": 2, "with_buildup": 2, "buildup_lengths": {8: 1, 10: 1}}
+    assert out["rules"] == {"drops": 2, "with_buildup": 1, "buildup_lengths": {8: 1}, "after_drop": 0, "buildups": 1, "unsupported": 0, "lifts": 0, "entries": 1}     # G has no buildup before its drop
+    assert out["fused"] == {"drops": 2, "with_buildup": 2, "buildup_lengths": {8: 1, 10: 1}, "after_drop": 0, "buildups": 2, "unsupported": 0, "lifts": 0, "entries": 0}
+
+
+def test_the_structure_counts_drops_after_drops_buildups_without_a_source_and_lifts():
+    claims = [*[{**sec("H", "fused", b, l), "sources": s} for b, l, s in ((0, "intro", ""), (8, "drop", "rules"), (16, "drop", "rules"), (24, "buildup", ""), (30, "buildup", "rules+edmformer"), (36, "drop", "x"))],
+              {**c("H", "fused", "lift", 20), "label": "lift", "sources": "x"}, {**c("H", "fused", "lift", 22), "label": "lift", "sources": ""},
+              *[sec("H", "rules", b, l) for b, l in ((0, "intro"), (8, "drop"), (16, "drop"))]]
+    out = compare(claims)["structure"]
+    assert (out["fused"]["after_drop"], out["fused"]["buildups"], out["fused"]["unsupported"], out["fused"]["lifts"]) == (1, 2, 1, 2)
+    assert (out["rules"]["after_drop"], out["rules"]["buildups"], out["rules"]["lifts"]) == (1, 0, 0)
+    assert (out["fused"]["entries"], out["rules"]["entries"]) == (2, 2)     # both drops come before any breakdown or buildup
 
 
 def test_label_changes_name_the_rules_sections_the_fusion_labels_differently():
@@ -250,3 +260,39 @@ def test_a_track_is_printed_as_rules_fused_and_answers_side_by_side():
     assert rows[1][:2] == ["drop 16-40", "buildup 14-24 55%"]
     assert rows[2][1] == "drop 24-40 91% dropdetector+edmformer"
     assert rows[0][2] == "label 14: no" and rows[1][2] == "drop 16: bar:24 (gold bar 24)"
+
+
+# --- rejected Claims ---
+
+REJECTED_CLAIMS = [*[c("R", s, "drop", 16) for s in ("rules", "fused", "edmformer")], c("R", "dropdetector", "drop", 16, 0.9),
+                   c("R", "rules", "drop", 40), c("R", "rules", "buildup", 30), c("R", "fused", "buildup", 32), c("R", "edmformer", "buildup", 31),
+                   c("Q", "rules", "drop", 16), c("Q", "fused", "drop", 17)]
+REJECTED_ANSWERS = [
+    {"track": "R", "kind": "drop", "bar": 16, "answer": "no", "exact": False, "gold_bar": None},          # rejected, and every source still makes it
+    {"track": "R", "kind": "drop", "bar": 40, "answer": "none", "exact": False, "gold_bar": None},        # only the rules do
+    {"track": "R", "kind": "buildup", "bar": 32, "answer": "none", "exact": False, "gold_bar": None},     # no buildup: the sources have starts one or two bars off
+    {"track": "Q", "kind": "drop", "bar": 16, "answer": "no", "exact": False, "gold_bar": None},
+    {"track": "R", "kind": "buildup", "bar": 48, "answer": "none", "exact": True, "gold_bar": None},      # confirms there is none: not a rejected Claim
+    {"track": "R", "kind": "drop", "bar": 24, "answer": "bar:20", "exact": False, "gold_bar": 20},        # a named bar is no rejection
+    {"track": "R", "kind": "label", "bar": 16, "answer": "no", "exact": False, "gold_bar": None},         # labels are no start Claims
+    {"track": "R", "kind": "drop", "bar": 56, "answer": "skip", "exact": None, "gold_bar": None},
+]
+
+
+@pytest.mark.parametrize("kind,source,n,exact,within_2", [
+    ("drop", "rules", 3, 1.0, 1.0), ("drop", "fused", 3, 1 / 3, 2 / 3), ("drop", "edmformer", 2, 0.5, 0.5), ("drop", "dropdetector", 2, 0.5, 0.5),
+    ("buildup", "rules", 1, 0.0, 1.0), ("buildup", "fused", 1, 1.0, 1.0), ("buildup", "edmformer", 1, 0.0, 1.0),
+])
+def test_rejected_claims_show_how_many_each_source_still_makes_on_that_bar(kind, source, n, exact, within_2):
+    out = compare(REJECTED_CLAIMS, REJECTED_ANSWERS)["rejected"][kind][source]
+    assert (out["n"], out["exact"], out["within_2"]) == (n, pytest.approx(exact, abs=1e-3), pytest.approx(within_2, abs=1e-3))
+
+
+def test_there_is_no_rejected_table_without_rejections():
+    assert compare(REJECTED_CLAIMS, REJECTED_ANSWERS[4:])["rejected"] is None
+
+
+def test_the_table_lists_the_rejected_claims_and_the_structure_counts():
+    text = format_table(compare([*FUSED_CLAIMS, *REJECTED_CLAIMS], REJECTED_ANSWERS))
+    for part in ("rejected", "still make", "drops after a drop", "lifts"):
+        assert part in text, part

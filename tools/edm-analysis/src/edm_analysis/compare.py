@@ -8,12 +8,14 @@ if the reviewer errs at confidence.REVIEWER_ERROR.
 from itertools import zip_longest
 
 from .confidence import REVIEWER_ERROR, corrected_rate
+from .fusion import entry_drops
 from .transform import DROP_SCORE
 
 DROP_SOURCES = ("rules", "edmformer", "dropdetector")
 OFFSET_WINDOW = 4          # bars around a break end where a source's drop counts as its guess for it
 DETECTOR_WINDOW = 8        # bars around a sure detector drop where a source's drop counts as its guess for it (a phrase)
 TOLERANCES = {"exact": 0, "within_1": 1}
+REJECTED_TOLERANCES = {"exact": 0, "within_2": 2}   # the fusion starts a buildup 2 bars before the rules, so "on that bar" also reads within 2
 GOLD_SOURCES = (*DROP_SOURCES, "vdj")
 GOLD_KINDS = {"drop": ("rules", "fused", "edmformer", "dropdetector", "vdj"), "buildup": ("rules", "fused", "edmformer"),
               "breakdown": ("rules", "fused", "edmformer")}
@@ -79,20 +81,41 @@ def _sections(by, track, source):
 
 
 def _structure(by, covered):
-    """Per source: its drops, how many have a buildup section right before them, and the lengths of those buildups."""
+    """Per source: its drops, first beat entries, drops straight after a drop, drops with a buildup right before them and those buildups' lengths,
+    buildups and those no source supports (fused only), and lifts."""
     out = {}
     for source in ("rules", "fused"):
-        lengths, drops = {}, 0
+        lengths, drops, after_drop, buildups, unsupported, entries = {}, 0, 0, 0, 0, 0
         for t in covered.get(source, ()):
             secs = _sections(by, t, source)
+            entries += len(entry_drops([{"label": c.get("label"), "start_bar": c["bar"]} for c in secs]))
+            buildups += sum(c.get("label") == "buildup" for c in secs)
+            unsupported += sum(c.get("label") == "buildup" and c.get("sources") == "" for c in secs)
             for prev, cur in zip(secs, secs[1:]):
                 if cur.get("label") == "drop":
                     drops += 1
+                    after_drop += prev.get("label") == "drop"
                     if prev.get("label") == "buildup":
                         lengths[cur["bar"] - prev["bar"]] = lengths.get(cur["bar"] - prev["bar"], 0) + 1
         if drops:
-            out[source] = {"drops": drops, "with_buildup": sum(lengths.values()), "buildup_lengths": dict(sorted(lengths.items()))}
+            out[source] = {"drops": drops, "with_buildup": sum(lengths.values()), "buildup_lengths": dict(sorted(lengths.items())), "after_drop": after_drop,
+                           "buildups": buildups, "unsupported": unsupported, "entries": entries,
+                           "lifts": sum(len(by.get(t, {}).get((source, "lift"), [])) for t in covered.get(source, ()))}
     return out
+
+
+def _rejected(by, covered, answers):
+    """Per kind, per source: of the start Claims the reviewer rejected ("no", "Not in this clip", "No buildup"), the share the source still makes on that bar."""
+    out = {}
+    for kind, sources in GOLD_KINDS.items():
+        rejected = [(a["track"], a["bar"]) for a in answers if a.get("kind") == kind and a.get("answer") in ("no", "none") and a.get("exact") is False]
+        if rejected:
+            out[kind] = {}
+            for source in (s for s in sources if s != "vdj"):
+                mine = [(_bars(by, t, source, kind), bar) for t, bar in rejected if t in covered.get(source, ())]
+                out[kind][source] = {"n": len(mine), **{name: _share(sum(any(abs(bar - b) <= tol for b in bars) for bars, bar in mine), len(mine))
+                                                      for name, tol in REJECTED_TOLERANCES.items()}}
+    return out or None
 
 
 def _label_changes(by, covered):
@@ -129,7 +152,7 @@ def compare(claims, answers=()):
             "structure": _structure(by, covered), "label_changes": _label_changes(by, covered),
             "section_starts": {s: {"n": len(bars), "on_8": _share(sum(b % 8 == 0 for b in bars), len(bars))}
                                for s, bars in sections.items() if bars},
-            "gold": _gold(by, covered, answers)}
+            "gold": _gold(by, covered, answers), "rejected": _rejected(by, covered, answers)}
 
 
 def format_table(result):
@@ -155,6 +178,8 @@ def format_table(result):
     if result["structure"]:
         lines += ["", "drops with a buildup before them", f"  {'':<24}{'drops':>8}{'buildup':>9}{'share':>9}"]
         lines += [f"  {s_:<24}{v['drops']:>8}{v['with_buildup']:>9}{cell(_share(v['with_buildup'], v['drops'])):>9}" for s_, v in result["structure"].items()]
+        lines += ["", "drops after a drop, buildups, buildups no source supports, lifts, first beat entries", f"  {'':<24}{'after':>8}{'buildups':>9}{'no source':>10}{'lifts':>7}{'entries':>9}"]
+        lines += [f"  {s_:<24}{v['after_drop']:>8}{v['buildups']:>9}{v['unsupported']:>10}{v['lifts']:>7}{v['entries']:>9}" for s_, v in result["structure"].items()]
         lines += ["", "buildup length in bars: number of buildups"]
         lines += [f"  {s_:<24}" + "  ".join(f"{n}: {c}" for n, c in v["buildup_lengths"].items()) for s_, v in result["structure"].items()]
     changes = result["label_changes"]
@@ -166,6 +191,10 @@ def format_table(result):
                   f"  {'':<24}{'answers':>8}{'exact':>9}{'if':>7}{'+-1':>9}{'if':>7}"]
         lines += [f"  {s_:<24}{v['n']:>8}{cell(v['exact']):>9}{cell(v['exact_corrected']):>7}{cell(v['within_1']):>9}{cell(v['within_1_corrected']):>7}"
                   for s_, v in table.items() if v["n"]]
+    for kind, table in (result["rejected"] or {}).items():
+        lines += ["", f"rejected {kind} Claims (the reviewer said no, not in this clip, no buildup): the share each source still makes on that bar",
+                  f"  {'':<24}{'rejected':>9}{'exact':>9}{'+-2':>9}"]
+        lines += [f"  {s_:<24}{v['n']:>9}{cell(v['exact']):>9}{cell(v['within_2']):>9}" for s_, v in table.items() if v["n"]]
     return "\n".join(lines)
 
 

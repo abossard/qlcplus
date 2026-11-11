@@ -46,7 +46,7 @@ def test_the_final_file_is_the_fused_structure_with_its_sources(tmp_path):
 
     final = json.loads(write_final(tmp_path, DOC).read_text())
 
-    assert [(s["label"], s["start_bar"], s["sources"]) for s in final["sections"]] == [("intro", 0, ["rules"]), ("buildup", 6, []), ("drop", 10, ["dropdetector"])]
+    assert [(s["label"], s["start_bar"], s["sources"]) for s in final["sections"]] == [("intro", 0, ["rules"]), ("drop", 10, ["dropdetector"])]
     assert [(e["kind"], e["bar"], e["sources"]) for e in final["events"] if e["kind"] == "drop"] == [("drop", 10, ["dropdetector"])]
     assert final["analyzer"] == "2.5.1"
 

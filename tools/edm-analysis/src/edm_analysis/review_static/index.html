@@ -1012,10 +1012,10 @@ function renderProbe() {
   audio.pause(); audio.loop = false; excerptEnd = null; cur = null; strips.length = 0; quizWhat = quizLoading = false; quizShown = performance.now();
   if (!p) return renderDone();
   chosenBar = String(p.answer).startsWith("bar:") ? +p.answer.slice(4) : null;
-  const theory = quiz.theories.find(t => t.id === p.theory), taps = tapsOn(p), label = askedLabel(p);
+  const taps = tapsOn(p), label = askedLabel(p);
   const lines = taps ? barLines(p.plays.find(pl => barLines(pl).length) || p.plays[0]) : [];
   $("#main").innerHTML = `<div class="quiz" data-probe="${esc(p.id)}">
-    <div class="q-theory">${theory ? esc(theory.text) : ""}</div>
+    <div class="q-theory"></div>
     <div class="q-title">${esc(p.title)}</div>
     <p class="q-prompt">${esc(p.prompt)}</p>
     <p class="q-define">${DEFINITIONS[label] ? esc(DEFINITIONS[label]) : ""}</p>

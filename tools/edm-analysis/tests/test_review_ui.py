@@ -520,7 +520,7 @@ def test_a_round_is_answered_end_to_end_on_a_phone(browser_, round_library):
     page = open_page(browser_, "phone")
     open_round(page, base)
     assert page.locator("#heading").inner_text() == "Round 1 · 0/3"
-    assert page.locator(".q-theory").inner_text() == "Drops are found one bar late"
+    assert page.locator(".q-theory").inner_text() == ""    # the zone stays, empty: the Theory would tell which answer is expected
     for n, (probe_id, value) in enumerate(ANSWERS.items()):
         page.locator(f".quiz[data-probe='{probe_id}']").wait_for()
         if n == 0:
@@ -1166,12 +1166,22 @@ def test_section_bands_show_the_claim_confidence_when_the_analysis_has_it(browse
     assert page.evaluate(f"bandLabel({index})") == text
 
 
+MOVED_DROP = [("intro", 0, 8), ("drop", 8, 24), ("outro", 24, 32)]   # the levels only rise at bar 12: the fusion moves the drop there, onto no source's bar
+
+
 @pytest.mark.parametrize("size", list(VIEWPORTS))
-@pytest.mark.parametrize("label,said", [("drop", "rules"), ("buildup", "No source")])
-def test_the_section_box_says_which_sources_put_the_section_on_its_bar(browser_, library, size, label, said):
-    base, _, _ = library
+@pytest.mark.parametrize("raw,label,said", [(RULES, "drop", "On this bar in: rules"), (RULES, "buildup", "On this bar in: rules"),
+                                            (MOVED_DROP, "buildup", "On this bar in: rules"), (MOVED_DROP, "drop", "No source has it on this bar")])
+def test_the_section_box_says_which_sources_put_the_section_on_its_bar(browser_, library, size, raw, label, said):
+    base, root, ids = library
+    path = root / f"{ids[0]}.json"
+    doc = json.loads(path.read_text())
+    doc["sections"] = [{"label": n, "start_bar": a, "end_bar": b} for n, a, b in raw]
+    doc["events"] = [e for e in doc["events"] if e["kind"] != "drop"] + [{"kind": "drop", "bar": next(a for n, a, _ in raw if n == "drop")}]
+    path.write_text(json.dumps(doc))
     page = open_page(browser_, size)
     open_track(page, base, size)
+    assert page.evaluate("rating.sections.map(s => [s.label, s.start_bar, s.end_bar])") == [[n, a, b] for n, a, b in SECTIONS]
     tap_section(page, size, "overview", label)
     assert said in page.locator("#menu .title").inner_text()
     assert page.locator("#menu").bounding_box()["y"] + page.locator("#menu").bounding_box()["height"] <= page.viewport_size["height"] + 1
@@ -1554,3 +1564,35 @@ def test_a_buildup_question_and_a_16_bar_question_fit_at_360px(browser_, buildup
     assert page.evaluate("[...document.querySelectorAll('#qAnswers button')].every(b => b.scrollWidth <= b.clientWidth)")     # no text cut
     bars = page.evaluate("[...document.querySelectorAll('.q-barbtn')].map(b => { const r = b.getBoundingClientRect(), z = document.querySelector('.q-barzone').getBoundingClientRect(); return r.bottom <= z.bottom + 0.5 })")
     assert len(bars) == [15, 17][n - 1] and all(bars)
+
+
+# --- the Theory behind a question is never shown on the question screen -----------------------------------------------
+
+@pytest.fixture
+def theory_library(library, contract):
+    rnd = stable_round(library[2])
+    rnd["theories"] = [{"id": "zq-theory-id", "text": "ZQ theory text"}]
+    for p in rnd["probes"]:
+        p["theory"] = "zq-theory-id"
+    return put_round(library, rnd)
+
+
+@pytest.mark.parametrize("size", ["phone", "desktop"])
+@pytest.mark.parametrize("n", range(1, 10))
+def test_no_theory_text_or_id_is_in_the_question_view_in_any_state(browser_, theory_library, size, n):
+    base, _, _ = theory_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    html = lambda: page.evaluate("document.documentElement.outerHTML + document.body.innerText")
+    go(page, n)
+    states = [html()]
+    hit(page, ".q-play")
+    playing(page)
+    states.append(html())
+    if n == 4:
+        answer(page, "no")
+        page.locator(".q-what").wait_for()
+        states.append(html())
+    for state in states:
+        assert "ZQ theory text" not in state and "zq-theory-id" not in state
+    assert page.locator(".q-theory").inner_text() == "" and page.locator(".q-theory").is_visible()

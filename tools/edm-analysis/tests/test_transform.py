@@ -189,3 +189,12 @@ def test_a_buildup_located_where_we_had_none_is_a_buildup_answer():
     rows = {r["probe"]: r for r in answer_rows({"r04-p001": miss, "r04-p002": cue}, {TID: DOC})}
     assert (rows["r04-p001"]["kind"], rows["r04-p001"]["gold_bar"], rows["r04-p001"]["exact"]) == ("buildup", 8, False)
     assert (rows["r04-p002"]["kind"], rows["r04-p002"]["gold_bar"]) == ("missed", 12)   # a new part at a cue is no buildup
+
+
+def test_fused_claims_name_their_sources_and_lifts_are_claims_of_their_own():
+    doc = {**FUSED, "sections": [{**s, "sources": src} for s, src in zip(FUSED["sections"], ([], ["rules"], ["dropdetector", "edmformer"]))],
+           "events": [{"kind": "lift", "bar": 25, "time": 51.0, "sources": ["dropdetector"]}, {"kind": "vocal_in", "bar": 3, "time": 7.0}]}
+    rows = [r for r in claims_ours(TID, doc) if r["source"] == "fused"]
+    assert [(r["kind"], r["bar"], r["sources"]) for r in rows if r["kind"] != "section"] == [
+        ("buildup", 10, "rules"), ("drop", 18, "dropdetector+edmformer"), ("lift", 25, "dropdetector")]
+    assert [r["sources"] for r in claims_ours(TID, doc) if r["source"] == "rules"] == [None] * 6
