@@ -2,8 +2,8 @@ import copy
 
 import pytest
 
-from edm_analysis.transform import (answer_rows, bar_rows, claims_candidate, claims_ours, claims_silver, snap,
-                                    track_row)
+from edm_analysis.transform import (answer_rows, bar_rows, candidate_drop_bars, claims_candidate, claims_ours, claims_silver,
+                                    snap, track_row)
 
 TID = "abababababababab"
 N = 32
@@ -69,6 +69,35 @@ def test_answers_become_rows_with_their_judgement():
     rows = answer_rows(ANSWERS, {TID: DOC})
     assert [(r["probe"], r["kind"], r["bar"], r["exact"]) for r in rows] == [
         ("r01-p001", "buildup", 12, True), ("r01-p002", "drop", 16, False), ("r01-p003", "label", 16, None)]
+
+
+def test_answer_rows_carry_the_gold_bar():
+    located = {"answer": "bar:18", "round": 2, "track": TID, "claim": {"kind": "drop", "bar": 16, "time": 33.0, "confidence": 70},
+               "alternatives": {"ours": {"bar": 16}, "edmformer": {"bar": 18}}}
+    rows = answer_rows({**ANSWERS, "r02-p001": located}, {TID: DOC})
+    assert [(r["probe"], r["gold_bar"]) for r in rows] == [("r01-p001", 12), ("r01-p002", None), ("r01-p003", None), ("r02-p001", 18)]
+
+
+@pytest.mark.parametrize("name,loaded,bars", [
+    ("dropdetector", {"downbeats": [], "sections": [], "drops": [{"time": 33.1, "confidence": 0.97}, {"time": 50.0, "confidence": 0.1}]}, [16]),
+    ("dropdetector", {"downbeats": [], "sections": [], "drops": [{"time": 33.1, "confidence": 0.5}, {"time": 41.0, "confidence": 0.49}]}, [16]),
+    ("dropdetector", {"downbeats": [], "sections": [], "drops": [{"time": 41.0, "confidence": 0.9}, {"time": 33.1, "confidence": 0.9}, {"time": 33.9, "confidence": 0.9}]}, [16, 20]),
+    ("edmformer", {"downbeats": [], "sections": [{"start": 0.0, "label": "intro"}, {"start": 32.9, "label": "drop"}], "drops": [{"time": 32.9, "confidence": None}]}, [16]),
+    ("allin1", {"downbeats": [1.5], "sections": [{"start": 0.0, "label": "intro"}, {"start": 33.2, "label": "chorus"}], "drops": []}, []),
+])
+def test_candidate_drops_are_bars_on_our_grid_and_weak_ones_do_not_count(name, loaded, bars):
+    assert candidate_drop_bars(TID, DOC, name, loaded) == bars
+
+
+def test_the_round_asks_about_the_drops_of_every_candidate_that_has_output(tmp_path):
+    import json
+
+    from edm_analysis.cli import _candidate_drops
+
+    for name, raw in (("dropdetector", {"drops": [{"time": 33.1, "confidence": 0.97}]}), ("allin1", {"segments": [], "downbeats": []})):
+        (tmp_path / "candidates" / name).mkdir(parents=True)
+        (tmp_path / "candidates" / name / f"{TID}.json").write_text(json.dumps(raw))
+    assert _candidate_drops(tmp_path, {TID: DOC, "cdcdcdcdcdcdcdcd": DOC}) == {TID: {"dropdetector": [16], "allin1": []}}
 
 
 def test_bar_rows_line_up_levels_sources_and_gold():

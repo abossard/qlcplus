@@ -17,6 +17,7 @@ START_KINDS = ("drop", "buildup", "breakdown")
 LEVELS = ("kick", "hihat", "bass", "instruments", "vocal", "loud")
 DESCRIPTORS = ("centroid", "inst_centroid", "onset", "hihat_onset")
 MIK_MP3_OFFSET = 0.049   # same measured offset as evaluate.MIK_MP3_OFFSET
+DROP_SCORE = 0.5         # a Candidate's drop below this probability is not a drop
 
 
 def snap(doc, t):
@@ -59,6 +60,12 @@ def claims_candidate(tid, doc, name, loaded):
     return out
 
 
+def candidate_drop_bars(tid, doc, name, loaded):
+    """Sorted bars on our grid where a Candidate puts a drop it is sure enough of."""
+    return sorted({c["bar"] for c in claims_candidate(tid, doc, name, loaded)
+                   if c["kind"] == "drop" and (c["score"] is None or c["score"] >= DROP_SCORE)})
+
+
 def claims_silver(tid, doc, vdj, mik_offset=MIK_MP3_OFFSET):
     """VirtualDJ bar 1 and break markers, Mixed In Key energy cues."""
     from .vdj import grid_agreement
@@ -82,7 +89,7 @@ def claims_silver(tid, doc, vdj, mik_offset=MIK_MP3_OFFSET):
 
 def answer_rows(answers, docs):
     """One row per answered Probe; `exact` is True, False or None (couldn't tell)."""
-    from .confidence import _exact
+    from .confidence import _exact, gold_bar
 
     rows = []
     for pid, a in sorted(answers.items()):
@@ -90,7 +97,7 @@ def answer_rows(answers, docs):
         bar, offset = snap(doc, claim["time"]) if doc else (claim["bar"], None)
         rows.append({"probe": pid, "round": a["round"], "track": a["track"], "kind": claim["kind"],
                      "label": claim.get("label"), "time": claim["time"], "bar": bar, "offset_beats": offset,
-                     "answer": a["answer"], "exact": _exact(a), "confidence_asked": claim.get("confidence"),
+                     "answer": a["answer"], "exact": _exact(a), "gold_bar": gold_bar(a), "confidence_asked": claim.get("confidence"),
                      "answered_at": a.get("at")})
     return rows
 

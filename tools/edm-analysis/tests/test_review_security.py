@@ -1,6 +1,7 @@
 import http.client
 import json
 import stat
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -78,7 +79,7 @@ def post_answer(port, cookie, probe_id, body, **extra):
 
 
 @pytest.mark.parametrize("path", ["/api/tracks", "/api/summary", f"/api/track/{TID}", f"/api/ratings/{TID}",
-                                  f"/api/gold/{TID}", f"/api/reference/{TID}", f"/audio/{TID}", "/api/round"])
+                                  f"/api/gold/{TID}", f"/api/reference/{TID}", f"/audio/{TID}", "/api/round", "/api/report"])
 def test_everything_but_the_page_needs_the_pin(site, path):
     port, _, _ = site
     assert call(port, "GET", path)[0] == 401
@@ -277,3 +278,49 @@ def test_bad_answers_are_refused_and_change_nothing(round_site, probe_id, body, 
     port, root, _ = round_site
     assert post_answer(port, login(port), probe_id, body, **headers)[0] == status
     assert not (root / "rounds" / "answers.json").exists()
+
+
+@pytest.mark.parametrize("path", ["/clip/r01-p001/main", "/clip/r01-p002/a?cue=1"])
+def test_clips_need_the_pin_and_the_host_rule(round_site, path):
+    port, _, _ = round_site
+    assert call(port, "GET", path)[0] == 401
+    assert call(port, "GET", path, headers={"Cookie": "edm_review=guess"})[0] == 401
+    assert call(port, "GET", path, headers={"Cookie": login(port), "Host": "attacker.example"})[0] == 403
+
+
+@pytest.mark.parametrize("path,status", [
+    ("/clip/r1-p1/main", 404), ("/clip/r01-p001/", 404), ("/clip/r01-p001/..", 404), ("/clip/r01-p001/main/x", 404),
+    ("/clip/r01-p001/MAIN", 404), ("/clip/r01-p001/nope", 404), ("/clip/r09-p001/main", 404), ("/clip/..%2fanswers/main", 404),
+    ("/clip/r01-p001/main?cue=2", 400), ("/clip/r01-p001/main?cue=", 400),
+])
+def test_clip_ids_and_cue_are_checked_before_anything_is_rendered(round_site, path, status):
+    port, root, _ = round_site
+    assert call(port, "GET", path, headers={"Cookie": login(port)})[0] == status
+    assert not (root / ".clips").exists()
+
+
+@pytest.mark.parametrize("path", ["/api/round", "/api/report"])
+def test_round_and_report_leak_no_claim_bucket_source_or_file_path(round_site, path):
+    port, root, _ = round_site
+    cookie = login(port)
+    assert post_answer(port, cookie, "r01-p001", {"answer": "yes"})[0] == 200
+    status, _, body = call(port, "GET", path, headers={"Cookie": cookie})
+    assert status == 200
+    for hidden in (b'"confidence"', b'"bucket"', b'"source"', b'"claim"', b'"alternatives"', b'"path"', b'"sections"', b'"label_confidence"',
+                   str(root).encode(), b"song.mp3"):
+        assert hidden not in body, hidden
+
+
+def test_clip_files_are_named_without_confidence_or_source(round_site):
+    port, root, _ = round_site
+    mp3 = root / "real.mp3"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:duration=40", "-ac", "2", str(mp3)], check=True)
+    doc = json.loads((root / f"{TID}.json").read_text())
+    (root / f"{TID}.json").write_text(json.dumps({**doc, "track": {**doc["track"], "path": str(mp3)}, "beats": [0.5 * i for i in range(80)],
+                                                  "bars": {"start": [2.0 * k for k in range(20)]}}))
+    cookie = login(port)
+    for path in ("/clip/r01-p001/main", "/clip/r01-p002/b"):
+        status, headers, _ = call(port, "GET", path, headers={"Cookie": cookie})
+        assert status == 200 and "41" not in "".join(headers.values()) and "vdj" not in "".join(headers.values())
+    names = " ".join(p.name for p in (root / ".clips").iterdir())
+    assert "vdj" not in names and "ours" not in names and "41" not in names.replace("r01-p00", "")

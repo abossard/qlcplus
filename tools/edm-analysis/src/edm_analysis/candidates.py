@@ -60,6 +60,13 @@ def raw_dir(out_dir, name):
     return path
 
 
+def _call(cmd, name, log, **kwargs):
+    """Run a Candidate's subprocess; a failure is logged with its exit code (negative: killed by that signal)."""
+    code = subprocess.run(cmd, check=False, **kwargs).returncode
+    if code:
+        log(f"{name}: exit code {code}")
+
+
 def run(out_dir, name, log=print, only_asked=False, pause=0.0):
     """pause: seconds of rest per track, so the Mac stays usable while a Candidate runs."""
     folder, raw = links(out_dir), raw_dir(out_dir, name)
@@ -79,7 +86,7 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0):
     if name == "allin1":
         exe = CANDIDATES_HOME / "allin1" / ".venv" / "bin" / "allin1-mlx"
         for i in range(0, len(todo), BATCH):
-            subprocess.run([str(exe), "--no-multiprocess", "-o", str(raw), *map(str, todo[i:i + BATCH])], check=False)
+            _call([str(exe), "--no-multiprocess", "-o", str(raw), *map(str, todo[i:i + BATCH])], name, log)
             name_by_track(out_dir, raw)
             time.sleep(pause * len(todo[i:i + BATCH]))
             log(f"{name}: {min(i + BATCH, len(todo))}/{len(todo)}")
@@ -87,8 +94,7 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0):
         home = CANDIDATES_HOME / "edmformer"
         env = {**os.environ, "MUSICFMPATH": str(home / "src" / "third_party" / "musicfm"), "EDM_PAUSE": str(pause)}
         script = Path(__file__).parent / "candidate_scripts" / "edmformer_batch.py"
-        subprocess.run([str(home / ".venv" / "bin" / "python"), str(script), str(raw), *map(str, todo)],
-                       cwd=home / "src", env=env, check=False)
+        _call([str(home / ".venv" / "bin" / "python"), str(script), str(raw), *map(str, todo)], name, log, cwd=home / "src", env=env)
     elif name == "dropdetector":
         home = CANDIDATES_HOME / "drop-detector"
         chunk_dir = CANDIDATES_HOME / "dropdetector-chunk"
@@ -99,8 +105,8 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0):
                 (chunk_dir / p.name).symlink_to(p.resolve())
             (raw / "chunk.csv").unlink(missing_ok=True)
             # threshold 0 keeps every candidate with its probability; never pass --tag (it writes into the MP3s)
-            subprocess.run([str(home / ".venv" / "bin" / "python"), "model_predict.py", "-f", str(chunk_dir), "-T", "0.0",
-                            "-c", str(raw / "chunk.csv")], cwd=home / "src", check=False, stdout=subprocess.DEVNULL)
+            _call([str(home / ".venv" / "bin" / "python"), "model_predict.py", "-f", str(chunk_dir), "-T", "0.0",
+                   "-c", str(raw / "chunk.csv")], name, log, cwd=home / "src", stdout=subprocess.DEVNULL)
             rows = {}
             if not (raw / "chunk.csv").exists():  # the run failed: leave these tracks to do
                 log(f"{name}: batch at {i} failed")
@@ -115,6 +121,9 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0):
             time.sleep(pause * len(todo[i:i + BATCH]))
     else:
         sys.exit(f"unknown candidate {name}")
+    left = [p for p in todo if not (raw / f"{p.stem}.json").exists()]
+    if left:
+        log(f"{name}: stopped early, {len(left)} of {len(todo)} tracks still to do")
 
 
 def load(out_dir, name, tid):

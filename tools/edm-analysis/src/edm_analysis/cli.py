@@ -158,6 +158,20 @@ def _round_inputs(out_dir):
     return docs, vdj, load_answers(out_dir), all_rounds(out_dir)
 
 
+def _candidate_drops(out_dir, docs):
+    """{track id: {Candidate: drop bars on our grid}} for the tracks a Candidate has output for."""
+    from .candidates import NAMES, load
+    from .transform import candidate_drop_bars
+
+    out = {}
+    for tid, doc in docs.items():
+        loaded = {name: load(out_dir, name, tid) for name in NAMES}
+        drops = {name: candidate_drop_bars(tid, doc, name, l) for name, l in loaded.items() if l is not None}
+        if drops:
+            out[tid] = drops
+    return out
+
+
 def cmd_round(args):
     """Make the next review round, or report how the rounds went."""
     from .rounds import make_round, report, save_round
@@ -169,7 +183,7 @@ def cmd_round(args):
         if open_probes and not args.force:
             print(f"round {rounds[-1]['round']} still has {len(open_probes)} unanswered questions (use --force)")
             return 1
-        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size)
+        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size, candidate_drops=_candidate_drops(out_dir, docs))
         save_round(out_dir, rnd)
         counts = {}
         for p in rnd["probes"]:

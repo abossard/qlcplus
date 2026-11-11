@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from edm_analysis.confidence import FEATURES, MIN_GOLD, MODEL_FILE, UNKNOWN, fit, gold_rows, predict, with_confidence
+from edm_analysis.confidence import FEATURES, MIN_GOLD, MODEL_FILE, UNKNOWN, fit, gold_bar, gold_rows, predict, with_confidence
 from edm_analysis.final import write_final
 
 N = 32
@@ -70,6 +70,9 @@ def test_the_final_file_carries_the_confidence(tmp_path):
     assert final["grid"]["confidence"] == UNKNOWN
 
 
+LOCATE = {"ours": {"bar": 16}, "edmformer": {"bar": 18}}
+
+
 @pytest.mark.parametrize("record,group,exact", [
     ({"answer": "yes", "claim": {"kind": "drop", "bar": 16, "time": 32.0}}, "start", True),
     ({"answer": "later", "claim": {"kind": "drop", "bar": 16, "time": 32.0}}, "start", False),
@@ -79,6 +82,11 @@ def test_the_final_file_carries_the_confidence(tmp_path):
       "alternatives": {"a": {"source": "ours"}, "b": {"source": "vdj"}}}, "start", False),
     ({"answer": "a", "claim": {"kind": "drop", "bar": 16, "time": 32.0},
       "alternatives": {"a": {"source": "ours"}, "b": {"source": "vdj"}}}, "start", True),
+    ({"answer": "bar:18", "claim": {"kind": "drop", "bar": 16, "time": 32.0}}, "start", False),
+    ({"answer": "is:groove", "claim": {"kind": "label", "label": "drop", "bar": 16, "end_bar": 32, "time": 32.0}}, "label", False),
+    ({"answer": "bar:16", "claim": {"kind": "drop", "bar": 16, "time": 32.0}, "alternatives": LOCATE}, "start", True),
+    ({"answer": "bar:18", "claim": {"kind": "drop", "bar": 16, "time": 32.0}, "alternatives": LOCATE}, "start", False),
+    ({"answer": "none", "claim": {"kind": "drop", "bar": 16, "time": 32.0}, "alternatives": LOCATE}, "start", False),
 ])
 def test_gold_rows_from_answers(record, group, exact):
     out = gold_rows({"r01-p001": {**record, "track": "abababababababab"}}, {"abababababababab": DOC})
@@ -89,3 +97,34 @@ def test_gold_rows_from_answers(record, group, exact):
 def test_answers_without_a_judgement_or_track_are_left_out(record):
     record = {**record, "claim": {"kind": "drop", "bar": 16, "time": 32.0}}
     assert gold_rows({"r01-p001": record}, {"abababababababab": DOC}) == []
+
+
+DROP = {"kind": "drop", "bar": 16, "time": 32.0}
+AB = {"a": {"source": "ours", "bar": 16}, "b": {"source": "vdj", "bar": 18}}
+
+
+@pytest.mark.parametrize("answer,claim,alternatives,bar", [
+    ("yes", DROP, None, 16),
+    ("yes", {**DROP, "kind": "buildup", "bar": 12}, None, 12),
+    ("yes", {**DROP, "kind": "missed", "bar": 20}, None, 20),
+    ("yes", {**DROP, "bar": 20, "followup_of": "r01-p001"}, None, 20),
+    ("bar:18", DROP, None, 18),
+    ("bar:0", DROP, None, 0),
+    ("bar:9", DROP, LOCATE, 9),
+    ("a", DROP, AB, 16),
+    ("b", DROP, AB, 18),
+    ("neither", DROP, AB, None),
+    ("b", {"kind": "grid", "bar": 0, "time": 32.0}, {"a": {"source": "ours", "shift_beats": 0}, "b": {"source": "vdj", "shift_beats": 2}}, None),
+    ("none", DROP, LOCATE, None),
+    ("skip", DROP, LOCATE, None),
+    ("skip", DROP, None, None),
+    ("no", DROP, None, None),
+    ("earlier", DROP, None, None),
+    ("later", DROP, None, None),
+    ("yes", {"kind": "grid", "bar": 0, "time": 32.0}, None, None),
+    ("yes", {"kind": "label", "label": "drop", "bar": 16, "end_bar": 32, "time": 32.0}, None, None),
+    ("is:groove", {"kind": "label", "label": "drop", "bar": 16, "end_bar": 32, "time": 32.0}, None, None),
+])
+def test_the_gold_bar_is_known_only_where_the_reviewer_named_or_confirmed_one(answer, claim, alternatives, bar):
+    record = {"answer": answer, "claim": claim, **({"alternatives": alternatives} if alternatives else {})}
+    assert gold_bar(record) == bar

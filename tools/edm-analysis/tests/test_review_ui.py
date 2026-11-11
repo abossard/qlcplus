@@ -1,6 +1,7 @@
 """The review page in real browsers at phone, tablet and desktop size (Playwright: Chromium, and WebKit for iOS Safari)."""
 
 import json
+import re
 import shutil
 import subprocess
 import threading
@@ -8,7 +9,8 @@ import time
 
 import pytest
 
-from edm_analysis.review import Auth, ReviewServer, make_handler
+from edm_analysis import rounds
+from edm_analysis.review import Auth, Clips, ReviewServer, make_handler
 from edm_analysis.rounds import record_answer
 
 PIN = "135790"
@@ -35,7 +37,7 @@ def track_doc(tid, title, mp3, intro=0.0):
         "beats": [intro + PERIOD * i for i in range(BARS * 4)],
         "bars": {"start": bars, "levels": {n: level for n in ("loud", "kick", "hihat", "bass", "instruments", "vocal")}},
         "peaks": {"rate": 20, "values": [round(0.3 + 0.6 * ((i // 10) % 2), 2) for i in range(int((intro + DURATION) * 20))]},
-        "sections": [{"label": label, "start_bar": a, "end_bar": b} for label, a, b in SECTIONS],
+        "sections": [{"label": label, "start_bar": a, "end_bar": b, **({"confidence": 72} if label == "buildup" else {})} for label, a, b in SECTIONS],
         "events": [{"kind": "buildup", "bar": 8}, {"kind": "drop", "bar": 12}, {"kind": "vocal_in", "bar": 4}, {"kind": "vocal_out", "bar": 20}],
     }
 
@@ -67,11 +69,16 @@ def library(request, tmp_path, mp3):
     httpd.shutdown()
 
 
-def make_round(ids):
-    claim = {"kind": "drop", "bar": 12, "time": 24.0, "confidence": 40}
-    probe = lambda n, tid, question, prompt, plays: {"id": f"r01-p00{n}", "track": tid, "title": f"Song {n}", "theory": "t1",
-                                                      "bucket": "unsure", "question": question, "prompt": prompt, "claim": claim, "plays": plays}
-    return {"round": 1, "created": "2026-11-05T10:00:00", "theories": [{"id": "t1", "text": "Drops are found one bar late"}], "probes": [
+CLAIM = {"kind": "drop", "bar": 12, "time": 24.0, "confidence": 40}
+
+
+def probe(n, tid, question, prompt, plays, **extra):
+    return {"id": f"r01-p{n:03d}", "track": tid, "title": f"Song {n}", "theory": "t1", "bucket": "unsure", "question": question,
+            "prompt": prompt, "claim": CLAIM, "plays": plays, **extra}
+
+
+def make_round(ids, probes=None):
+    return {"round": 1, "created": "2026-11-05T10:00:00", "theories": [{"id": "t1", "text": "Drops are found one bar late"}], "probes": probes or [
         probe(1, ids[0], "yesno", "Does the drop start at the marker?", [{"id": "main", "start": 20.0, "end": 28.0, "mark": 24.0}]),
         probe(2, ids[1], "ab", "Which one starts on the drop?", [{"id": "a", "start": 4.0, "end": 12.0, "mark": 8.0},
                                                                   {"id": "b", "start": 20.0, "end": 28.0, "mark": 24.0, "click_shift": 1}]),
@@ -79,12 +86,69 @@ def make_round(ids):
     ]}
 
 
+def new_round(ids, labels_probe=True):
+    """One of each kind of the next contract: tap, locate, label with and without its own labels, A/B."""
+    main = lambda a, b, mark: [{"id": "main", "start": float(a), "end": float(b), "mark": mark}]
+    probes = [
+        probe(1, ids[0], "yesno", "Does the drop start at the marker?", main(20, 28, 24.0)),
+        probe(2, ids[1], "locate", "Where does the new part start?", main(28, 36, None)),
+        probe(3, ids[0], "label", "Is this part a drop?", main(40, 48, 44.0)),
+        probe(4, ids[1], "yesno", "Does the buildup start at the marker?", main(8, 16, 12.0), tap=False),
+        probe(5, ids[0], "ab", "Which one has the accent on bar 1?", [{"id": "a", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 0},
+                                                                    {"id": "b", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 1}]),
+        probe(6, ids[1], "label", "Is this part a drop?", main(44, 52, 48.0), labels=["drop", "groove", "outro"]),
+    ]
+    return make_round(ids, probes)
+
+
+def many_round(ids, n=12):
+    return make_round(ids, [probe(i, ids[i % 2], "yesno", "Does the drop start at the marker?", [{"id": "main", "start": 20.0, "end": 28.0, "mark": 24.0}])
+                            for i in range(1, n + 1)])
+
+
+def put_round(library, rnd):
+    base, root, ids = library
+    (root / "rounds").mkdir(exist_ok=True)
+    (root / "rounds" / "round-01.json").write_text(json.dumps(rnd))
+    return base, root, ids
+
+
 @pytest.fixture
 def round_library(library):
-    base, root, ids = library
-    (root / "rounds").mkdir()
-    (root / "rounds" / "round-01.json").write_text(json.dumps(make_round(ids)))
-    return base, root, ids
+    return put_round(library, make_round(library[2]))
+
+
+@pytest.fixture
+def contract(monkeypatch):
+    """A probe's own tap and labels fields reach the page, as a round may set them (public_round derives them from the question type)."""
+    public = rounds.public_round
+
+    def public_round(rnd, answers):
+        out = public(rnd, answers)
+        for shown, raw in zip(out["probes"], rnd["probes"]):
+            shown.update({k: raw[k] for k in ("tap", "labels") if k in raw})
+        return out
+    monkeypatch.setattr(rounds, "public_round", public_round)
+
+
+@pytest.fixture
+def stored_shape(monkeypatch):
+    """The round as the stored round 1 shows it: no tap, no labels, and the old yes/no buttons."""
+    public = rounds.public_round
+
+    def public_round(rnd, answers):
+        out = public(rnd, answers)
+        for shown in out["probes"]:
+            shown.pop("tap", None), shown.pop("labels", None)
+            if shown["question"] == "yesno":
+                shown["options"] = [{"value": v, "label": v.title()} for v in ("yes", "no", "earlier", "later", "skip")]
+        return out
+    monkeypatch.setattr(rounds, "public_round", public_round)
+
+
+@pytest.fixture
+def new_library(library, contract):
+    return put_round(library, new_round(library[2]))
 
 
 @pytest.fixture(params=BROWSERS)
@@ -99,6 +163,7 @@ def open_page(browser, size):
     if browser.browser_type.name == "firefox":
         options.pop("is_mobile", None)
     context = browser.new_context(**options)
+    context.set_default_timeout(8000)
     return context.new_page()
 
 
@@ -401,7 +466,7 @@ def test_next_opens_the_next_unrated_track(browser_, library):
     assert page.locator("#heading").inner_text() == "Beta - Other"
 
 
-ANSWERS = {"r01-p001": "earlier", "r01-p002": "b", "r01-p003": "no"}
+ANSWERS = {"r01-p001": "no", "r01-p002": "b", "r01-p003": "skip"}
 
 
 def answers(root):
@@ -416,10 +481,37 @@ def open_round(page, base):
     page.locator(".quiz").wait_for()
 
 
-def answer(page, value):
-    """Taps an answer once the screen has been up long enough not to count as a double tap."""
+def settle(page):
+    """Waits until the screen has been up long enough for a tap not to count as a double tap."""
     page.wait_for_function("() => performance.now() - quizShown > 400")
-    page.locator(f".q-answers button[data-v='{value}']").tap()
+
+
+def hit(page, selector, wait=True):
+    if wait:
+        settle(page)
+    loc = page.locator(selector).first
+    loc.tap() if page.evaluate("matchMedia('(pointer: coarse)').matches") else loc.click()
+
+
+def answer(page, value):
+    hit(page, f".q-answers button[data-v='{value}']")
+
+
+def answer_and_wait(page, value):
+    """Answers, then waits for the screen to change."""
+    shown = page.evaluate("document.querySelector('.quiz').dataset.probe || 'x'")
+    answer(page, value)
+    page.wait_for_function("(b) => (document.querySelector('.quiz') && document.querySelector('.quiz').dataset.probe || 'x') !== b", arg=shown)
+
+
+def go(page, n):
+    """Shows question n (1 based) without answering the ones before it."""
+    page.evaluate(f"goProbe({n - 1})")
+    page.locator(f".quiz[data-probe='r01-p{n:03d}']").wait_for()
+
+
+def playing(page):
+    page.wait_for_function("() => !audio.paused && audio.currentTime > 0")
 
 
 def test_a_round_is_answered_end_to_end_on_a_phone(browser_, round_library):
@@ -430,17 +522,16 @@ def test_a_round_is_answered_end_to_end_on_a_phone(browser_, round_library):
     assert page.locator(".q-theory").inner_text() == "Drops are found one bar late"
     for n, (probe_id, value) in enumerate(ANSWERS.items()):
         page.locator(f".quiz[data-probe='{probe_id}']").wait_for()
-        assert page.evaluate("audio.paused")
-        page.locator(".q-play").first.tap()
-        page.wait_for_function("() => !audio.paused && audio.currentTime >= excerptStart")
-        page.locator(".q-play", has_text="again").first.wait_for()
+        if n == 0:
+            hit(page, ".q-play")    # later questions start by themselves after the answer
+        playing(page)
         answer(page, value)
         assert wait_for(lambda: answers(root).get(probe_id) == value)
     page.locator(".q-done").wait_for()
     assert page.locator("#heading").inner_text() == "Round 1 · 3/3"
 
     page.locator("#qReview").tap()
-    page.locator(".quiz[data-probe='r01-p001'] .q-answers button.on[data-v='earlier']").wait_for()
+    page.locator(".quiz[data-probe='r01-p001'] .q-answers button.on[data-v='no']").wait_for()
     answer(page, "yes")
     assert wait_for(lambda: answers(root)["r01-p001"] == "yes")
     page.locator(".quiz[data-probe='r01-p002'] .q-answers button.on[data-v='b']").wait_for()
@@ -463,7 +554,7 @@ def test_skipped_questions_come_back_before_the_round_is_done(browser_, round_li
     assert answers(root) == {"r01-p002": "a", "r01-p003": "yes"}
 
 
-def test_ab_plays_each_excerpt_with_its_own_audio(browser_, round_library):
+def test_ab_plays_each_play_as_its_own_clip_and_chains_a_into_b_only_by_itself(browser_, round_library):
     base, _, ids = round_library
     page = open_page(browser_, "phone")
     open_round(page, base)
@@ -471,14 +562,14 @@ def test_ab_plays_each_excerpt_with_its_own_audio(browser_, round_library):
     page.locator(".quiz[data-probe='r01-p002']").wait_for()
     assert page.locator(".q-play").all_inner_texts() == ["▶ Play A", "▶ Play B"]
     page.locator(".q-play").nth(0).tap()
-    page.wait_for_function("() => !audio.paused && excerptStart === 4 && audio.currentTime >= 4 && audio.currentTime <= 12")
-    assert page.evaluate("audio.src").endswith(f"/audio/{ids[1]}")
+    page.wait_for_function("() => !audio.paused && audio.currentTime > 0 && audio.currentTime < 8")
+    assert page.evaluate("audio.src").endswith("/clip/r01-p002/a?cue=1")
     page.locator(".q-play").nth(1).tap()
-    assert page.locator(".q-play").nth(1).inner_text() == "Loading B…"  # the click mix is rendered on first use
-    page.wait_for_function("() => !audio.paused && excerptStart === 20 && audio.currentTime >= 20 && audio.currentTime <= 28", timeout=30000)
-    assert page.evaluate("audio.src").endswith(f"/audio/{ids[1]}?click=1&shift=1")
-    page.locator(".q-play", has_text="Play B again").wait_for()
-    assert page.locator(".q-play").all_inner_texts() == ["↻ Play A again", "↻ Play B again"]
+    page.wait_for_function("() => !audio.paused && audio.src.endsWith('/clip/r01-p002/b')")
+    page.wait_for_function("() => isFinite(audio.duration) && audio.currentTime > 0")
+    page.evaluate("audio.currentTime = audio.duration - 0.3")   # a tapped play does not go on to the next one
+    page.wait_for_function("() => audio.ended")
+    assert page.evaluate("audio.src").endswith("/clip/r01-p002/b")
 
 
 @pytest.mark.parametrize("answered,opens", [([], ".quiz"), (list(ANSWERS), "#list .row")])
@@ -520,3 +611,659 @@ def test_question_screens_fit_and_answers_sit_in_the_thumb_zone(browser_, round_
         assert page.evaluate(SMALL_TARGETS, 44) == [], screen
         bar = page.evaluate(ANSWER_BAR)
         assert bar["small"] == 0 and bar["height"] - 200 <= bar["top"] and bar["bottom"] <= bar["height"], (screen, bar)
+
+
+NEW = ["yesno", "locate", "label", "yesno without taps", "ab", "label with its own labels"]
+
+
+def new_screens(page, base):
+    """Each kind of question, and the label question after No."""
+    open_round(page, base)
+    for n, name in enumerate(NEW, 1):
+        go(page, n)
+        yield name
+        if name.startswith("label"):
+            settle(page)
+            page.locator(".q-answers button[data-v='no']").click(force=True)
+            page.locator(".q-what").wait_for()
+            yield name + " after No"
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_every_kind_of_question_fits_with_its_answers_in_reach(browser_, new_library, size):
+    base, _, _ = new_library
+    page = open_page(browser_, size)
+    for screen in new_screens(page, base):
+        overflow = page.evaluate(OVERFLOW)
+        assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"], (screen, overflow)
+        if size in TOUCH:
+            assert page.evaluate(SMALL_TARGETS, 44) == [], screen
+            bar = page.evaluate(ANSWER_BAR)
+            assert bar["small"] == 0 and bar["height"] - 220 <= bar["top"] and bar["bottom"] <= bar["height"], (screen, bar)
+            assert page.evaluate("document.documentElement.scrollHeight <= innerHeight"), screen   # nothing to scroll to reach an answer
+
+
+def pixel_at(page, canvas, t, y):
+    """RGB of the strip at track time t; y is "mid" or "bottom"."""
+    return page.evaluate("""([sel, t, y]) => { const c = document.querySelector(sel), p = quiz.probes[quizIndex].plays[+c.dataset.k];
+        const x = Math.min(c.width - 1, Math.round((t - p.start) / (p.end - p.start) * c.width));
+        return [...c.getContext('2d').getImageData(x, y === 'mid' ? c.height >> 1 : c.height - 2, 1, 1).data].slice(0, 3); }""", [canvas, t, y])
+
+
+def colour(page, name):
+    return page.evaluate(f"[1, 3, 5].map(i => parseInt(css('{name}').slice(i, i + 2), 16))")
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_each_play_has_a_waveform_with_bar_lines_and_a_marker_only_where_there_is_one(browser_, new_library, size):
+    base, _, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    assert page.locator(".q-wave").count() == 1
+    assert pixel_at(page, ".q-wave", 24.0, "mid") == colour(page, "--mark")                       # the marker, full height
+    plain = pixel_at(page, ".q-wave", 21.25, "bottom")
+    assert pixel_at(page, ".q-wave", 22.0, "bottom") != plain and pixel_at(page, ".q-wave", 21.0, "bottom") != plain   # a bar line and a beat tick
+    box = page.locator(".q-wave").bounding_box()
+    assert box["width"] > 200 and box["height"] >= 56
+    go(page, 2)    # locate: nothing to mark
+    mark = colour(page, "--mark")
+    row = page.evaluate("""() => { const c = document.querySelector('.q-wave'), d = c.getContext('2d').getImageData(0, c.height >> 1, c.width, 1).data, out = [];
+        for (let i = 0; i < d.length; i += 4) out.push([d[i], d[i + 1], d[i + 2]]); return out; }""")
+    assert mark not in row
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_the_strip_tints_what_was_played_and_the_playhead_moves(browser_, new_library, size):
+    base, _, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    hit(page, ".q-play")
+    playing(page)
+    page.evaluate("audio.pause(); audio.currentTime = 4.0")
+    page.wait_for_function("() => audio.currentTime === 4.0")
+    page.wait_for_timeout(150)
+    assert pixel_at(page, ".q-wave", 24.0, "mid") == colour(page, "--playhead")
+    assert pixel_at(page, ".q-wave", 21.25, "bottom") != pixel_at(page, ".q-wave", 27.25, "bottom")   # played part is tinted
+    page.evaluate("audio.currentTime = 6.0")
+    page.wait_for_timeout(150)
+    assert pixel_at(page, ".q-wave", 26.0, "mid") == colour(page, "--playhead")
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_tapping_the_strip_seeks_inside_the_clip(browser_, new_library, size):
+    base, _, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    hit(page, ".q-play")
+    playing(page)
+    src = page.evaluate("audio.src")
+    box = page.locator(".q-wave").bounding_box()
+    tap(page, size, box["x"] + box["width"] * 0.75, box["y"] + box["height"] / 2)
+    page.wait_for_function("() => audio.currentTime > 5.5 && audio.currentTime < 7.5")
+    assert page.evaluate("audio.src") == src
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_bar_buttons_answer_with_the_bar_index(browser_, new_library, size):
+    base, root, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    assert page.locator(".q-barbtn").all_inner_texts() == ["1", "2", "3", "4", "5"]
+    assert page.locator(".q-barbtn").first.get_attribute("data-v") == "bar:10"   # bar 10 starts at 20 s
+    hit(page, ".q-barbtn >> nth=2")
+    assert wait_for(lambda: answers(root) == {"r01-p001": "bar:12"})
+
+
+def test_a_round_in_the_stored_shape_still_shows_bar_buttons_and_the_old_answers(browser_, round_library, stored_shape):
+    base, root, _ = round_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    assert page.locator(".q-barbtn").count() == 5
+    assert page.locator(".q-answers button").evaluate_all("els => els.map(e => e.dataset.v)") == ["yes", "no", "earlier", "later", "skip"]
+    answer(page, "earlier")
+    page.locator(".quiz[data-probe='r01-p002']").wait_for()
+    assert page.locator(".q-barbtn").count() == 0                       # an A/B pair takes no bar taps
+    go(page, 3)
+    assert "breakdown" in page.locator(".q-define").inner_text().lower()   # the label comes from the prompt, the choices from the defaults
+    answer(page, "no")
+    assert page.locator(".q-what button[data-v^='is:']").evaluate_all("els => els.map(e => e.dataset.v)") == \
+        [f"is:{l}" for l in ("intro", "buildup", "drop", "groove", "outro")]
+    assert answers(root) == {"r01-p001": "earlier"}
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_a_locate_question_is_answered_on_the_bars(browser_, new_library, size):
+    base, root, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    go(page, 2)
+    assert page.locator(".q-answers button").evaluate_all("els => els.map(e => e.dataset.v)") == ["none", "skip"]
+    assert page.locator(".q-barbtn").count() == 5
+    hit(page, ".q-barbtn >> nth=1")
+    assert wait_for(lambda: answers(root) == {"r01-p002": "bar:15"})
+
+
+def test_a_question_that_takes_no_bar_taps_has_no_bar_buttons(browser_, new_library):
+    base, _, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    for n in (4, 5, 3):
+        go(page, n)
+        assert page.locator(".q-barbtn").count() == 0
+
+
+LABELS = ["intro", "buildup", "drop", "breakdown", "groove", "outro"]
+
+
+@pytest.mark.parametrize("label", LABELS)
+def test_a_label_question_says_in_one_line_what_the_label_means(browser_, library, contract, label):
+    base, _, ids = library
+    article = "an" if label[0] in "aeiou" else "a"
+    put_round(library, make_round(ids, [probe(1, ids[0], "label", f"Is this part {article} {label}?", [{"id": "main", "start": 40.0, "end": 48.0, "mark": 44.0}])]))
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    text = page.locator(".q-define").inner_text()
+    assert text.lower().startswith(label) and 30 < len(text) < 150
+    assert page.locator(".q-define").evaluate("el => el.getClientRects().length > 0 && el.getBoundingClientRect().height < 70")
+
+
+def test_the_six_definitions_are_different(browser_, library, contract):
+    base, _, ids = library
+    put_round(library, make_round(ids, [probe(i, ids[0], "label", f"Is this part a {l}?", [{"id": "main", "start": 40.0, "end": 48.0, "mark": 44.0}]) for i, l in enumerate(LABELS, 1)]))
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    texts = []
+    for n in range(1, 7):
+        go(page, n)
+        texts.append(page.locator(".q-define").inner_text())
+    assert len(set(texts)) == 6
+
+
+@pytest.mark.parametrize("n,others,pick,expected", [
+    (3, ["intro", "buildup", "breakdown", "groove", "outro"], "is:groove", "is:groove"),
+    (3, ["intro", "buildup", "breakdown", "groove", "outro"], "no", "no"),
+    (6, ["groove", "outro"], "is:outro", "is:outro"),
+])
+def test_no_on_a_label_question_asks_what_it_is(browser_, new_library, n, others, pick, expected):
+    base, root, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    go(page, n)
+    answer(page, "no")
+    page.locator(".q-what").wait_for()
+    assert answers(root) == {}     # nothing is stored until the reviewer says what it is, or just no
+    assert page.locator(".q-what button[data-v^='is:']").evaluate_all("els => els.map(e => e.dataset.v)") == [f"is:{o}" for o in others]
+    assert page.locator(".q-what button[data-v='no']").inner_text().startswith("Just no")
+    hit(page, f".q-what button[data-v='{pick}']")
+    assert wait_for(lambda: answers(root) == {f"r01-p{n:03d}": expected})
+
+
+@pytest.mark.parametrize("stored", ["no", "is:groove"])
+def test_a_label_question_answered_no_shows_no_when_it_comes_back(browser_, new_library, stored):
+    base, root, _ = new_library
+    record_answer(root, "r01-p003", stored)
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    go(page, 3)
+    assert page.locator(".q-answers button.on").get_attribute("data-v") == "no"
+
+
+def test_autoplay_starts_the_next_question_after_an_answer_and_can_be_turned_off(browser_, new_library):
+    base, root, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    assert page.evaluate("audio.paused")                       # no tap yet: nothing may start by itself
+    assert page.locator("#optAutoplay").get_attribute("aria-pressed") == "true"
+    answer(page, "yes")
+    page.locator(".quiz[data-probe='r01-p002']").wait_for()
+    playing(page)
+    assert page.evaluate("audio.src").endswith("/clip/r01-p002/main")
+    hit(page, "#optAutoplay")
+    assert page.locator("#optAutoplay").get_attribute("aria-pressed") == "false"
+    answer(page, "skip")
+    page.locator(".quiz[data-probe='r01-p003']").wait_for()
+    page.wait_for_timeout(900)
+    assert page.evaluate("audio.paused")
+    page.reload()
+    page.locator(".quiz").wait_for()
+    assert page.locator("#optAutoplay").get_attribute("aria-pressed") == "false"
+
+
+def test_the_page_works_when_the_browser_refuses_local_storage(browser_, new_library):
+    base, root, _ = new_library
+    page = open_page(browser_, "phone")
+    page.add_init_script("Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked') } })")
+    open_round(page, base)
+    hit(page, "#optLoop")
+    hit(page, "#optAutoplay")
+    answer(page, "yes")
+    assert wait_for(lambda: answers(root) == {"r01-p001": "yes"})
+
+
+def test_a_pair_plays_a_then_b_by_itself_after_an_answer(browser_, new_library):
+    base, _, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    go(page, 4)
+    answer(page, "yes")        # question 5 is the A/B pair
+    page.locator(".quiz[data-probe='r01-p005']").wait_for()
+    page.wait_for_function("() => !audio.paused && audio.src.endsWith('/clip/r01-p005/a') && isFinite(audio.duration) && audio.currentTime > 0")
+    page.evaluate("audio.currentTime = audio.duration - 0.3")
+    page.wait_for_function("() => !audio.paused && audio.src.endsWith('/clip/r01-p005/b')")
+
+
+@pytest.mark.parametrize("loop", [True, False])
+def test_loop_repeats_the_clip(browser_, new_library, loop):
+    base, _, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    if loop:
+        hit(page, "#optLoop")
+    assert page.locator("#optLoop").get_attribute("aria-pressed") == str(loop).lower()
+    hit(page, ".q-play")
+    playing(page)
+    page.evaluate("audio.currentTime = audio.duration - 0.4")
+    page.wait_for_timeout(1300)
+    assert page.evaluate("!audio.paused && audio.currentTime < 3") == loop
+    assert page.evaluate("audio.ended") == (not loop)
+
+
+def test_the_cue_toggle_switches_the_clip_and_is_remembered(browser_, new_library):
+    base, _, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    assert page.locator("#optCue").get_attribute("aria-pressed") == "true"
+    hit(page, ".q-play")
+    playing(page)
+    assert page.evaluate("audio.src").endswith("/clip/r01-p001/main?cue=1")
+    hit(page, "#optCue")
+    page.wait_for_function("() => !audio.src.includes('cue=1') && !audio.paused")
+    page.reload()
+    page.locator(".quiz").wait_for()
+    assert page.locator("#optCue").get_attribute("aria-pressed") == "false"
+    hit(page, ".q-play")
+    playing(page)
+    assert not page.evaluate("audio.src").endswith("cue=1")
+
+
+@pytest.mark.parametrize("n,visible", [(1, True), (2, False), (5, False)])
+def test_the_cue_toggle_shows_only_where_a_play_has_a_marker_without_clicks(browser_, new_library, n, visible):
+    base, _, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    go(page, n)
+    assert page.locator("#optCue").is_visible() == visible
+
+
+def press(page, key, wait=True):
+    if wait:
+        settle(page)
+    page.keyboard.press(key)
+
+
+def test_a_round_can_be_answered_from_the_keyboard_alone(browser_, new_library):
+    base, root, _ = new_library
+    page = open_page(browser_, "desktop")
+    open_round(page, base)
+    assert page.locator(".q-answers button[data-v='yes'] kbd").inner_text() == "Y"
+    assert page.locator(".q-play kbd").inner_text() == "Space"
+    assert page.locator("#optReplay kbd").inner_text() == "R"
+    press(page, "Space")
+    playing(page)
+    page.wait_for_timeout(700)
+    press(page, "Space")
+    assert page.evaluate("audio.paused")
+    paused_at = page.evaluate("audio.currentTime")
+    press(page, "r")
+    page.wait_for_function(f"() => !audio.paused && audio.currentTime < {paused_at}")
+    press(page, "y")                                                   # 1 yesno
+    page.locator(".quiz[data-probe='r01-p002']").wait_for()
+    assert page.locator(".q-barbtn").first.inner_text() == "1"
+    press(page, "2")                                                   # 2 locate: second bar line
+    page.locator(".quiz[data-probe='r01-p003']").wait_for()
+    press(page, "n")                                                   # 3 label: not a drop ...
+    page.locator(".q-what").wait_for()
+    press(page, "1")                                                   # ... it is the first of the other labels
+    page.locator(".quiz[data-probe='r01-p004']").wait_for()
+    press(page, "s")                                                   # 4 skipped
+    page.locator(".quiz[data-probe='r01-p005']").wait_for()
+    press(page, "ArrowLeft")
+    page.locator(".quiz[data-probe='r01-p004']").wait_for()
+    press(page, "ArrowRight")
+    page.locator(".quiz[data-probe='r01-p005']").wait_for()
+    press(page, "b")                                                   # 5 A/B
+    page.locator(".quiz[data-probe='r01-p006']").wait_for()
+    assert wait_for(lambda: len(answers(root)) == 4)
+    assert answers(root) == {"r01-p001": "yes", "r01-p002": "bar:15", "r01-p003": "is:intro", "r01-p005": "b"}
+    press(page, "Escape")
+    page.wait_for_function("() => document.body.dataset.view === 'list'")
+
+
+def test_two_quick_key_presses_answer_only_one_question(browser_, library, contract):
+    base, root, ids = library
+    put_round(library, many_round(ids))
+    page = open_page(browser_, "desktop")
+    open_round(page, base)
+    settle(page)
+    page.keyboard.press("y")
+    page.keyboard.press("y")
+    page.locator(".quiz[data-probe='r01-p002']").wait_for()
+    page.wait_for_timeout(700)
+    assert answers(root) == {"r01-p001": "yes"}
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_there_is_a_clear_way_out_to_the_songs_and_back_to_the_questions(browser_, new_library, size):
+    base, _, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    assert page.locator("#btnSongs").is_visible() and page.locator("#btnSongs").inner_text().startswith("Songs")
+    hit(page, "#btnSongs", wait=False)
+    page.wait_for_function("() => document.body.dataset.view === 'list'")
+    assert page.locator("#btnRound").is_visible() and not page.locator("#btnSongs").is_visible()
+    hit(page, "#btnRound", wait=False)
+    page.locator(".quiz").wait_for()
+
+
+@pytest.mark.parametrize("width,height", [(1024, 768), (1440, 900), (1920, 1080)])
+def test_on_desktop_the_question_is_centred_without_the_song_list_and_the_answers_follow_the_plays(browser_, new_library, width, height):
+    base, _, _ = new_library
+    page = browser_.new_context(viewport={"width": width, "height": height}).new_page()
+    open_round(page, base)
+    assert not page.locator("aside").is_visible() and not page.locator("#list").is_visible()
+    quiz = page.locator(".quiz").bounding_box()
+    assert abs(quiz["x"] + quiz["width"] / 2 - width / 2) <= 3 and quiz["width"] <= 800
+    plays, answers_ = page.locator(".q-cards").bounding_box(), page.locator(".q-answers").bounding_box()
+    assert 0 <= answers_["y"] - (plays["y"] + plays["height"]) < 200
+    assert page.evaluate("document.documentElement.scrollHeight <= innerHeight")
+    overflow = page.evaluate(OVERFLOW)
+    assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"]
+
+
+@pytest.mark.parametrize("size,presses,answered,action", [
+    ("desktop", 10, 0, "#qContinue"), ("phone", 3, 7, "#qContinue"), ("desktop", 3, 7, "#qStop")])
+def test_a_calm_screen_follows_every_ten_answers(browser_, library, contract, size, presses, answered, action):
+    base, root, ids = library
+    put_round(library, many_round(ids))
+    for n in range(1, answered + 1):
+        record_answer(root, f"r01-p{n:03d}", "yes")
+    page = open_page(browser_, size)
+    open_round(page, base)
+    for _ in range(presses):
+        assert page.locator(".q-break").count() == 0
+        answer_and_wait(page, "yes")
+    page.locator(".q-break").wait_for()
+    text = page.locator(".q-break").inner_text()
+    assert "10 answered" in text and "2 left" in text
+    overflow = page.evaluate(OVERFLOW)
+    assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"]
+    if size in TOUCH:
+        assert page.evaluate(SMALL_TARGETS, 44) == []
+    hit(page, action)
+    if action == "#qContinue":
+        page.locator(".quiz[data-probe='r01-p011']").wait_for()
+    else:
+        page.wait_for_function("() => document.body.dataset.view === 'list'")
+    assert len(answers(root)) == 10
+
+
+def test_no_break_comes_after_the_last_answer_of_a_round(browser_, library, contract):
+    base, root, ids = library
+    put_round(library, many_round(ids, 10))
+    for n in range(1, 10):
+        record_answer(root, f"r01-p{n:03d}", "yes")
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    answer(page, "yes")
+    page.locator(".q-done").wait_for()
+    assert page.locator(".q-break").count() == 0
+
+
+def answered_round(library, values=("yes", "b", "yes")):
+    base, root, ids = library
+    for n, v in enumerate(values, 1):
+        record_answer(root, f"r01-p{n:03d}", v)
+    return base, root
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_the_finished_round_shows_the_report(browser_, round_library, size):
+    base, root = answered_round(round_library, ("yes", "b", "no"))
+    record_answer(root, "r01-p003", "yes", now="2026-11-06T10:00:00")
+    page = open_page(browser_, size)
+    page.goto(base + "/")
+    page.locator("#pin").fill(PIN)
+    page.locator("#loginForm button").click()
+    page.locator("#list .row").first.wait_for()
+    page.locator("#btnRound").click()
+    page.locator(".q-done .report").wait_for()
+    text = page.locator(".report").inner_text().lower()   # headings are set in capitals
+    for part in ("Round 1", "3/3", "Theories", "Calibration", "0-50", "67%", "Target", "Coverage"):
+        assert part.lower() in text, (part, text)
+    overflow = page.evaluate(OVERFLOW)
+    assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"], overflow
+    if size in TOUCH:
+        assert page.evaluate(SMALL_TARGETS, 44) == []
+
+
+@pytest.mark.parametrize("sources,shown", [({"vdj": {"n": 12, "exact": 0.5}, "ours": {"n": 30, "exact": None}}, True), (None, False)])
+def test_the_report_lists_sources_only_when_the_round_logic_sends_them(browser_, round_library, monkeypatch, sources, shown):
+    base, root = answered_round(round_library)
+    real = rounds.report
+    monkeypatch.setattr(rounds, "report", lambda *a: {**{k: v for k, v in real(*a).items() if k != "sources"}, **({"sources": sources} if sources else {})})
+    page = open_page(browser_, "desktop")
+    page.goto(base + "/")
+    page.locator("#pin").fill(PIN)
+    page.locator("#loginForm button").click()
+    page.locator("#list .row").first.wait_for()
+    page.locator("#btnSummary").click()
+    page.locator(".report .panel").first.wait_for()
+    text = page.locator(".report").inner_text().lower()
+    assert ("sources" in text) == shown
+    if shown:
+        assert "vdj" in text and "50%" in text and "30" in text
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_the_summary_shows_the_report_above_the_old_ratings_summary(browser_, round_library, size):
+    base, _ = answered_round(round_library)
+    page = open_page(browser_, size)
+    page.goto(base + "/")
+    page.locator("#pin").fill(PIN)
+    page.locator("#loginForm button").click()
+    page.locator("#list .row").first.wait_for()
+    page.locator("#btnSummary").click()
+    page.locator(".report").wait_for()
+    page.locator(".tiles").wait_for()
+    assert page.locator(".report").bounding_box()["y"] < page.locator(".tiles").bounding_box()["y"]
+    overflow = page.evaluate(OVERFLOW)
+    assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"], overflow
+    if size in TOUCH:
+        assert page.evaluate(SMALL_TARGETS, 44) == []
+
+
+@pytest.mark.parametrize("answered,text", [(0, "Round 1 · 0/3"), (2, "Round 1 · 2/3")])
+def test_the_header_shows_the_round_progress_in_the_song_list(browser_, round_library, answered, text):
+    base, root, _ = round_library
+    for n in range(1, answered + 1):
+        record_answer(root, f"r01-p{n:03d}", ("yes", "a", "yes")[n - 1])
+    page = open_page(browser_, "desktop")
+    open_round(page, base)
+    hit(page, "#btnSongs", wait=False)
+    page.wait_for_function("() => document.body.dataset.view === 'list'")
+    assert page.locator("#progress").inner_text() == text
+
+
+@pytest.fixture
+def candidate_library(library):
+    base, root, ids = library
+    for name, raw in {"edmformer": [{"start": 0.0, "label": "intro"}, {"start": 24.0, "label": "drop"}, {"start": 48.0, "label": "outro"}],
+                      "allin1": {"segments": [{"start": 0.0, "label": "intro"}, {"start": 16.0, "label": "buildup"}], "downbeats": []},
+                      "dropdetector": {"drops": [{"time": 32.0, "confidence": 0.83}]}}.items():
+        (root / "candidates" / name).mkdir(parents=True)
+        (root / "candidates" / name / f"{ids[0]}.json").write_text(json.dumps(raw))
+    return library
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+@pytest.mark.parametrize("canvas", ["overview", "zoom"])
+def test_candidate_outputs_are_labelled_reference_rows_under_the_virtualdj_row(browser_, candidate_library, size, canvas):
+    base, _, _ = candidate_library
+    page = open_page(browser_, size)
+    open_track(page, base, size)
+    assert page.evaluate("candidateRows().map(r => r.label)") == ["EDMFormer", "allin1", "drop det."]
+    r = page.evaluate(f"rows('{canvas}')")
+    assert [c[0] for c in r["cand"]] == sorted(c[0] for c in r["cand"]) and len(r["cand"]) == 3
+    assert r["ref"][0] + r["ref"][1] <= r["cand"][0][0] and r["cand"][2][0] + r["cand"][2][1] <= r["wave"][0]
+    assert all(h >= 10 for _, h in [c[:2] for c in r["cand"]])
+    if canvas == "overview":
+        page.locator("#overview").evaluate("el => el.scrollIntoView({block: 'center'})")
+        page.wait_for_function("() => views.overview && views.overview.rows.cand")
+        px = lambda t, row: page.evaluate("""([t, row]) => { const c = document.querySelector('#overview'), v = views.overview, k = devicePixelRatio, r = rows('overview').cand[row];
+            return [...c.getContext('2d').getImageData(Math.round((t - v.t0) / (v.t1 - v.t0) * c.width), (r[0] + r[1] / 2) * k, 1, 1).data].slice(0, 3); }""", [t, row])
+        assert px(36.0, 0) == colour(page, "--sec-drop") and px(20.0, 0) == colour(page, "--sec-intro")      # EDMFormer
+        assert px(20.0, 1) == colour(page, "--sec-buildup")                                                  # allin1
+        assert px(32.0, 2) != px(44.0, 2)                                                                    # a drop tick
+
+
+def test_a_track_without_candidates_has_no_candidate_rows(browser_, library):
+    base, _, _ = library
+    page = open_page(browser_, "desktop")
+    open_track(page, base, "desktop")
+    assert page.evaluate("candidateRows().length") == 0 and page.evaluate("rows('overview').cand") in ([], None)
+
+
+@pytest.mark.parametrize("index,text", [(0, "intro"), (1, "buildup 72%"), (2, "drop")])
+def test_section_bands_show_the_claim_confidence_when_the_analysis_has_it(browser_, library, index, text):
+    base, _, _ = library
+    page = open_page(browser_, "desktop")
+    open_track(page, base, "desktop")
+    assert page.evaluate(f"bandLabel({index})") == text
+
+
+@pytest.mark.parametrize("prerendered,probe_n,limit", [(True, 1, 1.0), (True, 2, 1.0), (False, 1, 2.0), (False, 2, 2.0)])
+def test_the_first_play_of_a_probe_starts_fast(browser_, round_library, prerendered, probe_n, limit):
+    base, root, _ = round_library
+    if prerendered:
+        Clips(root).prerender(json.loads((root / "rounds" / "round-01.json").read_text()))
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    go(page, probe_n)
+    page.evaluate("() => { window.heard = null; audio.addEventListener('playing', () => { window.heard ??= performance.now(); }); }")
+    t0 = page.evaluate("performance.now()")
+    page.locator(".q-play").last.tap() if probe_n == 2 else page.locator(".q-play").tap()
+    page.wait_for_function("() => window.heard !== null", timeout=10000)
+    ms = page.evaluate("window.heard") - t0
+    print(f"first play of probe {probe_n}, {'prerendered' if prerendered else 'cold'}: {ms:.0f} ms")
+    assert ms < limit * 1000
+
+
+def pause_at(page, t):
+    """Plays the current question's first clip, then stops it t seconds into the clip."""
+    hit(page, ".q-play")
+    playing(page)
+    page.evaluate(f"audio.pause(); audio.currentTime = {t}")
+    page.wait_for_function(f"() => audio.paused && Math.abs(audio.currentTime - {t}) < 0.05")
+    page.wait_for_timeout(150)
+
+
+@pytest.mark.parametrize("n,tap", [(1, True), (2, True), (4, False), (5, False)])
+def test_it_starts_now_is_there_only_for_tap_questions_with_a_clip_in_play(browser_, new_library, n, tap):
+    base, _, _ = new_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    go(page, n)
+    assert not page.locator("#qNow").is_visible()
+    hit(page, ".q-play")
+    playing(page)
+    assert page.locator("#qNow").is_visible() == tap
+    page.evaluate("audio.pause()")                      # paused inside the clip
+    page.wait_for_timeout(150)
+    assert page.locator("#qNow").is_visible() == tap
+    if tap:
+        page.evaluate("audio.currentTime = audio.duration - 0.2; audio.play()")
+        page.wait_for_function("() => audio.ended")     # at the end of the clip it is gone again
+        page.wait_for_timeout(150)
+        assert not page.locator("#qNow").is_visible()
+
+
+@pytest.mark.parametrize("size,how", [("phone", "tap"), ("desktop", "tap"), ("desktop", "enter")])
+@pytest.mark.parametrize("t,bar", [(0.7, 10), (1.4, 11), (5.2, 13), (7.9, 14)])
+def test_it_starts_now_answers_the_bar_line_nearest_the_playhead_and_that_button_is_lit(browser_, new_library, size, how, t, bar):
+    base, root, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    pause_at(page, t)
+    page.locator(f".q-barbtn.now[data-v='bar:{bar}']").wait_for()
+    assert page.locator(".q-barbtn.now").count() == 1
+    assert page.locator("#qNow kbd").inner_text() == "Enter" if size == "desktop" else True
+    hit(page, "#qNow") if how == "tap" else press(page, "Enter")
+    assert wait_for(lambda: answers(root) == {"r01-p001": f"bar:{bar}"})
+
+
+@pytest.mark.parametrize("size", TOUCH)
+@pytest.mark.parametrize("n", [1, 2])
+def test_it_starts_now_sits_in_the_thumb_zone_above_the_other_answers(browser_, new_library, size, n):
+    base, _, _ = new_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    go(page, n)
+    pause_at(page, 2.0)
+    now, rest, height = page.locator("#qNow").bounding_box(), page.locator(".q-answers").bounding_box(), page.viewport_size["height"]
+    assert now["height"] >= 56 and now["y"] + now["height"] <= rest["y"] and now["y"] >= height - 340
+    assert page.evaluate("document.documentElement.scrollHeight <= innerHeight")
+    assert page.evaluate(SMALL_TARGETS, 44) == []
+    overflow = page.evaluate(OVERFLOW)
+    assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"]
+
+
+@pytest.mark.parametrize("how", ["button", "key", "now"])
+def test_a_bar_answer_shows_the_pick_on_the_strip_before_moving_on(browser_, new_library, how):
+    base, root, _ = new_library
+    page = open_page(browser_, "desktop")
+    open_round(page, base)
+    pause_at(page, 5.9)                                  # the line nearest is at 26 s, the fourth, bar 13
+    pick = {"button": lambda: hit(page, ".q-barbtn >> nth=3"), "key": lambda: press(page, "4"), "now": lambda: press(page, "Enter")}[how]
+    t0 = time.time()
+    pick()
+    page.locator(".q-barbtn.on").wait_for()
+    assert pixel_at(page, ".q-wave", 26.0, "mid") == colour(page, "--good")
+    assert page.locator(".quiz").get_attribute("data-probe") == "r01-p001"
+    page.locator(".quiz[data-probe='r01-p002']").wait_for()
+    assert time.time() - t0 >= 0.4
+    assert wait_for(lambda: answers(root) == {"r01-p001": "bar:13"})
+
+
+def test_the_report_names_each_theory_by_the_text_it_carries_else_by_the_current_rounds_text_else_by_its_id(browser_, round_library, monkeypatch):
+    base, root = answered_round(round_library)
+    real = rounds.report
+    monkeypatch.setattr(rounds, "report", lambda *a: {**real(*a), "theories": {"old": {"n": 2, "confirmed": 0.5, "text": "Text of an earlier round"},
+                                                                               "t1": {"n": 3, "confirmed": 1.0}, "zzz": {"n": 1, "confirmed": 0.0}}})
+    page = open_page(browser_, "desktop")
+    page.goto(base + "/")
+    page.locator("#pin").fill(PIN)
+    page.locator("#loginForm button").click()
+    page.locator("#list .row").first.wait_for()
+    page.locator("#btnSummary").click()
+    page.locator(".report .panel").first.wait_for()
+    rows = page.locator(".report .panel", has_text="Theories").locator("tr td:first-child").all_inner_texts()
+    assert rows == ["Text of an earlier round", "Drops are found one bar late", "zzz"]
+
+
+@pytest.mark.parametrize("view", ["round", "list", "summary"])
+def test_the_header_title_is_never_cut_at_360px(browser_, round_library, view):
+    base, _, _ = round_library
+    page = browser_.new_context(viewport={"width": 360, "height": 740}, device_scale_factor=3, has_touch=True, is_mobile=True).new_page()
+    page.set_default_timeout(8000)
+    open_round(page, base)
+    if view != "round":
+        hit(page, "#btnSongs", wait=False)
+        page.wait_for_function("() => document.body.dataset.view === 'list'")
+    if view == "summary":
+        page.locator("#btnSummary").tap()
+        page.locator(".report").wait_for()
+    cut = page.evaluate("(() => { const h = document.querySelector('#heading'); return [h.textContent, h.scrollWidth, h.clientWidth]; })()")
+    assert cut[1] <= cut[2], cut
+    overflow = page.evaluate(OVERFLOW)
+    assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"]
+    assert page.evaluate(SMALL_TARGETS, 44) == []

@@ -57,6 +57,13 @@ header.top .icon { border: none; background: none; font-size: 20px; padding: 0; 
 
 aside, main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
 body[data-view="list"] main, body[data-view="track"] aside, body[data-view="summary"] aside, body[data-view="round"] aside { display: none; }
+#btnSongs { display: none; padding: 4px 10px; }
+#btnRound { line-height: 1.15; padding: 4px 10px; }
+#btnCount { display: none; font-size: 11px; color: var(--text-muted); }
+body[data-view="list"] #btnList, body[data-view="summary"] #btnSummary { display: none; }
+@media (max-width: 480px) { #progress { display: none; } #btnCount { display: block; } }
+body[data-view="round"] #btnSongs { display: block; }
+body[data-view="round"] #btnList { display: none; }
 body[data-view="track"] { padding-bottom: calc(var(--bar-h) + env(safe-area-inset-bottom) + 16px); }
 html, main { scroll-padding: calc(var(--top-h) + 8px) 0 calc(var(--bar-h) + env(safe-area-inset-bottom) + 8px); }
 aside .search { position: sticky; top: calc(var(--top-h) + env(safe-area-inset-top)); z-index: 5; padding: 12px 0 8px; background: var(--surface-0); }
@@ -122,23 +129,35 @@ th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
 #login input { font-size: 24px; text-align: center; letter-spacing: .3em; }
 #login .error { color: var(--bad); min-height: 20px; font-size: 14px; }
 
-/* Question screen: one Probe at a time, answers in the thumb zone */
+/* Question screen: one Probe at a time. Phone: answers in the thumb zone. Desktop: centred, answers right under the plays. */
 body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: none; }
-.quiz { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; min-height: calc(100vh - var(--top-h) - env(safe-area-inset-top)); min-height: calc(100dvh - var(--top-h) - env(safe-area-inset-top)); }
+.quiz { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; min-height: calc(100vh - var(--top-h) - env(safe-area-inset-top)); min-height: calc(100dvh - var(--top-h) - env(safe-area-inset-top)); }
 .q-theory { font-size: 12px; color: var(--text-muted); }
 .q-title { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
-.q-prompt { font-size: 24px; line-height: 1.25; font-weight: 600; margin: 4px 0; overflow-wrap: anywhere; }
-.q-plays { display: grid; gap: 8px; }
-.q-play { position: relative; overflow: hidden; min-height: 64px; font-size: 18px; }
-/* playback progress and the marker run in a strip along the bottom edge, clear of the label */
-.q-fill { position: absolute; left: 0; bottom: 0; height: 8px; width: calc(var(--p, 0) * 100%); background: var(--accent); pointer-events: none; }
-.q-mark { position: absolute; bottom: 0; height: 16px; left: clamp(4px, calc(var(--m) * 100%), calc(100% - 4px)); width: 3px; margin-left: -1px; background: var(--playhead); pointer-events: none; }
-.q-label { position: relative; }
+.q-prompt { font-size: 22px; line-height: 1.25; font-weight: 600; margin: 2px 0; overflow-wrap: anywhere; }
+.q-define { margin: 0; font-size: 14px; color: var(--text-secondary); }
+.q-cards { display: grid; gap: 8px; }
+.q-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.q-play { min-height: 56px; font-size: 18px; }
+.q-wave { height: 72px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.q-hint { font-size: 12px; color: var(--text-muted); }
+.q-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); gap: 6px; }
+.q-bars button { min-height: 44px; font-size: 16px; font-weight: 600; padding: 4px; }
+.q-bars button.now { box-shadow: inset 0 0 0 3px var(--accent); }
+#qNow { min-height: 64px; font-size: 20px; font-weight: 600; }
+.q-status:empty { display: none; }
+.q-opts { display: flex; gap: 6px; }
+.q-opts button { flex: 1 1 0; min-width: 0; font-size: 14px; padding: 4px 6px; }
 .q-bar { position: sticky; bottom: 0; margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 8px 0 calc(12px + env(safe-area-inset-bottom)); background: var(--surface-0); }
 .q-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .q-nav button { border: none; background: none; color: var(--text-secondary); }
 .q-answers { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .q-answers button { min-height: 56px; font-size: 18px; }
+.q-answers .q-hint { align-self: end; }
+.q-what button { font-size: 16px; padding: 4px; white-space: nowrap; }
+.q-done, .q-break { gap: 12px; }
+.report { display: flex; flex-direction: column; gap: 12px; }
+.rtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 
 /* Tablet: more room, two columns for the tool grid, sheets centred */
 @media (min-width: 700px) {
@@ -148,6 +167,8 @@ body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: 
   #transport button { flex: 0 1 110px; }
   #transport #play { flex: 0 1 160px; }
   .quiz { width: 100%; max-width: 640px; margin: 0 auto; }
+  .q-cards { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .q-wave { height: 96px; }
 }
 /* Desktop: track list on the left, rating panel inline, popover menus near the pointer */
 @media (min-width: 1024px) {
@@ -156,6 +177,11 @@ body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: 
   body[data-view] aside { display: block; overflow-y: auto; border-right: 1px solid var(--border); background: var(--surface-1); padding: 0 12px; }
   aside .search { top: 0; background: var(--surface-1); }
   body[data-view] main { display: block; overflow-y: auto; padding: 0 24px; }
+  body[data-view="round"] { grid-template-columns: 1fr; }
+  body[data-view="round"] aside { display: none; }
+  body[data-view="round"] main { display: flex; flex-direction: column; }
+  body[data-view="round"] .quiz { margin: auto; width: 100%; max-width: 720px; min-height: 0; padding: 24px 0; }
+  body[data-view="round"] .q-bar { position: static; margin-top: 0; padding-bottom: 0; background: none; }
   body[data-view="track"] { padding-bottom: 0; }
   body[data-view="track"] main { margin-bottom: var(--bar-h); padding-bottom: 24px; }
   #transport { left: var(--side); }
@@ -171,10 +197,11 @@ body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: 
 </head>
 <body data-view="list">
 <header class="top">
+  <button id="btnSongs" aria-label="Back to the songs">Songs <kbd>Esc</kbd></button>
   <button class="icon" id="btnList" aria-label="Track list">☰</button>
   <h1 id="heading">EDM Analysis Review</h1>
   <span id="progress"></span>
-  <button id="btnRound" hidden>Questions</button>
+  <button id="btnRound" hidden>Questions<small id="btnCount"></small></button>
   <button class="icon" id="btnSummary" aria-label="Accuracy summary">📊</button>
 </header>
 <aside>
@@ -239,6 +266,7 @@ $("#loginForm").addEventListener("submit", async e => {
 function setView(v) {
   document.body.dataset.view = v;
   if (v !== "track") { closeSheets(); audio.pause(); }
+  if (v === "track") audio.loop = false;
   $("#heading").textContent = v === "track" && doc ? doc.track.title : v === "summary" ? "Accuracy summary"
     : v === "round" && quiz ? `Round ${quiz.round} · ${quiz.progress.answered}/${quiz.progress.total}` : "EDM Analysis Review";
 }
@@ -251,7 +279,10 @@ async function loadTracks() {
   renderList();
   updateProgress();
 }
-function updateProgress() { $("#progress").textContent = `${tracks.filter(t => t.rated).length}/${tracks.length} rated`; }
+function updateProgress() {
+  $("#progress").textContent = quiz ? `Round ${quiz.round} · ${quiz.progress.answered}/${quiz.progress.total}` : `${tracks.filter(t => t.rated).length}/${tracks.length} rated`;
+  $("#btnCount").textContent = quiz ? `${quiz.progress.answered}/${quiz.progress.total}` : "";   // the same, where the header is narrow
+}
 
 function tempoBadge(t) {
   if (t.tempo === "match") return `<span class="badge ok">${t.bpm.toFixed(1)}</span>`;
@@ -505,6 +536,7 @@ function isDownbeatIndex(i) { const first = doc.beats.findIndex(b => Math.abs(b 
 
 document.addEventListener("keydown", e => {
   if (e.target.matches?.("input, textarea, select")) return;
+  if (document.body.dataset.view === "round" && quiz) return quizKey(e);
   const t = TOOLS.find(x => x.key === e.key);
   if (menuKeys && ["y", "x", "p"].includes(e.key.toLowerCase())) {
     const k = e.key.toLowerCase(), pick = menuKeys;
@@ -522,11 +554,20 @@ document.addEventListener("keydown", e => {
 
 // ---------- canvas interaction ----------
 // Touch layouts get taller section bands (44 px tap targets) and a wider grab radius.
+// Reference rows under the VirtualDJ row: what each Candidate found, 12 px each with a small label.
+const CAND_LABELS = { edmformer: "EDMFormer", allin1: "allin1", dropdetector: "drop det." };
+function candidateRows() {
+  const c = (reference && reference.candidates) || {};
+  return Object.keys(CAND_LABELS).filter(n => c[n] && (n === "dropdetector" ? c[n].drops : c[n].sections).length).map(n => ({ name: n, label: CAND_LABELS[n], data: c[n] }));
+}
 function rows(name) {
-  const big = !roomy();
-  if (name === "zoom") return big ? { sec: [0, 44], ref: [46, 12], wave: [60, 130] } : { sec: [0, 18], ref: [20, 12], wave: [34, 94] };
-  return big ? { sec: [0, 44], ref: [46, 14], wave: [62, 60], energy: [124, 26], lanes: [152, 110] }
-             : { sec: [0, 26], ref: [28, 14], wave: [44, 70], energy: [118, 28], lanes: [150, 150] };
+  const big = !roomy(), n = candidateRows().length;
+  const r = name === "zoom" ? (big ? { sec: [0, 44], ref: [46, 12], wave: [60, 130] } : { sec: [0, 18], ref: [20, 12], wave: [34, 94] })
+    : big ? { sec: [0, 44], ref: [46, 14], wave: [62, 60], energy: [124, 26], lanes: [152, 110] }
+          : { sec: [0, 26], ref: [28, 14], wave: [44, 70], energy: [118, 28], lanes: [150, 150] };
+  const down = n ? ([a, b]) => [a + 13 * n + 2, b] : x => x;
+  return { ...r, wave: down(r.wave), ...(r.energy && { energy: down(r.energy), lanes: down(r.lanes) }),
+           cand: candidateRows().map((_, i) => [r.ref[0] + r.ref[1] + 2 + 13 * i, 12]) };
 }
 function canvasHeight(name) { const r = rows(name), last = r.lanes || r.wave; return last[0] + last[1]; }
 const grabPx = e => e.pointerType === "mouse" ? 6 : 18;
@@ -741,6 +782,12 @@ function marker(ctx, x, top, H, s, color, width, dash, label, labelTop = top) {
   }
 }
 
+// A band's text: label, the reviewer's verdict, and the Claim confidence when the analysis has it and the label was not changed.
+function bandLabel(i) {
+  const sec = rating.sections[i], src = doc.sections.find(d => d.start_bar === sec.start_bar && d.label === sec.label), c = src && !sec.correct_label ? src.confidence ?? src.label_confidence : null;
+  return (sec.correct_label || sec.label) + (sec.verdict === "ok" ? " ✓" : sec.correct_label ? " ✎" : "") + (c != null ? ` ${Math.round(c)}%` : "");
+}
+
 function drawTimeline(c, name, t0, t1, opts) {
   views[name] = { t0, t1, rows: opts.rows };
   labelEdge = {};
@@ -756,7 +803,10 @@ function drawTimeline(c, name, t0, t1, opts) {
     const label = sec.correct_label || sec.label, x0 = X(secStartTime(i)), x1 = X(barTime(secEnd(i)));
     if (x1 < 0 || x0 > W) return;
     ctx.fillStyle = css("--sec-" + label) || css("--text-muted"); ctx.fillRect(x0 + s, R.sec[0] * s, Math.max(1, x1 - x0 - 2 * s), R.sec[1] * s);
-    if (x1 - x0 > 40 * s) { ctx.fillStyle = "#fff"; ctx.fillText(label + (sec.verdict === "ok" ? " ✓" : sec.correct_label ? " ✎" : ""), Math.max(x0, 0) + 5 * s, (R.sec[0] + R.sec[1] / 2) * s); }
+    if (x1 - x0 > 40 * s) {
+      const full = bandLabel(i), text = ctx.measureText(full).width + 10 * s < x1 - x0 ? full : full.replace(/ \d+%$/, "");
+      ctx.fillStyle = "#fff"; ctx.fillText(text, Math.max(x0, 0) + 5 * s, (R.sec[0] + R.sec[1] / 2) * s);
+    }
   });
   // reference from VirtualDJ: its break regions, and Mixed In Key energy cues stored as VDJ cue points
   if (R.ref) {
@@ -775,6 +825,25 @@ function drawTimeline(c, name, t0, t1, opts) {
     });
     if (!(reference.breaks || []).length && !(reference.cues || []).length) { ctx.fillStyle = css("--text-muted"); ctx.fillText("no VirtualDJ reference", 4 * s, y + h / 2); }
   }
+  candidateRows().forEach((cr, i) => {
+    const y = R.cand[i][0] * s, h = R.cand[i][1] * s;
+    ctx.fillStyle = css("--surface-2"); ctx.fillRect(0, y, W, h);
+    if (cr.name === "dropdetector") { let free = 0;  // every tick, the probability only where it is likely and there is room
+      cr.data.drops.forEach(dr => {
+        const x = X(dr.time); if (x < 0 || x > W) return;
+        ctx.globalAlpha = dr.confidence == null ? 1 : 0.35 + 0.65 * dr.confidence; ctx.fillStyle = css("--text-primary"); ctx.fillRect(x - s, y, 2 * s, h); ctx.globalAlpha = 1;
+        const text = dr.confidence == null ? "" : Math.round(dr.confidence * 100) + "%";
+        if (text && dr.confidence >= 0.5 && x >= free) { ctx.fillText(text, x + 3 * s, y + h / 2); free = x + ctx.measureText(text).width + 8 * s; }
+      });
+    }
+    else cr.data.sections.forEach((sec, j, all) => {
+      const x0 = X(sec.start), x1 = X(j + 1 < all.length ? all[j + 1].start : doc.track.duration); if (x1 < 0 || x0 > W) return;
+      ctx.fillStyle = css("--sec-" + sec.label) || css("--text-muted"); ctx.fillRect(x0, y, Math.max(1, x1 - x0 - s), h);
+    });
+    ctx.font = `${10 * s}px -apple-system, sans-serif`;
+    ctx.globalAlpha = 0.8; ctx.fillStyle = css("--surface-1"); ctx.fillRect(0, y, ctx.measureText(cr.label).width + 8 * s, h); ctx.globalAlpha = 1;
+    ctx.fillStyle = css("--text-secondary"); ctx.fillText(cr.label, 4 * s, y + h / 2); ctx.font = `${12 * s}px -apple-system, sans-serif`;
+  });
   // waveform
   const pk = doc.peaks.values, rate = doc.peaks.rate, mid = (R.wave[0] + R.wave[1] / 2) * s, amp = R.wave[1] / 2 * s;
   ctx.fillStyle = css("--wave");
@@ -845,21 +914,48 @@ function draw() {
 function tick() {
   if (excerptEnd && audio.currentTime >= excerptEnd) { audio.pause(); excerptEnd = null; }
   if (doc && !audio.paused && !drag) draw();
-  if (quizPlay !== null && document.body.dataset.view === "round") showPlayProgress();
+  if (cur && !audio.paused && document.body.dataset.view === "round") { drawStrip(cur.k); updateNow(); }
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
 audio.addEventListener("seeked", draw);
 
 // ---------- question screen: one Probe of the current Review round at a time ----------
-let quiz = null, quizIndex = 0, quizShown = 0, quizPlay = null, quizLoading = null, quizBusy = false;
-const quizPlayed = new Set();
-const DOUBLE_TAP_MS = 350;  // a second tap this soon after a new question is the old answer's double tap
+// Each play is its own short clip, so it starts at once and never seeks. The strip shows the clip's waveform,
+// bar lines and marker; bar buttons answer "bar:<n>" where the question takes taps.
+let quiz = null, quizIndex = 0, quizShown = 0, quizBusy = false, quizWhat = false, quizLoading = false, cur = null;  // cur: the play in the audio element
+const quizPlayed = new Set(), strips = [];
+const DOUBLE_TAP_MS = 350;
+const PICK_MS = 500;  // a bar answer stays on the strip this long, so a wrong pick is noticed
+let chosenBar = null;  // a second tap this soon after a new question is the old answer's double tap
+const BREAK_EVERY = 10;
+const DEFAULT_LABELS = ["intro", "buildup", "drop", "breakdown", "groove", "outro"];
+const DEFINITIONS = {
+  intro: "Intro: the track starts. Sparse, often just drums, building towards the first full part.",
+  buildup: "Buildup: tension rises before a drop. Snare rolls, a riser, faster hats, the kick often drops out.",
+  drop: "Drop: the payoff. Kick and bass hit full, the loudest and biggest part of the track.",
+  breakdown: "Breakdown: the beat falls away. Calm, melodic or vocal, before the energy comes back.",
+  groove: "Groove: a steady full beat. Kick and bass run on, the energy stays level, nothing big changes.",
+  outro: "Outro: the track winds down. Parts drop out and the beat thins towards the end.",
+};
+const KEYS = { yes: "Y", no: "N", none: "N", skip: "C", a: "A", b: "B", neither: "N" };
+function pref(k, d) { try { const v = localStorage.getItem("edm." + k); return v === null ? d : v === "1"; } catch { return d; } }
+function setPref(k, v) { try { localStorage.setItem("edm." + k, v ? "1" : "0"); } catch { /* private mode */ } }
+let autoplayOn = pref("autoplay", true), cueOn = pref("cue", true), loopOn = false;
+
+const tapsOn = p => p.tap ?? (p.question === "yesno" || p.question === "locate");
+const labelsOf = p => p.labels && p.labels.length ? p.labels : DEFAULT_LABELS;
+const askedLabel = p => p.question === "label" ? [...DEFAULT_LABELS, ...labelsOf(p)].find(l => new RegExp("\\b" + l + "\\b", "i").test(p.prompt)) : undefined;
+const cueApplies = pl => pl.mark != null && pl.click_shift == null;
+const barLines = pl => (pl.grid || []).filter(g => g[1] && g[2] != null);
+const clipUrl = (p, pl) => `/clip/${p.id}/${pl.id}` + (cueApplies(pl) && cueOn ? "?cue=1" : "");
+const isOn = (p, v) => p.answer === v || (v === "no" && String(p.answer).startsWith("is:"));
 
 async function loadRound() {
   const r = await api("/api/round");
   quiz = r.round ? r : null;
   $("#btnRound").hidden = !quiz;
+  updateProgress();
 }
 function openProbes() { return quiz.probes.filter(p => p.answer == null).length; }
 // Next unanswered after i (wrapping); once all are answered, simply the next one, then the done screen.
@@ -873,92 +969,285 @@ function showRound(i) {
   history.replaceState(null, "", location.pathname);
   goProbe(i);
 }
-function goProbe(i) {
+// `auto`: the reviewer's answer (or Continue) was the tap that lets the audio element start the next question's clip by itself.
+function goProbe(i, auto) {
   quizIndex = i < 0 ? quiz.probes.length : i;
   setView("round");
   renderProbe();
   scrollTo(0, 0);
+  if (auto && autoplayOn && quiz.probes[quizIndex]) playProbe(0, true);
 }
+function showSongs() { setView("list"); history.replaceState(null, "", location.pathname); }
 $("#btnRound").addEventListener("click", async () => { await loadRound(); if (quiz) showRound(openProbes() ? nextProbe(-1) : -1); });
+$("#btnSongs").addEventListener("click", showSongs);
 
 function playName(p, k) { return p.question === "ab" ? "Play " + String.fromCharCode(65 + k) : p.plays.length > 1 ? `Play ${k + 1}` : "Play"; }
-function answerSpan(k, n) { return k < 2 ? 3 : 6 / (n - 2); }  // two big answers on top, the rest share the row below
+function answerSpan(k, n) { return n < 2 ? 6 : k < 2 ? 3 : 6 / (n - 2); }  // two big answers on top, the rest share the row below
+const toggle = (id, text, on) => `<button id="${id}" class="${on ? "on" : ""}" aria-pressed="${on}">${text}</button>`;
 
 function renderProbe() {
   const p = quiz.probes[quizIndex];
-  audio.pause(); excerptEnd = null; quizPlay = quizLoading = null; quizShown = performance.now();
-  if (!p) {
-    $("#main").innerHTML = `<div class="quiz q-done">
-      <p class="q-prompt">Round ${quiz.round} done</p>
-      <div class="status">All ${quiz.probes.length} questions answered. Thank you.</div>
-      <div class="q-bar"><div class="q-answers">
-        <button id="qReview" style="grid-column: span 3">Change answers</button><button id="qSongs" style="grid-column: span 3">Browse songs</button>
-      </div></div></div>`;
-    $("#qReview").addEventListener("click", () => goProbe(0));
-    $("#qSongs").addEventListener("click", () => setView("list"));
-    return;
-  }
-  const theory = quiz.theories.find(t => t.id === p.theory), n = p.options.length;
-  const mark = pl => pl.mark == null ? "" : `<span class="q-mark" style="--m:${Math.min(1, Math.max(0, (pl.mark - pl.start) / (pl.end - pl.start)))}"></span>`;
+  audio.pause(); audio.loop = false; excerptEnd = null; cur = null; strips.length = 0; quizWhat = quizLoading = false; quizShown = performance.now();
+  if (!p) return renderDone();
+  chosenBar = String(p.answer).startsWith("bar:") ? +p.answer.slice(4) : null;
+  const theory = quiz.theories.find(t => t.id === p.theory), taps = tapsOn(p), label = askedLabel(p);
+  const bars = (pl, k) => {
+    const lines = taps ? barLines(pl) : [];
+    return lines.length ? `<div class="q-hint">${p.question === "locate" ? "Tap the bar where it starts" : "Or tap the bar where it really starts"}</div>
+      <div class="q-bars">${lines.map((g, i) => `<button class="q-barbtn ${p.answer === "bar:" + g[2] ? "on" : ""}" data-v="bar:${g[2]}" aria-label="It starts at bar ${g[2]}">${i + 1}</button>`).join("")}</div>` : "";
+  };
   $("#main").innerHTML = `<div class="quiz" data-probe="${esc(p.id)}">
     <div class="q-theory">${theory ? esc(theory.text) : ""}</div>
     <div class="q-title">${esc(p.title)}</div>
     <p class="q-prompt">${esc(p.prompt)}</p>
-    <div class="q-plays">${p.plays.map((pl, k) => `<button class="q-play" data-k="${k}"><span class="q-fill"></span>${mark(pl)}<span class="q-label"></span></button>`).join("")}</div>
+    ${DEFINITIONS[label] ? `<p class="q-define">${esc(DEFINITIONS[label])}</p>` : ""}
+    <div class="q-cards">${p.plays.map((pl, k) => `<div class="q-card">
+      <button class="q-play" data-k="${k}"><span class="q-label"></span>${p.plays.length === 1 ? " <kbd>Space</kbd>" : ""}</button>
+      <canvas class="q-wave" data-k="${k}" aria-label="Waveform of the clip, bar lines and marker"></canvas>${bars(pl, k)}</div>`).join("")}</div>
     <div class="status q-status" role="status"></div>
+    <div class="q-opts" id="qOpts">
+      <button id="optReplay">↻ Replay <kbd>R</kbd></button>${toggle("optAutoplay", "Autoplay", autoplayOn)}${toggle("optLoop", "Loop", loopOn)}${p.plays.some(cueApplies) ? toggle("optCue", "Cue", cueOn) : ""}
+    </div>
     <div class="q-bar">
-      <div class="q-nav"><button id="qBack" ${quizIndex ? "" : "disabled"}>‹ Back</button><span class="status">${quizIndex + 1} of ${quiz.probes.length}</span><button id="qSkip">Skip ›</button></div>
-      <div class="q-answers">${p.options.map((o, k) => `<button data-v="${esc(o.value)}" class="${p.answer === o.value ? "on" : ""}" style="grid-column: span ${answerSpan(k, n)}">${esc(o.label)}</button>`).join("")}</div>
+      <div class="q-nav"><button id="qBack" ${quizIndex ? "" : "disabled"}>‹ Back <kbd>←</kbd></button><span class="status">${quizIndex + 1} of ${quiz.probes.length}</span><button id="qSkip">Skip <kbd>S</kbd> ›</button></div>
+      ${taps && p.plays.some(pl => barLines(pl).length) ? `<button id="qNow" class="primary" hidden>It starts now <kbd>Enter</kbd></button>` : ""}
+      <div class="q-answers" id="qAnswers">${answerButtons(p)}</div>
     </div></div>`;
   labelPlays();
-  document.querySelectorAll(".q-play").forEach(b => b.addEventListener("click", () => playProbe(+b.dataset.k)));
-  document.querySelectorAll(".q-answers button").forEach(b => b.addEventListener("click", () => answerProbe(b.dataset.v)));
-  $("#qBack").addEventListener("click", () => goProbe(quizIndex - 1));
-  $("#qSkip").addEventListener("click", () => goProbe((quizIndex + 1) % quiz.probes.length));
+  document.querySelectorAll(".q-wave").forEach(c => setupStrip(c, p, p.plays[+c.dataset.k], taps && barLines(p.plays[+c.dataset.k]).length > 0));
+  $(".quiz").addEventListener("click", quizClick);
+}
+function answerButtons(p) {
+  return p.options.map((o, k) => `<button data-v="${esc(o.value)}" class="${isOn(p, o.value) ? "on" : ""}" style="grid-column: span ${answerSpan(k, p.options.length)}">${esc(o.label)}${KEYS[o.value] ? ` <kbd>${KEYS[o.value]}</kbd>` : ""}</button>`).join("");
+}
+// "No" on a label question asks what it is instead: the other labels, or just no.
+function showWhat() {
+  const p = quiz.probes[quizIndex], asked = askedLabel(p);
+  quizWhat = true;
+  $("#qAnswers").classList.add("q-what");
+  $("#qAnswers").innerHTML = `<div class="q-hint" style="grid-column: 1 / -1">What is it?</div>` +
+    labelsOf(p).filter(l => l !== asked).map((l, i) => `<button data-v="is:${esc(l)}" style="grid-column: span 2"><span class="swatch" style="background:var(--sec-${esc(l)}, var(--text-muted))"></span>${esc(l)} <kbd>${i + 1}</kbd></button>`).join("") +
+    `<button data-v="no" style="grid-column: span 2">Just no <kbd>N</kbd></button>`;
+}
+
+function quizClick(e) {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.classList.contains("q-play")) return playButton(+b.dataset.k);
+  if (b.id === "optReplay") return playProbe(0, true);
+  if (b.id === "optAutoplay") { autoplayOn = !autoplayOn; setPref("autoplay", autoplayOn); return flip(b, autoplayOn); }
+  if (b.id === "optLoop") { loopOn = !loopOn; audio.loop = loopOn && !(cur && cur.chain); return flip(b, loopOn); }
+  if (b.id === "optCue") { cueOn = !cueOn; setPref("cue", cueOn); flip(b, cueOn); return switchClip(); }
+  if (b.id === "qBack") return goProbe(quizIndex - 1);
+  if (b.id === "qSkip") return goProbe((quizIndex + 1) % quiz.probes.length);
+  if (b.dataset.v) answerProbe(b.dataset.v);
+}
+function flip(b, on) { b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); }
+
+// ---- playing: one clip per play, started from the tap itself so iOS lets it
+function playProbe(k, chain, at) {
+  const p = quiz.probes[quizIndex], url = clipUrl(p, p.plays[k]);
+  cur = { k, chain: !!chain };
+  quizPlayed.add(p.id + ":" + k);
+  audio.loop = loopOn && !chain;
+  if (audio.src.endsWith(url)) { audio.currentTime = at || 0; audio.play().catch(() => {}); }
+  else { audio.src = url; quizLoading = true; if (at) seekTo(at, true); else audio.play().catch(() => {}); }
+  labelPlays();
+}
+function playButton(k) {
+  const p = quiz.probes[quizIndex], same = cur && cur.k === k && audio.src.endsWith(clipUrl(p, p.plays[k]));
+  if (same && !audio.paused) audio.pause();
+  else if (same && !audio.ended && audio.currentTime > 0) audio.play().catch(() => {});
+  else playProbe(k, false);
+}
+function togglePlayQuiz() {
+  if (!cur) return playProbe(0, true);
+  if (!audio.paused) audio.pause(); else if (audio.ended) playProbe(cur.k, cur.chain); else audio.play().catch(() => {});
+}
+function switchClip() {  // the cue was turned on or off: the same clip with or without it, from where it was
+  const p = quiz.probes[quizIndex];
+  if (!cur || !cueApplies(p.plays[cur.k])) return;
+  const t = audio.currentTime, playing = !audio.paused;
+  audio.src = clipUrl(p, p.plays[cur.k]);
+  seekTo(t, playing);
+}
+function seekClip(k, t) {
+  const p = quiz.probes[quizIndex], same = cur && cur.k === k && audio.src.endsWith(clipUrl(p, p.plays[k]));
+  if (same) { audio.currentTime = t; if (audio.paused) audio.play().catch(() => {}); drawStrip(k); }
+  else playProbe(k, false, t);
 }
 function labelPlays() {
-  const p = quiz.probes[quizIndex];
+  const p = quiz && quiz.probes[quizIndex];
+  if (!p) return;
   document.querySelectorAll(".q-play").forEach(b => {
-    const k = +b.dataset.k, name = playName(p, k);
-    b.querySelector(".q-label").textContent = quizLoading === k ? name.replace("Play", "Loading") + "…"
+    const k = +b.dataset.k, name = playName(p, k), mine = cur && cur.k === k;
+    b.querySelector(".q-label").textContent = mine && quizLoading ? name.replace("Play", "Loading") + "…"
+      : mine && !audio.paused && !audio.ended ? "❚❚ " + name.replace("Play", "Pause")
       : quizPlayed.has(p.id + ":" + k) ? `↻ ${name} again` : `▶ ${name}`;
   });
 }
-// Called from the tap itself, so iOS lets it start the audio.
-function playProbe(k) {
-  const p = quiz.probes[quizIndex], pl = p.plays[k];
-  const url = `/audio/${p.track}` + (pl.click_shift != null ? `?click=1&shift=${pl.click_shift}` : "");
-  if (!audio.src.endsWith(url)) audio.src = url;
-  // A click mix is rendered on its first request, which takes a few seconds.
-  quizPlay = k; quizPlayed.add(p.id + ":" + k); quizLoading = audio.readyState < 1 ? k : null; labelPlays();
-  excerptStart = pl.start; excerptEnd = pl.end;
-  seekTo(pl.start, true);
-}
-function showPlayProgress() {
-  const p = quiz.probes[quizIndex], b = p && document.querySelector(`.q-play[data-k="${quizPlay}"]`);
-  if (!b) return;
-  const pl = p.plays[quizPlay];
-  b.style.setProperty("--p", Math.min(1, Math.max(0, (audio.currentTime - pl.start) / (pl.end - pl.start))));
-}
-audio.addEventListener("playing", () => { if (quizLoading !== null && quiz) { quizLoading = null; labelPlays(); } });
-audio.addEventListener("error", () => {
-  if (quizLoading === null || !quiz) return;
-  quizLoading = null; labelPlays(); $(".q-status").textContent = "Could not load the audio. Try again.";
+audio.addEventListener("playing", () => { if (quiz && quizLoading) quizLoading = false; quizEvent(); });
+["play", "pause", "seeked", "timeupdate"].forEach(n => audio.addEventListener(n, quizEvent));
+audio.addEventListener("ended", () => {
+  if (!quiz || !cur || document.body.dataset.view !== "round") return;
+  const p = quiz.probes[quizIndex];
+  if (p && cur.chain) {
+    if (cur.k + 1 < p.plays.length) return playProbe(cur.k + 1, true);
+    if (loopOn) return playProbe(0, true);
+  }
+  quizEvent();
 });
+audio.addEventListener("error", () => {
+  if (!quiz || !cur || document.body.dataset.view !== "round") return;
+  quizLoading = false; labelPlays(); $(".q-status").textContent = "Could not load the audio. Try again.";
+});
+function quizEvent() { if (quiz && document.body.dataset.view === "round") { labelPlays(); updateNow(); strips.forEach((_, k) => drawStrip(k)); } }
+// "It starts now": the bar line nearest the playhead, while a clip of a tap question plays or is paused inside it.
+function nowLine() {
+  const p = quiz && quiz.probes[quizIndex];
+  if (!p || !cur || !tapsOn(p) || audio.ended || (audio.paused && !audio.currentTime)) return null;
+  const pl = p.plays[cur.k], t = pl.start + audio.currentTime;
+  return barLines(pl).reduce((best, g) => !best || Math.abs(g[0] - t) < Math.abs(best[0] - t) ? g : best, null);
+}
+function updateNow() {
+  const b = $("#qNow"), g = nowLine(), v = g ? "bar:" + g[2] : "";
+  if (b) { b.hidden = !g; b.dataset.v = v; }
+  document.querySelectorAll(".q-barbtn").forEach(x => x.classList.toggle("now", !!v && x.dataset.v === v));
+}
 
+// ---- the strip: peaks, bar lines (full height, the beats between them short), the marker, the playhead
+function setupStrip(c, p, pl, numbered) {
+  const k = strips.length;
+  strips.push({ c, pl, numbered });
+  const resize = () => { const r = c.getBoundingClientRect(); c.width = r.width * devicePixelRatio; c.height = r.height * devicePixelRatio; drawStrip(k); };
+  new ResizeObserver(resize).observe(c);
+  c.addEventListener("pointerup", e => { const r = c.getBoundingClientRect(); seekClip(k, Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (pl.end - pl.start)); });
+}
+function drawStrip(k) {
+  const s = strips[k];
+  if (!s || !s.c.width) return;
+  const { c, pl, numbered } = s, ctx = c.getContext("2d"), W = c.width, H = c.height, d = devicePixelRatio, D = pl.end - pl.start;
+  const X = t => (t - pl.start) / D * W, mine = cur && quiz.probes[quizIndex].plays[cur.k] === pl, now = mine ? audio.currentTime : 0;
+  const top = numbered ? 15 * d : 0, mid = top + (H - top) / 2, amp = (H - top) / 2 - d;
+  ctx.fillStyle = css("--surface-1"); ctx.fillRect(0, 0, W, H);
+  const pk = pl.peaks;
+  if (pk) { ctx.fillStyle = css("--wave"); pk.values.forEach((v, i) => { const x0 = X(pk.t0 + i / pk.rate), x1 = X(pk.t0 + (i + 1) / pk.rate); ctx.fillRect(x0, mid - v * amp, Math.max(1, x1 - x0 - 0.5), 2 * v * amp || 1); }); }
+  if (now > 0) { ctx.fillStyle = css("--accent"); ctx.globalAlpha = 0.2; ctx.fillRect(0, 0, X(pl.start + now), H); ctx.globalAlpha = 1; }
+  const strong = css("--text-primary"), faint = css("--text-muted");
+  ctx.font = `${11 * d}px -apple-system, sans-serif`; ctx.textBaseline = "top";
+  let n = 0;
+  (pl.grid || []).forEach(([t, down, bar]) => {
+    const x = X(t);
+    ctx.globalAlpha = down ? 0.65 : 0.55; ctx.fillStyle = down ? strong : faint;
+    if (down) ctx.fillRect(x - d, 0, 2 * d, H); else ctx.fillRect(x, H - 10 * d, d, 10 * d);
+    ctx.globalAlpha = 1;
+    if (down && bar != null && numbered) { n++; const right = x > W - 14 * d; ctx.textAlign = right ? "right" : "left"; ctx.fillStyle = css("--text-secondary"); ctx.fillText(String(n), right ? x - 4 * d : x + 4 * d, 2 * d); }
+  });
+  if (pl.mark != null) { ctx.fillStyle = css("--mark"); ctx.fillRect(Math.min(W - 1.5 * d, Math.max(1.5 * d, X(pl.mark))) - 1.5 * d, 0, 3 * d, H); }
+  const pick = chosenBar != null && (pl.grid || []).find(g => g[1] && g[2] === chosenBar);
+  if (pick) { ctx.fillStyle = css("--good"); ctx.fillRect(X(pick[0]) - 2 * d, 0, 4 * d, H); }
+  if (mine) { ctx.fillStyle = css("--playhead"); ctx.fillRect(X(pl.start + now) - d, 0, 2 * d, H); }
+}
+
+// ---- answering
 async function answerProbe(v) {
   if (quizBusy || performance.now() - quizShown < DOUBLE_TAP_MS) return;
-  const p = quiz.probes[quizIndex];
+  const p = quiz.probes[quizIndex], shownAt = quizShown, picked = v.startsWith("bar:"), began = performance.now();
+  if (v === "no" && !quizWhat && askedLabel(p)) return showWhat();
   quizBusy = true;
+  const fresh = p.answer == null;
+  if (picked) pickBar(+v.slice(4));
   try {
     await api(`/api/answers/${p.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answer: v }) });
+    if (picked) await new Promise(r => setTimeout(r, Math.max(0, PICK_MS - (performance.now() - began))));
   } catch (e) {
+    if (picked) pickBar(String(p.answer).startsWith("bar:") ? +p.answer.slice(4) : null);
     if (!(e instanceof NeedPin)) $(".q-status").textContent = "Not saved: " + e.message;
     return;
   } finally { quizBusy = false; }
   p.answer = v;
   quiz.progress.answered = quiz.probes.length - openProbes();
-  goProbe(nextProbe(quizIndex));
+  updateProgress();
+  if (quizShown !== shownAt) return;   // the reviewer went elsewhere meanwhile
+  const answered = quiz.progress.answered;
+  if (fresh && answered % BREAK_EVERY === 0 && openProbes()) return showBreak(answered);
+  goProbe(nextProbe(quizIndex), true);
+}
+function pickBar(bar) {
+  chosenBar = bar;
+  document.querySelectorAll(".q-barbtn").forEach(b => b.classList.toggle("on", bar != null && b.dataset.v === "bar:" + bar));
+  strips.forEach((_, k) => drawStrip(k));
+}
+
+function showBreak(answered) {
+  cur = null; strips.length = 0;
+  setView("round");
+  quizShown = performance.now();
+  $("#main").innerHTML = `<div class="quiz q-break">
+    <p class="q-prompt">${answered} answered</p>
+    <div class="status">${openProbes()} left in this round. Take a moment, or carry on.</div>
+    <div class="q-bar"><div class="q-answers">
+      <button id="qStop" style="grid-column: span 3">Stop for now <kbd>Esc</kbd></button><button id="qContinue" class="primary" style="grid-column: span 3">Continue <kbd>Enter</kbd></button>
+    </div></div></div>`;
+  $("#qStop").addEventListener("click", () => { if (performance.now() - quizShown >= DOUBLE_TAP_MS) showSongs(); });
+  $("#qContinue").addEventListener("click", () => { if (performance.now() - quizShown >= DOUBLE_TAP_MS) goProbe(nextProbe(quizIndex), true); });
+}
+
+function renderDone() {
+  $("#main").innerHTML = `<div class="quiz q-done">
+    <p class="q-prompt">Round ${quiz.round} done</p>
+    <div class="status">All ${quiz.probes.length} questions answered. Thank you.</div>
+    <div class="report" id="report"><div class="status">Loading the report…</div></div>
+    <div class="q-bar"><div class="q-answers">
+      <button id="qReview" style="grid-column: span 3">Change answers</button><button id="qSongs" style="grid-column: span 3">Browse songs</button>
+    </div></div></div>`;
+  $("#qReview").addEventListener("click", () => goProbe(0));
+  $("#qSongs").addEventListener("click", showSongs);
+  loadReport();
+}
+
+// ---- keyboard: Space play/pause, R replay, Y N E L C or A B answer, 1-9 a bar or label, S and arrows move, Esc leaves
+function quizKey(e) {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key, p = quiz.probes[quizIndex], q = document.querySelector(".quiz");
+  if (e.code === "Space") e.preventDefault();
+  if (q && q.classList.contains("q-break")) {
+    if (k === "Enter") $("#qContinue").click(); else if (k === "Escape") $("#qStop").click();
+    return;
+  }
+  if (k === "Escape") return quizWhat ? renderProbe() : showSongs();
+  if (!p) return;
+  if (k === "Enter") { e.preventDefault(); const b = $("#qNow"); if (b && !b.hidden) answerProbe(b.dataset.v); }
+  else if (e.code === "Space") togglePlayQuiz();
+  else if (k === "r") playProbe(0, true);
+  else if (k === "s" || k === "ArrowRight") goProbe((quizIndex + 1) % quiz.probes.length);
+  else if (k === "ArrowLeft" && quizIndex) goProbe(quizIndex - 1);
+  else if (/^[1-9]$/.test(k)) { const b = document.querySelectorAll(quizWhat ? ".q-what button[data-v^='is:']" : ".q-barbtn")[+k - 1]; if (b) answerProbe(b.dataset.v); }
+  else if (quizWhat) { if (k === "n") answerProbe("no"); }
+  else { const o = p.options.find(o => KEYS[o.value] === k.toUpperCase()); if (o) answerProbe(o.value); }
+}
+document.addEventListener("keyup", e => { if (e.code === "Space" && document.body.dataset.view === "round") e.preventDefault(); });
+
+// ---------- the round report ----------
+function reportHtml(r) {
+  const t = r.target || {}, theory = id => (quiz && quiz.theories.find(x => x.id === id) || {}).text || id;
+  const table = (head, rows) => `<div class="scroll-x"><table><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr>${rows.map(x => `<tr>${x.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</table></div>`;
+  const panel = (title, body) => `<div class="panel"><h3>${title}</h3>${body}</div>`;
+  const none = text => `<div class="status">${text}</div>`;
+  const sources = Object.entries(r.sources || {});
+  return `<div class="rtiles">
+      <div class="tile"><div class="k">Target</div><div class="v">${t.met ? "Met" : "Not yet"}</div><div class="s">95% exact at 95% confidence, 70% coverage</div></div>
+      <div class="tile"><div class="k">Exact at 95%+</div><div class="v">${pct(t.sure_exact)}</div><div class="s">${t.sure_n || 0} answers, 20 needed</div></div>
+      <div class="tile"><div class="k">Coverage</div><div class="v">${pct(r.coverage ?? t.coverage)}</div><div class="s">of Claims reach 95%</div></div></div>` +
+    panel("Rounds", (r.rounds || []).length ? table(["", "Answered", "Grid", "Start", "Label"], r.rounds.map(x => [`Round ${x.round}`, `${x.answered}/${x.total}`, pct((x.fresh_exact || {}).grid), pct((x.fresh_exact || {}).start), pct((x.fresh_exact || {}).label)])) + none("Share of Claims you accepted on the round's new tracks.") : none("No rounds yet.")) +
+    panel("Theories", Object.keys(r.theories || {}).length ? table(["Theory", "Answers", "Confirmed"], Object.entries(r.theories).map(([id, v]) => [esc(v.text || theory(id)), v.n, pct(v.confirmed)])) : none("No Theory results yet.")) +
+    panel("Calibration", (r.calibration || []).length ? table(["Confidence", "Answers", "Exact"], r.calibration.map(b => [b.band, b.n, pct(b.exact)])) + none("Claims at 95% should be exact about 95% of the time.") : none("No answers yet.")) +
+    (sources.length ? panel("Sources", table(["Source", "Answers", "Exact"], sources.map(([name, v]) => [esc(name), v.n, pct(v.exact)]))) : "");
+}
+async function loadReport() {
+  let html;
+  try { html = reportHtml(await api("/api/report")); }
+  catch (e) { if (e instanceof NeedPin) return; html = `<div class="status">The report could not be loaded: ${esc(e.message)}</div>`; }
+  const el = $("#report"); if (el) el.innerHTML = html;
 }
 
 // ---------- summary ----------
@@ -969,7 +1258,7 @@ async function showSummary() {
   setView("summary");
   const tempoTotal = Object.values(s.tempo).reduce((a, b) => a + b, 0) - s.tempo.untagged;
   const evRows = Object.entries(s.events).map(([k, c]) => `<tr><td>${k}</td><td>${c.ok}</td><td>${c.off}</td><td>${c.wrong}</td><td>${c.missed}</td><td>${pct(c.precision)}</td><td>${pct(c.recall)}</td></tr>`).join("");
-  $("#main").innerHTML = `<div class="track"><div class="meta">From your ratings. Precision = share of predicted events that were right; recall = share of real events that were found (on the right bar).</div>
+  $("#main").innerHTML = `<div class="track"><div class="report" id="report"><div class="status">Loading the report…</div></div><div class="meta">From your ratings. Precision = share of predicted events that were right; recall = share of real events that were found (on the right bar).</div>
     <div class="tiles">
       <div class="tile"><div class="k">Tracks rated</div><div class="v">${s.tracks_rated}</div><div class="s">of ${s.tracks_analyzed} analyzed</div></div>
       <div class="tile"><div class="k">Tempo = filename BPM</div><div class="v">${pct(tempoTotal ? s.tempo.match / tempoTotal : null)}</div><div class="s">${s.tempo.match} match · ${s.tempo.double} double · ${s.tempo.half} half · ${s.tempo.mismatch} other</div></div>
@@ -980,11 +1269,13 @@ async function showSummary() {
     </div>
     <div class="panel"><h3>Events</h3><div class="scroll-x"><table><tr><th>Kind</th><th>✓</th><th>Off</th><th>✗</th><th>Missed</th><th>Prec.</th><th>Recall</th></tr>${evRows || `<tr><td colspan=7 class="status">No event ratings yet</td></tr>`}</table></div></div>
     <div class="panel"><h3>Label confusion (predicted → your label)</h3><table>${Object.entries(s.label_confusion).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<tr><td>${k.replace("->", " → ")}</td><td>${n}</td></tr>`).join("") || `<tr><td class="status">None yet</td></tr>`}</table></div></div>`;
+  loadReport();
 }
 
 async function start() {
   try {
     await Promise.all([loadTracks(), loadRound()]);
+    updateProgress();
     const id = location.hash.slice(1);
     if (/^[0-9a-f]{16}$/.test(id)) openTrack(id);
     else if (quiz && openProbes()) showRound(nextProbe(-1));

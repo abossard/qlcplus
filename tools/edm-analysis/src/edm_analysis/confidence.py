@@ -89,9 +89,21 @@ def _exact(record):
     answer = record["answer"]
     if answer == "skip":
         return None
+    if answer.startswith("bar:"):   # a named bar is exact only where it is the Claim's own
+        return int(answer[4:]) == record["claim"]["bar"]
     if "alternatives" in record:
         return record["alternatives"].get(answer, {}).get("source") == "ours"
     return answer == "yes"
+
+
+def gold_bar(record):
+    """The bar the reviewer's answer puts a start on, or None where it names none."""
+    answer, claim = record["answer"], record["claim"]
+    if answer.startswith("bar:"):
+        return int(answer[4:])
+    if "alternatives" in record:
+        return record["alternatives"].get(answer, {}).get("bar")
+    return claim["bar"] if answer == "yes" and claim["kind"] in (*START_KINDS, "missed") else None
 
 
 def gold_rows(answers, docs):

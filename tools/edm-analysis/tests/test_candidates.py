@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -49,3 +50,50 @@ def test_allin1_output_is_renamed_to_the_track_id(tmp_path):
 
     assert {f.name for f in raw.glob("*.json")} == {f"{TID}.json", "Unknown.json"}
     assert load(tmp_path, "allin1", TID)["downbeats"] == [0.12, 2.08]
+
+
+def stub_run(monkeypatch, tmp_path, code, done):
+    """Replace the Candidate's subprocess: it exits with `code` after writing outputs for the first `done` tracks."""
+    import subprocess
+    from types import SimpleNamespace
+
+    from edm_analysis import candidates
+
+    music = tmp_path / "music"
+    music.mkdir()
+    tracks = {f"{i:016x}": music / f"song{i}.mp3" for i in range(3)}
+    for path in tracks.values():
+        path.write_bytes(b"")
+    (tmp_path / "index.json").write_text(json.dumps({tid: {"path": str(path)} for tid, path in tracks.items()}))
+    monkeypatch.setattr(candidates, "CANDIDATES_HOME", tmp_path / "home")
+
+    def fake(cmd, **kwargs):
+        raw = tmp_path / "candidates" / ("allin1" if "-o" in cmd else "edmformer")
+        mp3s = [Path(c) for c in cmd if str(c).endswith(".mp3")]
+        for mp3 in mp3s[:done]:
+            (raw / f"{mp3.stem}.json").write_text("{}")
+        return SimpleNamespace(returncode=code)
+
+    monkeypatch.setattr(subprocess, "run", fake)
+
+
+@pytest.mark.parametrize("name,code,done,said", [
+    ("edmformer", 0, 3, []),
+    ("edmformer", 1, 0, ["edmformer: exit code 1", "edmformer: stopped early, 3 of 3 tracks still to do"]),
+    ("edmformer", -9, 1, ["edmformer: exit code -9", "edmformer: stopped early, 2 of 3 tracks still to do"]),
+    ("edmformer", 0, 1, ["edmformer: stopped early, 2 of 3 tracks still to do"]),     # exits cleanly, tracks missing
+    ("allin1", 0, 3, []),
+    ("allin1", 1, 0, ["allin1: exit code 1", "allin1: stopped early, 3 of 3 tracks still to do"]),
+    ("dropdetector", 2, 0, ["dropdetector: exit code 2", "dropdetector: stopped early, 3 of 3 tracks still to do"]),
+])
+def test_a_candidate_run_that_fails_or_stops_early_says_so(tmp_path, monkeypatch, name, code, done, said):
+    from edm_analysis.candidates import run
+
+    stub_run(monkeypatch, tmp_path, code, done)
+    (tmp_path / "candidates" / "allin1").mkdir(parents=True)
+    (tmp_path / "candidates" / "edmformer").mkdir(parents=True)
+    log = []
+
+    run(tmp_path, name, log=log.append)
+
+    assert [m for m in log if "exit code" in m or "stopped early" in m] == said
