@@ -3512,3 +3512,214 @@ cd tools/manual-review && npm test -- src/parser-real.test.ts src/parser.test.ts
 - The first expanded run also failed `tardisHistory(queued)` on `callbackLockAvailable`. That assertion passes in the isolated track/history recheck and in the full confirmation without changing production code or weakening assertions. Its transient cause is not established; the first failed result is retained, not counted as green. [First expanded run](build/upstream-integration-20261103/after-ui-final.json), [history recheck](build/upstream-integration-20261103/after-history-recheck.json).
 - Tests used isolated HOME, settings, runtime, temporary and working directories with offscreen/software rendering. None timed out. The desktop application was not restarted. Real peer delivery, keyboard/pointer interaction, physical output and other platforms remain unverified and unsigned.
 - Both review parsers retain all previous section/check identities and recognize thirteen unique pending checks in 51.1 through 51.7. The entire document present at task start remains an exact byte prefix; no previous checkbox or sign-off was changed. [Parser results](build/upstream-integration-20261103/parser-tests.log), [preservation and merge verification](build/upstream-integration-20261103/verification.json).
+
+---
+
+## 52. Upstream VC ownership, restoration and compatibility (fec0349da)
+
+Incoming source: `mcallegari/qlcplus:master` at `fec0349da`, fetched 2026-11-04. The integration includes 21 incoming commits after `28cf5cac8`. Existing fork recording, MIDI diagnostics, outline and transactional layout behavior must remain intact.
+
+The candidate is applied to working files on `mcp-server`; Git's index and branch history are unchanged. No Git merge was started because permission to stage the merge was unavailable.
+
+### 52.1 Widget moves, clipboard and selection
+
+- **Do:** Drag several selected widgets between nested frames, cancel a drag outside a valid target, then cut/paste a frame containing children. Scroll the destination page before pasting. Delete and undo the pasted frame, then switch pages.
+- ☐ Widgets remain visible, correctly positioned and selectable after accepted moves, cut/paste and undo. A rejected or cancelled move has no visible jump or disappearing widget.
+- ☐ Pasting on a scrolled page places the copies in the visible area. Page changes leave no hidden selection or misleading properties pane; outline and canvas show the same hierarchy.
+
+### 52.2 Restored appearance and input feedback [MIDI]
+
+- **Do:** Give a frame, button and Solo Frame distinct fonts, colors, backgrounds and mixing settings. Copy them, delete them and undo/redo. Repeat a mapped control gesture after restoration.
+- ☐ Copies and restored widgets retain their intended appearance and Solo Frame behavior. Collapsing, expanding and resizing a restored frame causes no stale geometry or clipped children.
+- ☐ The restored mapped controls and MIDI feedback still address the intended widgets; the outline and input diagnostics agree with the visible controls.
+
+### 52.3 Frame page controls and page restoration
+
+- **Do:** Put widgets on several frame subpages. Switch subpages using the header, try reducing the page count below the last occupied subpage, then remove the last subpage's contents and reduce again. Delete and undo a top-level page.
+- ☐ The page selector tracks the visible subpage without flicker or jumping back. Occupied subpages cannot be hidden or lost by reducing the count.
+- ☐ Undo restores the top-level page with its children and appearance, and subsequent edits still target that page. Existing arrangement and outline navigation remain usable.
+
+### 52.4 Adjust slider stop and restart [DMX]
+
+- **Do:** Bind an Adjust slider to a Function's intensity. Stop the Function externally, then rapidly restart it or seek a Show that restarts it. Repeat while recording and replaying the slider.
+- ☐ A stopped Function is reflected by the slider without briefly restarting or re-stopping it. A rapidly restarted Function remains running and physical output has no unexpected blackout.
+- ☐ Recorded slider gestures retain their intended output and timing; displayed feedback does not become an extra output-producing gesture.
+
+### 52.5 Stopped Cue List navigation
+
+- **Do:** With the Cue List stopped, use previous/next in both forward and backward playback direction, including a one-step list, then start playback.
+- ☐ The selected cue and highlight are understandable, navigation wraps consistently, and playback begins at the visibly selected cue without an unexpected jump.
+
+**Human sign-off:** All nine checks above remain pending. Automated results do not sign off visual behavior, pointer/keyboard feel, MIDI or physical DMX.
+
+**Automated verification (2026-11-04):**
+
+| Suite | Passed | Failed | Skipped | Exit |
+|---|---:|---:|---:|---:|
+| EFX | 54 | 0 | 1 | 0 |
+| Input/output map | 622 | 0 | 0 | 0 |
+| Generic DMX source | 5 | 0 | 0 | 0 |
+| Native VC/history/recording selection | 200 | 0 | 0 | 0 |
+| VC button suite | 236 | 0 | 0 | 0 |
+| Page planner suite | 59 | 0 | 0 | 0 |
+| MCP VC query/filter | 65 | 0 | 0 | 0 |
+| MCP VC validation | 76 | 0 | 0 | 0 |
+| MCP page input mode | 14 | 0 | 0 | 0 |
+| MCP live tools | 24 | 0 | 0 | 0 |
+| Review parser suites | 61 | 0 | 0 | 0 |
+
+- Engine targets were rebuilt before execution. EFX's existing duplicate-fixture case is explicitly skipped because duplicate fixtures are permitted. [EFX](build/upstream-integration-20261104/efx-test.log), [I/O map](build/upstream-integration-20261104/inputoutputmap-test.log), [DMX source](build/upstream-integration-20261104/genericdmxsource-test.log).
+- Both review parsers recognize nine unique pending checks in section 52. All earlier parsed sections are unchanged and the original 276191 document bytes retain SHA-256 `2e5d7eeb7c7942392586d49b462de8f8c85ef9040429325226a8bf93eeb40cfe`. [Parser suites](build/upstream-integration-20261104/parser-tests.log), [native parser and preservation](build/upstream-integration-20261104/review-preservation.log).
+- The native application, widget/planner tests and MCP targets build successfully. The native selection covers ownership, outline notifications, transactional drag/layout, copy/reparent bindings, empty-console load, page undo identities, stopped Cue List navigation, Tardis and recording. [Final build](build/upstream-integration-20261104/native-final-build.log), [native VC](build/upstream-integration-20261104/vc-verified.json), [VC buttons](build/upstream-integration-20261104/vcbutton-final.json), [page planner](build/upstream-integration-20261104/pageplanner-final.json).
+- The first planner run trapped while undoing a mixed-group page build. Upstream runtime ID reuse allowed provisional and rebuilt pages to share IDs inside the fork's undo batch. The repair stays in `VCEditor`: reserve distinct page-history IDs and restore them explicitly, leaving upstream project XML page-ID handling intact. All three existing planner history rows and the full planner suite then pass. [Initial failure](build/upstream-integration-20261104/pageplanner.json), [duplicate-ID diagnostic](build/upstream-integration-20261104/pageplanner-diagnostic.log), [history verification](build/upstream-integration-20261104/pageplanner-history-final.json).
+- MCP suites pass against the rebuilt targets. [Query/filter](build/upstream-integration-20261104/mcp_vc_query_filter_test-final.json), [validation](build/upstream-integration-20261104/mcp_vc_validation_test-final.json), [page inputs](build/upstream-integration-20261104/mcp_vcpage_input_mode_test-final.json), [live tools](build/upstream-integration-20261104/mcp_live_tools_test-final.json).
+- Native tests used isolated HOME/settings/runtime/working directories and offscreen/software rendering. The desktop application was not restarted. This is scoped verification, not a new full-UI-suite result; section 51's historical full-suite failures are not superseded. Linux/older GCC, legacy Qt, physical devices and human interaction remain unverified and unsigned.
+
+---
+
+## 53. Upstream channel remapping, translations and plugin icons (6ed78ed0a)
+
+Incoming source: `mcallegari/qlcplus:master` at `6ed78ed0a`, fetched 2026-11-05. Six new commits follow the pending `fec0349da` integration in section 52. They add one-to-many VC channel remapping, clarify the paste tooltip, refresh translations and Czech locale references, expand QML translation collection to plugins/web access, and update the sACN/OSC icons.
+
+The candidate is applied to working files on `mcp-server`. The previous uncommitted integration is preserved; Git's index and branch history are unchanged. No Git merge or commit was created.
+
+### 53.1 Channel remapping and recorded slider playback [DMX]
+
+- **Do:** Map one source fixture channel to multiple distinct destination channels. Apply the remap to a Level slider and an audio trigger DMX mapping. Include an unmapped source channel. Save/reload, operate both controls, and replay a recorded slider gesture. Change the mapping while a recorded write is pending.
+- ☐ Every intended destination responds, with no output on removed or unrelated channels. The saved/reloaded mapping retains all destinations, and the audio mapping follows the same routing.
+- ☐ Recording and replay retain the intended channel ownership. Remapping a pending gesture does not retarget an old write, leave stale output, or introduce an unexpected blackout.
+
+### 53.2 Clipboard guidance and plugin identity
+
+- **Do:** Hover over the VC paste control, then try dragging and pasting clipboard widgets. Inspect the sACN and OSC plugin icons in the I/O views at normal and high-DPI scaling.
+- ☐ The tooltip explains dragging and pasting, existing clipboard behavior remains usable, and both plugin icons are recognizable without clipping or missing graphics.
+
+### 53.3 Translated application and plugin labels
+
+- **Do:** Switch to a translated language, inspect VC labels and plugin/web-access strings, then restore the previous language. On a classic-UI build, also select Czech and inspect application, fixture-editor and plugin labels.
+- ☐ Available translated VC, plugin and web-access labels display correctly without layout-breaking text or missing labels.
+- ☐ Czech is identified consistently and its application/plugin catalogs load on a classic-UI build.
+
+**Human sign-off:** All five checks remain pending. Automated results do not establish physical output, visual quality, translation accuracy or human interaction.
+
+**Automated verification (2026-11-05):**
+
+| Suite | Passed | Failed | Skipped | Exit |
+|---|---:|---:|---:|---:|
+| Audio triggers, including channel-remap matrix | 204 | 0 | 0 | 0 |
+| Native VC/history/recording selection | 200 | 0 | 0 | 0 |
+| Recorded Level-slider channel replacement | 4 | 0 | 0 | 0 |
+| XY pad | 20 | 0 | 0 | 0 |
+| MCP VC query/filter | 65 | 0 | 0 | 0 |
+| MCP VC validation | 76 | 0 | 0 | 0 |
+| Review parser suites | 62 | 0 | 0 | 0 |
+
+- The native application and all listed native/MCP targets were rebuilt successfully. The six new parameterized remap rows cover slider/audio mappings with zero, one and three destinations, removal of unmapped sources, exclusion of unrelated map entries, audio absolute-channel cache rebuilding and change notification. Existing recorded-write retirement assertions remain unchanged. [Build](build/upstream-integration-20261105/build.log), [audio](build/upstream-integration-20261105/audio.json), [recording](build/upstream-integration-20261105/recording-remap.json), [XY pad](build/upstream-integration-20261105/xypad.json).
+- The native selection repeats section 52's 200 passing ownership, history, layout and recording checks. Both MCP suites also pass. This is scoped verification, not a new full-UI-suite result; section 51's historical failures are not superseded. [Native VC](build/upstream-integration-20261105/vc.json), [MCP query](build/upstream-integration-20261105/mcp-query.json), [MCP validation](build/upstream-integration-20261105/mcp-validation.json).
+- All 84 imported translation catalogs are well-formed XML, and `bash -n translate.sh` passes. These checks do not establish linguistic correctness or execution of the translation export/import workflow. Both upstream icon files are byte-identical to `6ed78ed0a`. [Translation checks](build/upstream-integration-20261105/translation-check.json), [preservation](build/upstream-integration-20261105/verification.json).
+- Both review parsers recognize five unique pending checks in section 53. TypeScript parser assertions verify case tags and counts; the native canvas retains the DMX label in the title. All earlier parsed sections are unchanged. The original 282980 document bytes remain an exact prefix with SHA-256 `996d6c2a7d391683722ccf3797013328de7f040de427f0848ae0eabcc85ebe05`. [Parser suites](build/upstream-integration-20261105/parser-tests.log), [preservation](build/upstream-integration-20261105/verification.json).
+- Tests used isolated HOME/settings/runtime/working directories and offscreen/software rendering, with no timeout. The desktop application was not restarted. Linux, classic-UI Czech runtime, physical devices, human interaction and visual icon quality remain unverified and unsigned. The macOS build retains dependency deprecation/deployment-target warnings in its log.
+
+---
+
+## 54. Upstream frame restoration, ArtNet and secure web access (08452e9b6)
+
+Incoming source: `mcallegari/qlcplus:master` at `08452e9b6776b43c155887007a2d628cc965aebe`, fetched 2026-11-10 from the `upstream` remote. `origin` is this fork, not mcallegari. Sixteen incoming commits follow the pending `6ed78ed0a` integration in section 53.
+
+The candidate is applied to working files on `mcp-server`. Sections 52 and 53 and their existing customizations are preserved. Git's index and branch history remain unchanged; this is not a recorded Git merge.
+
+Upstream's frame Disabled/AllowResize restoration, ArtNet socket serialization, HTTP/HTTPS WebSocket selection, translations, 5.4.0 version and packaging changes are included. Upstream VC suites live under `qmlui/test/upstream` with `upstream_` target names to avoid collisions with fork suites. They link the real application dependency graph rather than replacing fork behavior with upstream's minimal application stubs. The platform test runners discover both sets through CTest. The hotplug monitor's CMake target is renamed to avoid CTest's reserved `test` target; its executable name remains unchanged.
+
+The fork's profile-based audio analyzer and audio-trigger properties remain authoritative. Upstream's retired FFT-buffer normalization and old band-count spinbox are not reintroduced into that replacement pipeline. The legacy upstream audio-trigger test sources are retained for reference but are not built or registered: they assert a variable 17-bar model, whereas this fork uses eleven fixed profile mappings and tests them in its existing audio suites. The existing v5 MCP Linux CI matrix is retained; upstream's v4-to-v5 coverage-job rename has no matching job in this fork. QML coverage collection and desktop-only test wiring are included.
+
+### 54.1 Disabled and non-resizable frames
+
+- **Do:** Save and reload a disabled frame containing buttons and nested frames, with resizing disabled. Repeat with an enabled, resizable frame. Copy/delete/undo the frames and switch VC pages.
+- ☐ Disabled state is restored after the children load, and the child controls visibly follow the parent's disabled state.
+- ☐ Resize permissions survive reload and undo without disturbing fork layout, outline selection or child order.
+
+### 54.2 ArtNet concurrent output and discovery [DMX]
+
+- **Do:** Send several universes while ArtNet discovery, input and RDM requests are active. Exercise both immediate and refresh-timer output while recording and replaying controls.
+- ☐ Output remains smooth and discovery/input/RDM remain responsive, with no unexpected blackout or freeze.
+- ☐ The intended fixtures respond throughout recording and playback, and network error messages remain understandable when a destination becomes unavailable.
+
+### 54.3 Audio-trigger profile continuity
+
+- **Do:** Load an existing audio-trigger workspace, select its microphone or OSC profile, adjust the profile and operate volume-only and frequency mappings. Save/reload and compare the spectrum, reaction timing and visible profile selection.
+- ☐ Existing profiles, frequency mappings and volume-only reactions remain usable without unexpected level changes or losing assignments.
+- ☐ Spectrum readability and audio-driven timing remain acceptable; saved settings restore the same visible configuration.
+
+### 54.4 HTTP and HTTPS web controls
+
+- **Do:** Open the legacy VC, Simple Desk, keypad and project-loading page directly over HTTP and through the existing HTTPS reverse proxy. Change a control and reload each page.
+- ☐ Each page connects and responds without mixed-content warnings, repeated reconnects or confusing connection-state feedback.
+
+### 54.5 Translations and release presentation
+
+- **Do:** Inspect the updated Catalan, Spanish and German labels in the QML application and available classic/fixture-editor builds. Inspect the displayed version and package metadata.
+- ☐ Updated labels remain legible and coherent, and the application/package identifies itself consistently as 5.4.0.
+
+**Human sign-off:** All eight checks remain pending. Automated results do not establish physical output, translation accuracy, visual quality or human interaction.
+
+**Automated verification (2026-11-10):**
+
+| Suite | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| Upstream VC suites (13 executables) | 143 | 0 | 0 |
+| Audio capture, analyzer and consumers | 763 | 0 | 3 |
+| Native VC/history and recorded-channel replacement | 204 | 0 | 0 |
+| Fork audio triggers | 204 | 0 | 0 |
+| Fork VC buttons | 236 | 0 | 0 |
+| Fork XY pad | 20 | 0 | 0 |
+| Page planner | 59 | 0 | 0 |
+| MCP VC query/filter and validation | 141 | 0 | 0 |
+| ArtNet packetizer | 3 | 0 | 0 |
+| Web-access escaping | 6 | 0 | 0 |
+| Review parser suites | 63 | 0 | 0 |
+| HTTP/HTTPS URL-expression matrix | 36 | 0 | 0 |
+
+- The application, imported upstream suites, fork regression targets and renamed hotplug target build successfully. The hotplug executable remains `test.app/Contents/MacOS/test` on macOS. Initial CTest configuration failed on the reserved target name; the target-only rename resolves it. Dependency deprecation and macOS deployment-target warnings remain in the build logs. [Application and regression build](build/upstream-integration-20261110/build-final.log), [upstream harness and hotplug build](build/upstream-integration-20261110/build-harness.log).
+- All thirteen registered upstream suites also pass together through CTest, including the frame Disabled/AllowResize save/load regression. Seven upstream expected failures remain expected, not ordinary passes. The retired variable-band audio suite is excluded for the explicit replacement-model reason above, not counted as green. [CTest confirmation](build/upstream-integration-20261110/ctest-upstream.log), [JUnit report](build/upstream-integration-20261110/ctest-upstream.xml), [native result inventory](build/upstream-integration-20261110/results.json).
+- The first imported-suite run crashed because upstream's stub-oriented fixture allowed real Tardis actions to reach a null network manager. The fixture now suppresses history exactly as the upstream stub does, resets the singleton during teardown and isolates settings. No production undo/network behavior was changed. Two imported assertions were adapted to existing fork behavior: registering external controls emits input-list notifications for the outline, and an XY position is republished until an output write consumes it. Both production implementations are unchanged from task start. [Original run](build/upstream-integration-20261110/upstream-vcframe.log), [widget confirmation](build/upstream-integration-20261110/upstream-verified-vcwidget.json), [XY confirmation](build/upstream-integration-20261110/upstream-verified-vcxypad.json).
+- The native regression selection repeats the prior integration's ownership, layout, page identities, clipboard, history and recording checks. The audio analyzer/consumer skips require optional corpus/replay inputs that were not supplied. These are scoped results, not a new full-UI-suite result; earlier historical full-suite failures are not superseded. [Native VC](build/upstream-integration-20261110/native-vc.json), [recording](build/upstream-integration-20261110/recording-remap.json), [audio capture](build/upstream-integration-20261110/audiocapture.json), [audio analyzer](build/upstream-integration-20261110/audioanalyzer.json), [audio consumers](build/upstream-integration-20261110/audioconsumers.json).
+- All six changed WebSocket URL expressions produce the expected `ws://` or `wss://` URL for HTTP/HTTPS with hostname, explicit port and IPv6 hosts. This evaluates the actual source expressions, not a live TLS reverse proxy. All nine updated translation catalogs parse as XML, and the changed shell scripts pass `bash -n`. The ArtNet test checks packet construction, not concurrent delivery to real peers. [URL matrix](build/upstream-integration-20261110/websocket-check.json), [translations](build/upstream-integration-20261110/translation-check.json), [ArtNet](build/upstream-integration-20261110/artnet.json).
+- Both review parsers recognize eight unique pending checks in section 54. The original document remains an exact byte prefix and all previous parsed sections are unchanged. Another 130 preexisting changed files outside this integration remain byte-for-byte unchanged. Fifty-five imported test/support files match upstream exactly; only the suite build file, shared fixture and two notification assertions are adapted. Git's index and `mcp-server` HEAD remain unchanged, and the upstream ref was rechecked against the remote. [Parser suites](build/upstream-integration-20261110/parser-tests.log), [review and Git verification](build/upstream-integration-20261110/verification.json), [preexisting-edit preservation](build/upstream-integration-20261110/preexisting-preservation.json).
+- Native tests used isolated settings and offscreen/software rendering. The desktop application was not restarted. Linux, Windows, physical DMX, live HTTPS proxying, translation accuracy and visual/human checks remain unverified and unsigned.
+
+---
+
+## 55. Upstream French and Russian translations (167da4814)
+
+Incoming source: `mcallegari/qlcplus:master` at `167da48141c60d820cd715f52bb535ad1cc0ecc1`, fetched 2026-11-11 from `upstream`. `origin` points to the abossard fork. Four incoming commits follow section 54's pending `08452e9b6` integration.
+
+The incremental changes are applied to working files on `mcp-server`, preserving the earlier pending integrations and fork customizations. Git's index and branch history remain unchanged; this is not a recorded Git merge. The translation catalogs, Russian catalog build registration and translation-script language list are imported without local refactoring.
+
+### 55.1 French terminology and layout
+
+- **Do:** Select French, restart the application normally, and inspect the QML Virtual Console, function editors and dialogs. On available classic-UI, fixture-editor and web-access builds, inspect the updated French labels and plugin dialogs.
+- ☐ Translations are understandable and consistent across the available surfaces; longer labels, accents and dialog text remain legible without clipping.
+- ☐ Fork-specific recording, outline, audio-profile and MCP-related controls retain their existing behavior and readable labels or source-language fallback.
+
+### 55.2 Russian catalog loading
+
+- **Do:** Select Russian and restart normally. Inspect QML labels and, on available builds, the classic UI, fixture editor, web access and plugin dialogs. Switch back to the original language afterward.
+- ☐ Russian catalogs load on the available surfaces, Cyrillic text renders correctly, and translated labels do not obscure controls or shortcuts.
+- ☐ Language switching restores the expected labels without losing workspace settings or fork-specific control assignments.
+
+**Human sign-off:** All four checks remain pending. Automated checks do not establish translation accuracy, runtime language selection or visual quality.
+
+**Automated verification (2026-11-11):**
+
+| Check | Result |
+|---|---|
+| Updated translation catalogs | 30 parse as XML and compile with Qt `lrelease` |
+| Application build | `qlcplus5` succeeds |
+| Upstream VC regression suites | 13 executables pass through CTest |
+| Review parser suites | 64 tests pass |
+| Translation script syntax | `bash -n translate.sh` passes |
+
+- All 30 translation catalogs match upstream exactly. Across the 52 incoming files, 51 match upstream exactly; `plugins/os2l/CMakeLists.txt` retains the fork's existing Bonjour sources and macOS framework linkage, with only upstream's Russian catalog entry added. The complete incremental patch passes the reverse-applicability check. [Translation compilation](build/upstream-integration-20261111/lrelease.log), [catalog inventory](build/upstream-integration-20261111/translations.json), [preservation verification](build/upstream-integration-20261111/verification.json).
+- The application builds with existing dependency/deployment-target warnings. Upstream suites run offscreen with isolated settings, and both review parser suites pass, including the four pending checks in section 55. These are scoped results, not a new full-suite result. [Build](build/upstream-integration-20261111/build.log), [CTest](build/upstream-integration-20261111/ctest-upstream.log), [JUnit](build/upstream-integration-20261111/ctest-upstream.xml), [parser suites](build/upstream-integration-20261111/parser-tests.log).
+- The original review document remains an exact byte prefix. Files outside this integration remain unchanged, as do the index and `mcp-server` HEAD. The remote tip was rechecked after validation. Imported translation whitespace is retained verbatim; `git diff --check` reports upstream Russian and preexisting Polish translation whitespace.
+- The running desktop application was not restarted. Classic-UI runtime, other operating systems, translation accuracy and the human checks above remain unverified and unsigned.

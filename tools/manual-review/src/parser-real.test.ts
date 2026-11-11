@@ -19,6 +19,18 @@ describe('parseManualReview with real MANUAL_REVIEW.md', () => {
   const skip = md.length === 0;
 
   it.each([
+    { number: '55', commit: '167da4814',
+      cases: ['55.1', '55.2'],
+      checks: [2, 2], tags: [[], []] },
+    { number: '54', commit: '08452e9b6',
+      cases: ['54.1', '54.2', '54.3', '54.4', '54.5'],
+      checks: [2, 2, 2, 1, 1], tags: [[], ['DMX'], [], [], []] },
+    { number: '53', commit: '6ed78ed0a',
+      cases: ['53.1', '53.2', '53.3'],
+      checks: [2, 1, 2], tags: [['DMX'], [], []] },
+    { number: '52', commit: 'fec0349da',
+      cases: ['52.1', '52.2', '52.3', '52.4', '52.5'],
+      checks: [2, 2, 2, 2, 1], tags: [[], ['MIDI'], [], ['DMX'], []] },
     { number: '51', commit: '28cf5cac8',
       cases: ['51.1', '51.2', '51.3', '51.4', '51.5', '51.6', '51.7'],
       checks: [2, 2, 2, 2, 2, 2, 1], tags: [[], [], [], ['DMX'], ['DMX'], [], []] },
