@@ -267,7 +267,8 @@ def cmd_candidates(args):
 
     guard = Guard(max_memory_gb=args.max_memory_gb, max_seconds=args.max_minutes * 60, min_free_gb=args.min_free_gb, max_load=args.max_load, force=args.force)
     return run(Path(args.out), args.name, log=lambda m: print(m, flush=True), only_asked=args.only_asked, pause=args.pause, library=args.library,
-               guard=guard, max_tracks=args.max_tracks, device=args.device, retry_failed=args.retry_failed)
+               guard=guard, max_tracks=args.max_tracks, device=args.device, retry_failed=args.retry_failed,
+               keep_going=args.keep_going, max_failures_in_a_row=args.max_failures_in_a_row)
 
 
 def cmd_export(args):
@@ -393,6 +394,8 @@ def main(argv=None):
     cd.add_argument("--min-free-gb", type=float, default=Guard.min_free_gb, help="refuse to start with less free memory (exit code 75)")
     cd.add_argument("--max-load", type=float, default=Guard.max_load, help="refuse to start above this 1-minute load average (exit code 75)")
     cd.add_argument("--force", action="store_true", help="skip the busy check")
+    cd.add_argument("--keep-going", action="store_true", help="after a failed track, record it and go on (still exit code 1 at the end)")
+    cd.add_argument("--max-failures-in-a-row", type=int, default=3, help="with --keep-going: stop after this many failed tracks in a row")
     cd.add_argument("--retry-failed", action="store_true", help="also try tracks recorded in failed.json")
     cd.set_defaults(func=cmd_candidates)
     ex = sub.add_parser("export", help="rebuild comparison and learning tables (Parquet) from the raw outputs")

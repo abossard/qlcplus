@@ -17,7 +17,8 @@ used over 20 GB when one process ran every track), batches of 5 for allin1 and t
 group's memory (macOS physical footprint, see `footprint`) and its age, and kills the whole group past --max-memory-gb (default 8)
 or --max-minutes (default 20 per track). Before each process it checks free memory and the 1-minute load average and refuses on a busy
 Mac (exit code 75, nothing killed; --force skips the check). A track that fails, is killed or leaves no output is logged with its peak memory
-and reason, recorded in <out>/candidates/<name>/failed.json and ends the run with exit code 1: there is no retry. Later runs skip recorded
+and reason, recorded in <out>/candidates/<name>/failed.json and ends the run with exit code 1: there is no retry. With --keep-going the run goes on with the next track after the busy check and stops only
+after --max-failures-in-a-row (3) failed tracks in a row; the end of every run logs how many tracks were done and how many failed. Later runs skip recorded
 tracks until --retry-failed. Exit codes: 0 done or nothing to do, 1 a track failed, 75 the Mac was busy.
 """
 
@@ -228,17 +229,21 @@ def _finish(name, unit, raw, out_dir):
             (raw / f"{p.stem}.json").write_text(json.dumps({"drops": rows.get(p.stem, [])}))
 
 
-def _record(raw, unit, reason, peak, seconds):
+def _record(raw, unit, reason, peak, seconds, duration):
     failed = load_failed(raw)
     for p in unit:
         if not (raw / f"{p.stem}.json").exists():
-            failed[p.stem] = {"reason": reason, "peak_gb": round(peak, 2), "seconds": round(seconds), "at": datetime.now().isoformat(timespec="seconds")}
+            failed[p.stem] = {"reason": reason, "peak_gb": round(peak, 2), "seconds": round(seconds), "at": datetime.now().isoformat(timespec="seconds"),
+                              **({"duration": round(duration)} if duration else {})}
     _save_failed(raw, failed)
 
 
-def run(out_dir, name, log=print, only_asked=False, pause=0.0, library=False, guard=None, max_tracks=None, device="mps", retry_failed=False):
+def run(out_dir, name, log=print, only_asked=False, pause=0.0, library=False, guard=None, max_tracks=None, device="mps", retry_failed=False,
+        keep_going=False, max_failures_in_a_row=3):
     """Run a Candidate over the tracks it has no output for, one guarded process per track (EDMFormer) or batch (see the module docstring).
-    pause: seconds of rest per track. library: only tracks inside the Library scope. max_tracks: at most this many. Returns the exit code."""
+    pause: seconds of rest per track. library: only tracks inside the Library scope. max_tracks: at most this many.
+    keep_going: a failed track is recorded and the run goes on after the preflight check, until max_failures_in_a_row tracks failed in a row.
+    Returns the exit code."""
     guard = guard or Guard()
     folder, raw = links(out_dir), raw_dir(out_dir, name)
     if name not in NAMES:
@@ -268,10 +273,16 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0, library=False, gu
         log(f"{name}: cannot measure memory on this system, so no limit could hold: not starting")
         return EXIT_FAILED
     units = [[p] for p in todo] if name == "edmformer" else [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
+    n_done = n_failed = in_a_row = 0
+
+    def end(code):
+        log(f"{name}: {n_done} done, {n_failed} failed")
+        return code
+
     for unit in units:
         if not guard.force and (busy := preflight(*(guard.machine or read_machine)(), guard.min_free_gb, guard.max_load)):
             log(f"{name}: the Mac is busy, {busy}: nothing started, nothing killed")
-            return EXIT_BUSY
+            return end(EXIT_BUSY)
         if name == "dropdetector":
             chunk = CANDIDATES_HOME / "dropdetector-chunk"
             shutil.rmtree(chunk, ignore_errors=True)
@@ -285,18 +296,26 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0, library=False, gu
         if not reason and any(not (raw / f"{p.stem}.json").exists() for p in unit):
             reason = "no output"
         label = unit[0].stem if len(unit) == 1 else f"batch of {len(unit)}"
+        duration = index.get(unit[0].stem, {}).get("duration") if len(unit) == 1 else None
+        length = f", track length {duration:.0f} s" if duration else ""
+        lacking = sum(not (raw / f"{p.stem}.json").exists() for p in unit)
+        n_done, n_failed = n_done + len(unit) - lacking, n_failed + lacking
         if reason:
-            _record(raw, unit, reason, peak, seconds)
-            log(f"{name}: {label} failed: {reason}, peak {peak:.1f} GB after {seconds:.0f} s")
-            left = [p for p in todo if not (raw / f"{p.stem}.json").exists()]
-            log(f"{name}: stopped early, {len(left)} of {len(todo)} tracks still to do")
-            return EXIT_FAILED
+            _record(raw, unit, reason, peak, seconds, duration)
+            in_a_row += lacking
+            log(f"{name}: {label} failed: {reason}, peak {peak:.1f} GB after {seconds:.0f} s{length}")
+            left = sum(not (raw / f"{p.stem}.json").exists() for p in todo)
+            if not keep_going or in_a_row >= max_failures_in_a_row:
+                log(f"{name}: stopped early, " + (f"{in_a_row} tracks failed in a row, " if keep_going else "") + f"{left} of {len(todo)} tracks still to do")
+                return end(EXIT_FAILED)
+            continue
+        in_a_row = 0
         again = load_failed(raw)
         if any(p.stem in again for p in unit):      # a retried track that worked
             _save_failed(raw, {k: v for k, v in again.items() if k not in {p.stem for p in unit}})
-        log(f"{name}: {label} done in {seconds:.0f} s, peak {peak:.1f} GB" + (f" ({device})" if name == "edmformer" else ""))
+        log(f"{name}: {label} done in {seconds:.0f} s, peak {peak:.1f} GB{length}" + (f" ({device})" if name == "edmformer" else ""))
         time.sleep(pause * len(unit))
-    return 0
+    return end(EXIT_FAILED if n_failed else 0)
 
 
 def load(out_dir, name, tid):

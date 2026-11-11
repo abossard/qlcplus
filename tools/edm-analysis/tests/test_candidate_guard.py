@@ -249,3 +249,71 @@ def test_the_options_reach_the_run(library, monkeypatch, capsys):
     monkeypatch.setattr(candidates, "read_machine", lambda: (1.0, 20.0))
     assert main(["candidates", "edmformer", "--out", str(library), "--max-tracks", "2"]) == 75
     assert main(["candidates", "edmformer", "--out", str(library), "--max-tracks", "1", "--force"]) == 0
+
+
+# --- keep going ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("fail,max_in_row,keep_going,done_n,failed_n,code", [
+    ([1, 3], 3, True, 5, 2, 1),               # failures are recorded and the run goes on; it still ends with 1
+    ([], 3, True, 7, 0, 0),
+    ([1, 2, 3], 3, True, 1, 3, 1),            # three in a row end the run: tracks 4 to 6 are never tried
+    ([1, 2, 3], 4, True, 4, 3, 1),            # a higher limit lets it reach tracks 4 to 6, which work
+    ([1, 2, 4, 5], 3, True, 3, 4, 1),         # a success in between resets the count
+    ([1], 3, False, 1, 1, 1),                 # without --keep-going the first failure ends the run, as before
+])
+def test_keep_going_continues_after_a_failed_track_until_too_many_fail_in_a_row(library, monkeypatch, fail, max_in_row, keep_going, done_n, failed_n, code):
+    monkeypatch.setenv("STUB_FAIL", ",".join(ids(7)[i] for i in fail))
+    log = []
+    got = run(library, "edmformer", log=log.append, guard=guard(), keep_going=keep_going, max_failures_in_a_row=max_in_row)
+    assert got == code and len(done(library)) == done_n
+    assert len(load_failed(library / "candidates" / "edmformer")) == failed_n
+    assert f"edmformer: {done_n} done, {failed_n} failed" in log
+
+
+def test_keep_going_stops_for_a_busy_machine_without_calling_it_a_failure(library, monkeypatch):
+    monkeypatch.setenv("STUB_FAIL", ids(7)[0])
+    readings = iter([(40.0, 1.0), (40.0, 1.0), (3.0, 1.0)])
+    assert run(library, "edmformer", log=lambda m: None, guard=guard(machine=lambda: next(readings)), keep_going=True) == EXIT_BUSY
+    assert list(load_failed(library / "candidates" / "edmformer")) == [ids(7)[0]] and done(library) == [ids(7)[1]]
+
+
+def test_a_failed_track_after_keep_going_is_skipped_by_the_next_run_like_any_other(library, monkeypatch):
+    monkeypatch.setenv("STUB_FAIL", ids(7)[2])
+    run(library, "edmformer", log=lambda m: None, guard=guard(), keep_going=True)
+    monkeypatch.delenv("STUB_FAIL")
+    assert run(library, "edmformer", log=lambda m: None, guard=guard()) == 0 and ids(7)[2] not in done(library)
+
+
+@pytest.mark.parametrize("duration,said", [(231.0, "track length 231 s"), (None, None)])
+def test_the_log_gives_the_length_of_the_track_next_to_its_peak_memory_when_known(library, monkeypatch, duration, said):
+    index = json.loads((library / "index.json").read_text())
+    if duration:
+        index[ids(7)[0]]["duration"] = duration
+    (library / "index.json").write_text(json.dumps(index))
+    monkeypatch.setenv("STUB_FAIL", ids(7)[1])
+    log = []
+    run(library, "edmformer", log=log.append, guard=guard(), max_tracks=2, keep_going=True)
+    first = [m for m in log if ids(7)[0] in m and "done in" in m][0]
+    assert ("peak" in first) and ((said in first) if said else ("track length" not in first))
+    assert load_failed(library / "candidates" / "edmformer")[ids(7)[1]].get("duration") is None
+
+
+def test_the_length_is_logged_for_a_failed_track_too_and_kept_in_failed_json(library, monkeypatch):
+    index = json.loads((library / "index.json").read_text())
+    index[ids(7)[0]]["duration"] = 400.0
+    (library / "index.json").write_text(json.dumps(index))
+    monkeypatch.setenv("STUB_MODE", "fail")
+    log = []
+    run(library, "edmformer", log=log.append, guard=guard())
+    assert any("failed" in m and "track length 400 s" in m for m in log)
+    assert load_failed(library / "candidates" / "edmformer")[ids(7)[0]]["duration"] == 400
+
+
+def test_the_new_options_reach_the_run(library, monkeypatch):
+    from edm_analysis.cli import main
+
+    monkeypatch.setattr(candidates, "read_machine", CALM)
+    monkeypatch.setattr(candidates, "footprint", lambda pid: 10 * 10**6)
+    monkeypatch.setenv("STUB_FAIL", ",".join(ids(7)[:4]))
+    assert main(["candidates", "edmformer", "--out", str(library), "--keep-going", "--max-failures-in-a-row", "2"]) == 1
+    assert len(load_failed(library / "candidates" / "edmformer")) == 2
