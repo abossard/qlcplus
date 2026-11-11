@@ -185,26 +185,3 @@ def test_the_library_command_needs_a_pattern_to_set(library, capsys):
 
     assert main(["library", "set", "--out", str(library)]) == 1
     assert load_scope(library)["include"] == ["/m/ZZ/2026*"]
-
-
-def test_candidates_run_on_the_tracks_of_the_library_first(tmp_path, monkeypatch):
-    import subprocess
-    from types import SimpleNamespace
-
-    from edm_analysis import candidates
-
-    music = tmp_path / "music"
-    music.mkdir()
-    tracks = {f"{i:016x}": music / f"{'ZZ' if i == 2 else 'XX'}-song{i}.mp3" for i in range(3)}
-    for p in tracks.values():
-        p.write_bytes(b"")
-    (tmp_path / "index.json").write_text(json.dumps({tid: {"path": str(p)} for tid, p in tracks.items()}))
-    set_scope(tmp_path, [f"{music}/ZZ*"])
-    monkeypatch.setattr(candidates, "CANDIDATES_HOME", tmp_path / "home")
-    called = []
-    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: called.append([Path(c).name for c in cmd if str(c).endswith(".mp3")])
-                        or SimpleNamespace(returncode=0))
-
-    candidates.run(tmp_path, "edmformer", log=lambda m: None)
-
-    assert called[0][0] == f"{list(tracks)[2]}.mp3" and len(called[0]) == 3

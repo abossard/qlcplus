@@ -263,10 +263,11 @@ def cmd_round(args):
 
 
 def cmd_candidates(args):
-    from .candidates import run
+    from .candidates import Guard, run
 
-    run(Path(args.out), args.name, log=lambda m: print(m, flush=True), only_asked=args.only_asked, pause=args.pause, library=args.library)
-    return 0
+    guard = Guard(max_memory_gb=args.max_memory_gb, max_seconds=args.max_minutes * 60, min_free_gb=args.min_free_gb, max_load=args.max_load, force=args.force)
+    return run(Path(args.out), args.name, log=lambda m: print(m, flush=True), only_asked=args.only_asked, pause=args.pause, library=args.library,
+               guard=guard, max_tracks=args.max_tracks, device=args.device, retry_failed=args.retry_failed)
 
 
 def cmd_export(args):
@@ -383,6 +384,16 @@ def main(argv=None):
     cd.add_argument("--only-asked", action="store_true", help="only tracks that review rounds ask about")
     cd.add_argument("--library", action="store_true", help="only tracks inside the Library scope (every track where no scope is set)")
     cd.add_argument("--pause", type=float, default=0.0, help="seconds of rest per track, to keep the load down")
+    from .candidates import Guard
+
+    cd.add_argument("--max-tracks", type=int, default=None, help="do at most this many tracks in this call")
+    cd.add_argument("--device", choices=("mps", "cpu"), default="mps", help="where EDMFormer runs")
+    cd.add_argument("--max-memory-gb", type=float, default=Guard.max_memory_gb, help="kill the process group past this physical footprint")
+    cd.add_argument("--max-minutes", type=float, default=Guard.max_seconds / 60, help="kill the process group of a track that runs longer")
+    cd.add_argument("--min-free-gb", type=float, default=Guard.min_free_gb, help="refuse to start with less free memory (exit code 75)")
+    cd.add_argument("--max-load", type=float, default=Guard.max_load, help="refuse to start above this 1-minute load average (exit code 75)")
+    cd.add_argument("--force", action="store_true", help="skip the busy check")
+    cd.add_argument("--retry-failed", action="store_true", help="also try tracks recorded in failed.json")
     cd.set_defaults(func=cmd_candidates)
     ex = sub.add_parser("export", help="rebuild comparison and learning tables (Parquet) from the raw outputs")
     ex.add_argument("--out", default=str(DEFAULT_OUT))

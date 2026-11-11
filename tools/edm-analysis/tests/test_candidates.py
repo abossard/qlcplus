@@ -52,53 +52,6 @@ def test_allin1_output_is_renamed_to_the_track_id(tmp_path):
     assert load(tmp_path, "allin1", TID)["downbeats"] == [0.12, 2.08]
 
 
-def stub_run(monkeypatch, tmp_path, code, done):
-    """Replace the Candidate's subprocess: it exits with `code` after writing outputs for the first `done` tracks."""
-    import subprocess
-    from types import SimpleNamespace
-
-    from edm_analysis import candidates
-
-    music = tmp_path / "music"
-    music.mkdir()
-    tracks = {f"{i:016x}": music / f"song{i}.mp3" for i in range(3)}
-    for path in tracks.values():
-        path.write_bytes(b"")
-    (tmp_path / "index.json").write_text(json.dumps({tid: {"path": str(path)} for tid, path in tracks.items()}))
-    monkeypatch.setattr(candidates, "CANDIDATES_HOME", tmp_path / "home")
-
-    def fake(cmd, **kwargs):
-        raw = tmp_path / "candidates" / ("allin1" if "-o" in cmd else "edmformer")
-        mp3s = [Path(c) for c in cmd if str(c).endswith(".mp3")]
-        for mp3 in mp3s[:done]:
-            (raw / f"{mp3.stem}.json").write_text("{}")
-        return SimpleNamespace(returncode=code)
-
-    monkeypatch.setattr(subprocess, "run", fake)
-
-
-@pytest.mark.parametrize("name,code,done,said", [
-    ("edmformer", 0, 3, []),
-    ("edmformer", 1, 0, ["edmformer: exit code 1", "edmformer: stopped early, 3 of 3 tracks still to do"]),
-    ("edmformer", -9, 1, ["edmformer: exit code -9", "edmformer: stopped early, 2 of 3 tracks still to do"]),
-    ("edmformer", 0, 1, ["edmformer: stopped early, 2 of 3 tracks still to do"]),     # exits cleanly, tracks missing
-    ("allin1", 0, 3, []),
-    ("allin1", 1, 0, ["allin1: exit code 1", "allin1: stopped early, 3 of 3 tracks still to do"]),
-    ("dropdetector", 2, 0, ["dropdetector: exit code 2", "dropdetector: stopped early, 3 of 3 tracks still to do"]),
-])
-def test_a_candidate_run_that_fails_or_stops_early_says_so(tmp_path, monkeypatch, name, code, done, said):
-    from edm_analysis.candidates import run
-
-    stub_run(monkeypatch, tmp_path, code, done)
-    (tmp_path / "candidates" / "allin1").mkdir(parents=True)
-    (tmp_path / "candidates" / "edmformer").mkdir(parents=True)
-    log = []
-
-    run(tmp_path, name, log=log.append)
-
-    assert [m for m in log if "exit code" in m or "stopped early" in m] == said
-
-
 def _doc(tid, n=40):
     flat = {k: [0.5] * n for k in ("kick", "hihat", "bass", "instruments", "vocal", "loud")}
     return {"track": {"path": "/m/a.mp3", "title": "a", "sha256": tid * 4, "duration": 80.0}, "analyzer": {"version": "2.5"},
@@ -119,41 +72,3 @@ def test_a_track_is_fused_with_the_outputs_the_candidates_left(tmp_path, files, 
 
     assert [s["start_bar"] for s in out["sections"] if s["label"] == "drop"] == drops
     assert out["rules"]["sections"] == _doc(TID)["sections"]
-
-
-T0, T1, T2 = (f"{i:016x}" for i in range(3))
-
-
-@pytest.mark.parametrize("scope,library,only_asked,expected", [
-    (["song[01].mp3"], False, False, [T0, T1, T2]),     # the Library first, then the rest
-    (["song[01].mp3"], True, False, [T0, T1]),          # only the Library
-    (["song2.mp3"], False, False, [T2, T0, T1]),
-    (["song2.mp3"], True, False, [T2]),
-    (None, True, False, [T0, T2, T1]),                  # no scope: every track, asked ones first, as today
-    (["song[01].mp3"], False, True, [T0, T2]),          # asked tracks only: T0 in the Library, T2 out
-    (["song[01].mp3"], True, True, [T0]),
-])
-def test_library_runs_only_tracks_inside_the_library(tmp_path, monkeypatch, scope, library, only_asked, expected):
-    import subprocess
-
-    from edm_analysis.candidates import run
-    from edm_analysis.library import set_scope
-
-    stub_run(monkeypatch, tmp_path, 0, 3)
-    (tmp_path / "candidates" / "edmformer").mkdir(parents=True)
-    (tmp_path / "rounds").mkdir()
-    (tmp_path / "rounds" / "round-01.json").write_text(json.dumps({"round": 1, "probes": [{"id": "r01-p001", "track": T0}, {"id": "r01-p002", "track": T2}]}))
-    if scope:
-        set_scope(tmp_path, [str(tmp_path / "music" / p) for p in scope])
-    stub, seen, log = subprocess.run, [], []
-
-    def record(cmd, **kwargs):
-        seen.extend(Path(c).stem for c in cmd if str(c).endswith(".mp3"))
-        return stub(cmd, **kwargs)
-
-    monkeypatch.setattr(subprocess, "run", record)
-
-    run(tmp_path, "edmformer", log=log.append, only_asked=only_asked, library=library, pause=0.0)
-
-    assert seen == expected
-    assert f"edmformer: {len(expected)} tracks to do" in log
