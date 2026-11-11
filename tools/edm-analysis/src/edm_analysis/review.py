@@ -21,6 +21,8 @@ from pathlib import Path
 import numpy as np
 
 from . import audio, candidates, rounds
+from . import confidence
+from .confidence import load_model, with_confidence
 from .library import in_library, load_scope
 from .ratings import gold_from_rating, merge_gold, prefill_rating, summarize, tempo_agreement
 
@@ -205,6 +207,12 @@ class Clips:
         return missing
 
 
+def shown(out_dir, doc, model):
+    """The Analysis as QLC+ gets it: the rules fused with the Candidates' output, with the confidence model's numbers."""
+    fused = candidates.fused(out_dir, doc)
+    return with_confidence(fused, model) if model else fused
+
+
 def _slim(doc):
     """An analysis without the large arrays rounds.report never reads."""
     return {**{k: v for k, v in doc.items() if k not in ("peaks", "raw", "beats")},
@@ -212,32 +220,49 @@ def _slim(doc):
 
 
 class LibraryReport:
-    """rounds.report over every analysis. Documents are cached by file stamp, so only a changed file is read
-    again. Only report requests wait for the loading; every other request goes on."""
+    """rounds.report over the Analysis of every track in the Library, as QLC+ gets it. A document is made again only
+    when an input changed: its analysis file, a Candidate's file, the confidence model or the Library scope. Only
+    report requests wait for the loading; every other request goes on."""
 
     def __init__(self, out_dir):
         self.out_dir, self.docs, self.lock = Path(out_dir), {}, threading.Lock()
 
+    @staticmethod
+    def _stamp(path):
+        try:
+            st = Path(path).stat()
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
     def refresh(self):
         with self.lock:
             files = {p.stem: p for p in self.out_dir.glob("*.json") if TRACK_ID.match(p.stem)}
+            shared = [self._stamp(self.out_dir / confidence.MODEL_FILE), self._stamp(self.out_dir / "library.json")]
+            model = load_model(self.out_dir) if shared[0] else None
+            scope = load_scope(self.out_dir)
             for tid, p in files.items():
+                stamp = [self._stamp(p), *shared, *(self._stamp(self.out_dir / "candidates" / name / p.name) for name in candidates.NAMES)]
+                if tid in self.docs and self.docs[tid][0] == stamp:
+                    continue
                 try:
-                    st = p.stat()
-                    stamp = (st.st_mtime_ns, st.st_size)
-                    if tid not in self.docs or self.docs[tid][0] != stamp:
-                        self.docs[tid] = (stamp, _slim(json.loads(p.read_text())))
-                except (OSError, ValueError):
-                    pass   # being rewritten right now: the cached copy, if any, serves
+                    doc = json.loads(p.read_text())
+                    slim = _slim(shown(self.out_dir, doc, model)) if "sections" in doc and in_library(doc["track"]["path"], scope) else None
+                    self.docs[tid] = (stamp, slim)
+                except (OSError, ValueError, KeyError):
+                    pass   # being rewritten right now, or not an analysis that can be fused: the cached copy, if any, serves
             for tid in set(self.docs) - set(files):
                 del self.docs[tid]
-            return {tid: doc for tid, (_, doc) in self.docs.items()}
+            return {tid: doc for tid, (_, doc) in self.docs.items() if doc is not None}
 
     def get(self):
         """Every answer counts; the library's coverage is measured over the tracks inside the scope."""
-        scope = load_scope(self.out_dir)
-        docs = {tid: doc for tid, doc in self.refresh().items() if in_library(doc["track"]["path"], scope)}
-        return rounds.report(rounds.all_rounds(self.out_dir), rounds.load_answers(self.out_dir), docs)
+        return rounds.report(rounds.all_rounds(self.out_dir), rounds.load_answers(self.out_dir), self.refresh())
+
+    def counts(self):
+        """{track id: (drops, section labels)} of what is loaded so far; never waits for a load."""
+        return {tid: (sum(e["kind"] == "drop" for e in doc["events"]), [s["label"] for s in doc["sections"]])
+                for tid, (_, doc) in list(self.docs.items()) if doc is not None}
 
 
 def warm(out_dir, clips, library, stop, every=5.0, longest=300.0):
@@ -264,8 +289,7 @@ def warm(out_dir, clips, library, stop, every=5.0, longest=300.0):
                     due, wait = time.monotonic() + wait, min(2 * wait, longest)
                 else:
                     wait = every
-                if changed:
-                    library.refresh()
+            library.refresh()   # a stamp check per file when nothing changed; keeps the song list's counts current
         except Exception as e:   # the thread must outlive one bad file
             print(f"warm-up: {e}", file=sys.stderr, flush=True)
         stop.wait(every)
@@ -415,8 +439,10 @@ def public_track(doc):
 
 
 def _same_structure(a, b):
-    """Versions are "<features>.<structure>"; new features alone (same beats) keep a rating valid."""
-    return str(a).split(".")[-1] == str(b).split(".")[-1]
+    """Versions are "<features>.<structure>.<fusion>" (a rules analysis has no fusion part); new features alone
+    (same beats) keep a rating valid."""
+    parts = lambda v: (p := str(v).split("."))[1:] or p
+    return parts(a) == parts(b)
 
 
 class RatingStore:
@@ -482,12 +508,22 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
     def load_doc(track_id):
         return read_doc(out_dir, track_id)
 
+    def shown_doc(track_id):
+        """The Analysis as QLC+ gets it: the rules fused with the Candidates' output, with the confidence model's numbers.
+        The raw rules document stays what the clips, the audio and the question screen's waveforms read."""
+        doc = load_doc(track_id)
+        if not doc or "sections" not in doc:
+            return doc
+        return shown(out_dir, doc, load_model(out_dir))
+
     def round_for_page():
         rnd = rounds.current_round(out_dir)
         if not rnd:
             return {"round": None}
         page = rounds.public_round(rnd, rounds.load_answers(out_dir))
         for probe, raw in zip(page["probes"], rnd["probes"]):
+            if "before" in raw:   # the first bar that may not be tapped; the server refuses those answers too
+                probe["before"] = raw["before"]
             path = out_dir / f"{raw['track']}.json"
             stamp = path.stat().st_mtime_ns if path.exists() else None
             for play, raw_play in zip(probe["plays"], raw["plays"]):
@@ -568,6 +604,17 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
             self.end_headers()
             self.wfile.write(data)
 
+        def _shown(self, track_id):
+            """shown_doc, or None after sending 404 (no such track) or 503 (a file it is made from is being rewritten)."""
+            try:
+                doc = shown_doc(track_id)
+            except (OSError, ValueError, KeyError):
+                self._json({"error": "the analysis is being rewritten, try again in a moment"}, 503)
+                return None
+            if doc is None:
+                self.send_error(404)
+            return doc
+
         def _audio(self, track_id, query):
             doc = load_doc(track_id)
             if not doc or not Path(doc["track"]["path"]).exists():
@@ -635,11 +682,12 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
             return {tid: t for tid, t in index.items() if "path" not in t or in_library(t["path"], scope)}
 
         def _tracks(self):
-            ratings = store.load()
+            ratings, loaded = store.load(), library.counts()   # the fused Analysis's counts once loaded, else the index's
             rows = []
             for tid, t in self._index().items():
                 r = ratings.get(tid, {})
-                rows.append({"id": tid, **{k: v for k, v in t.items() if k != "path"}, "rated": bool(r), "overall": r.get("overall"),
+                drops, labels = loaded.get(tid, (t.get("drops"), t.get("sections")))
+                rows.append({"id": tid, **{k: v for k, v in t.items() if k != "path"}, "drops": drops, "sections": labels, "rated": bool(r), "overall": r.get("overall"),
                              "tempo": tempo_agreement(t["bpm"], t.get("filename_bpm")) if "bpm" in t else None})
             return sorted(rows, key=lambda r: r["title"].lower())
 
@@ -668,12 +716,12 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
                                              for k in ("match", "double", "half", "mismatch", "untagged")},
                                    "tracks_analyzed": len(tracks)})
             if parts[:2] == ["api", "track"] and len(parts) == 3:
-                doc = load_doc(parts[2])
-                return self._json(public_track(doc)) if doc else self.send_error(404)
+                doc = self._shown(parts[2])
+                return self._json(public_track(doc)) if doc else None
             if parts[:2] in (["api", "ratings"], ["api", "gold"]) and len(parts) == 3:
-                doc = load_doc(parts[2])
+                doc = self._shown(parts[2])
                 if not doc:
-                    return self.send_error(404)
+                    return
                 version = doc["analyzer"]["version"]
                 if parts[1] == "gold":
                     return self._json(store.gold(parts[2], version))
@@ -697,9 +745,9 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
                 return self._answer(parts[2])
             if not login and (parts[:2] != ["api", "ratings"] or len(parts) != 3):
                 return self.send_error(404)
-            doc = None if login else load_doc(parts[2])
+            doc = None if login else self._shown(parts[2])
             if not login and not doc:
-                return self.send_error(404)
+                return
             ok, body = self._body()
             if not ok:
                 return

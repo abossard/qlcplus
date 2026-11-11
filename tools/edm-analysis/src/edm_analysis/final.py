@@ -6,11 +6,12 @@ Reviews never reach this file: they are training and scoring data only (GLOSSARY
 import json
 from pathlib import Path
 
+from .candidates import fused
 from .confidence import load_model, with_confidence
 
 FINAL_SCHEMA = "qlcplus-edm-final/2"
-SECTION_KEYS = ("label", "start_bar", "end_bar", "start", "end", "confidence", "label_confidence")
-EVENT_KEYS = ("kind", "bar", "time", "confidence")
+SECTION_KEYS = ("label", "start_bar", "end_bar", "start", "end", "confidence", "label_confidence", "sources")
+EVENT_KEYS = ("kind", "bar", "time", "confidence", "sources")
 
 
 def final_document(doc):
@@ -28,7 +29,9 @@ def final_document(doc):
 
 
 def write_final(out_dir, doc):
+    """doc: the rule analysis or its fusion; the file always holds the fused structure."""
     out_dir = Path(out_dir)
+    doc = doc if "rules" in doc else fused(out_dir, doc)
     model = load_model(out_dir)
     if model:
         doc = with_confidence(doc, model)

@@ -111,7 +111,7 @@ def test_section_starts_on_a_multiple_of_eight_bars(source, n, on_8):
 @pytest.mark.parametrize("name,n,exact,within_1", [
     ("rules", 2, 0.0, 1.0), ("edmformer", 2, 1.0, 1.0), ("dropdetector", 2, 0.0, 0.5), ("vdj", 2, 1.0, 1.0)])
 def test_the_gold_bars_score_each_source(name, n, exact, within_1):
-    out = compare(CLAIMS, ANSWERS)["gold"][name]
+    out = compare(CLAIMS, ANSWERS)["gold"]["drop"][name]
     assert (out["n"], out["exact"], out["within_1"]) == (n, exact, within_1)
 
 
@@ -121,7 +121,7 @@ def test_without_gold_bars_there_is_no_gold_section(answers):
 
 
 def test_a_gold_answer_counts_only_for_sources_that_cover_the_track():
-    out = compare(CLAIMS, [{"track": "C", "kind": "drop", "gold_bar": 8}])["gold"]
+    out = compare(CLAIMS, [{"track": "C", "kind": "drop", "gold_bar": 8}])["gold"]["drop"]
     assert out["dropdetector"]["n"] == 0 and out["dropdetector"]["exact"] is None and out["rules"]["n"] == 1
 
 
@@ -159,6 +159,94 @@ def test_the_command_prints_a_table_or_json_from_the_exported_tables(tmp_path, c
 
     out = capsys.readouterr().out
     if as_json:
-        assert json.loads(out)["drops"]["tracks"] == 2 and json.loads(out)["gold"]["rules"]["n"] == 2
+        assert json.loads(out)["drops"]["tracks"] == 2 and json.loads(out)["gold"]["drop"]["rules"]["n"] == 2
     else:
         assert "tracks covered" in out and "Gold" in out
+
+
+# --- the fused structure ---
+
+def sec(track, source, bar, label):
+    return {**c(track, source, "section", bar), "label": label}
+
+
+FUSED_CLAIMS = [
+    # track F: the rules call a buildup at 8 and a drop at 16 (the drop is a phrase early), the fusion moves the drop to 24 and starts the buildup at 14
+    *[sec("F", "rules", b, l) for b, l in ((0, "intro"), (8, "buildup"), (16, "drop"), (40, "outro"))],
+    *[sec("F", "fused", b, l) for b, l in ((0, "intro"), (14, "buildup"), (24, "drop"), (40, "groove"))],
+    c("F", "rules", "drop", 16), c("F", "fused", "drop", 24), c("F", "rules", "buildup", 8), c("F", "fused", "buildup", 14),
+    c("F", "dropdetector", "drop", 24, 0.97), c("F", "dropdetector", "drop", 30, 0.2), c("F", "edmformer", "drop", 25),
+    # track G: no buildup before the rules' drop, one before the fused drop
+    *[sec("G", "rules", b, l) for b, l in ((0, "intro"), (16, "drop"))], *[sec("G", "fused", b, l) for b, l in ((0, "intro"), (8, "buildup"), (16, "drop"))],
+    c("G", "rules", "drop", 16), c("G", "fused", "drop", 16), c("G", "fused", "buildup", 8), c("G", "dropdetector", "drop", 16, 0.9),
+]
+FUSED_ANSWERS = [{"track": "F", "kind": "drop", "gold_bar": 24}, {"track": "F", "kind": "buildup", "gold_bar": 14}, {"track": "G", "kind": "drop", "gold_bar": 17},
+                 {"track": "F", "kind": "breakdown", "gold_bar": 30}]
+
+
+def test_fused_claims_are_a_source_of_their_own():
+    assert compare(FUSED_CLAIMS)["coverage"]["fused"] == 2
+
+
+@pytest.mark.parametrize("source,offsets", [("rules", {-8: 1, 0: 1}), ("fused", {0: 2}), ("edmformer", {1: 1})])
+def test_the_offset_of_each_sources_drops_from_the_detectors_sure_drops(source, offsets):
+    # the detector's 0.2 drop at 30 is no drop; G has no EDMFormer output, so it counts for neither
+    assert compare(FUSED_CLAIMS)["detector_offsets"][source] == offsets
+
+
+@pytest.mark.parametrize("kind,source,n,exact,within_1", [
+    ("drop", "rules", 2, 0.0, 0.5), ("drop", "fused", 2, 0.5, 1.0), ("drop", "dropdetector", 2, 0.5, 1.0),
+    ("buildup", "rules", 1, 0.0, 0.0), ("buildup", "fused", 1, 1.0, 1.0),
+    ("breakdown", "rules", 1, 0.0, 0.0),
+])
+def test_gold_bars_are_scored_per_kind(kind, source, n, exact, within_1):
+    out = compare(FUSED_CLAIMS, FUSED_ANSWERS)["gold"][kind][source]
+    assert (out["n"], out["exact"], out["within_1"]) == (n, exact, within_1)
+
+
+@pytest.mark.parametrize("kind", ["drop", "buildup", "breakdown"])
+def test_gold_shares_come_with_what_they_mean_under_the_reviewers_error_rate(kind):
+    from edm_analysis.confidence import corrected_rate
+
+    rows = [r for r in compare(FUSED_CLAIMS, FUSED_ANSWERS)["gold"][kind].values() if r["n"]]
+    assert rows
+    for r in rows:
+        assert r["exact_corrected"] == pytest.approx(corrected_rate(r["exact"])) and r["within_1_corrected"] == pytest.approx(corrected_rate(r["within_1"]))
+
+
+def test_the_structure_counts_drops_with_a_buildup_and_the_buildup_lengths():
+    out = compare(FUSED_CLAIMS)["structure"]
+    assert out["rules"] == {"drops": 2, "with_buildup": 1, "buildup_lengths": {8: 1}}
+    assert out["fused"] == {"drops": 2, "with_buildup": 2, "buildup_lengths": {8: 1, 10: 1}}
+
+
+def test_label_changes_name_the_rules_sections_the_fusion_labels_differently():
+    assert compare(FUSED_CLAIMS)["label_changes"] == {"sections": 6, "changed": 3, "from_to": {"buildup>intro": 1, "drop>buildup": 1, "outro>groove": 1}}
+
+
+def test_the_table_shows_the_fusion_numbers():
+    text = format_table(compare(FUSED_CLAIMS, FUSED_ANSWERS))
+    for part in ("fused", "drops with a buildup before them", "buildup length", "label changes", "drop>buildup",
+                 "Gold bars of buildups", "Gold bars of drops", "sure drop detector drop", "reviewer"):
+        assert part in text, part
+    assert "None" not in text
+
+
+def test_a_track_is_printed_as_rules_fused_and_answers_side_by_side():
+    from edm_analysis.compare import side_by_side
+
+    doc = {"track": {"title": "Some Song"},
+           "rules": {"sections": [{"label": "intro", "start_bar": 0, "end_bar": 16}, {"label": "drop", "start_bar": 16, "end_bar": 40}]},
+           "sections": [{"label": "intro", "start_bar": 0, "end_bar": 14, "confidence": 100, "sources": ["rules"]},
+                        {"label": "buildup", "start_bar": 14, "end_bar": 24, "confidence": 55, "sources": []},
+                        {"label": "drop", "start_bar": 24, "end_bar": 40, "confidence": 91, "sources": ["dropdetector", "edmformer"]}]}
+    answers = [{"kind": "drop", "bar": 16, "answer": "bar:24", "gold_bar": 24}, {"kind": "label", "bar": 14, "answer": "no", "gold_bar": None}]
+
+    lines = side_by_side(doc, answers).splitlines()
+
+    assert lines[0] == "Some Song" and lines[1].split() == ["rules", "fused", "answers"]
+    rows = [[col.strip() for col in line.split("|")] for line in lines[2:]]
+    assert rows[0][:2] == ["intro 0-16", "intro 0-14 100% rules"]
+    assert rows[1][:2] == ["drop 16-40", "buildup 14-24 55%"]
+    assert rows[2][1] == "drop 24-40 91% dropdetector+edmformer"
+    assert rows[0][2] == "label 14: no" and rows[1][2] == "drop 16: bar:24 (gold bar 24)"

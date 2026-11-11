@@ -567,9 +567,13 @@ document.addEventListener("keydown", e => {
 // Touch layouts get taller section bands (44 px tap targets) and a wider grab radius.
 // Reference rows under the VirtualDJ row: what each Candidate found, 12 px each with a small label.
 const CAND_LABELS = { edmformer: "EDMFormer", allin1: "allin1", dropdetector: "drop det." };
+const SOURCE_LABELS = { ...CAND_LABELS, rules: "rules" };
+// The band above is the fused Analysis; where Candidates have output, the raw rule sections are one more row after them.
 function candidateRows() {
   const c = (reference && reference.candidates) || {};
-  return Object.keys(CAND_LABELS).filter(n => c[n] && (n === "dropdetector" ? c[n].drops : c[n].sections).length).map(n => ({ name: n, label: CAND_LABELS[n], data: c[n] }));
+  const found = Object.keys(CAND_LABELS).filter(n => c[n] && (n === "dropdetector" ? c[n].drops : c[n].sections).length).map(n => ({ name: n, label: CAND_LABELS[n], data: c[n] }));
+  const rules = doc && doc.rules && doc.rules.sections.map((s, i) => ({ start: i ? barTime(s.start_bar) : 0, label: s.label }));
+  return found.length && rules ? [...found, { name: "rules", label: "rules", data: { sections: rules } }] : found;
 }
 function rows(name) {
   const big = !roomy(), n = candidateRows().length;
@@ -747,9 +751,16 @@ function showMarkMenu(e, i) {
     d => { if (d.play) return playExcerpt(m.bar); if (d.v === "wrong") { rating.missed.splice(i, 1); changed(); } });
 }
 
+// Which sources put the shown section on its exact bar (the fusion records them); nothing for a section the reviewer added.
+function sourcesLine(s) {
+  const d = doc.sections.find(x => x.start_bar === s.start_bar && x.label === s.label);
+  if (!d || !d.sources) return "";
+  return `<br><span class="status">${d.sources.length ? "On this bar in: " + d.sources.map(n => SOURCE_LABELS[n] || n).join(", ") : "No source has it on this bar"}</span>`;
+}
+
 function showSectionMenu(e, i) {
   const s = rating.sections[i], current = s.correct_label || s.label;
-  openMenu(e, `<b>${current}</b> · bars ${secStart(i)}–${secEnd(i)}`,
+  openMenu(e, `<b>${current}</b> · bars ${secStart(i)}–${secEnd(i)}${sourcesLine(s)}`,
     `<button data-v="ok" class="v-ok wide ${s.verdict === "ok" ? "on" : ""}">✓ ${s.label} is right <kbd>Y</kbd></button>
      <div class="status wide">or it is…</div>` +
     [...LABELS, "other"].filter(l => l !== s.label).map(l => `<button data-l="${l}" class="${s.correct_label === l ? "on" : ""}"><span class="swatch" style="background:var(--sec-${l}, var(--text-muted))"></span>${l}</button>`).join("") +
@@ -959,6 +970,7 @@ const labelsOf = p => p.labels && p.labels.length ? p.labels : DEFAULT_LABELS;
 const askedLabel = p => p.question === "label" ? [...DEFAULT_LABELS, ...labelsOf(p)].find(l => new RegExp("\\b" + l + "\\b", "i").test(p.prompt)) : undefined;
 const cueApplies = pl => pl.mark != null && pl.click_shift == null;
 const barLines = pl => (pl.grid || []).filter(g => g[1] && g[2] != null);
+const pickable = (p, bar) => bar < (p.before ?? Infinity);   // a probe may name the first bar that cannot be tapped
 const clipUrl = (p, pl) => `/clip/${p.id}/${pl.id}` + (cueApplies(pl) && cueOn ? "?cue=1" : "");
 const isOn = (p, v) => p.answer === v || (v === "no" && String(p.answer).startsWith("is:"));
 
@@ -1011,7 +1023,7 @@ function renderProbe() {
       <button class="q-play" data-k="${k}"><span class="q-label"></span>${p.plays.length === 1 ? " <kbd>Space</kbd>" : ""}</button>
       <canvas class="q-wave" data-k="${k}" aria-label="Waveform of the clip, bar lines and marker"></canvas></div>`).join("")}</div>
     <div class="q-barzone"><div class="q-hint">${lines.length ? (p.question === "locate" ? "Tap the bar where it starts" : "Or tap the bar where it really starts") : ""}</div>
-      <div class="q-bars">${lines.map((g, i) => `<button class="q-barbtn ${p.answer === "bar:" + g[2] ? "on" : ""}" data-v="bar:${g[2]}" aria-label="It starts at bar ${g[2]}">${i + 1}</button>`).join("")}</div></div>
+      <div class="q-bars">${lines.map((g, i) => `<button class="q-barbtn ${p.answer === "bar:" + g[2] ? "on" : ""}" data-v="bar:${g[2]}" aria-label="It starts at bar ${g[2]}" ${pickable(p, g[2]) ? "" : "disabled"}>${i + 1}</button>`).join("")}</div></div>
     <div class="q-opts" id="qOpts">
       <button id="optReplay">↻ Replay <kbd>R</kbd></button>${toggle("optAutoplay", "Autoplay", autoplayOn)}${toggle("optLoop", "Loop", loopOn)}${toggle("optCue", "Cue", cueOn, !p.plays.some(cueApplies))}
     </div>
@@ -1129,7 +1141,8 @@ function nowLine() {
   const p = quiz && quiz.probes[quizIndex];
   if (!p || !cur || !tapsOn(p) || audio.ended || (audio.paused && !audio.currentTime)) return null;
   const pl = p.plays[cur.k], t = pl.start + audio.currentTime;
-  return barLines(pl).reduce((best, g) => !best || Math.abs(g[0] - t) < Math.abs(best[0] - t) ? g : best, null);
+  const line = barLines(pl).reduce((best, g) => !best || Math.abs(g[0] - t) < Math.abs(best[0] - t) ? g : best, null);
+  return line && pickable(p, line[2]) ? line : null;
 }
 function updateNow() {
   const b = $("#qNow"), g = nowLine(), v = g ? "bar:" + g[2] : "";
@@ -1155,6 +1168,8 @@ function drawStrip(k) {
   const pk = pl.peaks;
   if (pk) { ctx.fillStyle = css("--wave"); pk.values.forEach((v, i) => { const x0 = X(pk.t0 + i / pk.rate), x1 = X(pk.t0 + (i + 1) / pk.rate); ctx.fillRect(x0, mid - v * amp, Math.max(1, x1 - x0 - 0.5), 2 * v * amp || 1); }); }
   if (now > 0) { ctx.fillStyle = css("--accent"); ctx.globalAlpha = 0.2; ctx.fillRect(0, 0, X(pl.start + now), H); ctx.globalAlpha = 1; }
+  const limit = (quiz.probes[quizIndex].before != null) && (pl.grid || []).find(g => g[1] && g[2] === quiz.probes[quizIndex].before);
+  if (limit) { ctx.fillStyle = css("--surface-0"); ctx.globalAlpha = 0.6; ctx.fillRect(X(limit[0]), 0, W - X(limit[0]), H); ctx.globalAlpha = 1; }   // the bars that cannot be tapped
   const strong = css("--text-primary"), faint = css("--text-muted");
   ctx.font = `${11 * d}px -apple-system, sans-serif`; ctx.textBaseline = "top";
   let n = 0, free = 0;
@@ -1179,6 +1194,7 @@ function drawStrip(k) {
 async function answerProbe(v) {
   if (quizBusy || performance.now() - quizShown < DOUBLE_TAP_MS) return;
   const p = quiz.probes[quizIndex], shownAt = quizShown, picked = v.startsWith("bar:"), began = performance.now();
+  if (picked && !pickable(p, +v.slice(4))) return;
   if (v === "no" && !quizWhat && askedLabel(p)) return showWhat();
   quizBusy = true;
   const fresh = p.answer == null;
@@ -1247,7 +1263,7 @@ function quizKey(e) {
   else if (k === "r") playProbe(0, true);
   else if (k === "s" || k === "ArrowRight") goProbe((quizIndex + 1) % quiz.probes.length);
   else if (k === "ArrowLeft" && quizIndex) goProbe(quizIndex - 1);
-  else if (/^[1-9]$/.test(k)) { const b = document.querySelectorAll(quizWhat ? ".q-what button[data-v^='is:']" : ".q-barbtn")[+k - 1]; if (b) answerProbe(b.dataset.v); }
+  else if (/^[1-9]$/.test(k)) { const b = document.querySelectorAll(quizWhat ? ".q-what button[data-v^='is:']" : ".q-barbtn")[+k - 1]; if (b && !b.disabled) answerProbe(b.dataset.v); }
   else if (quizWhat) { if (k === "n") answerProbe("no"); }
   else { const o = p.options.find(o => KEYS[o.value] === k.toUpperCase()); if (o) answerProbe(o.value); }
 }
@@ -1259,7 +1275,7 @@ function reportHtml(r) {
   const table = (head, rows) => `<div class="scroll-x"><table><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr>${rows.map(x => `<tr>${x.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</table></div>`;
   const panel = (title, body) => `<div class="panel"><h3>${title}</h3>${body}</div>`;
   const none = text => `<div class="status">${text}</div>`;
-  const sources = Object.entries(r.sources || {});
+  const sources = Object.entries(r.sources || {}), again = (r.reviewer || {}).repeats || 0, same = Math.round(((r.reviewer || {}).same || 0) * again);
   return `<div class="rtiles">
       <div class="tile"><div class="k">Target</div><div class="v">${t.met ? "Met" : "Not yet"}</div><div class="s">95% exact at 95% confidence, 70% coverage</div></div>
       <div class="tile"><div class="k">Exact at 95%+</div><div class="v">${pct(t.sure_exact)}</div><div class="s">${t.sure_n || 0} answers, 20 needed</div></div>
@@ -1267,7 +1283,8 @@ function reportHtml(r) {
     panel("Rounds", (r.rounds || []).length ? table(["", "Answered", "Grid", "Start", "Label"], r.rounds.map(x => [`Round ${x.round}`, `${x.answered}/${x.total}`, pct((x.fresh_exact || {}).grid), pct((x.fresh_exact || {}).start), pct((x.fresh_exact || {}).label)])) + none("Share of Claims you accepted on the round's new tracks.") : none("No rounds yet.")) +
     panel("Theories", Object.keys(r.theories || {}).length ? table(["Theory", "Answers", "Confirmed"], Object.entries(r.theories).map(([id, v]) => [esc(v.text || theory(id)), v.n, pct(v.confirmed)])) : none("No Theory results yet.")) +
     panel("Calibration", (r.calibration || []).length ? table(["Confidence", "Answers", "Exact"], r.calibration.map(b => [b.band, b.n, pct(b.exact)])) + none("Claims at 95% should be exact about 95% of the time.") : none("No answers yet.")) +
-    (sources.length ? panel("Sources", table(["Source", "Answers", "Exact"], sources.map(([name, v]) => [esc(name), v.n, pct(v.exact)]))) : "");
+    (sources.length ? panel("Sources", table(["Source", "Answers", "Exact"], sources.map(([name, v]) => [esc(name), v.n, pct(v.exact)]))) : "") +
+    (again > 0 ? panel("Consistency", `<div>You answered ${same} of ${again} question${again === 1 ? "" : "s"} the same way when they came up again (${pct(r.reviewer.same)}).</div>`) : "");
 }
 async function loadReport() {
   let html;

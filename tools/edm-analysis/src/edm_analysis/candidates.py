@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from .archive import preserve
+from .fusion import fuse
 from .library import in_library, load_scope
 
 CANDIDATES_HOME = Path.home() / ".cache" / "edm-analysis" / "candidates"
@@ -144,3 +145,9 @@ def load(out_dir, name, tid):
         return {"sections": [{"start": s["start"], "label": s["label"]} for s in merged],
                 "drops": [{"time": s["start"], "confidence": None} for s in merged if s["label"] == "drop"], "downbeats": []}
     return {"sections": [], "drops": raw["drops"], "downbeats": []}
+
+
+def fused(out_dir, doc):
+    """The fused structure of a rule analysis, from whatever Candidate output exists for the track (rules only if none)."""
+    tid = doc["track"]["sha256"][:16]
+    return fuse(doc, {name: loaded for name in NAMES if (loaded := load(out_dir, name, tid)) is not None})

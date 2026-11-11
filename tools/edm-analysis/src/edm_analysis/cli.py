@@ -70,27 +70,56 @@ def cmd_analyze(args):
     return 0 if failed == 0 else 1
 
 
-def cmd_relabel(args):
-    """Recompute sections and events from stored features (no audio), e.g. after a rules change."""
+def _raw_docs(out_dir):
+    """(path, document) of every raw rule analysis."""
     import re
+
+    for f in sorted(Path(out_dir).glob("*.json")):
+        if re.fullmatch(r"[0-9a-f]{16}\.json", f.name):
+            yield f, json.loads(f.read_text())
+
+
+def _relabel(out_dir, force):
+    """Recompute the rules' sections and events from stored features where their version is old (or force); returns how many."""
     from .analyze import STRUCTURE_VERSION, with_structure, write_atomic
     from .archive import preserve_analysis
-    from .final import write_final
 
-    out_dir = Path(args.out)
     changed = 0
-    for f in sorted(out_dir.glob("*.json")):
-        if not re.fullmatch(r"[0-9a-f]{16}\.json", f.name):
-            continue
-        doc = json.loads(f.read_text())
-        if doc["analyzer"].get("structure") != STRUCTURE_VERSION or args.force:
+    for f, doc in _raw_docs(out_dir):
+        if doc["analyzer"].get("structure") != STRUCTURE_VERSION or force:
             doc = with_structure(doc)
             preserve_analysis(f, out_dir)
             write_atomic(f, json.dumps(doc, separators=(",", ":")))
             update_index(out_dir, doc)
             changed += 1
+    return changed
+
+
+def _write_finals(out_dir):
+    from .final import write_final
+
+    n = 0
+    for _, doc in _raw_docs(out_dir):
         write_final(out_dir, doc)
+        n += 1
+    return n
+
+
+def cmd_relabel(args):
+    """Recompute sections and events from stored features (no audio), e.g. after a rules change."""
+    out_dir = Path(args.out)
+    changed = _relabel(out_dir, args.force)
+    _write_finals(out_dir)
     print(f"relabelled {changed} tracks")
+    return 0
+
+
+def cmd_rebuild(args):
+    """Rebuild every final file from the raw outputs, without audio: rules where their version is old, fusion, confidence model, finals."""
+    out_dir = Path(args.out)
+    changed = _relabel(out_dir, args.force)
+    _fit_confidence(out_dir, print)
+    print(f"relabelled {changed} tracks, {_write_finals(out_dir)} final files written")
     return 0
 
 
@@ -114,35 +143,59 @@ def cmd_evaluate(args):
     return 0
 
 
-def cmd_confidence(args):
-    """Fit the confidence model (Gold where there is enough, else Silver), report it, rewrite the final files."""
+def _bands_text(rows):
+    from .confidence import REVIEWER_ERROR
+
+    return "  ".join(f"{b['band']}: {b['exact']:.2f} (n {b['n']}, {b['corrected']:.2f} if reviewer errs {REVIEWER_ERROR:.0%})" for b in rows if b["n"]) or "no judged Claims"
+
+
+def _fit_confidence(out_dir, say):
+    """Fit the confidence model (Gold where a group has enough, else Silver) and save it; say() reports each group's calibration. Returns the Library's analyses."""
     from .archive import preserve
-    from .confidence import MODEL_FILE, calibration, fit, gold_rows, load_model, silver_rows
+    from .confidence import MIN_GOLD, MODEL_FILE, UNKNOWN, bands, calibration, fit, gold_rows, held_out, load_model, silver_rows, silver_without_gold
     from .evaluate import library_docs, split_of
-    from .final import write_final
     from .rounds import load_answers
     from .vdj import DEFAULT_DB, parse_database
 
-    out_dir = Path(args.out)
     docs, analysed = library_docs(out_dir), library_docs(out_dir, scoped=False)
     vdj = parse_database(DEFAULT_DB) if DEFAULT_DB.exists() else {}
     silver = {tid: silver_rows(doc, vdj.get(doc["track"]["path"])) for tid, doc in docs.items()}
-    answers = load_answers(out_dir)
-    gold = {tid: gold_rows({k: a for k, a in answers.items() if a["track"] == tid}, analysed) for tid in analysed}   # answers outside the Library stay Gold
+    by_track = {}
+    for pid, a in load_answers(out_dir).items():
+        by_track.setdefault(a["track"], {})[pid] = a
+    gold = {tid: gold_rows(answers, analysed) for tid, answers in by_track.items() if tid in analysed}   # answers outside the Library stay Gold
     part = lambda rows, split: [r for tid, rs in rows.items() if split in (None, split_of(tid)) for r in rs]
-    held_out = fit(part(silver, "dev"), part(gold, "dev"))
+    model = {**fit(part(silver_without_gold(silver, gold), None), part(gold, None)), "analyzer": sorted({d["analyzer"]["version"] for d in docs.values()})}
+    dev = fit(part(silver_without_gold(silver, {t: g for t, g in gold.items() if split_of(t) == "dev"}), "dev"), part(gold, "dev"))
     for group in ("grid", "start", "label"):
-        src = held_out["groups"].get(group, {}).get("source", "none")
-        test = [r for r in (part(gold, "test") if src == "gold" else part(silver, "test")) if r[0] == group]
-        print(f"{group}: fitted on {src}, held-out calibration:", calibration(held_out, test))
-    model = fit(part(silver, None), part(gold, None))
+        m = model["groups"].get(group)
+        say(f"{group}: " + (f"fitted on {m['source']} ({m['n']} rows, {m['gold']} Gold answers; Gold alone from {MIN_GOLD})" if m
+                     else f"no model ({sum(r[0] == group for rows in gold.values() for r in rows)} Gold answers, no Silver): confidence is {UNKNOWN}"))
+        say("  on Gold, each track held out: " + _bands_text(bands(held_out(silver, gold, group))))
+        if m and m["source"] != "gold":
+            say("  on Silver, test half held out: " + _bands_text(calibration(dev, [r for r in part(silver, "test") if r[0] == group])))
     previous = load_model(out_dir)
-    if previous:
+    if previous and previous != model:
         preserve(out_dir / MODEL_FILE, out_dir / "archive" / "models", f"fitted-{previous['fitted']}")
     (out_dir / MODEL_FILE).write_text(json.dumps(model, indent=1))
+    return docs
+
+
+def cmd_confidence(args):
+    """Fit the confidence model, report it, rewrite the Library's final files."""
+    from .confidence import load_model, with_confidence
+    from .final import write_final
+    from .rounds import library_claims
+
+    out_dir = Path(args.out)
+    docs = _fit_confidence(out_dir, print)
     for doc in docs.values():
         write_final(out_dir, doc)
+    model = load_model(out_dir)
+    claims = library_claims({tid: with_confidence(doc, model) for tid, doc in docs.items()})
+    share = lambda cs: f"{sum(c >= 95 for c in cs) / max(1, len(cs)):.0%}"
     print(f"model saved, {len(docs)} final files rewritten")
+    print(f"Claims at 95% or more: {share([c for _, c in claims])} of {len(claims)}; " + ", ".join(f"{g} {share([c for k, c in claims if k == g])}" for g in ("grid", "start", "label")))
     return 0
 
 
@@ -158,18 +211,30 @@ def _round_inputs(out_dir):
     return docs, vdj, load_answers(out_dir), all_rounds(out_dir)
 
 
-def _candidate_drops(out_dir, docs):
-    """{track id: {Candidate: drop bars on our grid}} for the tracks a Candidate has output for."""
+def _candidate_bars(out_dir, docs, bars_of):
+    """{track id: {Candidate: bars on our grid}} for the tracks a Candidate has output for."""
     from .candidates import NAMES, load
-    from .transform import candidate_drop_bars
 
     out = {}
     for tid, doc in docs.items():
         loaded = {name: load(out_dir, name, tid) for name in NAMES}
-        drops = {name: candidate_drop_bars(tid, doc, name, l) for name, l in loaded.items() if l is not None}
-        if drops:
-            out[tid] = drops
+        bars = {name: bars_of(tid, doc, name, l) for name, l in loaded.items() if l is not None}
+        if bars:
+            out[tid] = bars
     return out
+
+
+def _candidate_drops(out_dir, docs):
+    from .transform import candidate_drop_bars
+
+    return _candidate_bars(out_dir, docs, candidate_drop_bars)
+
+
+def _candidate_buildups(out_dir, docs):
+    from .transform import claims_candidate
+
+    return _candidate_bars(out_dir, docs, lambda tid, doc, name, loaded: sorted(
+        {c["bar"] for c in claims_candidate(tid, doc, name, loaded) if c["kind"] == "buildup"}))
 
 
 def cmd_round(args):
@@ -183,7 +248,8 @@ def cmd_round(args):
         if open_probes and not args.force:
             print(f"round {rounds[-1]['round']} still has {len(open_probes)} unanswered questions (use --force)")
             return 1
-        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size, candidate_drops=_candidate_drops(out_dir, docs))
+        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size,
+                         candidate_drops=_candidate_drops(out_dir, docs), candidate_buildups=_candidate_buildups(out_dir, docs))
         save_round(out_dir, rnd)
         counts = {}
         for p in rnd["probes"]:
@@ -232,11 +298,33 @@ def cmd_library(args):
     return 0
 
 
+def _show_tracks(out_dir, prefixes):
+    """Each named track as rules, fused sections and answers side by side."""
+    from .compare import side_by_side
+    from .confidence import load_model, with_confidence
+    from .evaluate import library_docs
+    from .rounds import load_answers
+    from .transform import answer_rows
+
+    model = load_model(out_dir)
+    docs = {tid: with_confidence(doc, model) if model else doc for tid, doc in library_docs(out_dir, scoped=False).items()}
+    rows = answer_rows(load_answers(out_dir), docs)
+    for prefix in prefixes:
+        found = [tid for tid in docs if tid.startswith(prefix)]
+        if not found:
+            print(f"no analysed track starts with {prefix}", file=sys.stderr)
+            return 1
+        print(side_by_side(docs[found[0]], [r for r in rows if r["track"] == found[0]]), end="\n\n")
+    return 0
+
+
 def cmd_compare(args):
     import pyarrow.parquet as pq
 
     from .compare import compare, format_table
 
+    if args.tracks:
+        return _show_tracks(Path(args.out), args.tracks)
     folder = Path(args.out) / "tables"
     if not (folder / "claims.parquet").exists():
         print("no claims table: run `edm-analysis export` first", file=sys.stderr)
@@ -272,6 +360,10 @@ def main(argv=None):
     rl.add_argument("--out", default=str(DEFAULT_OUT))
     rl.add_argument("--force", action="store_true")
     rl.set_defaults(func=cmd_relabel)
+    rb = sub.add_parser("rebuild", help="rebuild every final file from the raw outputs: rules if outdated, fusion, confidence, final (no audio)")
+    rb.add_argument("--out", default=str(DEFAULT_OUT))
+    rb.add_argument("--force", action="store_true", help="recompute the rules' sections even where their version is current")
+    rb.set_defaults(func=cmd_rebuild)
     e = sub.add_parser("evaluate", help="score analyses against VirtualDJ / Mixed In Key and your ratings")
     e.add_argument("--out", default=str(DEFAULT_OUT))
     e.add_argument("--save", default=None, help="write per-track scores to this JSON file")
@@ -302,6 +394,7 @@ def main(argv=None):
     cp = sub.add_parser("compare", help="compare the sources with each other and with Gold, from the exported tables")
     cp.add_argument("--out", default=str(DEFAULT_OUT))
     cp.add_argument("--json", action="store_true", help="machine-readable output")
+    cp.add_argument("--tracks", nargs="+", help="instead of the tables: these tracks (id prefixes) as rules, fused sections and answers side by side")
     cp.set_defaults(func=cmd_compare)
     r = sub.add_parser("review", help="serve the rating site")
     r.add_argument("--out", default=str(DEFAULT_OUT))

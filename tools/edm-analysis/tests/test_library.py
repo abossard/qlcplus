@@ -161,7 +161,7 @@ def test_answers_on_tracks_outside_the_library_still_train_the_confidence(librar
 
     assert main(["confidence", "--out", str(library)]) == 0
 
-    assert len(fitted[-1]) == 2          # Gold from both tracks
+    assert len(fitted[0]) == 2           # the model is fitted on the Gold of both tracks
     assert written == ["song a"]         # final files of tracks outside the Library stay as they are
 
 

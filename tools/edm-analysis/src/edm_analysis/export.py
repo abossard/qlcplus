@@ -1,7 +1,7 @@
 """`edm-analysis export`: rebuild <out>/tables/*.parquet from the raw outputs (see transform.py).
 
 The tables are derived data: delete them any time, run export again. Raw outputs are only read.
-- claims.parquet: one row per source, track and claim, placed on our bar grid;
+- claims.parquet: one row per source, track and claim, placed on our bar grid (sources: rules, fused, each Candidate, VirtualDJ, Mixed In Key);
 - bars.parquet: one row per track and bar: our levels, each source's claims there, Gold;
 - answers.parquet: one row per answered Probe;
 - tracks.parquet: one row per track, with its style group and the sources that cover it.

@@ -56,6 +56,14 @@ _Avoid_: genre
 One competing way to produce a kind of Claim: a rule set, a model trained on Gold, or a pretrained model. Candidates are compared on Gold.
 _Avoid_: algorithm, model
 
+**Fusion**:
+How the Analysis's sections and events are made from the rules and the Candidates' outputs: drops from the best evidence, a buildup before each drop, labels from what the evidence supports. Each fused Claim lists the Candidates that put it on its exact bar (`sources`). Without Candidate output the Fusion falls back to the rules. The rules' own output stays available as source "rules", the Fusion as source "fused".
+_Avoid_: ensemble, merge
+
+**Reviewer error rate**:
+The assumed share (10 %) of the reviewer's answers that are wrong, so even a perfect source reads about 0.9 on Gold. Exact rates on Gold are reported as observed and as read under this rate; the Target itself is not changed.
+_Avoid_: noise, tolerance
+
 **Target**:
 The point where Review rounds stop: on fresh Probes, Claims at 95% Confidence or more are exact at least 95% of the time, and at least 70% of all Claims reach 95% Confidence.
 _Avoid_: goal, threshold
@@ -63,5 +71,6 @@ _Avoid_: goal, threshold
 ## Relationships
 
 - A **Review round** tests one or more **Theories** through **Probes**, produces **Gold**, and a new **Analysis** for every track in the **Library**
+- The **Analysis** is the **Fusion** of the rules and the **Candidates**' outputs
 - Each **Probe** asks about one **Claim**
 - **Gold** judges **Claims**; it never flows into an **Analysis**

@@ -16,7 +16,8 @@ from edm_analysis.rounds import record_answer
 PIN = "135790"
 BARS, PERIOD = 32, 0.5
 DURATION = BARS * 4 * PERIOD
-SECTIONS = [("intro", 0, 8), ("buildup", 8, 12), ("drop", 12, 24), ("outro", 24, 32)]
+SECTIONS = [("intro", 0, 8), ("buildup", 8, 12), ("drop", 12, 24), ("outro", 24, 32)]   # what the page shows: the fusion starts a buildup 2 bars before the rules do
+RULES = [("intro", 0, 10), ("buildup", 10, 12), ("drop", 12, 24), ("outro", 24, 32)]
 VIEWPORTS = {
     "phone": {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "has_touch": True, "is_mobile": True},
     "tablet": {"viewport": {"width": 820, "height": 1180}, "device_scale_factor": 2, "has_touch": True, "is_mobile": True},
@@ -37,8 +38,8 @@ def track_doc(tid, title, mp3, intro=0.0):
         "beats": [intro + PERIOD * i for i in range(BARS * 4)],
         "bars": {"start": bars, "levels": {n: level for n in ("loud", "kick", "hihat", "bass", "instruments", "vocal")}},
         "peaks": {"rate": 20, "values": [round(0.3 + 0.6 * ((i // 10) % 2), 2) for i in range(int((intro + DURATION) * 20))]},
-        "sections": [{"label": label, "start_bar": a, "end_bar": b, **({"confidence": 72} if label == "buildup" else {})} for label, a, b in SECTIONS],
-        "events": [{"kind": "buildup", "bar": 8}, {"kind": "drop", "bar": 12}, {"kind": "vocal_in", "bar": 4}, {"kind": "vocal_out", "bar": 20}],
+        "sections": [{"label": label, "start_bar": a, "end_bar": b} for label, a, b in RULES],
+        "events": [{"kind": "buildup", "bar": 10}, {"kind": "drop", "bar": 12}, {"kind": "vocal_in", "bar": 4}, {"kind": "vocal_out", "bar": 20}],
     }
 
 
@@ -466,7 +467,7 @@ def test_next_opens_the_next_unrated_track(browser_, library):
     assert page.locator("#heading").inner_text() == "Beta - Other"
 
 
-ANSWERS = {"r01-p001": "no", "r01-p002": "b", "r01-p003": "skip"}
+ANSWERS = {"r01-p001": "none", "r01-p002": "b", "r01-p003": "skip"}
 
 
 def answers(root):
@@ -531,7 +532,7 @@ def test_a_round_is_answered_end_to_end_on_a_phone(browser_, round_library):
     assert page.locator("#heading").inner_text() == "Round 1 · 3/3"
 
     page.locator("#qReview").tap()
-    page.locator(".quiz[data-probe='r01-p001'] .q-answers button.on[data-v='no']").wait_for()
+    page.locator(".quiz[data-probe='r01-p001'] .q-answers button.on[data-v='none']").wait_for()
     answer(page, "yes")
     assert wait_for(lambda: answers(root)["r01-p001"] == "yes")
     page.locator(".quiz[data-probe='r01-p002'] .q-answers button.on[data-v='b']").wait_for()
@@ -1064,6 +1065,27 @@ def test_the_report_lists_sources_only_when_the_round_logic_sends_them(browser_,
         assert "vdj" in text and "50%" in text and "30" in text
 
 
+@pytest.mark.parametrize("reviewer,said", [({"repeats": 6, "same": 0.5}, "3 of 6 questions"), ({"repeats": 10, "same": 0.9}, "9 of 10 questions"),
+                                           ({"repeats": 1, "same": 1.0}, "1 of 1 question "), ({"repeats": 0, "same": None}, None), (None, None)])
+def test_the_summary_shows_the_reviewers_own_consistency_when_questions_came_up_again(browser_, round_library, monkeypatch, reviewer, said):
+    base, _ = answered_round(round_library)
+    real = rounds.report
+    monkeypatch.setattr(rounds, "report", lambda *a: {k: v for k, v in {**real(*a), "reviewer": reviewer}.items() if v is not None})
+    page = open_page(browser_, "phone")
+    page.goto(base + "/")
+    page.locator("#pin").fill(PIN)
+    page.locator("#loginForm button").click()
+    page.locator("#list .row").first.wait_for()
+    page.locator("#btnSummary").tap()
+    page.locator(".report .panel").first.wait_for()
+    panel = page.locator(".report .panel", has_text="Consistency")
+    assert panel.count() == (1 if said else 0)
+    if said:
+        text = panel.inner_text()
+        assert said in text and "the same way when they came up again" in text and f"{round(reviewer['same'] * 100)}%" in text
+        assert "repeat" not in text.lower() and panel.bounding_box()["y"] > page.locator(".report .panel", has_text="Calibration").bounding_box()["y"]
+
+
 @pytest.mark.parametrize("size", list(VIEWPORTS))
 def test_the_summary_shows_the_report_above_the_old_ratings_summary(browser_, round_library, size):
     base, _ = answered_round(round_library)
@@ -1111,10 +1133,10 @@ def test_candidate_outputs_are_labelled_reference_rows_under_the_virtualdj_row(b
     base, _, _ = candidate_library
     page = open_page(browser_, size)
     open_track(page, base, size)
-    assert page.evaluate("candidateRows().map(r => r.label)") == ["EDMFormer", "allin1", "drop det."]
+    assert page.evaluate("candidateRows().map(r => r.label)") == ["EDMFormer", "allin1", "drop det.", "rules"]
     r = page.evaluate(f"rows('{canvas}')")
-    assert [c[0] for c in r["cand"]] == sorted(c[0] for c in r["cand"]) and len(r["cand"]) == 3
-    assert r["ref"][0] + r["ref"][1] <= r["cand"][0][0] and r["cand"][2][0] + r["cand"][2][1] <= r["wave"][0]
+    assert [c[0] for c in r["cand"]] == sorted(c[0] for c in r["cand"]) and len(r["cand"]) == 4
+    assert r["ref"][0] + r["ref"][1] <= r["cand"][0][0] and r["cand"][3][0] + r["cand"][3][1] <= r["wave"][0]
     assert all(h >= 10 for _, h in [c[:2] for c in r["cand"]])
     if canvas == "overview":
         page.locator("#overview").evaluate("el => el.scrollIntoView({block: 'center'})")
@@ -1124,6 +1146,7 @@ def test_candidate_outputs_are_labelled_reference_rows_under_the_virtualdj_row(b
         assert px(36.0, 0) == colour(page, "--sec-drop") and px(20.0, 0) == colour(page, "--sec-intro")      # EDMFormer
         assert px(20.0, 1) == colour(page, "--sec-buildup")                                                  # allin1
         assert px(32.0, 2) != px(44.0, 2)                                                                    # a drop tick
+        assert px(17.0, 3) == colour(page, "--sec-intro") and px(21.0, 3) == colour(page, "--sec-buildup")  # the rules: their buildup starts at bar 10
 
 
 def test_a_track_without_candidates_has_no_candidate_rows(browser_, library):
@@ -1133,12 +1156,33 @@ def test_a_track_without_candidates_has_no_candidate_rows(browser_, library):
     assert page.evaluate("candidateRows().length") == 0 and page.evaluate("rows('overview').cand") in ([], None)
 
 
-@pytest.mark.parametrize("index,text", [(0, "intro"), (1, "buildup 72%"), (2, "drop")])
-def test_section_bands_show_the_claim_confidence_when_the_analysis_has_it(browser_, library, index, text):
-    base, _, _ = library
+@pytest.mark.parametrize("model,index,text", [(False, 0, "intro"), (False, 1, "buildup"), (False, 2, "drop"), (True, 0, "intro 100%"), (True, 1, "buildup 50%"), (True, 2, "drop 50%")])
+def test_section_bands_show_the_claim_confidence_when_the_analysis_has_it(browser_, library, model, index, text):
+    base, root, _ = library
+    if model:   # the confidence model's numbers reach the Analysis QLC+ gets; this one knows nothing, so every start says 50
+        (root / "confidence-model.json").write_text(json.dumps({"groups": {}}))
     page = open_page(browser_, "desktop")
     open_track(page, base, "desktop")
     assert page.evaluate(f"bandLabel({index})") == text
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+@pytest.mark.parametrize("label,said", [("drop", "rules"), ("buildup", "No source")])
+def test_the_section_box_says_which_sources_put_the_section_on_its_bar(browser_, library, size, label, said):
+    base, _, _ = library
+    page = open_page(browser_, size)
+    open_track(page, base, size)
+    tap_section(page, size, "overview", label)
+    assert said in page.locator("#menu .title").inner_text()
+    assert page.locator("#menu").bounding_box()["y"] + page.locator("#menu").bounding_box()["height"] <= page.viewport_size["height"] + 1
+
+
+def test_the_song_view_shows_the_fused_sections_and_events(browser_, library):
+    base, _, _ = library
+    page = open_page(browser_, "desktop")
+    open_track(page, base, "desktop")
+    assert page.evaluate("rating.sections.map(s => [s.label, s.start_bar, s.end_bar])") == [[n, a, b] for n, a, b in SECTIONS]
+    assert page.evaluate("rating.events.filter(e => e.kind === 'buildup').map(e => e.bar)") == [8]
 
 
 @pytest.mark.parametrize("prerendered,probe_n,limit", [(True, 1, 1.0), (True, 2, 1.0), (False, 1, 2.0), (False, 2, 2.0)])
@@ -1282,6 +1326,9 @@ def stable_round(ids):
         probe(6, ids[1], "ab", "Which one has the accent on bar 1?", [{"id": "a", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 0},
                                                                     {"id": "b", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 1}]),
         probe(7, ids[0], "yesno", "Does the buildup start at the marker?", main(8, 16, 12.0), tap=False),
+        probe(8, ids[1], "locate", "Tap the bar where the buildup starts", main(0, 28, None), none_label="No buildup", before=12,
+              claim={"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 40}),                                   # 14 bars, taps only before bar 12
+        probe(9, ids[0], "yesno", "Does the drop start at the marker?", main(8, 40, 24.0)),                          # 16 bars
     ])
 
 
@@ -1350,7 +1397,7 @@ def test_nothing_moves_between_question_types_or_states(browser_, stable_library
     base, _, _ = stable_library
     page = open_page(browser_, size)
     open_round(page, base)
-    kinds = {1: "tap", 2: "tap", 3: "tap", 4: "label", 5: "label", 6: "ab", 7: "plain"}
+    kinds = {1: "tap", 2: "tap", 3: "tap", 4: "label", 5: "label", 6: "ab", 7: "plain", 8: "tap", 9: "tap"}
     samples = [(n, state, lay) for n in kinds for state, lay in stable_states(page, n, kinds[n])]
     first = samples[0][2]
     assert all(box for box in first["zones"].values()), first["zones"]
@@ -1375,19 +1422,21 @@ def test_the_same_answer_is_in_the_same_place_on_every_question_type_and_bars_do
     page = open_page(browser_, size)
     open_round(page, base)
     seen = {}
-    for n in range(1, 8):
+    for n in range(1, 10):
         go(page, n)
         lay = layout(page)
         seen[n] = lay
     skip = {tuple(seen[n]["answers"]["skip"]) for n in seen}
     assert len(skip) == 1, skip                                                                    # Can't tell is always there
-    assert seen[1]["answers"]["yes"] == seen[4]["answers"]["yes"] == seen[6]["answers"]["a"]       # first and second answer cells
-    assert seen[1]["answers"]["no"] == seen[4]["answers"]["no"] == seen[6]["answers"]["b"]
-    assert seen[6]["answers"]["neither"] == seen[2]["answers"]["none"]                              # the third cell
-    assert [len(seen[n]["bars"]) for n in (1, 2, 3, 7)] == [5, 17, 3, 0]
+    assert seen[1]["answers"]["yes"] == seen[4]["answers"]["yes"] == seen[6]["answers"]["a"] == seen[9]["answers"]["yes"]   # first and second answer cells
+    assert seen[4]["answers"]["no"] == seen[6]["answers"]["b"]
+    assert seen[6]["answers"]["neither"] == seen[2]["answers"]["none"] == seen[1]["answers"]["none"] == seen[8]["answers"]["none"] == seen[9]["answers"]["none"]   # the third cell
+    assert [len(seen[n]["bars"]) for n in (1, 2, 3, 7, 8, 9)] == [5, 17, 3, 0, 15, 17]
     for k in range(3):
-        assert seen[1]["bars"][k] == seen[2]["bars"][k] == seen[3]["bars"][k]                       # the first bars sit where they always do
-    assert seen[2]["bars"][16][1] + seen[2]["bars"][16][3] <= seen[2]["zones"][".q-barzone"][1] + seen[2]["zones"][".q-barzone"][3] + 0.5   # 17 bars fit the zone
+        assert seen[1]["bars"][k] == seen[2]["bars"][k] == seen[3]["bars"][k] == seen[8]["bars"][k] == seen[9]["bars"][k]   # the first bars sit where they always do
+    for n in (2, 9):
+        zone = seen[n]["zones"][".q-barzone"]
+        assert seen[n]["bars"][16][1] + seen[n]["bars"][16][3] <= zone[1] + zone[3] + 0.5, n         # 17 bars fit the zone
 
 
 @pytest.mark.parametrize("n,now,cue", [(1, False, True), (2, False, False), (4, False, True), (6, False, False), (7, False, True)])
@@ -1412,3 +1461,96 @@ def test_the_audio_error_and_save_messages_take_no_room(browser_, stable_library
     page.evaluate("note('Not saved: the connection was lost')")
     assert layout(page) == before
     assert "Not saved" in page.locator("#qCount").inner_text()
+
+
+# --- a buildup question: only bars before the drop can be tapped, and "no buildup" is the third answer ---------------
+
+BEFORE = 6   # the drop is at bar 6 of a clip that starts at bar 0
+
+
+def buildup_round(ids):
+    return make_round(ids, [probe(1, ids[0], "locate", "Tap the bar where the buildup starts", [{"id": "main", "start": 0.0, "end": 28.0, "mark": None}],
+                                  none_label="No buildup", before=BEFORE, claim={"kind": "buildup", "bar": 4, "time": 8.0, "confidence": 40}),
+                                probe(2, ids[1], "yesno", "Does the drop start at the marker?", [{"id": "main", "start": 8.0, "end": 40.0, "mark": 24.0}])])
+
+
+@pytest.fixture
+def buildup_library(library, contract):
+    return put_round(library, buildup_round(library[2]))
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_bars_at_or_after_the_limit_are_dimmed_and_cannot_be_pressed(browser_, buildup_library, size):
+    base, _, _ = buildup_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    bars = page.evaluate("[...document.querySelectorAll('.q-barbtn')].map(b => [+b.dataset.v.slice(4), b.disabled, +getComputedStyle(b).opacity])")
+    assert [b[0] for b in bars] == list(range(15))
+    assert all(b[1] == (b[0] >= BEFORE) and (b[2] < 1) == (b[0] >= BEFORE) for b in bars), bars
+    go(page, 2)                                                       # no limit on a question that has none
+    assert page.locator(".q-barbtn:disabled").count() == 0
+
+
+@pytest.mark.parametrize("how,bar,answered", [("button", 5, True), ("button", 6, False), ("button", 9, False),
+                                              ("key", 6, True), ("key", 7, False), ("key", 9, False)])
+def test_a_bar_is_picked_by_button_or_key_only_before_the_limit(browser_, buildup_library, how, bar, answered):
+    base, root, _ = buildup_library
+    page = open_page(browser_, "desktop")
+    open_round(page, base)
+    settle(page)
+    if how == "button":
+        page.locator(f".q-barbtn[data-v='bar:{bar}']").click(force=True)
+    else:
+        press(page, str(bar), wait=False)                             # the digit n is the nth bar button, so bar n - 1
+    page.wait_for_timeout(900)
+    assert (wait_for(lambda: answers(root)) if answered else answers(root)) == ({"r01-p001": f"bar:{bar if how == 'button' else bar - 1}"} if answered else {})
+
+
+@pytest.mark.parametrize("t,bar", [(7.9, 4), (9.6, 5), (12.4, None), (13.9, None), (20.0, None)])
+def test_it_starts_now_is_dimmed_when_the_nearest_bar_line_cannot_be_tapped(browser_, buildup_library, t, bar):
+    base, root, _ = buildup_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    pause_at(page, t)
+    assert page.locator("#qNow").is_enabled() == (bar is not None)
+    assert (page.locator(".q-barbtn.now").count() == 1) == (bar is not None)
+    if bar is not None:
+        hit(page, "#qNow")
+        assert wait_for(lambda: answers(root) == {"r01-p001": f"bar:{bar}"})
+
+
+def test_no_buildup_is_the_third_answer_and_is_recorded_as_none(browser_, buildup_library):
+    base, root, _ = buildup_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    button = page.locator(".q-answers button[data-v='none']")
+    assert button.inner_text() == "No buildup" and button.evaluate("el => el.parentElement.className") == "a3"
+    hit(page, ".q-answers button[data-v='none']")
+    assert wait_for(lambda: answers(root) == {"r01-p001": "none"})
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_the_strip_shades_the_bars_that_cannot_be_tapped(browser_, buildup_library, n):
+    base, _, _ = buildup_library
+    page = open_page(browser_, "desktop")
+    open_round(page, base)
+    go(page, n)
+    page.wait_for_timeout(250)                                         # the strip is drawn after its first resize
+    plain = pixel_at(page, ".q-wave", 8.75, "bottom")
+    assert pixel_at(page, ".q-wave", 10.25, "bottom") == plain
+    assert (pixel_at(page, ".q-wave", 14.25, "bottom") != plain) == (n == 1)                  # shaded from bar 6, which starts at 12 s
+
+
+@pytest.mark.parametrize("n", [1, 2])
+def test_a_buildup_question_and_a_16_bar_question_fit_at_360px(browser_, buildup_library, n):
+    base, _, _ = buildup_library
+    page = browser_.new_context(viewport={"width": 360, "height": 740}, device_scale_factor=3, has_touch=True, is_mobile=True).new_page()
+    page.set_default_timeout(8000)
+    open_round(page, base)
+    go(page, n)
+    overflow = page.evaluate(OVERFLOW)
+    assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"]
+    assert page.evaluate(SMALL_TARGETS, 44) == []
+    assert page.evaluate("[...document.querySelectorAll('#qAnswers button')].every(b => b.scrollWidth <= b.clientWidth)")     # no text cut
+    bars = page.evaluate("[...document.querySelectorAll('.q-barbtn')].map(b => { const r = b.getBoundingClientRect(), z = document.querySelector('.q-barzone').getBoundingClientRect(); return r.bottom <= z.bottom + 0.5 })")
+    assert len(bars) == [15, 17][n - 1] and all(bars)

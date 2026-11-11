@@ -7,7 +7,7 @@ import urllib.request
 import numpy as np
 import pytest
 
-from edm_analysis import library, review
+from edm_analysis import candidates, confidence, library, review
 from edm_analysis.review import Clips, LibraryReport, ReviewServer, make_handler, parse_range
 
 
@@ -124,8 +124,8 @@ def test_ratings_of_an_older_analysis_move_to_history_and_stay_gold(server):
 def test_ratings_endpoint_prefills_from_earlier_gold(server):
     base, root = server
     doc = json.loads((root / "abababababababab.json").read_text())
-    doc.update({"analyzer": {"version": "1.new"}, "sections": [{"label": "drop", "start_bar": 8, "end_bar": 16}],
-                "events": [{"kind": "drop", "bar": 8}], "bars": {"start": [0.0, 2.0]}})
+    doc.update({"analyzer": {"version": "1.new"}, "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0}, "sections": [{"label": "drop", "start_bar": 8, "end_bar": 16}],
+                "events": [{"kind": "drop", "bar": 8}], "bars": {"start": [2.0 * k for k in range(17)], "levels": {n: [0.5] * 17 for n in ("loud", "kick", "hihat", "bass", "instruments", "vocal")}}})
     (root / "abababababababab.json").write_text(json.dumps(doc))
     old = {"analyzer_version": "1.old", "sections": [
         {"label": "drop", "start_bar": 8, "end_bar": 16, "verdict": "ok", "correct_label": None, "true_start_bar": None}]}
@@ -135,7 +135,7 @@ def test_ratings_endpoint_prefills_from_earlier_gold(server):
         rating = json.load(r)
 
     assert rating["prefilled"] is True
-    assert rating["sections"][0]["verdict"] == "ok"
+    assert next(s for s in rating["sections"] if s["label"] == "drop")["verdict"] == "ok"   # the fusion also starts an intro at bar 0, which no Gold covers
 
 
 # --- probe clips, round media, report ------------------------------------------------------------
@@ -165,12 +165,12 @@ def tone(tmp_path_factory):
 def clip_site(tmp_path, tone):
     doc = {"track": {"path": str(tone), "title": "song", "duration": 40.0, "sha256": "cd" * 32}, "analyzer": {"version": "x"},
            "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0}, "beats": [0.5 * i for i in range(80)],
-           "bars": {"start": [2.0 * k for k in range(20)], "levels": {}},
+           "bars": {"start": [2.0 * k for k in range(20)], "levels": {n: [0.2] * 8 + [0.9] * 12 for n in ("loud", "kick", "hihat", "bass", "instruments", "vocal")}},
            "peaks": {"rate": 20, "values": [round(0.1 + 0.8 * (i % 10) / 10, 2) for i in range(800)]},
            "sections": [{"label": "intro", "start_bar": 0, "end_bar": 8, "confidence": 77},
                         {"label": "drop", "start_bar": 8, "end_bar": 20, "confidence": 31}], "events": []}
     (tmp_path / f"{TID}.json").write_text(json.dumps(doc))
-    (tmp_path / "index.json").write_text(json.dumps({TID: {"title": "song", "path": str(tone)}}))
+    (tmp_path / "index.json").write_text(json.dumps({TID: {"title": "song", "path": str(tone), "drops": 9, "sections": ["drop"] * 9}}))
     (tmp_path / "rounds").mkdir()
     (tmp_path / "rounds" / "round-01.json").write_text(json.dumps(CLIP_ROUND))
     httpd = ReviewServer(("127.0.0.1", 0), make_handler(tmp_path, tmp_path / "ratings.json"))
@@ -326,9 +326,12 @@ def test_reference_adds_what_each_candidate_found(clip_site):
                                  "dropdetector": {"sections": [], "drops": [{"time": 16.0, "confidence": 0.83}]}}
 
 
-def test_the_report_comes_from_rounds_report_over_the_library(clip_site, monkeypatch):
+@pytest.mark.parametrize("model", [False, True])
+def test_the_report_comes_from_rounds_report_over_the_library(clip_site, monkeypatch, model):
     base, root = clip_site
     seen = {}
+    if model:
+        (root / confidence.MODEL_FILE).write_text(json.dumps({"groups": {}}))
 
     def fake(rounds_, answers, docs):
         seen.update(rounds=rounds_, answers=answers, docs=docs)
@@ -336,7 +339,9 @@ def test_the_report_comes_from_rounds_report_over_the_library(clip_site, monkeyp
     monkeypatch.setattr(review.rounds, "report", fake)
     assert json.loads(fetch(base + "/api/report")[2]) == {"rounds": [], "sources": {"vdj": {"n": 3, "exact": 0.5}}}
     assert [r["round"] for r in seen["rounds"]] == [1] and list(seen["docs"]) == [TID]
-    assert "peaks" not in seen["docs"][TID] and seen["docs"][TID]["sections"][1]["confidence"] == 31
+    doc = seen["docs"][TID]   # the Analysis QLC+ gets: fused, with the model's confidence, without the large arrays
+    assert "peaks" not in doc and doc["analyzer"]["fusion"] == 1 and all("sources" in s for s in doc["sections"])
+    assert [s.get("confidence") for s in doc["sections"] if s["start_bar"]] == [50 if model else None]
 
 
 def test_the_report_reads_a_document_again_only_when_its_file_changed(clip_site, monkeypatch):
@@ -533,7 +538,7 @@ def scoped_site(tmp_path):
     index = {}
     for tid, path in PLACE.items():
         doc = {"track": {"path": path, "title": tid, "duration": 40.0, "sha256": tid * 4}, "analyzer": {"version": "x"},
-               "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0, "bar1_confidence": 90}, "beats": [], "bars": {"start": [0.0, 2.0], "levels": {}},
+               "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0, "bar1_confidence": 90}, "beats": [], "bars": {"start": [0.0, 2.0], "levels": {n: [0.5, 0.5] for n in ("loud", "kick", "hihat", "bass", "instruments", "vocal")}},
                "peaks": {"rate": 20, "values": []}, "sections": [{"label": "drop", "start_bar": 1, "end_bar": 2, "confidence": 99}], "events": []}
         (tmp_path / f"{tid}.json").write_text(json.dumps(doc))
         index[tid] = {"title": tid, "path": path, "bpm": 120.0, "filename_bpm": 120.0, "drops": 1, "sections": ["drop"]}
@@ -604,3 +609,147 @@ def test_a_change_of_scope_shows_at_once_without_restarting_the_site(scoped_site
     assert len(api(base, "/api/tracks")) == 2
     library.clear_scope(root)
     assert len(api(base, "/api/tracks")) == 3
+
+
+# --- the song view reads the Analysis QLC+ gets: the fusion, with the confidence model's numbers -------------------
+
+FUSED_TID = "efefefefefefefef"
+LEVEL = [0.2] * 12 + [0.9] * 12 + [0.2] * 8
+FUSED_RAW = {"track": {"path": "", "title": "song", "duration": 64.0, "sha256": "ef" * 32}, "analyzer": {"version": "3.5"},
+             "grid": {"bpm": 120.0, "period": 0.5, "confidence": 0.9, "first_downbeat": 0.0}, "beats": [0.5 * i for i in range(128)],
+             "bars": {"start": [2.0 * k for k in range(32)], "levels": {n: LEVEL for n in ("loud", "kick", "bass", "hihat", "instruments", "vocal")}},
+             "sections": [{"label": "intro", "start_bar": 0, "end_bar": 10}, {"label": "buildup", "start_bar": 10, "end_bar": 12},
+                          {"label": "drop", "start_bar": 12, "end_bar": 24}, {"label": "outro", "start_bar": 24, "end_bar": 32}],
+             "events": [{"kind": "buildup", "bar": 10}, {"kind": "drop", "bar": 12}]}
+
+
+@pytest.fixture
+def fused_site(tmp_path, tone):
+    (tmp_path / f"{FUSED_TID}.json").write_text(json.dumps({**FUSED_RAW, "track": {**FUSED_RAW["track"], "path": str(tone)}}))
+    (tmp_path / "index.json").write_text(json.dumps({FUSED_TID: {"title": "song", "path": str(tone)}}))
+    (tmp_path / "candidates" / "dropdetector").mkdir(parents=True)
+    (tmp_path / "candidates" / "dropdetector" / f"{FUSED_TID}.json").write_text(json.dumps({"drops": [{"time": 24.0, "confidence": 0.9}]}))
+    httpd = ReviewServer(("127.0.0.1", 0), make_handler(tmp_path, tmp_path / "ratings.json"))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}", tmp_path
+    httpd.shutdown()
+
+
+def served(base, what, tid=FUSED_TID):
+    return json.loads(fetch(f"{base}/api/{what}/{tid}")[2])
+
+
+def post(base, what, body, tid=FUSED_TID):
+    req = urllib.request.Request(f"{base}/api/{what}/{tid}", data=json.dumps(body).encode(), method="POST", headers={"Content-Type": "application/json"})
+    return json.load(urllib.request.urlopen(req))
+
+
+@pytest.mark.parametrize("model", [False, True])
+def test_the_track_is_the_fused_analysis_with_the_models_confidence_and_without_its_file_path(fused_site, model):
+    base, root = fused_site
+    raw = json.loads((root / f"{FUSED_TID}.json").read_text())
+    if model:
+        (root / confidence.MODEL_FILE).write_text(json.dumps({"groups": {}}))
+    track = served(base, "track")
+    expected = candidates.fused(root, raw)
+    assert track["sections"] != raw["sections"] and [s["start_bar"] for s in track["sections"]] == [s["start_bar"] for s in expected["sections"]]
+    assert track["rules"]["sections"] == raw["sections"] and track["analyzer"]["version"] == "3.5.1" and track["analyzer"]["fusion"] == 1
+    assert all("sources" in s for s in track["sections"]) and "path" not in track["track"]
+    assert all("confidence" in s for s in track["sections"]) == model
+
+
+@pytest.mark.parametrize("stored,kept", [("1.5.1", True), ("3.5.1", True), ("3.5.2", False), ("3.6.1", False), ("3.5", False)])
+def test_a_rating_of_the_fused_analysis_survives_only_a_features_update(fused_site, stored, kept):
+    base, root = fused_site
+    (root / "ratings.json").write_text(json.dumps({FUSED_TID: {"analyzer_version": stored, "overall": 5}}))
+    assert (served(base, "ratings") != {}) == kept
+
+
+def test_a_saved_rating_carries_the_fused_version_and_reading_gold_does_not_archive_it(fused_site):
+    base, root = fused_site
+    assert post(base, "ratings", {"overall": 4})["analyzer_version"] == "3.5.1"
+    served(base, "gold")
+    assert served(base, "ratings")["overall"] == 4 and not (root / "ratings_history.json").exists()
+
+
+@pytest.mark.parametrize("what", ["track", "ratings", "gold"])
+def test_a_candidate_file_being_rewritten_is_a_retry_later_and_archives_no_rating(fused_site, what):
+    base, root = fused_site
+    post(base, "ratings", {"overall": 4})
+    (root / "candidates" / "dropdetector" / f"{FUSED_TID}.json").write_text("{not json")
+    with pytest.raises(urllib.error.HTTPError) as e:
+        fetch(f"{base}/api/{what}/{FUSED_TID}")
+    assert e.value.code == 503
+    assert json.loads((root / "ratings.json").read_text())[FUSED_TID]["analyzer_version"] == "3.5.1" and not (root / "ratings_history.json").exists()
+
+
+# --- the report and the song list describe the fused Analysis, recomputed only for changed inputs ----------------
+
+def report_docs(base, monkeypatch):
+    """What rounds.report is given on each /api/report request."""
+    seen = []
+    monkeypatch.setattr(review.rounds, "report", lambda r, a, d: seen.append(dict(d)) or {})
+    return seen
+
+
+def change_analysis(root, tone):
+    path = root / f"{TID}.json"
+    path.write_text(path.read_text() + " ")
+
+
+def change_candidate(root, tone):
+    (root / "candidates" / "dropdetector").mkdir(parents=True, exist_ok=True)
+    (root / "candidates" / "dropdetector" / f"{TID}.json").write_text(json.dumps({"drops": [{"time": 16.0, "confidence": 0.9}]}))
+
+
+def change_model(root, tone):
+    (root / confidence.MODEL_FILE).write_text(json.dumps({"groups": {}}))
+
+
+def change_scope(root, tone):
+    library.set_scope(root, [str(tone.parent)])
+
+
+@pytest.mark.parametrize("change,recomputed", [(None, False), (change_analysis, True), (change_candidate, True), (change_model, True), (change_scope, True)])
+def test_the_report_recomputes_a_document_only_when_an_input_of_the_analysis_changed(clip_site, tone, monkeypatch, change, recomputed):
+    base, root = clip_site
+    docs = report_docs(base, monkeypatch)
+    fetch(base + "/api/report")
+    if change:
+        change(root, tone)
+    fetch(base + "/api/report")
+    assert (docs[1][TID] is not docs[0][TID]) == recomputed
+
+
+def test_the_report_follows_a_candidate_that_changes_the_analysis(clip_site, tone, monkeypatch):
+    base, root = clip_site
+    docs = report_docs(base, monkeypatch)
+    fetch(base + "/api/report")
+    change_candidate(root, tone)
+    fetch(base + "/api/report")
+    expected = candidates.fused(root, json.loads((root / f"{TID}.json").read_text()))
+    assert [(s["label"], s["start_bar"]) for s in docs[1][TID]["sections"]] == [(s["label"], s["start_bar"]) for s in expected["sections"]]
+    assert docs[1][TID]["sections"] != docs[0][TID]["sections"]
+
+
+def test_a_track_whose_analysis_cannot_be_fused_is_left_out_of_the_report(clip_site, monkeypatch):
+    base, root = clip_site
+    docs = report_docs(base, monkeypatch)
+    (root / "candidates" / "dropdetector").mkdir(parents=True)
+    (root / "candidates" / "dropdetector" / f"{TID}.json").write_text("{not json")
+    fetch(base + "/api/report")
+    assert docs == [{}]
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_the_song_list_counts_come_from_the_fused_analysis_once_it_is_loaded(clip_site, monkeypatch, warm):
+    base, root = clip_site
+    change_candidate(root, None)
+    if warm:
+        report_docs(base, monkeypatch)
+        fetch(base + "/api/report")
+    row = json.loads(fetch(base + "/api/tracks")[2])[0]
+    fused = candidates.fused(root, json.loads((root / f"{TID}.json").read_text()))
+    expected = (sum(e["kind"] == "drop" for e in fused["events"]), [s["label"] for s in fused["sections"]]) if warm else (9, ["drop"] * 9)
+    assert (row["drops"], row["sections"]) == expected
+    assert warm == (expected != (9, ["drop"] * 9))

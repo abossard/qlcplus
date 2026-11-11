@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .candidates import fused
 from .library import in_library, load_scope
 from .ratings import gold_from_rating, merge_gold
 from .vdj import grid_agreement
@@ -131,15 +132,16 @@ def summarize_scores(rows):
     return out
 
 
-def library_docs(out_dir, scoped=True):
-    """{track id: analysis} for the analysed tracks in the Library (every analysed track with scoped=False)."""
+def library_docs(out_dir, scoped=True, fused_docs=True):
+    """{track id: analysis} for the analysed tracks in the Library (every analysed track with scoped=False).
+    The analysis is the fused structure; fused_docs=False gives the raw rule analysis."""
     scope = load_scope(out_dir) if scoped else None
     docs = {}
     for f in sorted(Path(out_dir).glob("*.json")):
         if re.fullmatch(r"[0-9a-f]{16}\.json", f.name):
             doc = json.loads(f.read_text())
             if "sections" in doc and in_library(doc["track"]["path"], scope):
-                docs[f.stem] = doc
+                docs[f.stem] = fused(out_dir, doc) if fused_docs else doc
     return docs
 
 

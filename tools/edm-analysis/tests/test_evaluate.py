@@ -38,3 +38,21 @@ def test_silver_boundaries_snap_to_bars_and_correct_offsets():
 @pytest.mark.parametrize("track_id,expected", [("0abc", "dev"), ("7fff", "dev"), ("8000", "test"), ("fabc", "test")])
 def test_split_of(track_id, expected):
     assert split_of(track_id) == expected
+
+
+def test_the_library_docs_are_fused_unless_the_raw_rules_are_asked_for(tmp_path):
+    import json
+
+    from edm_analysis.evaluate import library_docs
+
+    from test_candidates import _doc
+
+    tid = "ab" * 8
+    (tmp_path / f"{tid}.json").write_text(json.dumps(_doc(tid)))
+    (tmp_path / "candidates" / "dropdetector").mkdir(parents=True)
+    (tmp_path / "candidates" / "dropdetector" / f"{tid}.json").write_text(json.dumps({"drops": [{"time": 36.0, "confidence": 0.9}]}))
+
+    fused, raw = library_docs(tmp_path)[tid], library_docs(tmp_path, fused_docs=False)[tid]
+
+    assert fused["rules"]["sections"] == raw["sections"] and "rules" not in raw
+    assert [s["start_bar"] for s in fused["sections"] if s["label"] == "drop"] == [18]

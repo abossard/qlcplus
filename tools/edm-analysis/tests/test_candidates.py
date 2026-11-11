@@ -97,3 +97,25 @@ def test_a_candidate_run_that_fails_or_stops_early_says_so(tmp_path, monkeypatch
     run(tmp_path, name, log=log.append)
 
     assert [m for m in log if "exit code" in m or "stopped early" in m] == said
+
+
+def _doc(tid, n=40):
+    flat = {k: [0.5] * n for k in ("kick", "hihat", "bass", "instruments", "vocal", "loud")}
+    return {"track": {"path": "/m/a.mp3", "title": "a", "sha256": tid * 4, "duration": 80.0}, "analyzer": {"version": "2.5"},
+            "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0}, "bars": {"start": [2.0 * k for k in range(n)], "levels": flat},
+            "sections": [{"label": "intro", "start_bar": 0, "end_bar": 16, "start": 0.0, "end": 32.0},
+                         {"label": "drop", "start_bar": 16, "end_bar": n, "start": 32.0, "end": 2.0 * n}], "events": []}
+
+
+@pytest.mark.parametrize("files,drops", [({"dropdetector": {"drops": [{"time": 36.0, "confidence": 0.9}]}}, [18]), ({}, [16])])
+def test_a_track_is_fused_with_the_outputs_the_candidates_left(tmp_path, files, drops):
+    from edm_analysis.candidates import fused
+
+    for name, raw in files.items():
+        (tmp_path / "candidates" / name).mkdir(parents=True)
+        (tmp_path / "candidates" / name / f"{TID}.json").write_text(json.dumps(raw))
+
+    out = fused(tmp_path, _doc(TID))
+
+    assert [s["start_bar"] for s in out["sections"] if s["label"] == "drop"] == drops
+    assert out["rules"]["sections"] == _doc(TID)["sections"]

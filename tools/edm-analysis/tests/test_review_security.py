@@ -13,7 +13,7 @@ TID = "abababababababab"
 PIN = "424242"
 DOC = {"track": {"path": "", "title": "song", "sha256": "ab" * 32, "duration": 40.0}, "analyzer": {"version": "2.5"},
        "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0},
-       "bars": {"start": [2.0 * k for k in range(20)]},
+       "bars": {"start": [2.0 * k for k in range(20)], "levels": {n: [0.3] * 8 + [0.9] * 12 for n in ("loud", "kick", "hihat", "bass", "instruments", "vocal")}},
        "sections": [{"label": "intro", "start_bar": 0, "end_bar": 8}, {"label": "drop", "start_bar": 8, "end_bar": 20}],
        "events": [{"kind": "drop", "bar": 8}]}
 GOOD = {"grid": {"beats": "ok", "downbeat": None, "shift_beats": 0, "offset_ms": 0},
@@ -155,7 +155,7 @@ def test_a_valid_rating_is_stored_but_never_reaches_the_final_file(site):
     status, _, body = post_rating(port, login(port), GOOD)
     assert status == 200
     stored = json.loads((root / "ratings.json").read_text())[TID]
-    assert stored["overall"] == 4 and stored["analyzer_version"] == "2.5"
+    assert stored["overall"] == 4 and stored["analyzer_version"] == "2.5.1"
     assert not (root / "final").exists()
 
 
@@ -324,3 +324,46 @@ def test_clip_files_are_named_without_confidence_or_source(round_site):
         assert status == 200 and "41" not in "".join(headers.values()) and "vdj" not in "".join(headers.values())
     names = " ".join(p.name for p in (root / ".clips").iterdir())
     assert "vdj" not in names and "ours" not in names and "41" not in names.replace("r01-p00", "")
+
+
+def buildup_probe(n, **extra):
+    """The next contract: tap where the buildup starts, 'none' meaning no buildup, only bars before the drop at bar 12."""
+    return {"id": f"r01-p{n:03d}", "track": TID, "title": "song", "theory": "t1", "bucket": "unsure", "question": "locate",
+            "prompt": "Tap the bar where the buildup starts", "claim": {"kind": "missed", "bar": 12, "time": 24.0, "confidence": 50},
+            "plays": [{"id": "main", "start": 0.0, "end": 28.0, "mark": None}], "none_label": "No buildup", "before": 12,
+            "alternatives": {"none": {"source": "ours"}, "edmformer": {"bar": 8}}, "sources": {"edmformer": 8}, **extra}
+
+
+BUILDUP_ROUND = {"round": 1, "created": "2026-11-05T10:00:00", "theories": [{"id": "t1", "text": "Drops are late"}], "probes": [
+    buildup_probe(1),
+    {"id": "r01-p002", "track": TID, "title": "song", "theory": "t1", "bucket": "style", "question": "yesno",
+     "prompt": "Does the drop start at the marker?", "claim": CLAIM, "plays": [{"id": "main", "start": 0.0, "end": 32.0, "mark": 16.0}]},
+    buildup_probe(3, bucket="repeat", repeat_of="r01-p001"),
+]}
+
+
+@pytest.fixture
+def buildup_site(site):
+    _, root, _ = site
+    (root / "rounds").mkdir()
+    (root / "rounds" / "round-01.json").write_text(json.dumps(BUILDUP_ROUND))
+    return site
+
+
+def test_the_round_carries_before_and_the_none_label_and_a_repeat_looks_like_the_question_it_repeats(buildup_site):
+    port, root, _ = buildup_site
+    body = call(port, "GET", "/api/round", headers={"Cookie": login(port)})[2]
+    first, yesno, again = json.loads(body)["probes"]
+    assert first["before"] == 12 and "before" not in yesno
+    assert {"value": "none", "label": "No buildup"} in first["options"]
+    assert [o["value"] for o in yesno["options"]] == ["yes", "none", "skip"]
+    assert set(again) == set(first) and again["plays"] == first["plays"] and again["options"] == first["options"] and again["before"] == 12
+    for hidden in (b'"confidence"', b'"bucket"', b'"source', b'"claim"', b'"alternatives"', b'"missed"', b'"path"', b"repeat", b'"none_label"', str(root).encode()):
+        assert hidden not in body, hidden
+
+
+@pytest.mark.parametrize("answer,status", [("bar:11", 200), ("bar:0", 200), ("none", 200), ("bar:12", 400), ("bar:13", 400), ("bar:99", 400)])
+def test_only_bars_before_the_limit_are_accepted(buildup_site, answer, status):
+    port, root, _ = buildup_site
+    assert post_answer(port, login(port), "r01-p001", {"answer": answer})[0] == status
+    assert (root / "rounds" / "answers.json").exists() == (status == 200)

@@ -33,15 +33,21 @@ def _claim(tid, doc, source, kind, t, label=None, score=None):
             "bar": bar, "offset_beats": offset, "score": None if score is None else float(score)}
 
 
-def claims_ours(tid, doc):
-    out = [_claim(tid, doc, "rules", "bar1", doc["grid"]["first_downbeat"], score=doc["grid"].get("bar1_confidence"))]
-    starts = doc["bars"]["start"]
-    for s in doc["sections"]:
+def _section_claims(tid, doc, source, sections):
+    starts, out = doc["bars"]["start"], []
+    for s in sections:
         t = starts[s["start_bar"]] if s["start_bar"] < len(starts) else s.get("start", 0.0)
-        out.append(_claim(tid, doc, "rules", "section", t, s["label"], s.get("confidence")))
+        out.append(_claim(tid, doc, source, "section", t, s["label"], s.get("confidence")))
         if s["label"] in START_KINDS and s["start_bar"] > 0:
-            out.append(_claim(tid, doc, "rules", s["label"], t, s["label"], s.get("confidence")))
+            out.append(_claim(tid, doc, source, s["label"], t, s["label"], s.get("confidence")))
     return out
+
+
+def claims_ours(tid, doc):
+    """Our bar 1 and the rules' sections, and the fused sections where the document is a fusion (doc["rules"] keeps the rules')."""
+    out = [_claim(tid, doc, "rules", "bar1", doc["grid"]["first_downbeat"], score=doc["grid"].get("bar1_confidence"))]
+    out += _section_claims(tid, doc, "rules", doc.get("rules", doc)["sections"])
+    return out + (_section_claims(tid, doc, "fused", doc["sections"]) if "rules" in doc else [])
 
 
 def claims_candidate(tid, doc, name, loaded):
@@ -88,17 +94,19 @@ def claims_silver(tid, doc, vdj, mik_offset=MIK_MP3_OFFSET):
 
 
 def answer_rows(answers, docs):
-    """One row per answered Probe; `exact` is True, False or None (couldn't tell)."""
+    """One row per Gold answer (a Probe and its repeats count once, see rounds.gold_answers); `exact` is True, False or None (couldn't tell).
+    A buildup the reviewer located where we had none is stored as a "missed" Claim with a "none" alternative: it is a buildup answer."""
     from .confidence import _exact, gold_bar
+    from .rounds import gold_answers
 
     rows = []
-    for pid, a in sorted(answers.items()):
+    for pid, a in sorted(gold_answers(answers).items()):
         claim, doc = a["claim"], docs.get(a["track"])
         bar, offset = snap(doc, claim["time"]) if doc else (claim["bar"], None)
-        rows.append({"probe": pid, "round": a["round"], "track": a["track"], "kind": claim["kind"],
-                     "label": claim.get("label"), "time": claim["time"], "bar": bar, "offset_beats": offset,
+        rows.append({"probe": pid, "round": a["round"], "track": a["track"],
+                     "kind": "buildup" if claim["kind"] == "missed" and "none" in a.get("alternatives", {}) else claim["kind"], "label": claim.get("label"), "time": claim["time"], "bar": bar, "offset_beats": offset,
                      "answer": a["answer"], "exact": _exact(a), "gold_bar": gold_bar(a), "confidence_asked": claim.get("confidence"),
-                     "answered_at": a.get("at")})
+                     "answered_at": a.get("at"), "analyzer": doc.get("analyzer", {}).get("version") if doc else None})
     return rows
 
 

@@ -139,8 +139,53 @@ def test_export_rebuilds_the_tables_from_raw_outputs_only(tmp_path):
 
     assert {p.name for p in folder.glob("*.parquet")} == {"claims.parquet", "bars.parquet", "answers.parquet", "tracks.parquet"}
     claims = pq.read_table(folder / "claims.parquet").to_pylist()
-    assert {(c["source"], c["kind"]) for c in claims} >= {("rules", "drop"), ("dropdetector", "drop")}
+    assert {(c["source"], c["kind"]) for c in claims} >= {("rules", "drop"), ("fused", "drop"), ("dropdetector", "drop")}
     bars = pq.read_table(folder / "bars.parquet").to_pylist()
     assert len(bars) == N and bars[12]["gold_buildup"] is True and bars[16]["dropdetector_drop"] == 0.97
-    assert pq.read_table(folder / "tracks.parquet").to_pylist()[0]["sources"] == ["dropdetector", "rules"]
+    assert pq.read_table(folder / "tracks.parquet").to_pylist()[0]["sources"] == ["dropdetector", "fused", "rules"]
     assert {p: p.read_bytes() for p in tmp_path.rglob("*.json")} == before
+
+
+FUSED = {**DOC, "rules": {"sections": DOC["sections"], "events": []},
+         "sections": [{"label": "intro", "start_bar": 0, "end_bar": 10, "confidence": 100},
+                      {"label": "buildup", "start_bar": 10, "end_bar": 18, "confidence": 60},
+                      {"label": "drop", "start_bar": 18, "end_bar": 32, "confidence": 90}],
+         "analyzer": {"version": "2.5.1"}}
+
+
+def test_a_fused_analysis_gives_claims_for_the_rules_and_for_the_fusion():
+    rows = claims_ours(TID, FUSED)
+    pick = lambda source: [(r["kind"], r["bar"], r["score"]) for r in rows if r["source"] == source]
+    assert pick("rules") == [("bar1", 0, 88), ("section", 0, 100), ("section", 12, 40), ("buildup", 12, 40), ("section", 16, 70), ("drop", 16, 70)]
+    assert pick("fused") == [("section", 0, 100), ("section", 10, 60), ("buildup", 10, 60), ("section", 18, 90), ("drop", 18, 90)]
+
+
+def test_answers_say_which_analysis_they_are_read_against():
+    answers = {"r01-p001": {"round": 1, "track": TID, "answer": "yes", "claim": {"kind": "drop", "bar": 16, "time": 33.0}}}
+    assert answer_rows(answers, {TID: FUSED})[0]["analyzer"] == "2.5.1"
+    assert answer_rows(answers, {})[0]["analyzer"] is None
+
+
+def _group(answers, root="r01-p001"):
+    """The answers to one probe and its repeats, one per round."""
+    claim = {"kind": "drop", "bar": 16, "time": 33.0, "confidence": 50}
+    return {f"r0{i}-p001": {"answer": a, "round": i, "track": TID, "claim": claim, **({"repeat_of": root} if i > 1 else {})}
+            for i, a in enumerate(answers, 1)}
+
+
+@pytest.mark.parametrize("answers,kept", [
+    (["yes"], ["yes"]), (["yes", "yes"], ["yes"]),           # a repeat that agrees counts once
+    (["yes", "no"], []),                                      # one that disagrees removes both
+    (["yes", "no", "no"], ["no"]),                            # until a third answer settles it
+])
+def test_answer_rows_count_a_probe_and_its_repeats_as_one_gold_answer(answers, kept):
+    assert [r["answer"] for r in answer_rows(_group(answers), {TID: DOC})] == kept
+
+
+def test_a_buildup_located_where_we_had_none_is_a_buildup_answer():
+    miss = {"answer": "bar:8", "round": 4, "track": TID, "claim": {"kind": "missed", "bar": 16, "time": 33.0, "confidence": 50},
+            "alternatives": {"none": {"source": "ours"}, "edmformer": {"bar": 9}}}
+    cue = {"answer": "yes", "round": 4, "track": TID, "claim": {"kind": "missed", "bar": 12, "time": 25.0, "confidence": 50}}
+    rows = {r["probe"]: r for r in answer_rows({"r04-p001": miss, "r04-p002": cue}, {TID: DOC})}
+    assert (rows["r04-p001"]["kind"], rows["r04-p001"]["gold_bar"], rows["r04-p001"]["exact"]) == ("buildup", 8, False)
+    assert (rows["r04-p002"]["kind"], rows["r04-p002"]["gold_bar"]) == ("missed", 12)   # a new part at a cue is no buildup

@@ -12,6 +12,7 @@ from . import audio
 from .features import bar_descriptors, bar_levels, peaks
 from .archive import preserve_analysis
 from .final import write_final
+from .fusion import bar_time as _bar_time
 from .grid import fit_grid
 from .structure import find_events, label_sections
 
@@ -64,9 +65,7 @@ def features_document(path, sha, duration, raw_beats, raw_downbeats, grid, level
 
 def with_structure(doc):
     """Add sections and events computed from the stored per-bar levels."""
-    starts = doc["bars"]["start"]
-    bar_len = 4 * doc["grid"]["period"]
-    bar_time = lambda k: starts[k] if k < len(starts) else starts[-1] + bar_len * (k - len(starts) + 1)
+    bar_time = _bar_time(doc)
     levels = {k: np.asarray(v, float) for k, v in {**doc["bars"]["levels"], **doc["bars"].get("descriptors", {})}.items()}
     sections = label_sections(levels)
     events = find_events(sections, levels)

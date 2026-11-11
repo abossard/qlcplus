@@ -1,15 +1,22 @@
-"""Compare the sources (our rules, the Candidates, VirtualDJ) with each other and with Gold.
+"""Compare the sources (our rules, their fusion, the Candidates, VirtualDJ) with each other and with Gold.
 
 Pure calculations over the rows of the exported tables (claims.parquet, answers.parquet); the command reads
-them and prints. Bars are bars on our grid, as in transform.py.
+them and prints. Bars are bars on our grid, as in transform.py. Shares of the reviewer's answers come with what they mean
+if the reviewer errs at confidence.REVIEWER_ERROR.
 """
 
+from itertools import zip_longest
+
+from .confidence import REVIEWER_ERROR, corrected_rate
 from .transform import DROP_SCORE
 
 DROP_SOURCES = ("rules", "edmformer", "dropdetector")
 OFFSET_WINDOW = 4          # bars around a break end where a source's drop counts as its guess for it
+DETECTOR_WINDOW = 8        # bars around a sure detector drop where a source's drop counts as its guess for it (a phrase)
 TOLERANCES = {"exact": 0, "within_1": 1}
 GOLD_SOURCES = (*DROP_SOURCES, "vdj")
+GOLD_KINDS = {"drop": ("rules", "fused", "edmformer", "dropdetector", "vdj"), "buildup": ("rules", "fused", "edmformer"),
+              "breakdown": ("rules", "fused", "edmformer")}
 
 
 def _share(hits, n):
@@ -41,29 +48,65 @@ def _scores(pairs):
     return out
 
 
-def _offsets(pairs):
-    """{bar offset: count} of the source's nearest drop (earlier on a tie) within the window of each break end."""
+def _offsets(pairs, window=OFFSET_WINDOW):
+    """{bar offset: count} of the source's nearest drop (earlier on a tie) within the window of each reference bar."""
     out = {}
     for drops, ends in pairs:
         for end in ends:
             near = min(drops, key=lambda d: (abs(d - end), d), default=None)
-            if near is not None and abs(near - end) <= OFFSET_WINDOW:
+            if near is not None and abs(near - end) <= window:
                 out[near - end] = out.get(near - end, 0) + 1
     return dict(sorted(out.items()))
 
 
 def _gold(by, covered, answers):
-    """Per source: Gold bars of drops on the tracks it covers, and the share it has exactly or within 1 bar."""
-    gold = [(a["track"], a["gold_bar"]) for a in answers if a.get("kind") == "drop" and a.get("gold_bar") is not None]
-    if not gold:
-        return None
+    """Per kind, per source: Gold bars on the tracks it covers, and the share it has exactly or within 1 bar (observed, and read under the reviewer's error rate)."""
     out = {}
-    for source in GOLD_SOURCES:
-        kind = "break_end" if source == "vdj" else "drop"
-        mine = [(_bars(by, t, source, kind), g) for t, g in gold if t in covered[source]]
-        out[source] = {"n": len(mine), **{name: _share(sum(any(abs(g - b) <= tol for b in bars) for bars, g in mine), len(mine))
-                                          for name, tol in TOLERANCES.items()}}
+    for kind, sources in GOLD_KINDS.items():
+        gold = [(a["track"], a["gold_bar"]) for a in answers if a.get("kind") == kind and a.get("gold_bar") is not None]
+        if not gold:
+            continue
+        out[kind] = {}
+        for source in sources:
+            mine = [(_bars(by, t, source, "break_end" if source == "vdj" else kind), g) for t, g in gold if t in covered.get(source, ())]
+            shares = {name: _share(sum(any(abs(g - b) <= tol for b in bars) for bars, g in mine), len(mine)) for name, tol in TOLERANCES.items()}
+            out[kind][source] = {"n": len(mine), **shares, **{f"{k}_corrected": None if v is None else round(corrected_rate(v), 4) for k, v in shares.items()}}
+    return out or None
+
+
+def _sections(by, track, source):
+    return sorted(by.get(track, {}).get((source, "section"), []), key=lambda c: c["bar"])
+
+
+def _structure(by, covered):
+    """Per source: its drops, how many have a buildup section right before them, and the lengths of those buildups."""
+    out = {}
+    for source in ("rules", "fused"):
+        lengths, drops = {}, 0
+        for t in covered.get(source, ()):
+            secs = _sections(by, t, source)
+            for prev, cur in zip(secs, secs[1:]):
+                if cur.get("label") == "drop":
+                    drops += 1
+                    if prev.get("label") == "buildup":
+                        lengths[cur["bar"] - prev["bar"]] = lengths.get(cur["bar"] - prev["bar"], 0) + 1
+        if drops:
+            out[source] = {"drops": drops, "with_buildup": sum(lengths.values()), "buildup_lengths": dict(sorted(lengths.items()))}
     return out
+
+
+def _label_changes(by, covered):
+    """The rules' sections whose label differs from the fusion's at their start bar, as {"from>to": count}."""
+    sections, from_to = 0, {}
+    for t in covered.get("rules", set()) & covered.get("fused", set()):
+        fused = _sections(by, t, "fused")
+        for c in _sections(by, t, "rules"):
+            sections += 1
+            now = next((f.get("label") for f in reversed(fused) if f["bar"] <= c["bar"]), None)
+            if now != c.get("label"):
+                key = f"{c.get('label')}>{now}"
+                from_to[key] = from_to.get(key, 0) + 1
+    return {"sections": sections, "changed": sum(from_to.values()), "from_to": dict(sorted(from_to.items()))}
 
 
 def compare(claims, answers=()):
@@ -72,7 +115,7 @@ def compare(claims, answers=()):
     covered = {**{s: set() for s in GOLD_SOURCES}, **covered}
     ends = {t: _bars(by, t, "vdj", "break_end") for t in set.intersection(*(covered[s] for s in GOLD_SOURCES))}
     tracks = sorted(t for t, e in ends.items() if e)   # without a break end every guess would count as wrong
-    guesses = {s: {t: _bars(by, t, s, "drop") for t in tracks} for s in DROP_SOURCES}
+    guesses = {s: {t: _bars(by, t, s, "drop") for t in tracks} for s in (*DROP_SOURCES, *(["fused"] if covered.get("fused") else []))}
     guesses["edmformer+dropdetector"] = {t: guesses["edmformer"][t] & guesses["dropdetector"][t] for t in tracks}
     guesses["two of three"] = {t: {b for b in set().union(*(guesses[s][t] for s in DROP_SOURCES))
                                    if sum(b in guesses[s][t] for s in DROP_SOURCES) >= 2} for t in tracks}
@@ -80,7 +123,10 @@ def compare(claims, answers=()):
     return {"coverage": {s: len(t) for s, t in covered.items() if t},
             "drops": {"tracks": len(tracks),
                       "scores": {name: _scores([(g[t], ends[t]) for t in tracks]) for name, g in guesses.items()},
-                      "offsets": {s: _offsets([(guesses[s][t], ends[t]) for t in tracks]) for s in DROP_SOURCES}},
+                      "offsets": {s: _offsets([(guesses[s][t], ends[t]) for t in tracks]) for s in guesses if s in (*DROP_SOURCES, "fused")}},
+            "detector_offsets": {s: _offsets([(_bars(by, t, s, "drop"), _bars(by, t, "dropdetector", "drop")) for t in covered[s] & covered["dropdetector"]], DETECTOR_WINDOW)
+                                 for s in ("rules", "fused", "edmformer") if covered.get(s)},
+            "structure": _structure(by, covered), "label_changes": _label_changes(by, covered),
             "section_starts": {s: {"n": len(bars), "on_8": _share(sum(b % 8 == 0 for b in bars), len(bars))}
                                for s, bars in sections.items() if bars},
             "gold": _gold(by, covered, answers)}
@@ -103,7 +149,33 @@ def format_table(result):
         lines.append(f"  {s:<24}" + "  ".join(f"{o:+d}: {n}" for o, n in counts.items()))
     lines += ["", "section starts on a multiple of 8 bars", f"  {'':<24}{'starts':>8}{'share':>9}"]
     lines += [f"  {s:<24}{v['n']:>8}{cell(v['on_8']):>9}" for s, v in result["section_starts"].items()]
-    if result["gold"]:
-        lines += ["", "against Gold bars of drops", f"  {'':<24}{'answers':>8}{'exact':>9}{'+-1':>9}"]
-        lines += [f"  {s:<24}{v['n']:>8}{cell(v['exact']):>9}{cell(v['within_1']):>9}" for s, v in result["gold"].items()]
+    lines += ["", "offset of the nearest drop from a sure drop detector drop, within " + str(DETECTOR_WINDOW) + " bars (drop bar minus detector bar)"]
+    for s_, counts in result["detector_offsets"].items():
+        lines.append(f"  {s_:<24}" + "  ".join(f"{o:+d}: {n}" for o, n in counts.items()))
+    if result["structure"]:
+        lines += ["", "drops with a buildup before them", f"  {'':<24}{'drops':>8}{'buildup':>9}{'share':>9}"]
+        lines += [f"  {s_:<24}{v['drops']:>8}{v['with_buildup']:>9}{cell(_share(v['with_buildup'], v['drops'])):>9}" for s_, v in result["structure"].items()]
+        lines += ["", "buildup length in bars: number of buildups"]
+        lines += [f"  {s_:<24}" + "  ".join(f"{n}: {c}" for n, c in v["buildup_lengths"].items()) for s_, v in result["structure"].items()]
+    changes = result["label_changes"]
+    if changes["sections"]:
+        lines += ["", f"label changes: {changes['changed']} of {changes['sections']} rules sections have another label in the fusion",
+                  "  " + "  ".join(f"{k}: {n}" for k, n in sorted(changes["from_to"].items(), key=lambda kv: -kv[1]))]
+    for kind, table in (result["gold"] or {}).items():
+        lines += ["", f"against Gold bars of {kind}s (observed; 'if' is the share if the reviewer errs {REVIEWER_ERROR:.0%} of the time)",
+                  f"  {'':<24}{'answers':>8}{'exact':>9}{'if':>7}{'+-1':>9}{'if':>7}"]
+        lines += [f"  {s_:<24}{v['n']:>8}{cell(v['exact']):>9}{cell(v['exact_corrected']):>7}{cell(v['within_1']):>9}{cell(v['within_1_corrected']):>7}"
+                  for s_, v in table.items() if v["n"]]
     return "\n".join(lines)
+
+
+def side_by_side(doc, answers):
+    """One track as three columns: the rules' sections, the fused sections with their confidence and sources, and the answers on them."""
+    left = [f"{s['label']} {s['start_bar']}-{s['end_bar']}" for s in doc["rules"]["sections"]]
+    mid = [f"{s['label']} {s['start_bar']}-{s['end_bar']}" + (f" {s['confidence']}%" if "confidence" in s else "") + (" " + "+".join(s["sources"]) if s.get("sources") else "")
+           for s in doc["sections"]]
+    right = [f"{a['kind']} {a['bar']}: {a['answer']}" + (f" (gold bar {a['gold_bar']})" if a.get("gold_bar") is not None else "")
+             for a in sorted(answers, key=lambda a: a["bar"])]
+    w = (max(map(len, [*left, "rules"]), default=5), max(map(len, [*mid, "fused"]), default=5))
+    rows = [f"{a:<{w[0]}} | {b:<{w[1]}} | {c}".rstrip() for a, b, c in zip_longest(left, mid, right, fillvalue="")]
+    return "\n".join([doc["track"]["title"], f"{'rules':<{w[0]}}   {'fused':<{w[1]}}   answers", *rows])
