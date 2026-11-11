@@ -27,6 +27,7 @@
 #include "previewcontext.h"
 #include "show.h"
 #include "vdjdatabasereader.h"
+#include "edmanalysisreader.h"
 
 class Doc;
 class Track;
@@ -70,6 +71,7 @@ class ShowManager final : public PreviewContext
     Q_PROPERTY(double vdjBeatPeriodMs READ vdjBeatPeriodMs NOTIFY vdjGridChanged)
     Q_PROPERTY(double vdjGridAnchorMs READ vdjGridAnchorMs NOTIFY vdjGridChanged)
     Q_PROPERTY(QVariantList vdjPois READ vdjPois NOTIFY vdjGridChanged)
+    Q_PROPERTY(QVariantList analysisSections READ analysisSections NOTIFY vdjGridChanged)
     Q_PROPERTY(int bpmNumber READ bpmNumber WRITE setBpmNumber NOTIFY bpmNumberChanged)
     Q_PROPERTY(float timeScale READ timeScale WRITE setTimeScale NOTIFY timeScaleChanged)
     Q_PROPERTY(float tickSize READ tickSize NOTIFY tickSizeChanged)
@@ -221,6 +223,10 @@ public:
     double vdjGridAnchorMs() const;
     QVariantList vdjPois() const;
 
+    /** Sections of the song in this show from the offline audio analysis
+     *  as {label, startMs, endMs, confidence, labelConfidence} */
+    QVariantList analysisSections() const;
+
     /** Get/Set the show's own tempo (BPM) used to draw the editor beat grid.
      *  This is the SONG tempo (beats<->time conversion for authoring), distinct
      *  from the global playback BPM (InputOutputManager::bpmNumber). */
@@ -263,6 +269,8 @@ private:
 
     /** Lazily-populated VirtualDJ database access (VDJBeat mode) */
     VdjDatabaseReader m_vdjReader;
+    EdmAnalysisReader m_analysisReader;
+    QVariantList m_analysisSections;
 
     /** Grid + markers of the current show's audio file ('valid' false
      *  when not in VDJBeat mode or the song is not in the database) */

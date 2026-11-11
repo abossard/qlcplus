@@ -502,6 +502,11 @@ QVariantList ShowManager::vdjPois() const
     return list;
 }
 
+QVariantList ShowManager::analysisSections() const
+{
+    return m_analysisSections;
+}
+
 void ShowManager::updateVdjGrid()
 {
     VdjDatabaseReader::SongGrid grid;
@@ -534,6 +539,7 @@ void ShowManager::updateVdjGrid()
     }
 
     m_vdjGrid = grid;
+    m_analysisSections = m_analysisReader.sections(EdmAnalysisReader::firstAudioFile(m_doc, m_currentShow));
     emit vdjGridChanged();
 }
 

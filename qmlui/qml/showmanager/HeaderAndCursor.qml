@@ -249,6 +249,36 @@ Rectangle
             // read live from the VirtualDJ database (read-only)
             if (timeDivision === Show.VDJBeat && showManager.vdjGridValid)
                 paintVdjOverlay(context, fontSize)
+            paintAnalysisSections(context, fontSize)
+        }
+
+        // sections of the song from the offline audio analysis: a colored band
+        // along the bottom of the header, stronger where the label is more certain
+        function paintAnalysisSections(context, fontSize)
+        {
+            var sections = showManager.analysisSections
+            if (!sections || sections.length === 0)
+                return
+            var colors = { "drop": "#3987e5", "buildup": "#d95926", "breakdown": "#199e70",
+                           "intro": "#c98500", "outro": "#d55181", "groove": "#008300" }
+            var msPerPx = (timeScale * 1000.0) / tickSize
+            var bandTop = height * 0.5
+            for (var i = 0; i < sections.length; i++)
+            {
+                var sx = (sections[i].startMs / msPerPx) - x
+                var ex = (sections[i].endMs / msPerPx) - x
+                if (ex < 0 || sx > width)
+                    continue
+                context.globalAlpha = 0.35 + 0.45 * sections[i].labelConfidence / 100.0
+                context.fillStyle = colors[sections[i].label] || "#888888"
+                context.fillRect(sx + 1, bandTop, ex - sx - 2, height - bandTop)
+                context.globalAlpha = 1.0
+                if (ex - sx > 40)
+                {
+                    context.fillStyle = "white"
+                    context.fillText(sections[i].label, sx + 4, height - 3)
+                }
+            }
         }
 
         // paint beat lines (anchor phase + fractional period) and POI flags.
