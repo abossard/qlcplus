@@ -119,3 +119,41 @@ def test_a_track_is_fused_with_the_outputs_the_candidates_left(tmp_path, files, 
 
     assert [s["start_bar"] for s in out["sections"] if s["label"] == "drop"] == drops
     assert out["rules"]["sections"] == _doc(TID)["sections"]
+
+
+T0, T1, T2 = (f"{i:016x}" for i in range(3))
+
+
+@pytest.mark.parametrize("scope,library,only_asked,expected", [
+    (["song[01].mp3"], False, False, [T0, T1, T2]),     # the Library first, then the rest
+    (["song[01].mp3"], True, False, [T0, T1]),          # only the Library
+    (["song2.mp3"], False, False, [T2, T0, T1]),
+    (["song2.mp3"], True, False, [T2]),
+    (None, True, False, [T0, T2, T1]),                  # no scope: every track, asked ones first, as today
+    (["song[01].mp3"], False, True, [T0, T2]),          # asked tracks only: T0 in the Library, T2 out
+    (["song[01].mp3"], True, True, [T0]),
+])
+def test_library_runs_only_tracks_inside_the_library(tmp_path, monkeypatch, scope, library, only_asked, expected):
+    import subprocess
+
+    from edm_analysis.candidates import run
+    from edm_analysis.library import set_scope
+
+    stub_run(monkeypatch, tmp_path, 0, 3)
+    (tmp_path / "candidates" / "edmformer").mkdir(parents=True)
+    (tmp_path / "rounds").mkdir()
+    (tmp_path / "rounds" / "round-01.json").write_text(json.dumps({"round": 1, "probes": [{"id": "r01-p001", "track": T0}, {"id": "r01-p002", "track": T2}]}))
+    if scope:
+        set_scope(tmp_path, [str(tmp_path / "music" / p) for p in scope])
+    stub, seen, log = subprocess.run, [], []
+
+    def record(cmd, **kwargs):
+        seen.extend(Path(c).stem for c in cmd if str(c).endswith(".mp3"))
+        return stub(cmd, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", record)
+
+    run(tmp_path, "edmformer", log=log.append, only_asked=only_asked, library=library, pause=0.0)
+
+    assert seen == expected
+    assert f"edmformer: {len(expected)} tracks to do" in log

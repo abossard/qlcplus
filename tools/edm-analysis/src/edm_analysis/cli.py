@@ -265,7 +265,7 @@ def cmd_round(args):
 def cmd_candidates(args):
     from .candidates import run
 
-    run(Path(args.out), args.name, log=lambda m: print(m, flush=True), only_asked=args.only_asked, pause=args.pause)
+    run(Path(args.out), args.name, log=lambda m: print(m, flush=True), only_asked=args.only_asked, pause=args.pause, library=args.library)
     return 0
 
 
@@ -381,6 +381,7 @@ def main(argv=None):
     cd.add_argument("name", choices=("allin1", "edmformer", "dropdetector"))
     cd.add_argument("--out", default=str(DEFAULT_OUT))
     cd.add_argument("--only-asked", action="store_true", help="only tracks that review rounds ask about")
+    cd.add_argument("--library", action="store_true", help="only tracks inside the Library scope (every track where no scope is set)")
     cd.add_argument("--pause", type=float, default=0.0, help="seconds of rest per track, to keep the load down")
     cd.set_defaults(func=cmd_candidates)
     ex = sub.add_parser("export", help="rebuild comparison and learning tables (Parquet) from the raw outputs")

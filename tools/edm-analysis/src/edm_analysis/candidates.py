@@ -69,8 +69,8 @@ def _call(cmd, name, log, **kwargs):
         log(f"{name}: exit code {code}")
 
 
-def run(out_dir, name, log=print, only_asked=False, pause=0.0):
-    """pause: seconds of rest per track, so the Mac stays usable while a Candidate runs."""
+def run(out_dir, name, log=print, only_asked=False, pause=0.0, library=False):
+    """pause: seconds of rest per track, so the Mac stays usable while a Candidate runs. library: only tracks inside the Library scope."""
     folder, raw = links(out_dir), raw_dir(out_dir, name)
     if name == "allin1":
         name_by_track(out_dir, raw)
@@ -85,6 +85,8 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0):
                   key=lambda p: (p.stem not in inside, p.stem not in asked, p.stem))
     if only_asked:
         todo = [p for p in todo if p.stem in asked]
+    if library:
+        todo = [p for p in todo if p.stem in inside]
     log(f"{name}: {len(todo)} tracks to do")
     if not todo:
         return
