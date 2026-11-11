@@ -226,7 +226,7 @@ SidePanel
                 height: iconSize
                 faSource: FontAwesome.fa_paste
                 faColor: UISettings.fgMain
-                tooltip: qsTr("Paste widgets from clipboard")
+                tooltip: qsTr("Drag and paste widgets from clipboard")
                 enabled: virtualConsole.editMode
                 counter: virtualConsole.clipboardItemsCount
                 onClicked: virtualConsole.pasteFromClipboard()

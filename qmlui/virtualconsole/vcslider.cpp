@@ -192,15 +192,14 @@ VCWidget* VCSlider::createCopy(VCWidget* parent) const
     return slider;
 }
 
-void VCSlider::remapChannels(const QMap<SceneValue, SceneValue> &remapMap)
+void VCSlider::remapChannels(const QMultiMap<SceneValue, SceneValue> &remapMap)
 {
     QList<SceneValue> newChannels;
 
     for (const SceneValue &val : m_levelChannels)
     {
         SceneValue key(val.fxi, val.channel);
-        if (remapMap.contains(key))
-            newChannels.append(remapMap.value(key));
+        newChannels.append(remapMap.values(key));
     }
 
     setLevelChannels(newChannels);
@@ -520,7 +519,7 @@ void VCSlider::requestUserValue(int value, bool updateFeedback, ShowCommandOrigi
     recorder->requestUserControl(request);
 }
 
-void VCSlider::setValue(int value, bool setDMX, bool updateFeedback)
+void VCSlider::setValue(int value, bool setDMX, bool updateFeedback, bool adjust)
 {
     if (m_value == value)
         return;
@@ -530,7 +529,7 @@ void VCSlider::setValue(int value, bool setDMX, bool updateFeedback)
         ShowCommandRecorder::traceDirectRequest(this, value);
     Tardis::instance()->enqueueAction(Tardis::VCSliderSetValue, id(), m_value, value);
 
-    applyValue(value, setDMX, updateFeedback);
+    applyValue(value, setDMX && (sliderMode() != Adjust || adjust), updateFeedback);
 }
 
 quint64 VCSlider::applyRecordedPosition(qreal position)
@@ -1398,15 +1397,27 @@ void VCSlider::slotControlledFunctionAttributeChanged(int attrIndex, qreal fract
 
 void VCSlider::slotControlledFunctionStopped(quint32 fid)
 {
-    if (fid == controlledFunction())
-    {
-        if (m_controlledAttributeIndex == Function::Intensity)
-            setValue(0, false, true);
+    if (fid != controlledFunction())
+        return;
 
-        Function *function = m_doc->function(fid);
-        function->releaseAttributeOverride(m_controlledAttributeId);
-        m_controlledAttributeId = Function::invalidAttributeId();
-    }
+    Function *function = m_doc->function(fid);
+    if (function == nullptr)
+        return;
+
+    // This signal is queued from the MasterTimer thread, so the Function
+    // may have been restarted in the meantime (e.g. a Show restarted from
+    // a new cursor position). Then there is nothing to reflect.
+    if (function->stopped() == false)
+        return;
+
+    // Only reflect the stop on the slider, without adjusting the Function:
+    // if it is restarted before the next DMX write, a zero intensity would
+    // stop it again
+    if (m_controlledAttributeIndex == Function::Intensity)
+        setValue(0, false, true, false);
+
+    function->releaseAttributeOverride(m_controlledAttributeId);
+    m_controlledAttributeId = Function::invalidAttributeId();
 }
 
 void VCSlider::slotControlledFunctionRunning(quint32 fid)

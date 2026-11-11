@@ -141,6 +141,7 @@ void VCArrangement::copy(const VCFrame *from, VCFrame *to)
 VCEditor::VCEditor(VirtualConsole *vc)
     : QObject(vc)
     , m_vc(vc)
+    , m_nextPageId(VCWidget::invalidId())
 {
 }
 
@@ -163,8 +164,18 @@ void VCEditor::recordPage(int index, bool added)
 {
     if (Tardis::instance() == nullptr)
         return;
-    // a page comes back from its XML with its own ID, so later steps on it keep working
+    // History retains the runtime ID so later steps still target the restored page.
     VCPage *page = m_vc->page(index);
+    if (added)
+    {
+        // A batch can delete provisional pages and rebuild them before undo.
+        // Their runtime IDs must not alias pages still named by that history.
+        quint32 id = qMin(page->id(), m_nextPageId);
+        while (m_vc->widget(id) != nullptr && m_vc->widget(id) != page)
+            --id;
+        page->VCWidget::setID(id);
+        m_nextPageId = id - 1;
+    }
     const QVariantMap present {{"page", index},
                                {"xml", Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, page->id())}};
     const QVariantMap absent {{"page", index}};
@@ -179,7 +190,7 @@ bool VCEditor::replay(quint32 objID, const QVariant &value)
     {
         const int index = action.value("page").toInt();
         if (action.contains("xml"))
-            return restorePage(index, action.value("xml").toByteArray());
+            return restorePage(index, action.value("xml").toByteArray(), objID);
         m_vc->deletePage(index);
         return true;
     }
@@ -216,7 +227,7 @@ bool VCEditor::showsFunctionEditor(QQuickView *view, FunctionManager *functions)
            panel->property("loaderSource").toString() == functions->getEditorResource(editor->functionID());
 }
 
-bool VCEditor::restorePage(int index, const QByteArray &xml)
+bool VCEditor::restorePage(int index, const QByteArray &xml, quint32 id)
 {
     /* widgets read their ID only from a reader with a device */
     QBuffer buffer;
@@ -233,7 +244,7 @@ bool VCEditor::restorePage(int index, const QByteArray &xml)
         delete page;
         return false;
     }
-    m_vc->addWidgetToMap(page);
+    page->VCWidget::setID(id);
     m_vc->m_contextManager->registerContext(page->previewContext());
     m_vc->m_pages.insert(index, page);
     /* like a loaded page, it and its widgets take input again */

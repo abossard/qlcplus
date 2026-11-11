@@ -187,11 +187,12 @@ signals:
     void messageRequested(QString message);
 
 private:
-    bool restorePage(int index, const QByteArray &xml);
+    bool restorePage(int index, const QByteArray &xml, quint32 id);
     /** Arrange $frames again, after children left or joined them */
     void rearrange(const QList<VCFrame *> &frames);
 
     VirtualConsole *m_vc;
+    quint32 m_nextPageId;
 };
 
 #endif

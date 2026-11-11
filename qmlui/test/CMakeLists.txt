@@ -1,5 +1,7 @@
 project(test)
 
+add_subdirectory(upstream)
+
 add_subdirectory(palettegenerator)
 add_subdirectory(audiobpmtag)
 add_subdirectory(djfsm)

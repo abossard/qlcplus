@@ -6074,9 +6074,32 @@ void UpstreamIntegration_Test::emptyVirtualConsole()
     QCOMPARE(vc->pagesCount(), 1);
     QVERIFY(vc->page(0));
     QCOMPARE(vc->widget(vc->page(0)->id()), vc->page(0));
+    const QUuid recordingID = vc->page(0)->ensureRecordingId();
+    QCOMPARE(vc->widgetsByRecordingId(recordingID), (QList<VCWidget *>{vc->page(0)}));
     const QVariantMap created = vc->createWidgetGeometry(vc->page(0)->id(), "Button", QRectF(0, 0, 120, 100));
     QVERIFY2(created.value("accepted").toBool(), qPrintable(created.value("error").toString()));
     QVERIFY(vc->deleteAuthoringWidgets(created.value("widgetIDs").toList()).value("accepted").toBool());
+
+    vc->addPage(1);
+    const quint32 pageID = vc->page(1)->id();
+    TardisAction action;
+    action.m_action = Tardis::VCEditorAction;
+    action.m_timestamp = 0;
+    action.m_objID = pageID;
+    action.m_oldValue = QVariantMap{{"page", 1},
+        {"xml", Tardis::instance()->actionToByteArray(Tardis::VCWidgetCreate, pageID)}};
+    action.m_newValue = QVariantMap{{"page", 1}};
+    vc->deletePage(1);
+    QVERIFY(!vc->widget(pageID));
+    QCOMPARE(Tardis::instance()->processAction(action, true), int(Tardis::VCEditorAction));
+    QCOMPARE(vc->page(1)->id(), pageID);
+    QCOMPARE(vc->widget(pageID), vc->page(1));
+    QCOMPARE(Tardis::instance()->processAction(action, false), int(Tardis::VCEditorAction));
+    QCOMPARE(vc->pagesCount(), 1);
+    QVERIFY(!vc->widget(pageID));
+    vc->addPage(1);
+    QVERIFY(vc->page(1)->id() != pageID);
+    vc->deletePage(1);
 }
 
 void UpstreamIntegration_Test::stoppedCueNavigation_data()

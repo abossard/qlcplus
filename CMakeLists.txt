@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.18)
 project(qlcplus VERSION 4.14.4 LANGUAGES C CXX)
 
+enable_testing()
+
 option(qmlui "Build for QLC+ 5 QML UI" OFF)
 
 # The MCP server is this fork's reason to exist and is wired into the v5 QML UI,
@@ -92,7 +94,6 @@ add_subdirectory(webaccess)
 if(qmlui)
     message("Building QLC+ 5 QML UI")
     add_subdirectory(qmlui)
-    add_subdirectory(qmlui/test)
 else()
     message("Building QLC+ 4 QtWidget UI")
     add_subdirectory(ui)

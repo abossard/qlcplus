@@ -77,4 +77,14 @@ FOR /D %%G IN ("*") DO (
 SET PATH=%OLDPATH%
 popd
 
+REM QML UI tests
+IF "%~1"=="qmlui" (
+    SET OLDPATH=%PATH%
+    PATH=%PATH%;%CD%\engine\src
+    SET QT_QPA_PLATFORM=offscreen
+    ctest --test-dir qmlui\test --output-on-failure
+    IF NOT !ERRORLEVEL!==0 exit /B !ERRORLEVEL!
+    SET PATH=!OLDPATH!
+)
+
 ECHO All tests passed

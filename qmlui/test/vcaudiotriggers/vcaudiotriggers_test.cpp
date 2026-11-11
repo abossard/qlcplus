@@ -21,6 +21,7 @@
 #include <limits>
 #include <memory>
 #include <array>
+#include <algorithm>
 #include <cmath>
 #define private public
 #define protected public
@@ -2389,6 +2390,68 @@ void VCAudioTriggers_Test::soloFrameMappings()
         QCOMPARE(double(mapping.lastNorm), 0.0);
         QVERIFY(!mapping.tapped);
     }
+}
+
+void VCAudioTriggers_Test::channelRemap_data()
+{
+    QTest::addColumn<bool>("audio");
+    QTest::addColumn<int>("destinations");
+    for (bool audio : {false, true})
+        for (int destinations : {0, 1, 3})
+            QTest::newRow(qPrintable(QString("%1-%2").arg(audio ? "audio" : "slider").arg(destinations)))
+                << audio << destinations;
+}
+
+void VCAudioTriggers_Test::channelRemap()
+{
+    QFETCH(bool, audio);
+    QFETCH(int, destinations);
+    Doc doc(nullptr, 1);
+    auto *fixture = new Fixture(&doc);
+    fixture->setChannels(8);
+    fixture->setAddress(17);
+    QVERIFY(doc.addFixture(fixture));
+    const quint32 id = fixture->id();
+    const QList<SceneValue> source{SceneValue(id, 0), SceneValue(id, 7)};
+    QMultiMap<SceneValue, SceneValue> remap;
+    QList<SceneValue> expected;
+    QList<int> expectedAddresses;
+    for (int channel = 1; channel <= destinations; ++channel)
+    {
+        remap.insert(SceneValue(id, 0), SceneValue(id, channel));
+        expected.append(SceneValue(id, channel));
+        expectedAddresses.append(17 + channel);
+    }
+    remap.insert(SceneValue(id, 6), SceneValue(id, 5));
+
+    QList<SceneValue> actual;
+    if (audio)
+    {
+        VCAudioTriggers widget(&doc);
+        widget.selectBarForEditing(VCAudioTriggers::BandKickPower);
+        widget.setBarType(VCAudioTriggers::DMXBar);
+        widget.setBarDmxChannels(source);
+        QSignalSpy changed(&widget, &VCAudioTriggers::barsInfoChanged);
+        widget.remapChannels(remap);
+        QCOMPARE(changed.count(), 1);
+        const auto &mapping = widget.m_bandMappings[VCAudioTriggers::BandKickPower];
+        actual = mapping.dmxChannels;
+        auto addresses = mapping.absDmxChannels;
+        std::sort(addresses.begin(), addresses.end());
+        QCOMPARE(addresses, expectedAddresses);
+    }
+    else
+    {
+        VCSlider widget(&doc);
+        for (const SceneValue &value : source)
+            widget.addLevelChannel(value.fxi, value.channel);
+        QSignalSpy changed(&widget, &VCSlider::channelsCountChanged);
+        widget.remapChannels(remap);
+        QCOMPARE(changed.count(), 1);
+        actual = widget.levelChannels();
+    }
+    std::sort(actual.begin(), actual.end());
+    QCOMPARE(actual, expected);
 }
 
 void VCAudioTriggers_Test::dmxMappingGuards_data()

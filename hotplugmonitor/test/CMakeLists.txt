@@ -1,12 +1,13 @@
-add_executable(test WIN32 MACOSX_BUNDLE
+add_executable(hotplugmonitor_test WIN32 MACOSX_BUNDLE
     hpmtest.cpp hpmtest.h
     main.cpp
 )
-target_include_directories(test PRIVATE
+set_target_properties(hotplugmonitor_test PROPERTIES OUTPUT_NAME test)
+target_include_directories(hotplugmonitor_test PRIVATE
     ../src
 )
 
-target_link_libraries(test PRIVATE
+target_link_libraries(hotplugmonitor_test PRIVATE
     Qt${QT_MAJOR_VERSION}::Core
     Qt${QT_MAJOR_VERSION}::Gui
     Qt${QT_MAJOR_VERSION}::Widgets
@@ -14,7 +15,7 @@ target_link_libraries(test PRIVATE
 )
 
 if(iokit)
-    target_link_libraries(test PRIVATE
+    target_link_libraries(hotplugmonitor_test PRIVATE
         "-framework CoreFoundation"
         "-framework IOKit"
     )

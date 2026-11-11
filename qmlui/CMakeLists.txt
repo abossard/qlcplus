@@ -340,3 +340,7 @@ if(mcp_server)
 endif()
 
 install(TARGETS ${module_name} DESTINATION ${INSTALLROOT}/${BINDIR})
+
+if(NOT ANDROID AND NOT IOS)
+    add_subdirectory(test)
+endif()

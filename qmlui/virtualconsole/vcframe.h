@@ -72,6 +72,7 @@ class VCFrame : public VCWidget
     Q_PROPERTY(bool pagesLoop READ pagesLoop WRITE setPagesLoop NOTIFY pagesLoopChanged)
     Q_PROPERTY(int currentPage READ currentPage WRITE setCurrentPage NOTIFY currentPageChanged)
     Q_PROPERTY(int totalPagesNumber READ totalPagesNumber WRITE setTotalPagesNumber NOTIFY totalPagesNumberChanged)
+    Q_PROPERTY(int usedPagesNumber READ usedPagesNumber NOTIFY usedPagesNumberChanged)
     Q_PROPERTY(int PIN READ PIN WRITE setPIN NOTIFY PINChanged)
     Q_PROPERTY(QStringList pageLabels READ pageLabels NOTIFY pageLabelsChanged)
     Q_PROPERTY(QRectF contentRect READ contentRect NOTIFY geometryChanged)
@@ -101,6 +102,10 @@ public:
 
     /** @reimp */
     virtual void render(QQuickView *view, QQuickItem *parent) override;
+
+    /** Return the QML item where the children of this frame are rendered,
+     *  or nullptr if this frame has not been rendered */
+    QQuickItem *childrenItem() const;
 
     /** @reimp */
     QString propertiesResource() const override;
@@ -149,11 +154,13 @@ public:
     Q_INVOKABLE void addWidgetMatrix(QQuickItem *parent, QString matrixType, QPoint pos,
                                      QSize matrixSize, QSize widgetSize, bool soloFrame = false);
 
-    /** Add a list of widgets previously copied to the VC clipboard
+    /** Add a list of widgets previously copied to the VC clipboard.
+     *  Widgets containing this frame and children of other widgets
+     *  in the list are skipped.
      *
-     *  @param parent the parent item to render the matrix
+     *  @param parent the parent item to render the widgets
      *  @param idsList a list of VC widget IDs
-     *  @param pos the matrix position within this frame
+     *  @param pos the position of the first widget within this frame
      */
     Q_INVOKABLE void addWidgetsFromClipboard(QQuickItem *parent, QVariantList idsList, QPoint pos);
 
@@ -189,7 +196,10 @@ private:
     VCWidget *addWidgetUnchecked(QQuickItem *parent, QString type, QPoint position);
 
 protected:
-    void setupWidget(VCWidget *widget, int page);
+    /** Add $widget to this frame on $page. The default look and feel is
+     *  applied only to a new widget ($isNew), not to a widget restored
+     *  from XML or copied, which already carries its own appearance */
+    void setupWidget(VCWidget *widget, int page, bool isNew = true);
 
     void checkSubmasterConnection(VCWidget *widget);
 
@@ -259,6 +269,11 @@ public:
     int currentPage() const;
     void setCurrentPage(int pageNum);
 
+    /** Return the number of pages needed by the widgets of this frame,
+     *  i.e. the highest page with a widget, plus one. The total pages
+     *  number can't go below it, to never hide or lose widgets */
+    int usedPagesNumber() const;
+
     void setPagesLoop(bool pagesLoop);
     bool pagesLoop() const;
 
@@ -280,6 +295,7 @@ signals:
     void pagesLoopChanged(bool loop);
     void currentPageChanged(int page);
     void totalPagesNumberChanged(int num);
+    void usedPagesNumberChanged();
     void pageLabelsChanged();
 
 protected:

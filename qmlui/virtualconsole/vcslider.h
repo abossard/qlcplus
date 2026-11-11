@@ -97,7 +97,7 @@ public:
     VCWidget *createCopy(VCWidget *parent) const override;
 
     /** @reimp */
-    void remapChannels(const QMap<SceneValue, SceneValue> &remapMap) override;
+    void remapChannels(const QMultiMap<SceneValue, SceneValue> &remapMap) override;
 
     /** @reimp */
     void setDisabled(bool disable) override;
@@ -194,7 +194,11 @@ protected:
      *********************************************************************/
 public:
     int value() const;
-    void setValue(int value, bool setDMX = true, bool updateFeedback = true);
+
+    /** Set the slider value. In Adjust mode, the value is also applied
+     *  to the controlled Function on the next DMX write, unless $adjust
+     *  is false (to only display a change of the Function itself) */
+    void setValue(int value, bool setDMX = true, bool updateFeedback = true, bool adjust = true);
 
     /**
      *  Real user input: a drag on this slider/knob or a mapped external

@@ -26,6 +26,7 @@
 #include "qlcinputchannel.h"
 #include "inputpatch.h"
 #include "vcwidget.h"
+#include "vcpage.h"
 #include "tardis.h"
 #include "doc.h"
 #include "virtualconsole.h"
@@ -63,7 +64,7 @@ bool VCWidget::supportsPresets() const
     return false;
 }
 
-void VCWidget::remapChannels(const QMap<SceneValue, SceneValue> &remapMap)
+void VCWidget::remapChannels(const QMultiMap<SceneValue, SceneValue> &remapMap)
 {
     Q_UNUSED(remapMap)
 }
@@ -1603,8 +1604,8 @@ bool VCWidget::saveXMLCommon(QXmlStreamWriter *doc) const
     /* Caption */
     doc->writeAttribute(KXMLQLCVCCaption, caption());
 
-    /* ID */
-    if (id() != VCWidget::invalidId())
+    /* ID. A page ID is assigned at runtime and is not saved */
+    if (id() != VCWidget::invalidId() && qobject_cast<const VCPage *>(this) == nullptr)
         doc->writeAttribute(KXMLQLCVCWidgetID, QString::number(id()));
 
     /* Recording identity */

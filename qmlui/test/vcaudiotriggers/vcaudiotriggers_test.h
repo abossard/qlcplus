@@ -40,6 +40,8 @@ private slots:
     void soloFrameMappings();
     void dmxMappingGuards_data();
     void dmxMappingGuards();
+    void channelRemap_data();
+    void channelRemap();
     void mappingRoundTrip_data();
     void mappingRoundTrip();
     void mappedSubmaster_data();

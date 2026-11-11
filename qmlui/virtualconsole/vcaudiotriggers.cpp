@@ -2671,7 +2671,7 @@ void VCAudioTriggers::rebuildBarAbsDmxChannels(BandMapping &bm) const
     }
 }
 
-void VCAudioTriggers::remapChannels(const QMap<SceneValue, SceneValue> &remapMap)
+void VCAudioTriggers::remapChannels(const QMultiMap<SceneValue, SceneValue> &remapMap)
 {
     QMutexLocker locker(&m_mappingsMutex);
 
@@ -2684,8 +2684,7 @@ void VCAudioTriggers::remapChannels(const QMap<SceneValue, SceneValue> &remapMap
         for (const SceneValue &val : bm.dmxChannels)
         {
             SceneValue key(val.fxi, val.channel);
-            if (remapMap.contains(key))
-                newChannels.append(remapMap.value(key));
+            newChannels.append(remapMap.values(key));
         }
 
         bm.dmxChannels = newChannels;

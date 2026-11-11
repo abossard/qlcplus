@@ -3883,7 +3883,7 @@ void ShowCommandRecorder_Test::replayedLevelSlider_channelsReplacedInWriteWindow
     if (replace == QStringLiteral("remap"))
     {
         connect(slider, &VCSlider::channelsCountChanged, &probe, window);
-        QMap<SceneValue, SceneValue> remap;
+        QMultiMap<SceneValue, SceneValue> remap;
         remap.insert(SceneValue(fixtureID, 0), SceneValue(fixtureID, 2));
         slider->remapChannels(remap);
     }
