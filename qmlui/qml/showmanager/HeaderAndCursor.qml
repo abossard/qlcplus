@@ -253,7 +253,7 @@ Rectangle
         }
 
         // sections of the song from the offline audio analysis: a colored band
-        // along the bottom of the header, stronger where the reviewer confirmed it
+        // along the bottom of the header, stronger where the label is more certain
         function paintAnalysisSections(context, fontSize)
         {
             var sections = showManager.analysisSections
@@ -269,14 +269,14 @@ Rectangle
                 var ex = (sections[i].endMs / msPerPx) - x
                 if (ex < 0 || sx > width)
                     continue
-                context.globalAlpha = sections[i].reviewed ? 0.75 : 0.4
+                context.globalAlpha = 0.35 + 0.45 * sections[i].labelConfidence / 100.0
                 context.fillStyle = colors[sections[i].label] || "#888888"
                 context.fillRect(sx + 1, bandTop, ex - sx - 2, height - bandTop)
                 context.globalAlpha = 1.0
                 if (ex - sx > 40)
                 {
                     context.fillStyle = "white"
-                    context.fillText(sections[i].label + (sections[i].reviewed ? " ✓" : ""), sx + 4, height - 3)
+                    context.fillText(sections[i].label, sx + 4, height - 3)
                 }
             }
         }

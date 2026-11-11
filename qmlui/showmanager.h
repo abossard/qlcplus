@@ -224,7 +224,7 @@ public:
     QVariantList vdjPois() const;
 
     /** Sections of the song in this show from the offline audio analysis
-     *  (reviewed corrections applied), as {label, startMs, endMs, reviewed} */
+     *  as {label, startMs, endMs, confidence, labelConfidence} */
     QVariantList analysisSections() const;
 
     /** Get/Set the show's own tempo (BPM) used to draw the editor beat grid.

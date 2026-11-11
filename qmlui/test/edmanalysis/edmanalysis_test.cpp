@@ -111,7 +111,7 @@ static void writeFile(const QString &path, const QByteArray &data)
     f.write(data);
 }
 
-void EdmAnalysis_Test::readerFindsReviewedSections_data()
+void EdmAnalysis_Test::readerFindsSections_data()
 {
     QTest::addColumn<QString>("audioPath");
     QTest::addColumn<int>("count");
@@ -122,7 +122,7 @@ void EdmAnalysis_Test::readerFindsReviewedSections_data()
     QTest::newRow("no audio") << "" << 0 << "";
 }
 
-void EdmAnalysis_Test::readerFindsReviewedSections()
+void EdmAnalysis_Test::readerFindsSections()
 {
     QFETCH(QString, audioPath);
     QFETCH(int, count);
@@ -145,8 +145,57 @@ void EdmAnalysis_Test::readerFindsReviewedSections()
         QCOMPARE(first.value("label").toString(), firstLabel);
         QCOMPARE(first.value("startMs").toDouble(), 500.0);
         QCOMPARE(sections.last().toMap().value("endMs").toDouble(), 90250.0);
-        QCOMPARE(sections.last().toMap().value("reviewed").toBool(), true);
     }
+}
+
+void EdmAnalysis_Test::readerSectionConfidence_data()
+{
+    QTest::addColumn<QString>("sectionJson");
+    QTest::addColumn<int>("confidence");
+    QTest::addColumn<int>("labelConfidence");
+
+    QTest::newRow("schema 2 with both values")
+        << R"({"label": "drop", "start_bar": 17, "end_bar": 33, "start": 30.0, "end": 90.25, "confidence": 85, "label_confidence": 40})"
+        << 85 << 40;
+    QTest::newRow("zero is a value, not unknown")
+        << R"({"label": "drop", "start": 30.0, "end": 90.25, "confidence": 0, "label_confidence": 100})"
+        << 0 << 100;
+    QTest::newRow("schema 2 without values")
+        << R"({"label": "drop", "start_bar": 17, "end_bar": 33, "start": 30.0, "end": 90.25})"
+        << 50 << 50;
+    QTest::newRow("only one value")
+        << R"({"label": "drop", "start": 30.0, "end": 90.25, "label_confidence": 70})"
+        << 50 << 70;
+    QTest::newRow("old file with reviewed")
+        << R"({"label": "drop", "start": 30.0, "end": 90.25, "reviewed": true})"
+        << 50 << 50;
+}
+
+void EdmAnalysis_Test::readerSectionConfidence()
+{
+    QFETCH(QString, sectionJson);
+    QFETCH(int, confidence);
+    QFETCH(int, labelConfidence);
+
+    QTemporaryDir dir;
+    QDir().mkpath(dir.filePath("final"));
+    writeFile(dir.filePath("index.json"), R"({"abababababababab": {"title": "a", "path": "/music/a.mp3"}})");
+    writeFile(dir.filePath("final/abababababababab.json"),
+              QString(R"({"schema": "qlcplus-edm-final/2", "sections": [%1]})").arg(sectionJson).toUtf8());
+
+    EdmAnalysisReader reader(dir.path());
+    QVariantList sections = reader.sections("/music/a.mp3");
+
+    QCOMPARE(sections.size(), 1);
+    QVariantMap section = sections.first().toMap();
+    QCOMPARE(section.value("label").toString(), QString("drop"));
+    QCOMPARE(section.value("startMs").toDouble(), 30000.0);
+    QCOMPARE(section.value("endMs").toDouble(), 90250.0);
+    QCOMPARE(section.value("confidence").toInt(), confidence);
+    QCOMPARE(section.value("labelConfidence").toInt(), labelConfidence);
+    QVERIFY(section.contains("confidence"));
+    QVERIFY(section.contains("labelConfidence"));
+    QVERIFY(section.contains("reviewed") == false);
 }
 
 QTEST_GUILESS_MAIN(EdmAnalysis_Test)

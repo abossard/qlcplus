@@ -59,6 +59,9 @@ QString EdmAnalysisReader::firstAudioFile(Doc *doc, Show *show)
     return QString();
 }
 
+/** Percent used when a section has no confidence value (older files) */
+static const int kUnknownConfidence = 50;
+
 static QJsonObject readJson(const QString &path)
 {
     QFile file(path);
@@ -100,7 +103,8 @@ QVariantList EdmAnalysisReader::sections(const QString &audioPath)
         map.insert("label", s.value("label").toString());
         map.insert("startMs", s.value("start").toDouble() * 1000.0);
         map.insert("endMs", s.value("end").toDouble() * 1000.0);
-        map.insert("reviewed", s.value("reviewed").toBool());
+        map.insert("confidence", s.value("confidence").toInt(kUnknownConfidence));
+        map.insert("labelConfidence", s.value("label_confidence").toInt(kUnknownConfidence));
         list.append(map);
     }
     return list;

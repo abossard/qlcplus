@@ -21,8 +21,10 @@ private slots:
     void unknownOrBrokenLinesKeepState_data();
     void unknownOrBrokenLinesKeepState();
     void trackFieldsAndArguments();
-    void readerFindsReviewedSections_data();
-    void readerFindsReviewedSections();
+    void readerFindsSections_data();
+    void readerFindsSections();
+    void readerSectionConfidence_data();
+    void readerSectionConfidence();
 };
 
 #endif

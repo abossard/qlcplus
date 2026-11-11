@@ -28,8 +28,8 @@ class Show;
 
 /**
  * Read-only access to the offline analysis (`edm-analysis` tool): the
- * final/<id>.json files hold each song's sections with the reviewer's
- * corrections applied. Songs are found by audio file path via index.json.
+ * final/<id>.json files hold each song's sections. Songs are found by
+ * audio file path via index.json.
  */
 class EdmAnalysisReader
 {
@@ -42,7 +42,9 @@ public:
     /** Path of the first Audio function on the show's timeline, or empty */
     static QString firstAudioFile(Doc *doc, Show *show);
 
-    /** Sections as {label, startMs, endMs, reviewed}; empty when the song was not analysed */
+    /** Sections as {label, startMs, endMs, confidence, labelConfidence}, the
+     *  last two in percent (50 when the file has no value); empty when the
+     *  song was not analysed */
     QVariantList sections(const QString &audioPath);
 
 private:
