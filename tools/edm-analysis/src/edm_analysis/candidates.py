@@ -21,6 +21,7 @@ import time
 from pathlib import Path
 
 from .archive import preserve
+from .library import in_library, load_scope
 
 CANDIDATES_HOME = Path.home() / ".cache" / "edm-analysis" / "candidates"
 NAMES = ("allin1", "edmformer", "dropdetector")
@@ -75,9 +76,12 @@ def run(out_dir, name, log=print, only_asked=False, pause=0.0):
     from .rounds import all_rounds
 
     asked = {p["track"] for r in all_rounds(out_dir) for p in r["probes"]}
-    # tracks the reviewer is asked about first, so Candidates can be scored on Gold early
+    scope = load_scope(out_dir)
+    index = json.loads((Path(out_dir) / "index.json").read_text())
+    inside = {tid for tid, e in index.items() if in_library(e["path"], scope)}
+    # tracks of the Library first, then the ones the reviewer is asked about, so Candidates can be scored on Gold early
     todo = sorted((p for p in folder.glob("*.mp3") if not (raw / f"{p.stem}.json").exists()),
-                  key=lambda p: (p.stem not in asked, p.stem))
+                  key=lambda p: (p.stem not in inside, p.stem not in asked, p.stem))
     if only_asked:
         todo = [p for p in todo if p.stem in asked]
     log(f"{name}: {len(todo)} tracks to do")

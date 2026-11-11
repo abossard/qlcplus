@@ -5,7 +5,7 @@ Offline analysis of the reviewer's own EDM library, tuned to that library and it
 ## Language
 
 **Library**:
-The reviewer's own collection of tracks the analysis is tuned for.
+The reviewer's own collection of tracks the analysis is tuned for: the analysed tracks inside the scope the reviewer chose (`library.json`), or all of them when there is none. Tracks outside stay analysed on disk, and answers already given on them stay Gold, but Review rounds, coverage and the Target look only at the Library.
 _Avoid_: dataset, corpus
 
 **Analysis**:

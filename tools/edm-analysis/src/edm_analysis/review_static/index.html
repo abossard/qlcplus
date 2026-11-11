@@ -129,32 +129,42 @@ th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
 #login input { font-size: 24px; text-align: center; letter-spacing: .3em; }
 #login .error { color: var(--bad); min-height: 20px; font-size: 14px; }
 
-/* Question screen: one Probe at a time. Phone: answers in the thumb zone. Desktop: centred, answers right under the plays. */
+/* Question screen: fixed zones in a fixed order, sized per viewport class, so nothing appears, disappears or moves
+   whatever the question or its state. Controls that do not apply are dimmed, never hidden. */
 body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: none; }
-.quiz { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; min-height: calc(100vh - var(--top-h) - env(safe-area-inset-top)); min-height: calc(100dvh - var(--top-h) - env(safe-area-inset-top)); }
-.q-theory { font-size: 12px; color: var(--text-muted); }
-.q-title { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
-.q-prompt { font-size: 22px; line-height: 1.25; font-weight: 600; margin: 2px 0; overflow-wrap: anywhere; }
-.q-define { margin: 0; font-size: 14px; color: var(--text-secondary); }
-.q-cards { display: grid; gap: 8px; }
-.q-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.q-play { min-height: 56px; font-size: 18px; }
-.q-wave { height: 72px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
-.q-hint { font-size: 12px; color: var(--text-muted); }
-.q-bars { display: grid; grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); gap: 6px; }
-.q-bars button { min-height: 44px; font-size: 16px; font-weight: 600; padding: 4px; }
+.quiz { --strip: 72px; --ctl: 44px; --now: 56px; display: flex; flex-direction: column; gap: 6px; padding-top: 6px; min-height: calc(100vh - var(--top-h) - env(safe-area-inset-top)); min-height: calc(100dvh - var(--top-h) - env(safe-area-inset-top)); }
+.q-theory, .q-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-theory { height: 16px; line-height: 16px; font-size: 12px; color: var(--text-muted); }
+.q-title { height: 18px; line-height: 18px; font-size: 13px; color: var(--text-secondary); }
+.q-prompt, .q-define { margin: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow-wrap: anywhere; }
+.q-prompt { height: 48px; font-size: 20px; line-height: 24px; font-weight: 600; }
+.q-define { height: 36px; font-size: 13px; line-height: 18px; color: var(--text-secondary); }
+.q-cards { display: grid; grid-template-columns: 1fr; gap: 8px; height: calc(56px + 6px + var(--strip)); }
+.q-cards.two { grid-template-columns: 1fr 1fr; }
+.q-card { display: grid; grid-template-rows: 56px var(--strip); gap: 6px; min-width: 0; }
+.q-play { height: 56px; padding: 0 8px; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-wave { height: var(--strip); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.q-barzone { display: flex; flex-direction: column; gap: 4px; height: calc(14px + 4px + 3 * 44px + 2 * 4px); }
+.q-hint { height: 14px; line-height: 14px; font-size: 12px; color: var(--text-muted); overflow: hidden; white-space: nowrap; }
+.q-bars { display: grid; grid-template-columns: repeat(6, 1fr); grid-auto-rows: 44px; gap: 4px; align-content: start; }
+.q-bars button { height: 44px; font-size: 16px; font-weight: 600; padding: 0; }
 .q-bars button.now { box-shadow: inset 0 0 0 3px var(--accent); }
-#qNow { min-height: 64px; font-size: 20px; font-weight: 600; }
-.q-status:empty { display: none; }
-.q-opts { display: flex; gap: 6px; }
-.q-opts button { flex: 1 1 0; min-width: 0; font-size: 14px; padding: 4px 6px; }
-.q-bar { position: sticky; bottom: 0; margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding: 8px 0 calc(12px + env(safe-area-inset-bottom)); background: var(--surface-0); }
-.q-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.q-nav button { border: none; background: none; color: var(--text-secondary); }
+.q-opts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; height: var(--ctl); }
+.q-opts button { min-width: 0; height: var(--ctl); min-height: var(--ctl); padding: 0 4px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-bar { position: sticky; bottom: 0; margin-top: auto; display: flex; flex-direction: column; gap: 6px; padding: 0 0 calc(12px + env(safe-area-inset-bottom)); background: var(--surface-0); }
+.q-nav { display: grid; grid-template-columns: 96px 1fr 96px; align-items: center; gap: 8px; height: var(--ctl); }
+.q-nav button { height: var(--ctl); min-height: var(--ctl); padding: 0 4px; border: none; background: none; color: var(--text-secondary); white-space: nowrap; }
+#qCount { text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#qNow { height: var(--now); min-height: var(--now); width: 100%; font-size: 20px; font-weight: 600; }
 .q-answers { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .q-answers button { min-height: 56px; font-size: 18px; }
-.q-answers .q-hint { align-self: end; }
-.q-what button { font-size: 16px; padding: 4px; white-space: nowrap; }
+#qAnswers { grid-template-rows: 14px 56px 56px; gap: 6px; height: calc(14px + 2 * 56px + 2 * 6px); }
+#qAnswers .q-hint { grid-area: 1 / 1 / 2 / 7; }
+#qAnswers .a1 { grid-area: 2 / 1 / 3 / 4; } #qAnswers .a2 { grid-area: 2 / 4 / 3 / 7; }
+#qAnswers .a3 { grid-area: 3 / 1 / 4 / 4; } #qAnswers .a4 { grid-area: 3 / 4 / 4 / 7; }
+#qAnswers .a1, #qAnswers .a2, #qAnswers .a3, #qAnswers .a4 { display: flex; gap: 6px; min-width: 0; }
+#qAnswers button { flex: 1 1 0; min-width: 0; height: 56px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.q-what button { font-size: 16px; padding: 4px; }
 .q-done, .q-break { gap: 12px; }
 .report { display: flex; flex-direction: column; gap: 12px; }
 .rtiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
@@ -167,8 +177,9 @@ body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: 
   #transport button { flex: 0 1 110px; }
   #transport #play { flex: 0 1 160px; }
   .quiz { width: 100%; max-width: 640px; margin: 0 auto; }
-  .q-cards { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-  .q-wave { height: 96px; }
+  .quiz { --strip: 88px; }
+  .q-barzone { height: calc(14px + 4px + 2 * 44px + 4px); }
+  .q-bars { grid-template-columns: repeat(9, 1fr); }
 }
 /* Desktop: track list on the left, rating panel inline, popover menus near the pointer */
 @media (min-width: 1024px) {
@@ -180,7 +191,7 @@ body[data-view="round"] #progress, body[data-view="round"] #btnRound { display: 
   body[data-view="round"] { grid-template-columns: 1fr; }
   body[data-view="round"] aside { display: none; }
   body[data-view="round"] main { display: flex; flex-direction: column; }
-  body[data-view="round"] .quiz { margin: auto; width: 100%; max-width: 720px; min-height: 0; padding: 24px 0; }
+  body[data-view="round"] .quiz { --ctl: 36px; --now: 48px; margin: auto; width: 100%; max-width: 720px; min-height: 0; padding: 12px 0; }
   body[data-view="round"] .q-bar { position: static; margin-top: 0; padding-bottom: 0; background: none; }
   body[data-view="track"] { padding-bottom: 0; }
   body[data-view="track"] main { margin-bottom: var(--bar-h); padding-bottom: 24px; }
@@ -982,8 +993,7 @@ $("#btnRound").addEventListener("click", async () => { await loadRound(); if (qu
 $("#btnSongs").addEventListener("click", showSongs);
 
 function playName(p, k) { return p.question === "ab" ? "Play " + String.fromCharCode(65 + k) : p.plays.length > 1 ? `Play ${k + 1}` : "Play"; }
-function answerSpan(k, n) { return n < 2 ? 6 : k < 2 ? 3 : 6 / (n - 2); }  // two big answers on top, the rest share the row below
-const toggle = (id, text, on) => `<button id="${id}" class="${on ? "on" : ""}" aria-pressed="${on}">${text}</button>`;
+const toggle = (id, text, on, off) => `<button id="${id}" class="${on && !off ? "on" : ""}" aria-pressed="${!!on && !off}" ${off ? "disabled" : ""}>${text}</button>`;
 
 function renderProbe() {
   const p = quiz.probes[quizIndex];
@@ -991,41 +1001,53 @@ function renderProbe() {
   if (!p) return renderDone();
   chosenBar = String(p.answer).startsWith("bar:") ? +p.answer.slice(4) : null;
   const theory = quiz.theories.find(t => t.id === p.theory), taps = tapsOn(p), label = askedLabel(p);
-  const bars = (pl, k) => {
-    const lines = taps ? barLines(pl) : [];
-    return lines.length ? `<div class="q-hint">${p.question === "locate" ? "Tap the bar where it starts" : "Or tap the bar where it really starts"}</div>
-      <div class="q-bars">${lines.map((g, i) => `<button class="q-barbtn ${p.answer === "bar:" + g[2] ? "on" : ""}" data-v="bar:${g[2]}" aria-label="It starts at bar ${g[2]}">${i + 1}</button>`).join("")}</div>` : "";
-  };
+  const lines = taps ? barLines(p.plays.find(pl => barLines(pl).length) || p.plays[0]) : [];
   $("#main").innerHTML = `<div class="quiz" data-probe="${esc(p.id)}">
     <div class="q-theory">${theory ? esc(theory.text) : ""}</div>
     <div class="q-title">${esc(p.title)}</div>
     <p class="q-prompt">${esc(p.prompt)}</p>
-    ${DEFINITIONS[label] ? `<p class="q-define">${esc(DEFINITIONS[label])}</p>` : ""}
-    <div class="q-cards">${p.plays.map((pl, k) => `<div class="q-card">
+    <p class="q-define">${DEFINITIONS[label] ? esc(DEFINITIONS[label]) : ""}</p>
+    <div class="q-cards ${p.plays.length > 1 ? "two" : ""}">${p.plays.map((pl, k) => `<div class="q-card">
       <button class="q-play" data-k="${k}"><span class="q-label"></span>${p.plays.length === 1 ? " <kbd>Space</kbd>" : ""}</button>
-      <canvas class="q-wave" data-k="${k}" aria-label="Waveform of the clip, bar lines and marker"></canvas>${bars(pl, k)}</div>`).join("")}</div>
-    <div class="status q-status" role="status"></div>
+      <canvas class="q-wave" data-k="${k}" aria-label="Waveform of the clip, bar lines and marker"></canvas></div>`).join("")}</div>
+    <div class="q-barzone"><div class="q-hint">${lines.length ? (p.question === "locate" ? "Tap the bar where it starts" : "Or tap the bar where it really starts") : ""}</div>
+      <div class="q-bars">${lines.map((g, i) => `<button class="q-barbtn ${p.answer === "bar:" + g[2] ? "on" : ""}" data-v="bar:${g[2]}" aria-label="It starts at bar ${g[2]}">${i + 1}</button>`).join("")}</div></div>
     <div class="q-opts" id="qOpts">
-      <button id="optReplay">↻ Replay <kbd>R</kbd></button>${toggle("optAutoplay", "Autoplay", autoplayOn)}${toggle("optLoop", "Loop", loopOn)}${p.plays.some(cueApplies) ? toggle("optCue", "Cue", cueOn) : ""}
+      <button id="optReplay">↻ Replay <kbd>R</kbd></button>${toggle("optAutoplay", "Autoplay", autoplayOn)}${toggle("optLoop", "Loop", loopOn)}${toggle("optCue", "Cue", cueOn, !p.plays.some(cueApplies))}
     </div>
     <div class="q-bar">
-      <div class="q-nav"><button id="qBack" ${quizIndex ? "" : "disabled"}>‹ Back <kbd>←</kbd></button><span class="status">${quizIndex + 1} of ${quiz.probes.length}</span><button id="qSkip">Skip <kbd>S</kbd> ›</button></div>
-      ${taps && p.plays.some(pl => barLines(pl).length) ? `<button id="qNow" class="primary" hidden>It starts now <kbd>Enter</kbd></button>` : ""}
+      <div class="q-nav"><button id="qBack" ${quizIndex ? "" : "disabled"}>‹ Back <kbd>←</kbd></button><span class="status" id="qCount" role="status">${countText()}</span><button id="qSkip">Skip <kbd>S</kbd> ›</button></div>
+      <button id="qNow" class="primary" disabled>It starts now <kbd>Enter</kbd></button>
       <div class="q-answers" id="qAnswers">${answerButtons(p)}</div>
     </div></div>`;
   labelPlays();
   document.querySelectorAll(".q-wave").forEach(c => setupStrip(c, p, p.plays[+c.dataset.k], taps && barLines(p.plays[+c.dataset.k]).length > 0));
   $(".quiz").addEventListener("click", quizClick);
 }
-function answerButtons(p) {
-  return p.options.map((o, k) => `<button data-v="${esc(o.value)}" class="${isOn(p, o.value) ? "on" : ""}" style="grid-column: span ${answerSpan(k, p.options.length)}">${esc(o.label)}${KEYS[o.value] ? ` <kbd>${KEYS[o.value]}</kbd>` : ""}</button>`).join("");
+const countText = () => `${quizIndex + 1} of ${quiz.probes.length}`;
+// Messages (a failed save, an audio error) take the place of the count; nothing is added to the layout.
+let noteTimer = null;
+function note(text) {
+  const c = $("#qCount"), at = quizShown;
+  if (!c) return;
+  c.textContent = text;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { if (quizShown === at && $("#qCount")) $("#qCount").textContent = countText(); }, 4000);
 }
-// "No" on a label question asks what it is instead: the other labels, or just no.
+// Four answer cells in a fixed place: first and second (Yes No / A B), third (Neither, Not in this clip), fourth (Can't tell).
+const SLOT = { yes: 1, a: 1, no: 2, b: 2, skip: 4 };
+function answerButtons(p) {
+  const cells = [[], [], [], []];
+  p.options.forEach(o => cells[(SLOT[o.value] || 3) - 1].push(o));
+  const button = o => `<button data-v="${esc(o.value)}" class="${isOn(p, o.value) ? "on" : ""}">${esc(o.label)}${KEYS[o.value] ? ` <kbd>${KEYS[o.value]}</kbd>` : ""}</button>`;
+  return `<div class="q-hint"></div>` + cells.map((c, i) => `<div class="a${i + 1}">${c.map(button).join("")}</div>`).join("");
+}
+// "No" on a label question asks what it is instead, in the same zone: the other labels, or just no.
 function showWhat() {
   const p = quiz.probes[quizIndex], asked = askedLabel(p);
   quizWhat = true;
   $("#qAnswers").classList.add("q-what");
-  $("#qAnswers").innerHTML = `<div class="q-hint" style="grid-column: 1 / -1">What is it?</div>` +
+  $("#qAnswers").innerHTML = `<div class="q-hint">What is it?</div>` +
     labelsOf(p).filter(l => l !== asked).map((l, i) => `<button data-v="is:${esc(l)}" style="grid-column: span 2"><span class="swatch" style="background:var(--sec-${esc(l)}, var(--text-muted))"></span>${esc(l)} <kbd>${i + 1}</kbd></button>`).join("") +
     `<button data-v="no" style="grid-column: span 2">Just no <kbd>N</kbd></button>`;
 }
@@ -1099,7 +1121,7 @@ audio.addEventListener("ended", () => {
 });
 audio.addEventListener("error", () => {
   if (!quiz || !cur || document.body.dataset.view !== "round") return;
-  quizLoading = false; labelPlays(); $(".q-status").textContent = "Could not load the audio. Try again.";
+  quizLoading = false; labelPlays(); note("Audio failed: tap Play to retry");
 });
 function quizEvent() { if (quiz && document.body.dataset.view === "round") { labelPlays(); updateNow(); strips.forEach((_, k) => drawStrip(k)); } }
 // "It starts now": the bar line nearest the playhead, while a clip of a tap question plays or is paused inside it.
@@ -1111,7 +1133,7 @@ function nowLine() {
 }
 function updateNow() {
   const b = $("#qNow"), g = nowLine(), v = g ? "bar:" + g[2] : "";
-  if (b) { b.hidden = !g; b.dataset.v = v; }
+  if (b) { b.disabled = !g; b.dataset.v = v; }
   document.querySelectorAll(".q-barbtn").forEach(x => x.classList.toggle("now", !!v && x.dataset.v === v));
 }
 
@@ -1135,13 +1157,17 @@ function drawStrip(k) {
   if (now > 0) { ctx.fillStyle = css("--accent"); ctx.globalAlpha = 0.2; ctx.fillRect(0, 0, X(pl.start + now), H); ctx.globalAlpha = 1; }
   const strong = css("--text-primary"), faint = css("--text-muted");
   ctx.font = `${11 * d}px -apple-system, sans-serif`; ctx.textBaseline = "top";
-  let n = 0;
+  let n = 0, free = 0;
   (pl.grid || []).forEach(([t, down, bar]) => {
     const x = X(t);
     ctx.globalAlpha = down ? 0.65 : 0.55; ctx.fillStyle = down ? strong : faint;
     if (down) ctx.fillRect(x - d, 0, 2 * d, H); else ctx.fillRect(x, H - 10 * d, d, 10 * d);
     ctx.globalAlpha = 1;
-    if (down && bar != null && numbered) { n++; const right = x > W - 14 * d; ctx.textAlign = right ? "right" : "left"; ctx.fillStyle = css("--text-secondary"); ctx.fillText(String(n), right ? x - 4 * d : x + 4 * d, 2 * d); }
+    if (down && bar != null && numbered) {  // the number sits right of its line, left of it at the edge, and is left out where it would overlap the last
+      n++;
+      const w = ctx.measureText(String(n)).width, right = x + 4 * d + w > W, at = right ? x - 4 * d - w : x + 4 * d;
+      if (at >= free) { ctx.textAlign = "left"; ctx.fillStyle = css("--text-secondary"); ctx.fillText(String(n), at, 2 * d); free = at + w + 3 * d; }
+    }
   });
   if (pl.mark != null) { ctx.fillStyle = css("--mark"); ctx.fillRect(Math.min(W - 1.5 * d, Math.max(1.5 * d, X(pl.mark))) - 1.5 * d, 0, 3 * d, H); }
   const pick = chosenBar != null && (pl.grid || []).find(g => g[1] && g[2] === chosenBar);
@@ -1162,7 +1188,7 @@ async function answerProbe(v) {
     if (picked) await new Promise(r => setTimeout(r, Math.max(0, PICK_MS - (performance.now() - began))));
   } catch (e) {
     if (picked) pickBar(String(p.answer).startsWith("bar:") ? +p.answer.slice(4) : null);
-    if (!(e instanceof NeedPin)) $(".q-status").textContent = "Not saved: " + e.message;
+    if (!(e instanceof NeedPin)) note("Not saved: " + e.message);
     return;
   } finally { quizBusy = false; }
   p.answer = v;
@@ -1216,7 +1242,7 @@ function quizKey(e) {
   }
   if (k === "Escape") return quizWhat ? renderProbe() : showSongs();
   if (!p) return;
-  if (k === "Enter") { e.preventDefault(); const b = $("#qNow"); if (b && !b.hidden) answerProbe(b.dataset.v); }
+  if (k === "Enter") { e.preventDefault(); const b = $("#qNow"); if (b && !b.disabled) answerProbe(b.dataset.v); }
   else if (e.code === "Space") togglePlayQuiz();
   else if (k === "r") playProbe(0, true);
   else if (k === "s" || k === "ArrowRight") goProbe((quizIndex + 1) % quiz.probes.length);

@@ -124,11 +124,11 @@ def cmd_confidence(args):
     from .vdj import DEFAULT_DB, parse_database
 
     out_dir = Path(args.out)
-    docs = library_docs(out_dir)
+    docs, analysed = library_docs(out_dir), library_docs(out_dir, scoped=False)
     vdj = parse_database(DEFAULT_DB) if DEFAULT_DB.exists() else {}
     silver = {tid: silver_rows(doc, vdj.get(doc["track"]["path"])) for tid, doc in docs.items()}
     answers = load_answers(out_dir)
-    gold = {tid: gold_rows({k: a for k, a in answers.items() if a["track"] == tid}, docs) for tid in docs}
+    gold = {tid: gold_rows({k: a for k, a in answers.items() if a["track"] == tid}, analysed) for tid in analysed}   # answers outside the Library stay Gold
     part = lambda rows, split: [r for tid, rs in rows.items() if split in (None, split_of(tid)) for r in rs]
     held_out = fit(part(silver, "dev"), part(gold, "dev"))
     for group in ("grid", "start", "label"):
@@ -212,9 +212,48 @@ def cmd_export(args):
     return 0
 
 
-def cmd_review(args):
-    from .review import serve
+def cmd_library(args):
+    """Show, set or clear the scope of the Library."""
+    from .library import clear_scope, in_library, load_scope, set_scope
 
+    out_dir = Path(args.out)
+    if args.action == "set" and not args.patterns:
+        print("library set needs at least one pattern", file=sys.stderr)
+        return 1
+    if args.action == "set":
+        set_scope(out_dir, args.patterns)
+    elif args.action == "clear":
+        clear_scope(out_dir)
+    scope = load_scope(out_dir)
+    print("every analysed track is in the Library" if scope is None else "include:\n" + "\n".join(f"  {p}" for p in scope["include"]))
+    index = json.loads((out_dir / "index.json").read_text()) if (out_dir / "index.json").exists() else {}
+    inside = sum(in_library(e["path"], scope) for e in index.values())
+    print(f"{len(index)} analysed tracks: {inside} in the Library, {len(index) - inside} out")
+    return 0
+
+
+def cmd_compare(args):
+    import pyarrow.parquet as pq
+
+    from .compare import compare, format_table
+
+    folder = Path(args.out) / "tables"
+    if not (folder / "claims.parquet").exists():
+        print("no claims table: run `edm-analysis export` first", file=sys.stderr)
+        return 1
+    read = lambda name: pq.read_table(folder / f"{name}.parquet").to_pylist() if (folder / f"{name}.parquet").exists() else []
+    result = compare(read("claims"), read("answers"))
+    print(json.dumps(result, indent=1) if args.json else format_table(result))
+    return 0
+
+
+def cmd_review(args):
+    from .review import prerender, serve
+
+    if args.prerender:
+        missing = prerender(Path(args.out))
+        print(f"{missing} clips missing" if missing else "all clips ready")
+        return 1 if missing else 0
     serve(Path(args.out), args.port, args.ratings, lan=args.lan, pin=args.pin)
     return 0
 
@@ -255,12 +294,22 @@ def main(argv=None):
     ex = sub.add_parser("export", help="rebuild comparison and learning tables (Parquet) from the raw outputs")
     ex.add_argument("--out", default=str(DEFAULT_OUT))
     ex.set_defaults(func=cmd_export)
+    lb = sub.add_parser("library", help="show, set or clear which tracks are in the Library")
+    lb.add_argument("action", choices=("show", "set", "clear"))
+    lb.add_argument("patterns", nargs="*", help="globs of files or folders to include (set)")
+    lb.add_argument("--out", default=str(DEFAULT_OUT))
+    lb.set_defaults(func=cmd_library)
+    cp = sub.add_parser("compare", help="compare the sources with each other and with Gold, from the exported tables")
+    cp.add_argument("--out", default=str(DEFAULT_OUT))
+    cp.add_argument("--json", action="store_true", help="machine-readable output")
+    cp.set_defaults(func=cmd_compare)
     r = sub.add_parser("review", help="serve the rating site")
     r.add_argument("--out", default=str(DEFAULT_OUT))
     r.add_argument("--ratings", default=None, help="ratings file (default: <out>/ratings.json)")
     r.add_argument("--port", type=int, default=8765)
     r.add_argument("--lan", action="store_true", help="reachable from the local network, protected by a PIN")
     r.add_argument("--pin", default=None, help="PIN to use (default: a stored random 6-digit PIN)")
+    r.add_argument("--prerender", action="store_true", help="make the clips of the current round and exit, without serving (exit 1 if some are missing)")
     r.set_defaults(func=cmd_review)
     args = ap.parse_args(argv)
     return args.func(args)

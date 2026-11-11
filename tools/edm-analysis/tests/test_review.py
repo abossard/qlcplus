@@ -7,7 +7,7 @@ import urllib.request
 import numpy as np
 import pytest
 
-from edm_analysis import review
+from edm_analysis import library, review
 from edm_analysis.review import Clips, LibraryReport, ReviewServer, make_handler, parse_range
 
 
@@ -394,3 +394,213 @@ def test_the_background_thread_drops_the_clips_of_an_earlier_round_when_a_new_ro
         time.sleep(0.1)
     stop.set()
     assert len(clip_files(root)) == 4 and all(n.startswith("r02-") for n in clip_files(root)), clip_files(root)
+
+
+@pytest.fixture
+def broken_music(monkeypatch):
+    """Clip rendering fails (as when the music folder cannot be read) while state["broken"] is set."""
+    state = {"broken": True, "calls": 0}
+    real = review.render_clip
+
+    def render_clip(*args):
+        state["calls"] += 1
+        if state["broken"]:
+            raise subprocess.CalledProcessError(252, "ffmpeg")
+        return real(*args)
+    monkeypatch.setattr(review, "render_clip", render_clip)
+    return state
+
+
+@pytest.mark.parametrize("broken,missing", [(True, 4), (False, 0)])
+def test_prerendering_says_how_many_clips_are_still_missing(clip_site, broken_music, broken, missing):
+    _, root = clip_site
+    broken_music["broken"] = broken
+    assert Clips(root).prerender(CLIP_ROUND) == missing
+    assert len(clip_files(root)) == 4 - missing
+
+
+@pytest.mark.parametrize("streaks", [1, 2])
+def test_a_failing_clip_is_reported_once_per_failure_streak(clip_site, broken_music, capsys, streaks):
+    _, root = clip_site
+    clips = Clips(root)
+    for _ in range(streaks):
+        broken_music["broken"] = True
+        for _ in range(3):
+            clips.prerender(CLIP_ROUND)
+        broken_music["broken"] = False
+        assert clips.prerender(CLIP_ROUND) == 0
+        for f in (root / ".clips").glob("*.mp3"):
+            f.unlink()
+    lines = capsys.readouterr().err.splitlines()
+    assert len(lines) == 4 * streaks and len(set(lines)) == 4 and all("r01-p00" in line for line in lines)
+
+
+@pytest.mark.parametrize("fixed_after", [0.4, 1.0])
+def test_the_background_thread_keeps_retrying_missing_clips_until_all_exist(clip_site, broken_music, capsys, fixed_after):
+    _, root = clip_site
+    stop = threading.Event()
+    threading.Thread(target=review.warm, args=(root, Clips(root), LibraryReport(root), stop, 0.05), daemon=True).start()
+    time.sleep(fixed_after)
+    assert clip_files(root) == [] and broken_music["calls"] > 4      # it went on trying, nothing changed on disk
+    broken_music["broken"] = False
+    end = time.time() + 15
+    while time.time() < end and len(clip_files(root)) < 4:
+        time.sleep(0.1)
+    stop.set()
+    assert len(clip_files(root)) == 4
+    assert len(capsys.readouterr().err.splitlines()) == 4              # one line per clip, not one per retry
+
+
+@pytest.mark.parametrize("broken,code,said", [(False, 0, "all clips ready"), (True, 1, "4 clips missing")])
+def test_review_prerender_makes_the_clips_of_the_current_round_and_exits(clip_site, broken_music, capsys, broken, code, said):
+    from edm_analysis.cli import main
+
+    _, root = clip_site
+    broken_music["broken"] = broken
+    assert main(["review", "--out", str(root), "--prerender"]) == code
+    assert said in capsys.readouterr().out
+    assert len(clip_files(root)) == (0 if broken else 4)
+
+
+class Timed(Clips):
+    """Clips that note when each pass began."""
+
+    def __init__(self, out_dir):
+        super().__init__(out_dir)
+        self.times = []
+
+    def prerender(self, rnd, answers=None):
+        self.times.append(time.monotonic())
+        return super().prerender(rnd, answers)
+
+
+def wait_until(check, wait=15.0):
+    end = time.time() + wait
+    while time.time() < end and not check():
+        time.sleep(0.05)
+    return check()
+
+
+def start_warm(root, clips, longest=0.4):
+    stop = threading.Event()
+    threading.Thread(target=review.warm, args=(root, clips, LibraryReport(root), stop, 0.05, longest), daemon=True).start()
+    return stop
+
+
+def test_the_wait_between_retries_doubles_up_to_the_longest(clip_site, broken_music):
+    _, root = clip_site
+    clips = Timed(root)
+    stop = start_warm(root, clips)
+    assert wait_until(lambda: len(clips.times) >= 7)
+    stop.set()
+    gaps = [b - a for a, b in zip(clips.times, clips.times[1:])]
+    for gap, wanted in zip(gaps, [0.05, 0.1, 0.2, 0.4, 0.4, 0.4]):
+        assert wanted * 0.9 <= gap <= wanted + 0.2, gaps       # grows, then stays at the longest
+
+
+@pytest.mark.parametrize("how", ["round changed", "pass succeeded first"])
+def test_the_wait_starts_over_when_the_round_changes_or_a_pass_leaves_nothing_missing(clip_site, broken_music, how):
+    _, root = clip_site
+    clips = Timed(root)
+    stop = start_warm(root, clips)
+    assert wait_until(lambda: len(clips.times) >= 6 and clips.times[-1] - clips.times[-2] > 0.3)     # backed off to the longest
+    if how == "pass succeeded first":
+        broken_music["broken"] = False
+        assert wait_until(lambda: len(clip_files(root)) == 4)
+        passes = len(clips.times)
+        time.sleep(1.0)
+        assert len(clips.times) == passes                                                           # nothing missing: no more passes
+        broken_music["broken"] = True
+        for f in (root / ".clips").glob("*.mp3"):
+            f.unlink()
+    trigger, changed = time.monotonic(), len(clips.times)
+    (root / "rounds" / "round-01.json").write_text(json.dumps(CLIP_ROUND))
+    assert wait_until(lambda: len(clips.times) >= changed + 3)
+    stop.set()
+    after = [trigger, *clips.times[changed:changed + 3]]
+    gaps = [b - a for a, b in zip(after, after[1:])]
+    assert gaps[0] < 0.45 and gaps[1] <= 0.3 and gaps[2] <= 0.3, gaps         # prompt, then 0.05 and 0.1 again instead of 0.4
+
+
+# --- the Library scope: the site shows only the tracks inside it -----------------------------------------------
+
+IN_A, IN_B, OUT_C = "a1a1a1a1a1a1a1a1", "b2b2b2b2b2b2b2b2", "c3c3c3c3c3c3c3c3"
+PLACE = {IN_A: "/music/in/a.mp3", IN_B: "/music/in/sub/b.mp3", OUT_C: "/music/out/c.mp3"}
+
+
+@pytest.fixture
+def scoped_site(tmp_path):
+    index = {}
+    for tid, path in PLACE.items():
+        doc = {"track": {"path": path, "title": tid, "duration": 40.0, "sha256": tid * 4}, "analyzer": {"version": "x"},
+               "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0, "bar1_confidence": 90}, "beats": [], "bars": {"start": [0.0, 2.0], "levels": {}},
+               "peaks": {"rate": 20, "values": []}, "sections": [{"label": "drop", "start_bar": 1, "end_bar": 2, "confidence": 99}], "events": []}
+        (tmp_path / f"{tid}.json").write_text(json.dumps(doc))
+        index[tid] = {"title": tid, "path": path, "bpm": 120.0, "filename_bpm": 120.0, "drops": 1, "sections": ["drop"]}
+    (tmp_path / "index.json").write_text(json.dumps(index))
+    (tmp_path / "ratings.json").write_text(json.dumps({tid: {"overall": 4, "analyzer_version": "x"} for tid in (IN_A, OUT_C)}))
+    (tmp_path / "rounds").mkdir()
+    (tmp_path / "rounds" / "round-01.json").write_text(json.dumps({"round": 1, "created": "2026-11-05T10:00:00", "theories": [{"id": "t1", "text": "t"}], "probes": [
+        {"id": "r01-p001", "track": OUT_C, "title": "c", "theory": "t1", "bucket": "unsure", "question": "yesno", "prompt": "Does it start here?",
+         "claim": {"kind": "drop", "bar": 1, "time": 2.0, "confidence": 40}, "plays": [{"id": "main", "start": 0.0, "end": 4.0, "mark": 2.0}]}]}))
+    httpd = ReviewServer(("127.0.0.1", 0), make_handler(tmp_path, tmp_path / "ratings.json"))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}", tmp_path
+    httpd.shutdown()
+
+
+def api(base, path):
+    with urllib.request.urlopen(base + path) as r:
+        return json.load(r)
+
+
+SCOPES = [(None, {IN_A, IN_B, OUT_C}), (["/music/in"], {IN_A, IN_B}), (["/music/out/*"], {OUT_C}), (["/music/in/a.mp3"], {IN_A})]
+
+
+@pytest.mark.parametrize("include,listed", SCOPES)
+def test_the_song_list_has_only_the_tracks_of_the_library(scoped_site, include, listed):
+    base, root = scoped_site
+    if include:
+        library.set_scope(root, include)
+    assert {t["id"] for t in api(base, "/api/tracks")} == listed
+
+
+@pytest.mark.parametrize("include,listed", SCOPES)
+def test_the_summary_counts_only_the_tracks_of_the_library(scoped_site, include, listed):
+    base, root = scoped_site
+    if include:
+        library.set_scope(root, include)
+    summary = api(base, "/api/summary")
+    assert summary["tracks_analyzed"] == len(listed)
+    assert summary["tracks_rated"] == len(listed & {IN_A, OUT_C})
+    assert sum(summary["tempo"].values()) == len(listed)
+
+
+@pytest.mark.parametrize("include,listed", SCOPES)
+def test_the_report_measures_coverage_over_the_tracks_of_the_library_but_keeps_every_answer(scoped_site, monkeypatch, include, listed):
+    base, root = scoped_site
+    if include:
+        library.set_scope(root, include)
+    seen = {}
+    monkeypatch.setattr(review.rounds, "report", lambda rounds_, answers, docs: seen.update(rounds=rounds_, docs=docs) or {})
+    api(base, "/api/report")
+    assert set(seen["docs"]) == listed and [r["round"] for r in seen["rounds"]] == [1]
+
+
+@pytest.mark.parametrize("path", ["/api/track/{}", "/api/ratings/{}", "/api/reference/{}", "/api/gold/{}"])
+def test_a_track_outside_the_library_that_is_in_the_round_still_opens(scoped_site, path):
+    base, root = scoped_site
+    library.set_scope(root, ["/music/in"])
+    assert OUT_C not in {t["id"] for t in api(base, "/api/tracks")}
+    api(base, path.format(OUT_C))
+    rnd = api(base, "/api/round")
+    assert [p["track"] for p in rnd["probes"]] == [OUT_C] and "peaks" in rnd["probes"][0]["plays"][0]
+
+
+def test_a_change_of_scope_shows_at_once_without_restarting_the_site(scoped_site):
+    base, root = scoped_site
+    assert len(api(base, "/api/tracks")) == 3
+    library.set_scope(root, ["/music/in"])
+    assert len(api(base, "/api/tracks")) == 2
+    library.clear_scope(root)
+    assert len(api(base, "/api/tracks")) == 3

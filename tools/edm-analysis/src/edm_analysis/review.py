@@ -21,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from . import audio, candidates, rounds
+from .library import in_library, load_scope
 from .ratings import gold_from_rating, merge_gold, prefill_rating, summarize, tempo_agreement
 
 STATIC = Path(__file__).parent / "review_static"
@@ -149,6 +150,7 @@ class Clips:
 
     def __init__(self, out_dir):
         self.out_dir, self.locks, self.guard = Path(out_dir), {}, threading.Lock()
+        self.failing = set()   # clips that failed last time: reported once, until they work
 
     @staticmethod
     def cue_applies(play):
@@ -182,15 +184,25 @@ class Clips:
                 f.unlink(missing_ok=True)
 
     def prerender(self, rnd, answers=None):
-        """Every clip of a round, the open questions first."""
+        """Makes every clip of a round, the open questions first. Returns how many could not be made; a clip
+        that fails is reported once, until it works again."""
+        missing = 0
         for probe in sorted(rnd["probes"], key=lambda p: p["id"] in (answers or {})):
             doc = read_doc(self.out_dir, probe["track"])
-            for play in probe["plays"] if doc else []:
+            for play in probe["plays"]:
                 for cue in [False, True] if self.cue_applies(play) else [False]:
+                    key = (probe["id"], play["id"], cue)
                     try:
+                        if doc is None:
+                            raise OSError("no analysis for the track")
                         self.get(doc, probe, play, cue)
+                        self.failing.discard(key)
                     except (subprocess.CalledProcessError, ValueError, OSError, KeyError) as e:
-                        print(f"clip {probe['id']}/{play['id']}: {e}", file=sys.stderr, flush=True)
+                        missing += 1
+                        if key not in self.failing:
+                            self.failing.add(key)
+                            print(f"clip {probe['id']}/{play['id']}{' (cue)' if cue else ''}: {e}", file=sys.stderr, flush=True)
+        return missing
 
 
 def _slim(doc):
@@ -222,27 +234,51 @@ class LibraryReport:
             return {tid: doc for tid, (_, doc) in self.docs.items()}
 
     def get(self):
-        docs = self.refresh()
+        """Every answer counts; the library's coverage is measured over the tracks inside the scope."""
+        scope = load_scope(self.out_dir)
+        docs = {tid: doc for tid, doc in self.refresh().items() if in_library(doc["track"]["path"], scope)}
         return rounds.report(rounds.all_rounds(self.out_dir), rounds.load_answers(self.out_dir), docs)
 
 
-def warm(out_dir, clips, library, stop, every=5.0):
+def warm(out_dir, clips, library, stop, every=5.0, longest=300.0):
     """Background thread: renders the clips of the current round at start and whenever a round file appears or
-    changes, so a tap never waits for a render; then loads the analyses the report needs."""
-    seen = None
+    changes, so a tap never waits for a render; then loads the analyses the report needs. Clips that could not be
+    made (an unreadable music folder, say) are tried again after `every` seconds, then after twice as long each
+    time up to `longest`, so a struggling machine is not hammered. A pass with nothing missing or a changed round
+    file starts the wait over."""
+    seen, missing, wait, due = None, 0, every, 0.0
     while not stop.is_set():
         try:
             files = sorted((p.name, p.stat().st_mtime_ns) for p in (Path(out_dir) / "rounds").glob("round-*.json"))
-            if files != seen:
-                seen = files
+            changed = files != seen
+            if changed or (missing and time.monotonic() >= due):
+                if changed:
+                    wait = every
+                seen, missing = files, 0
                 rnd = rounds.current_round(out_dir)
                 if rnd:
-                    clips.prune(rnd)
-                    clips.prerender(rnd, rounds.load_answers(out_dir))
-                library.refresh()
+                    if changed:
+                        clips.prune(rnd)
+                    missing = clips.prerender(rnd, rounds.load_answers(out_dir))
+                if missing:
+                    due, wait = time.monotonic() + wait, min(2 * wait, longest)
+                else:
+                    wait = every
+                if changed:
+                    library.refresh()
         except Exception as e:   # the thread must outlive one bad file
             print(f"warm-up: {e}", file=sys.stderr, flush=True)
         stop.wait(every)
+
+
+def prerender(out_dir):
+    """Makes the current round's clips now (what the server's background thread does) and returns how many are missing."""
+    rnd = rounds.current_round(out_dir)
+    if not rnd:
+        return 0
+    clips = Clips(out_dir)
+    clips.prune(rnd)
+    return clips.prerender(rnd, rounds.load_answers(out_dir))
 
 
 def write_json_atomic(path, data):
@@ -591,12 +627,17 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
                 return self.send_error(500)
             self._ranged(path, [("Server-Timing", f"render;dur={ms}"), ("X-Clip-Start", str(play["start"])), ("X-Clip-End", str(play["end"]))])
 
-        def _tracks(self):
+        def _index(self):
+            """The analysed tracks inside the Library scope; a track outside it is not listed but still opens by its id."""
             index_path = out_dir / "index.json"
             index = json.loads(index_path.read_text()) if index_path.exists() else {}
+            scope = load_scope(out_dir)
+            return {tid: t for tid, t in index.items() if "path" not in t or in_library(t["path"], scope)}
+
+        def _tracks(self):
             ratings = store.load()
             rows = []
-            for tid, t in index.items():
+            for tid, t in self._index().items():
                 r = ratings.get(tid, {})
                 rows.append({"id": tid, **{k: v for k, v in t.items() if k != "path"}, "rated": bool(r), "overall": r.get("overall"),
                              "tempo": tempo_agreement(t["bpm"], t.get("filename_bpm")) if "bpm" in t else None})
@@ -621,7 +662,8 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
                 return self._json(library.get())
             if parts[:2] == ["api", "summary"]:
                 tracks = self._tracks()
-                return self._json({**summarize(store.load()),
+                inside = self._index()
+                return self._json({**summarize({tid: r for tid, r in store.load().items() if tid in inside}),
                                    "tempo": {k: sum(t["tempo"] == k for t in tracks)
                                              for k in ("match", "double", "half", "mismatch", "untagged")},
                                    "tracks_analyzed": len(tracks)})

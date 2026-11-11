@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .library import in_library, load_scope
 from .ratings import gold_from_rating, merge_gold
 from .vdj import grid_agreement
 
@@ -130,13 +131,14 @@ def summarize_scores(rows):
     return out
 
 
-def library_docs(out_dir):
-    """{track id: analysis} for every analysed track."""
+def library_docs(out_dir, scoped=True):
+    """{track id: analysis} for the analysed tracks in the Library (every analysed track with scoped=False)."""
+    scope = load_scope(out_dir) if scoped else None
     docs = {}
     for f in sorted(Path(out_dir).glob("*.json")):
         if re.fullmatch(r"[0-9a-f]{16}\.json", f.name):
             doc = json.loads(f.read_text())
-            if "sections" in doc:
+            if "sections" in doc and in_library(doc["track"]["path"], scope):
                 docs[f.stem] = doc
     return docs
 
@@ -146,13 +148,7 @@ def evaluate_library(out_dir, vdj_songs, ratings_path=None, history_path=None):
     ratings = json.loads(Path(ratings_path).read_text()) if ratings_path and Path(ratings_path).exists() else {}
     history = json.loads(Path(history_path).read_text()) if history_path and Path(history_path).exists() else {}
     rows = []
-    for f in sorted(out_dir.glob("*.json")):
-        if not re.fullmatch(r"[0-9a-f]{16}\.json", f.name):
-            continue
-        doc = json.loads(f.read_text())
-        if "sections" not in doc:
-            continue
-        tid = f.stem
+    for tid, doc in library_docs(out_dir).items():
         golds = [h["gold"] for h in history.get(tid, [])] + ([gold_from_rating(ratings[tid])] if tid in ratings else [])
         rows.append(score_track(doc, vdj_songs.get(doc["track"]["path"]), golds))
     return rows, summarize_scores(rows)

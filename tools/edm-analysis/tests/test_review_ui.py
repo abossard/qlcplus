@@ -892,7 +892,7 @@ def test_the_cue_toggle_shows_only_where_a_play_has_a_marker_without_clicks(brow
     page = open_page(browser_, "phone")
     open_round(page, base)
     go(page, n)
-    assert page.locator("#optCue").is_visible() == visible
+    assert page.locator("#optCue").is_visible() and page.locator("#optCue").is_enabled() == visible
 
 
 def press(page, key, wait=True):
@@ -974,7 +974,7 @@ def test_on_desktop_the_question_is_centred_without_the_song_list_and_the_answer
     quiz = page.locator(".quiz").bounding_box()
     assert abs(quiz["x"] + quiz["width"] / 2 - width / 2) <= 3 and quiz["width"] <= 800
     plays, answers_ = page.locator(".q-cards").bounding_box(), page.locator(".q-answers").bounding_box()
-    assert 0 <= answers_["y"] - (plays["y"] + plays["height"]) < 200
+    assert 0 <= answers_["y"] - (plays["y"] + plays["height"]) < 350
     assert page.evaluate("document.documentElement.scrollHeight <= innerHeight")
     overflow = page.evaluate(OVERFLOW)
     assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"]
@@ -1168,23 +1168,23 @@ def pause_at(page, t):
 
 
 @pytest.mark.parametrize("n,tap", [(1, True), (2, True), (4, False), (5, False)])
-def test_it_starts_now_is_there_only_for_tap_questions_with_a_clip_in_play(browser_, new_library, n, tap):
+def test_it_starts_now_is_enabled_only_for_tap_questions_with_a_clip_in_play(browser_, new_library, n, tap):
     base, _, _ = new_library
     page = open_page(browser_, "phone")
     open_round(page, base)
     go(page, n)
-    assert not page.locator("#qNow").is_visible()
+    assert page.locator("#qNow").is_visible() and not page.locator("#qNow").is_enabled()      # always in its place, dimmed until it applies
     hit(page, ".q-play")
     playing(page)
-    assert page.locator("#qNow").is_visible() == tap
+    assert page.locator("#qNow").is_enabled() == tap
     page.evaluate("audio.pause()")                      # paused inside the clip
     page.wait_for_timeout(150)
-    assert page.locator("#qNow").is_visible() == tap
+    assert page.locator("#qNow").is_enabled() == tap
     if tap:
         page.evaluate("audio.currentTime = audio.duration - 0.2; audio.play()")
         page.wait_for_function("() => audio.ended")     # at the end of the clip it is gone again
         page.wait_for_timeout(150)
-        assert not page.locator("#qNow").is_visible()
+        assert not page.locator("#qNow").is_enabled()
 
 
 @pytest.mark.parametrize("size,how", [("phone", "tap"), ("desktop", "tap"), ("desktop", "enter")])
@@ -1267,3 +1267,148 @@ def test_the_header_title_is_never_cut_at_360px(browser_, round_library, view):
     overflow = page.evaluate(OVERFLOW)
     assert overflow["scrollWidth"] <= overflow["width"] and not overflow["bad"]
     assert page.evaluate(SMALL_TARGETS, 44) == []
+
+
+# --- a layout that does not move: fixed zones in a fixed order, whatever the question and its state ---------------
+
+def stable_round(ids):
+    main = lambda a, b, mark, **extra: [{"id": "main", "start": float(a), "end": float(b), "mark": mark, **extra}]
+    return make_round(ids, [
+        probe(1, ids[0], "yesno", "Does the drop start at the marker?", main(20, 28, 24.0)),                         # 5 bars
+        probe(2, ids[1], "locate", "Where does the new part start?", main(8, 40, None)),                              # 17 bars
+        probe(3, ids[0], "locate", "Where does the new part start?", main(20, 24, None)),                             # 3 bars
+        probe(4, ids[1], "label", "Is this part a drop?", main(40, 48, 44.0)),
+        probe(5, ids[0], "label", "Are the clicks on the beat, with the accent on bar 1?", main(20, 28, 20.0, click_shift=0)),
+        probe(6, ids[1], "ab", "Which one has the accent on bar 1?", [{"id": "a", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 0},
+                                                                    {"id": "b", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 1}]),
+        probe(7, ids[0], "yesno", "Does the buildup start at the marker?", main(8, 16, 12.0), tap=False),
+    ])
+
+
+@pytest.fixture
+def stable_library(library, contract):
+    return put_round(library, stable_round(library[2]))
+
+
+ZONES = ["header.top", ".q-theory", ".q-title", ".q-prompt", ".q-define", ".q-cards", ".q-barzone", "#qOpts", ".q-nav", "#qNow", "#qAnswers",
+         "#optReplay", "#optAutoplay", "#optLoop", "#optCue", "#qBack", "#qSkip", "#qCount"]
+LAYOUT = """(zones) => {
+  const box = el => { const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(v => Math.round(v * 10) / 10); };
+  const all = s => [...document.querySelectorAll(s)].map(box);
+  return { zones: Object.fromEntries(zones.map(s => [s, document.querySelector(s) ? box(document.querySelector(s)) : null])),
+           plays: all(".q-play"), waves: all(".q-wave"), bars: all(".q-barbtn"),
+           answers: Object.fromEntries([...document.querySelectorAll("#qAnswers button[data-v]")].map(b => [b.dataset.v, box(b)])),
+           order: [...document.querySelector(".quiz").children].map(c => c.id || c.className.split(" ")[0]),
+           bar_order: [...document.querySelector(".q-bar").children].map(c => c.id || c.className.split(" ")[0]),
+           fits: document.documentElement.scrollHeight <= innerHeight };
+}"""
+
+
+def layout(page):
+    return page.evaluate(LAYOUT, ZONES)
+
+
+def stable_states(page, n, kind):
+    """(state, layout) for question n through every state it can be in."""
+    go(page, n)
+    yield "before play", layout(page)
+    hit(page, ".q-play")
+    yield "loading or playing", layout(page)
+    playing(page)
+    for i in range(3):
+        page.wait_for_timeout(150)
+        yield f"playing {i}", layout(page)
+    page.evaluate("audio.pause()")
+    page.wait_for_timeout(100)
+    yield "paused", layout(page)
+    page.wait_for_function("() => isFinite(audio.duration)")
+    page.evaluate("audio.currentTime = audio.duration - 0.2; audio.play()")
+    page.wait_for_function("() => audio.ended")
+    page.wait_for_timeout(100)
+    yield "clip ended", layout(page)
+    hit(page, "#optLoop", wait=False)
+    hit(page, "#optAutoplay", wait=False)
+    if page.locator("#optCue").is_enabled():
+        hit(page, "#optCue", wait=False)
+    page.wait_for_timeout(100)
+    yield "toggles changed", layout(page)
+    for sel in ("#optLoop", "#optAutoplay", "#optCue"):         # and back, so the next question starts as this one did
+        if page.locator(sel).is_enabled():
+            hit(page, sel, wait=False)
+    if n == 4:
+        answer(page, "no")
+        page.locator(".q-what").wait_for()
+        yield "what", layout(page)
+    elif kind == "tap":
+        hit(page, ".q-barbtn >> nth=1")
+        page.wait_for_timeout(120)
+        yield "bar picked", layout(page)
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_nothing_moves_between_question_types_or_states(browser_, stable_library, size):
+    base, _, _ = stable_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    kinds = {1: "tap", 2: "tap", 3: "tap", 4: "label", 5: "label", 6: "ab", 7: "plain"}
+    samples = [(n, state, lay) for n in kinds for state, lay in stable_states(page, n, kinds[n])]
+    first = samples[0][2]
+    assert all(box for box in first["zones"].values()), first["zones"]
+    for n, state, lay in samples:
+        assert lay["zones"] == first["zones"], (n, state, lay["zones"], first["zones"])         # every zone, every control that is always there
+        assert lay["order"] == first["order"] and lay["bar_order"] == first["bar_order"], (n, state)   # nothing inserted or removed
+        if size in TOUCH:
+            assert lay["fits"], (n, state)
+    for n in kinds:
+        mine = [lay for m, _, lay in samples if m == n]
+        for lay in mine:
+            assert lay["plays"] == mine[0]["plays"] and lay["waves"] == mine[0]["waves"] and lay["bars"] == mine[0]["bars"], n
+            if state_has_answers := lay["answers"]:
+                pass
+        steady = [lay["answers"] for (m, state, lay) in samples if m == n and state != "what"]
+        assert all(a == steady[0] for a in steady), n
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_the_same_answer_is_in_the_same_place_on_every_question_type_and_bars_do_not_move_with_their_count(browser_, stable_library, size):
+    base, _, _ = stable_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    seen = {}
+    for n in range(1, 8):
+        go(page, n)
+        lay = layout(page)
+        seen[n] = lay
+    skip = {tuple(seen[n]["answers"]["skip"]) for n in seen}
+    assert len(skip) == 1, skip                                                                    # Can't tell is always there
+    assert seen[1]["answers"]["yes"] == seen[4]["answers"]["yes"] == seen[6]["answers"]["a"]       # first and second answer cells
+    assert seen[1]["answers"]["no"] == seen[4]["answers"]["no"] == seen[6]["answers"]["b"]
+    assert seen[6]["answers"]["neither"] == seen[2]["answers"]["none"]                              # the third cell
+    assert [len(seen[n]["bars"]) for n in (1, 2, 3, 7)] == [5, 17, 3, 0]
+    for k in range(3):
+        assert seen[1]["bars"][k] == seen[2]["bars"][k] == seen[3]["bars"][k]                       # the first bars sit where they always do
+    assert seen[2]["bars"][16][1] + seen[2]["bars"][16][3] <= seen[2]["zones"][".q-barzone"][1] + seen[2]["zones"][".q-barzone"][3] + 0.5   # 17 bars fit the zone
+
+
+@pytest.mark.parametrize("n,now,cue", [(1, False, True), (2, False, False), (4, False, True), (6, False, False), (7, False, True)])
+def test_controls_that_do_not_apply_are_dimmed_not_hidden(browser_, stable_library, n, now, cue):
+    base, _, _ = stable_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    go(page, n)
+    for sel in ("#optReplay", "#optAutoplay", "#optLoop", "#optCue", "#qNow", "#qBack", "#qSkip"):
+        assert page.locator(sel).is_visible(), sel
+    assert page.locator("#qNow").is_enabled() == now and page.locator("#optCue").is_enabled() == cue
+    for sel, enabled in (("#qNow", now), ("#optCue", cue)):
+        assert (float(page.evaluate(f"getComputedStyle(document.querySelector('{sel}')).opacity")) < 1) == (not enabled)
+
+
+@pytest.mark.parametrize("size", list(VIEWPORTS))
+def test_the_audio_error_and_save_messages_take_no_room(browser_, stable_library, size):
+    base, _, _ = stable_library
+    page = open_page(browser_, size)
+    open_round(page, base)
+    before = layout(page)
+    page.evaluate("note('Not saved: the connection was lost')")
+    assert layout(page) == before
+    assert "Not saved" in page.locator("#qCount").inner_text()
