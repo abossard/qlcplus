@@ -31,6 +31,7 @@
 #define EDM_ANALYSIS_TOOL_DIR ""
 #endif
 #define SETTINGS_TOOL_DIR "edmanalysis/toolDir"
+#define SETTINGS_OUTPUT_DIR "edmanalysis/outputDir"
 #define REVIEW_PORT 8765
 
 /*********************************************************************
@@ -107,8 +108,8 @@ EdmAnalysisManager::EdmAnalysisManager(QQuickView *view, Doc *doc, QObject *pare
     view->rootContext()->setContextProperty("audioAnalysis", this);
 
     // the same folder the tool uses by default, so a run from the shell shows up here too
-    m_outputDir = QLCFile::userDirectory(QString(USERQLCPLUSDIR), QString(USERQLCPLUSDIR), QStringList())
-                      .absoluteFilePath("edm-analysis");
+    m_outputDir = QSettings().value(SETTINGS_OUTPUT_DIR, QLCFile::userDirectory(QString(USERQLCPLUSDIR), QString(USERQLCPLUSDIR), QStringList())
+                      .absoluteFilePath("edm-analysis")).toString();
 
     connect(m_process, &QProcess::readyReadStandardOutput, this, &EdmAnalysisManager::slotReadOutput);
     connect(m_process, &QProcess::readyReadStandardError, this, &EdmAnalysisManager::slotReadErrors);
@@ -184,7 +185,7 @@ QStringList EdmAnalysisManager::toolCommand()
     return cmd;
 }
 
-QProcessEnvironment EdmAnalysisManager::toolEnvironment() const
+QProcessEnvironment EdmAnalysisManager::toolEnvironment()
 {
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("PATH", "/opt/homebrew/bin:/usr/local/bin:" + env.value("PATH"));  // ffmpeg
@@ -198,10 +199,20 @@ void EdmAnalysisManager::setLastMessage(const QString &message)
     emit lastMessageChanged();
 }
 
+void EdmAnalysisManager::setQueueRunning(bool running)
+{
+    m_queueRunning = running;
+}
+
 void EdmAnalysisManager::start(const QUrl &folder)
 {
     if (running())
         return;
+    if (m_queueRunning)
+    {
+        setLastMessage(tr("Waiting for the song analysis to finish."));
+        return;
+    }
 
     QStringList cmd = toolCommand();
     if (cmd.isEmpty())

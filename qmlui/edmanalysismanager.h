@@ -82,6 +82,13 @@ public:
     QString lastMessage() const;
     QAbstractListModel *tracks() const;
 
+    /** Program and leading arguments that run the tool, empty with toolProblem set when missing */
+    QStringList toolCommand();
+    static QProcessEnvironment toolEnvironment();
+
+    /** The single-song queue runs the tool: a folder run waits for it to finish */
+    void setQueueRunning(bool running);
+
     Q_INVOKABLE void start(const QUrl &folder);
     Q_INVOKABLE void cancel();
     Q_INVOKABLE void openReview();
@@ -99,9 +106,6 @@ private slots:
     void slotFinished(int exitCode, QProcess::ExitStatus status);
 
 private:
-    /** Program and leading arguments that run the tool, empty with toolProblem set when missing */
-    QStringList toolCommand();
-    QProcessEnvironment toolEnvironment() const;
     void setLastMessage(const QString &message);
 
     QProcess *m_process;
@@ -112,6 +116,7 @@ private:
     QString m_outputDir;
     QString m_toolProblem;
     QString m_lastMessage;
+    bool m_queueRunning = false;
 };
 
 #endif

@@ -56,6 +56,10 @@ class Tardis;
 class VdjBridge;
 class DjManager;
 class EdmAnalysisManager;
+class EdmAnalysisQueue;
+class EdmStructure;
+class EdmStructureMapping;
+class EdmStructureDirector;
 class DjSetRecorder;
 class QLCIOPlugin;
 class QMouseEvent;
@@ -301,6 +305,10 @@ private:
     VdjBridge *m_vdjBridge;
     DjManager *m_djManager = nullptr;
     EdmAnalysisManager *m_edmAnalysis = nullptr;
+    EdmAnalysisQueue *m_edmQueue = nullptr;
+    EdmStructure *m_edmStructure = nullptr;
+    EdmStructureMapping *m_edmMapping = nullptr;
+    EdmStructureDirector *m_edmDirector = nullptr;
     DjSetRecorder *m_djSetRecorder = nullptr;
 
     /*********************************************************************

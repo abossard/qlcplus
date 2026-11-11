@@ -7,6 +7,8 @@ add_executable(${PROJECT_NAME}
     ../../edmanalysisprogress.h
     ../../edmanalysisreader.cpp
     ../../edmanalysisreader.h
+    ../../edmsongposition.cpp
+    ../../edmsongposition.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

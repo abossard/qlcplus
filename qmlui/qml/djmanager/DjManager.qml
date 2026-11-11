@@ -327,6 +327,14 @@ Rectangle
             }
         }
 
+        // ── Song structure per deck ──
+        Repeater {
+            model: djManager ? djManager.deckCount : 2
+            DeckStructureStrip { Layout.fillWidth: true; Layout.preferredHeight: height; deck: index + 1 }
+        }
+
+        StructureMapping { Layout.fillWidth: true }
+
         // ── Search + Sort controls ──
         Rectangle {
             Layout.fillWidth: true
@@ -469,6 +477,23 @@ Rectangle
                             color: "#888"
                             font.pixelSize: 10
                             elide: Text.ElideLeft
+                        }
+                    }
+
+                    // analysis state: ready, being analysed, failed
+                    Text {
+                        property string analysis: edmStructure ? edmStructure.analysisStateForPath(model.filepath) : "none"
+                        Layout.preferredWidth: 18
+                        text: analysis === "ready" ? "●" : analysis === "failed" ? "✕" : analysis === "none" ? "" : "…"
+                        color: analysis === "ready" ? "#2ecc71" : analysis === "failed" ? "#e74c3c" : "#f1c40f"
+                        font.pixelSize: 12
+                        horizontalAlignment: Text.AlignHCenter
+                        Connections {
+                            target: edmStructure
+                            function onAnalysisStateChanged(path) {
+                                if (path === model.filepath)
+                                    parent.analysis = edmStructure.analysisStateForPath(path)
+                            }
                         }
                     }
 

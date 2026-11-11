@@ -73,6 +73,11 @@
 #include "showfactory.h"
 #include "djmanager.h"
 #include "edmanalysismanager.h"
+#include "edmanalysisqueue.h"
+#include "edmstructure.h"
+#include "edmstructuredirector.h"
+#include "edmstructuremapping.h"
+#include "edmvclooksurface.h"
 #include "djsetrecorder.h"
 #include "stagewizard.h"
 #include "consolepagecreator.h"
@@ -371,6 +376,16 @@ void App::startup()
         m_contextManager->registerContext(m_djManager);
     m_edmAnalysis = new EdmAnalysisManager(this, m_doc, this);
     m_contextManager->registerContext(m_edmAnalysis);
+    m_edmQueue = new EdmAnalysisQueue(m_edmAnalysis->outputDir(), this);
+    m_edmQueue->setTool([this]() { return m_edmAnalysis->toolCommand(); }, EdmAnalysisManager::toolEnvironment());
+    connect(m_edmQueue, &EdmAnalysisQueue::runningChanged, this, [this]() { m_edmAnalysis->setQueueRunning(m_edmQueue->running()); });
+    connect(m_edmAnalysis, &EdmAnalysisManager::progressChanged, this, [this]() { m_edmQueue->setBlocked(m_edmAnalysis->running()); });
+    m_edmStructure = new EdmStructure(m_vdjBridge->djFsm(), m_edmQueue, m_edmAnalysis->outputDir(), this);
+    rootContext()->setContextProperty("edmStructure", m_edmStructure);
+    m_edmMapping = new EdmStructureMapping(m_doc, this);
+    m_edmDirector = new EdmStructureDirector(m_edmStructure, m_edmMapping, new EdmVcLookSurface(m_virtualConsole, this), this);
+    rootContext()->setContextProperty("edmMapping", m_edmMapping);
+    rootContext()->setContextProperty("edmDirector", m_edmDirector);
 
     // register an uncreatable type just to use the enums in QML
     qmlRegisterUncreatableType<ContextManager>("org.qlcplus.classes", 1, 0, "ContextManager", "Can't create a ContextManager!");
@@ -1614,6 +1629,10 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         {
             m_vdjBridge->showFactory()->loadXML(doc);
         }
+        else if (doc.name() == QStringLiteral("SongStructure"))
+        {
+            m_edmMapping->loadXML(doc);
+        }
 #if 0
         else if (doc.name() == KXMLQLCSimpleDesk)
         {
@@ -1731,6 +1750,9 @@ QFile::FileError App::saveXML(const QString& fileName, SaveOrigin origin)
     /* Write the songs' Show choices to the XML document */
     if (m_vdjBridge)
         m_vdjBridge->showFactory()->saveXML(&doc);
+
+    /* Write the song structure looks to the XML document */
+    m_edmMapping->saveXML(&doc);
 
     /* Write Simple Desk to the XML document */
     //SimpleDesk::instance()->saveXML(&doc);

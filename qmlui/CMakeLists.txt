@@ -79,6 +79,12 @@ set(SRC_FILES
     edmanalysismanager.cpp edmanalysismanager.h
     edmanalysisprogress.cpp edmanalysisprogress.h
     edmanalysisreader.cpp edmanalysisreader.h
+    edmsongposition.cpp edmsongposition.h
+    edmanalysisqueue.cpp edmanalysisqueue.h
+    edmstructure.cpp edmstructure.h
+    edmstructuredirector.cpp edmstructuredirector.h
+    edmstructuremapping.cpp edmstructuremapping.h
+    edmvclooksurface.cpp edmvclooksurface.h
     djsetrecorder.cpp djsetrecorder.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h

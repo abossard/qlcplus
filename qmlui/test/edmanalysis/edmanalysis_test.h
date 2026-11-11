@@ -25,6 +25,22 @@ private slots:
     void readerFindsSections();
     void readerSectionConfidence_data();
     void readerSectionConfidence();
+    void parseDocument_data();
+    void parseDocument();
+    void confidenceIsRounded_data();
+    void confidenceIsRounded();
+    void lookupByPath_data();
+    void lookupByPath();
+    void lookupByContent();
+    void lookupWithoutFinalFile();
+    void cacheFollowsFinalFile();
+    void songPosition_data();
+    void songPosition();
+    void firstCrossings();
+    void crossingsOfOneStep_data();
+    void crossingsOfOneStep();
+    void consecutiveStepsReportOnce_data();
+    void consecutiveStepsReportOnce();
 };
 
 #endif
