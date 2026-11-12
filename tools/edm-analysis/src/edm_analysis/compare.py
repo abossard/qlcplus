@@ -100,8 +100,29 @@ def _structure(by, covered):
         if drops:
             out[source] = {"drops": drops, "with_buildup": sum(lengths.values()), "buildup_lengths": dict(sorted(lengths.items())), "after_drop": after_drop,
                            "buildups": buildups, "unsupported": unsupported, "entries": entries,
+                           "entry_events": sum(len(by.get(t, {}).get((source, "entry"), [])) for t in covered.get(source, ())),
                            "lifts": sum(len(by.get(t, {}).get((source, "lift"), [])) for t in covered.get(source, ()))}
     return out
+
+
+EXISTENCE_REACH = 24     # bars before a drop within which a source's buildup start is its buildup for that drop
+
+
+def _existence(by, covered, answers):
+    """Per source: of the answers that say whether a buildup exists before a drop, those where the source claims one and it exists (confirmed) or not
+    (rejected), where it claims none and one exists (missed) or not (agreed_none), and the share right. Claimed is read from the source's own
+    buildup starts in the bars before that drop, so every source is judged on the same questions."""
+    rows = [(a["track"], a["drop_bar"], a["exists"]) for a in answers if a.get("exists") is not None and a.get("drop_bar") is not None]
+    out = {}
+    for source in ("rules", "fused", "edmformer"):
+        counts = {"confirmed": 0, "rejected": 0, "missed": 0, "agreed_none": 0}
+        mine = [(t, d, e) for t, d, e in rows if t in covered.get(source, ())]
+        for t, d, exists in mine:
+            claimed = any(d - EXISTENCE_REACH <= c["bar"] < d for c in by.get(t, {}).get((source, "buildup"), []))
+            counts["confirmed" if claimed and exists else "rejected" if claimed else "missed" if exists else "agreed_none"] += 1
+        if mine:
+            out[source] = {"n": len(mine), **counts, "right": _share(counts["confirmed"] + counts["agreed_none"], len(mine))}
+    return out or None
 
 
 def _energy(by, covered):
@@ -162,7 +183,7 @@ def compare(claims, answers=()):
             "structure": _structure(by, covered), "label_changes": _label_changes(by, covered),
             "section_starts": {s: {"n": len(bars), "on_8": _share(sum(b % 8 == 0 for b in bars), len(bars))}
                                for s, bars in sections.items() if bars},
-            "gold": _gold(by, covered, answers), "rejected": _rejected(by, covered, answers), "energy": _energy(by, covered)}
+            "gold": _gold(by, covered, answers), "rejected": _rejected(by, covered, answers), "energy": _energy(by, covered), "existence": _existence(by, covered, answers)}
 
 
 def format_table(result):
@@ -188,8 +209,8 @@ def format_table(result):
     if result["structure"]:
         lines += ["", "drops with a buildup before them", f"  {'':<24}{'drops':>8}{'buildup':>9}{'share':>9}"]
         lines += [f"  {s_:<24}{v['drops']:>8}{v['with_buildup']:>9}{cell(_share(v['with_buildup'], v['drops'])):>9}" for s_, v in result["structure"].items()]
-        lines += ["", "drops after a drop, buildups, buildups no source supports, lifts, first beat entries", f"  {'':<24}{'after':>8}{'buildups':>9}{'no source':>10}{'lifts':>7}{'entries':>9}"]
-        lines += [f"  {s_:<24}{v['after_drop']:>8}{v['buildups']:>9}{v['unsupported']:>10}{v['lifts']:>7}{v['entries']:>9}" for s_, v in result["structure"].items()]
+        lines += ["", "drops after a drop, buildups, buildups no source supports, lifts, first beat entries kept as drops, entry events", f"  {'':<24}{'after':>8}{'buildups':>9}{'no source':>10}{'lifts':>7}{'entries':>9}{'entry events':>14}"]
+        lines += [f"  {s_:<24}{v['after_drop']:>8}{v['buildups']:>9}{v['unsupported']:>10}{v['lifts']:>7}{v['entries']:>9}{v['entry_events']:>14}" for s_, v in result["structure"].items()]
         lines += ["", "buildup length in bars: number of buildups"]
         lines += [f"  {s_:<24}" + "  ".join(f"{n}: {c}" for n, c in v["buildup_lengths"].items()) for s_, v in result["structure"].items()]
     if result["energy"]:
@@ -198,6 +219,10 @@ def format_table(result):
     if changes["sections"]:
         lines += ["", f"label changes: {changes['changed']} of {changes['sections']} rules sections have another label in the fusion",
                   "  " + "  ".join(f"{k}: {n}" for k, n in sorted(changes["from_to"].items(), key=lambda kv: -kv[1]))]
+    if result["existence"]:
+        lines += ["", "buildup existence against the reviewer's answers (a buildup exists before this drop, yes or no)",
+                  f"  {'':<24}{'answers':>8}{'claimed and confirmed':>23}{'claimed and rejected':>22}{'not claimed, named':>20}{'agreed none':>13}{'right':>8}"]
+        lines += [f"  {s_:<24}{v['n']:>8}{v['confirmed']:>23}{v['rejected']:>22}{v['missed']:>20}{v['agreed_none']:>13}{cell(v['right']):>8}" for s_, v in result["existence"].items()]
     for kind, table in (result["gold"] or {}).items():
         lines += ["", f"against Gold bars of {kind}s (observed; 'if' is the share if the reviewer errs {REVIEWER_ERROR:.0%} of the time)",
                   f"  {'':<24}{'answers':>8}{'exact':>9}{'if':>7}{'+-1':>9}{'if':>7}"]
@@ -211,12 +236,14 @@ def format_table(result):
 
 
 def side_by_side(doc, answers):
-    """One track as three columns: the rules' sections, the fused sections with their confidence and sources, and the answers on them."""
+    """One track as four columns: the rules' sections, the fused sections with their confidence and sources (~ marks a nominal start), the entry and
+    lift events, and the answers on them."""
     left = [f"{s['label']} {s['start_bar']}-{s['end_bar']}" for s in doc["rules"]["sections"]]
-    mid = [f"{s['label']} {s['start_bar']}-{s['end_bar']}" + (f" {s['confidence']}%" if "confidence" in s else "") + (" " + "+".join(s["sources"]) if s.get("sources") else "")
-           for s in doc["sections"]]
+    mid = [f"{s['label']} {'~' if s.get('nominal') else ''}{s['start_bar']}-{s['end_bar']}" + (f" {s['confidence']}%" if "confidence" in s else "")
+           + (" " + "+".join(s["sources"]) if s.get("sources") else "") for s in doc["sections"]]
+    events = [f"{e['kind']} {e['bar']}" for e in doc.get("events", []) if e["kind"] in ("entry", "lift")]
     right = [f"{a['kind']} {a['bar']}: {a['answer']}" + (f" (gold bar {a['gold_bar']})" if a.get("gold_bar") is not None else "")
              for a in sorted(answers, key=lambda a: a["bar"])]
-    w = (max(map(len, [*left, "rules"]), default=5), max(map(len, [*mid, "fused"]), default=5))
-    rows = [f"{a:<{w[0]}} | {b:<{w[1]}} | {c}".rstrip() for a, b, c in zip_longest(left, mid, right, fillvalue="")]
-    return "\n".join([doc["track"]["title"], f"{'rules':<{w[0]}}   {'fused':<{w[1]}}   answers", *rows])
+    w = (max(map(len, [*left, "rules"]), default=5), max(map(len, [*mid, "fused"]), default=5), max(map(len, [*events, "events"]), default=6))
+    rows = [f"{a:<{w[0]}} | {b:<{w[1]}} | {c:<{w[2]}} | {d}".rstrip() for a, b, c, d in zip_longest(left, mid, events, right, fillvalue="")]
+    return "\n".join([doc["track"]["title"], f"{'rules':<{w[0]}}   {'fused':<{w[1]}}   {'events':<{w[2]}}   answers", *rows])

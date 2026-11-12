@@ -3,8 +3,8 @@ import json
 import numpy as np
 import pytest
 
-from edm_analysis.confidence import (FEATURES, MIN_GOLD, MODEL_FILE, REVIEWER_ERROR, UNKNOWN, Evidence, bands, corrected_rate, fit, gold_bar, gold_rows,
-                                     held_out, predict, silver_without_gold, with_confidence)
+from edm_analysis.confidence import (FEATURES, MIN_GOLD, MODEL_FILE, REVIEWER_ERROR, UNKNOWN, Evidence, _exact, bands, buildup_exists, claims_of, corrected_rate, fit,
+                                     gold_bar, gold_rows, held_out, predict, silver_without_gold, with_confidence)
 from edm_analysis.final import write_final
 
 N = 32
@@ -217,11 +217,6 @@ def test_a_track_with_missing_levels_still_gets_finite_evidence(claim):
     assert np.all(np.isfinite(x))
 
 
-def test_a_bar_the_reviewer_names_for_a_buildup_is_no_example_of_an_exact_claim():
-    record = {"answer": "bar:12", "track": "abababababababab", "claim": {"kind": "buildup", "bar": 14, "time": 28.0}}
-    assert [e for _, _, e in gold_rows({"r01-p001": {**record, "round": 1}}, {"abababababababab": DOC})] == [False]
-
-
 @pytest.mark.parametrize("name", ["det_prob", "rules_exact", "em_exact", "dd_exact", "near"])
 def test_more_agreement_between_sources_never_lowers_confidence(name):
     """Gold is picked where sources disagree, so exact claims can look like the ones with less agreement: the model must not learn that."""
@@ -246,13 +241,6 @@ def test_gold_rows_count_a_probe_and_its_repeats_as_one_answer(answers, exacts):
     records = {f"r0{i}-p001": {"answer": a, "round": i, "track": "abababababababab", "claim": claim, **({"repeat_of": "r01-p001"} if i > 1 else {})}
                for i, a in enumerate(answers, 1)}
     assert [e for _, _, e in gold_rows(records, {"abababababababab": DOC})] == exacts
-
-
-def test_a_buildup_the_reviewer_locates_where_we_had_none_is_gold_for_the_tables_but_no_training_row():
-    record = {"answer": "bar:8", "track": "abababababababab", "claim": {"kind": "missed", "bar": 16, "time": 32.0},
-              "alternatives": {"none": {"source": "ours"}}}
-    assert gold_rows({"r01-p001": {**record, "round": 1}}, {"abababababababab": DOC}) == []
-    assert gold_bar(record) == 8
 
 
 def _start_rows(kind_counts, rng):
@@ -302,3 +290,119 @@ def test_the_labels_are_the_five_the_reviewer_uses():
 def test_old_groove_answers_stay_gold_but_groove_claims_train_nothing(label, answer, rows):
     record = {"answer": answer, "round": 1, "track": "abababababababab", "claim": {"kind": "label", "label": label, "bar": 16, "end_bar": 32, "time": 32.0}}
     assert [e for _, _, e in gold_rows({"r01-p001": record}, {"abababababababab": DOC})] == rows
+
+
+# --- a buildup is an existence Claim ---------------------------------------------------------------
+
+BU = {"kind": "buildup", "bar": 14, "time": 28.0}
+EXISTS = {"kind": "buildup_exists", "bar": 16, "time": 32.0}
+NONE_ALT = {"none": {"source": "ours"}}
+
+
+@pytest.mark.parametrize("claim,answer,alternatives,expected", [
+    ({**EXISTS, "claimed": True}, "yes", None, True), ({**EXISTS, "claimed": True}, "none", None, False), ({**EXISTS, "claimed": False}, "yes", None, True),
+    ({**EXISTS, "claimed": True}, "skip", None, None),
+    (BU, "yes", None, True), (BU, "bar:8", None, True), (BU, "earlier", None, True), (BU, "none", {"ours": {"bar": 14}}, False), (BU, "no", None, None),
+    (BU, "skip", None, None),
+    ({"kind": "missed", "bar": 16, "time": 32.0}, "bar:8", NONE_ALT, True), ({"kind": "missed", "bar": 16, "time": 32.0}, "none", NONE_ALT, False),
+    ({"kind": "missed", "bar": 16, "time": 32.0}, "yes", None, None),            # a new part at a cue says nothing about buildups
+    ({"kind": "drop", "bar": 16, "time": 32.0}, "yes", None, None), ({"kind": "label", "label": "buildup", "bar": 8, "end_bar": 16, "time": 16.0}, "yes", None, None),
+])
+def test_whether_a_buildup_exists_before_a_drop_is_read_from_the_old_and_the_new_answers(claim, answer, alternatives, expected):
+    assert buildup_exists({"claim": claim, "answer": answer, **({"alternatives": alternatives} if alternatives else {})}) is expected
+
+
+@pytest.mark.parametrize("claimed,answer,exact", [(True, "yes", True), (True, "none", False), (False, "none", True), (False, "yes", False), (True, "skip", None)])
+def test_an_existence_answer_is_exact_where_it_agrees_with_what_was_claimed(claimed, answer, exact):
+    record = {"claim": {**EXISTS, "claimed": claimed}, "answer": answer}
+    assert _exact(record) is exact and gold_bar(record) is None
+
+
+@pytest.mark.parametrize("claim,answer,alternatives,rows", [
+    ({**EXISTS, "claimed": True}, "yes", None, [True]),
+    ({**EXISTS, "claimed": True}, "none", None, [False]),
+    ({**EXISTS, "claimed": False}, "yes", None, [True]),               # the row says whether a buildup exists, whatever was claimed
+    (BU, "bar:8", None, [True]),                                        # an old named start: a buildup exists before the drop at 16
+    (BU, "none", {"ours": {"bar": 14}}, [False]),
+    ({"kind": "missed", "bar": 16, "time": 32.0}, "bar:8", NONE_ALT, [True]),
+    (BU, "no", None, []),                                               # "not at the marker" says nothing about existence, and no start row either
+    (EXISTS, "skip", None, []),
+])
+def test_buildup_answers_train_the_existence_group_and_nothing_else(claim, answer, alternatives, rows):
+    record = {"claim": claim, "answer": answer, "round": 1, "track": "abababababababab", **({"alternatives": alternatives} if alternatives else {})}
+    out = gold_rows({"r01-p001": record}, {"abababababababab": DOC})
+    assert [(g, len(x), e) for g, x, e in out] == [("exists", len(FEATURES["exists"]), e) for e in rows]
+
+
+def test_an_answer_about_a_drop_that_is_gone_trains_nothing():
+    record = {"claim": {**EXISTS, "bar": 40, "claimed": True}, "answer": "yes", "round": 1, "track": "abababababababab"}
+    assert gold_rows({"r01-p001": record}, {"abababababababab": DOC}) == []
+
+
+SUPPORT_EXISTS = {"buildup": {"rules": [[10, None]], "edmformer": [[6, None]]}, "drop": {"edmformer": [[16, None]], "dropdetector": [[16, 0.9]]}}
+
+
+@pytest.mark.parametrize("support,expected", [
+    (SUPPORT_EXISTS, {"rules_bu": 1.0, "em_bu": 1.0, "em_drop": 1.0}),
+    ({"buildup": {"rules": [[10, None]]}, "drop": {}}, {"rules_bu": 1.0, "em_bu": 0.0, "em_drop": 0.0}),
+    ({"buildup": {"rules": [[14, None]]}, "drop": {}}, {"rules_bu": 0.0, "em_bu": 0.0, "em_drop": 0.0}),        # less than 4 bars before the drop is no buildup
+    ({}, {"rules_bu": 0.0, "em_bu": 0.0, "em_drop": 0.0}),
+])
+def test_the_existence_evidence_says_which_sources_have_a_buildup_before_the_drop(support, expected):
+    got = dict(zip(FEATURES["exists"], Evidence({**DOC, "support": support}).exists(16)))
+    assert {k: got[k] for k in expected} == expected
+
+
+def test_the_existence_evidence_reads_the_levels_before_the_drop():
+    doc = {**DOC, "bars": {**DOC["bars"], "descriptors": {"onset": [0.0] * 8 + [i / 8 for i in range(8)] + [0.5] * 16, "centroid": [0.5] * N}}}
+    got = dict(zip(FEATURES["exists"], Evidence(doc).exists(16)))
+    assert got["kick_min"] == 0.0 and got["bass_min"] == 0.0 and got["loud_step"] == pytest.approx(0.6) and got["rise_onset"] > 0.5 and got["rise_centroid"] == 0.0
+
+
+def test_existence_has_no_silver_so_it_stays_unknown_until_there_are_thirty_gold_answers():
+    rng = np.random.default_rng(12)
+    assert "exists" not in fit([], rows("exists", MIN_GOLD - 1, rng))["groups"]
+    model = fit([], rows("exists", MIN_GOLD, rng))
+    assert model["groups"]["exists"]["source"] == "gold" and model["groups"]["exists"]["n"] == MIN_GOLD
+
+
+@pytest.mark.parametrize("name", ["rules_bu", "em_bu", "em_drop"])
+def test_more_sources_with_a_buildup_never_lowers_its_existence_confidence(name):
+    rng = np.random.default_rng(13)
+    i = FEATURES["exists"].index(name)
+    data = [(g, [*x[:i], 1.0 - float(e), *x[i + 1:]], e) for g, x, e in rows("exists", 60, rng)]
+    assert fit([], data)["groups"]["exists"]["coef"][i] >= 0
+
+
+BUILDUP_DOC = {**DOC, "sections": [{"label": "intro", "start_bar": 0, "end_bar": 8, "start": 0.0, "end": 16.0},
+                                   {"label": "buildup", "start_bar": 8, "end_bar": 16, "start": 16.0, "end": 32.0, "nominal": True},
+                                   {"label": "drop", "start_bar": 16, "end_bar": 32, "start": 32.0, "end": 64.0}],
+               "events": [{"kind": "buildup", "bar": 8, "time": 16.0}, {"kind": "drop", "bar": 16, "time": 32.0}]}
+
+
+def test_a_buildup_gets_its_existence_confidence_and_its_start_is_no_exact_bar_claim():
+    rng = np.random.default_rng(14)
+    exists_only = fit([], rows("exists", 40, rng))
+    got = with_confidence(BUILDUP_DOC, exists_only)
+    buildup, drop = got["sections"][1], got["sections"][2]
+    assert buildup["confidence"] == predict(exists_only, "exists", Evidence(BUILDUP_DOC).exists(16))
+    assert drop["confidence"] == UNKNOWN and got["events"][0]["confidence"] == buildup["confidence"]
+    start_only = fit(rows("start", 50, rng), [])
+    assert with_confidence(BUILDUP_DOC, start_only)["sections"][1]["confidence"] == UNKNOWN      # the start model has nothing to say about a buildup
+
+
+def test_the_claims_that_coverage_counts_are_grid_labels_drop_and_breakdown_starts_and_buildup_existence():
+    model = {"fitted": "x", "groups": {}}
+    claims = claims_of({"a": with_confidence(BUILDUP_DOC, model)})
+    assert sorted(g for g, _ in claims) == ["exists", "grid", "label", "label", "label", "start"]
+    assert all(c == UNKNOWN for _, c in claims)
+
+
+@pytest.mark.parametrize("n_rows,fitted", [(MIN_GOLD, True), (MIN_GOLD - 1, False)])
+def test_held_out_follows_how_the_full_model_is_fitted(n_rows, fitted):
+    """A group with exactly MIN_GOLD rows is fitted on Gold; leaving a track out must not turn it into 'no model' and a column of 50s."""
+    rng = np.random.default_rng(15)
+    gold = {f"t{i}": [r] for i, r in enumerate(rows("label", n_rows, rng))}
+    pairs = held_out({}, gold, "label")
+    assert len(pairs) == n_rows
+    assert (any(p != UNKNOWN for p, _ in pairs)) is fitted

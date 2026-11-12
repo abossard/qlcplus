@@ -524,6 +524,8 @@ def make_handler(out_dir, ratings_path, reference=lambda: {}, auth=None, clips=N
         for probe, raw in zip(page["probes"], rnd["probes"]):
             if "before" in raw:   # the first bar that may not be tapped; the server refuses those answers too
                 probe["before"] = raw["before"]
+            if "tap" in raw:   # a yes/no may take no bar tap
+                probe["tap"] = raw["tap"]
             path = out_dir / f"{raw['track']}.json"
             stamp = path.stat().st_mtime_ns if path.exists() else None
             for play, raw_play in zip(probe["plays"], raw["plays"]):

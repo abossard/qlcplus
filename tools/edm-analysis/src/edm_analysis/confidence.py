@@ -1,4 +1,4 @@
-"""Confidence per Claim, in percent: how likely the Claim is on the exact bar (or, for a label, right).
+"""Confidence per Claim, in percent: how likely the Claim is on the exact bar (or, for a label, right; for a buildup, that one exists).
 
 Each Claim gets a few numbers of evidence from the analysis itself (for a start also which sources agree on its
 bar, from the fused document's `support`). A logistic model per Claim group turns them into a probability. It is
@@ -28,8 +28,9 @@ FEATURES = {
     "start": ("novelty", "phrase_line", "kick_change", "bass_change", "loud_change", "grid_share",
               "is_drop", "is_buildup", "is_breakdown", "det_prob", "rules_exact", "em_exact", "dd_exact", "near"),
     "label": ("loudness", "drive", "kick_on", "length", "position", "grid_share", *(f"is_{l}" for l in LABELS)),
+    "exists": ("rules_bu", "em_bu", "em_drop", "kick_min", "bass_min", "loud_step", "rise_onset", "rise_centroid", "before_drop", "before_breakdown", "grid_share"),
 }
-AGREEMENT = ("det_prob", "rules_exact", "em_exact", "dd_exact", "near")   # more agreement never lowers confidence (Gold is picked where sources disagree)
+AGREEMENT = ("det_prob", "rules_exact", "em_exact", "dd_exact", "near", "rules_bu", "em_bu", "em_drop")   # more agreement never lowers confidence (Gold is picked where sources disagree)
 MODEL_FILE = "confidence-model.json"
 REVIEWER_ERROR = 0.10      # share of the reviewer's answers assumed wrong; exact rates are also reported read under it
 GOLD_FIRST = ("grid",)     # a group whose few Gold answers join the Silver rows (replacing those of their tracks) before it has MIN_GOLD
@@ -58,12 +59,13 @@ def silver_without_gold(silver, gold, groups=GOLD_FIRST):
 def held_out(silver, gold, group):
     """(percent, exact) for every Gold row of the group, each predicted by a model fitted without that track's Gold."""
     flat = lambda by: [r for rows in by.values() for r in rows]
-    pairs = []
+    pairs, total = [], sum(r[0] == group for r in flat(gold))
     for tid, rows in gold.items():
         rest = {t: g for t, g in gold.items() if t != tid}
         mine = [r for r in rows if r[0] == group]
         if mine:
-            model = fit(flat(silver_without_gold(silver, rest)), flat(rest))
+            # a group the full model fits on Gold is fitted on Gold with a track left out too, however few rows are left
+            model = fit(flat(silver_without_gold(silver, rest)), flat(rest), min_gold=total - len(mine) if total >= MIN_GOLD else MIN_GOLD)
             pairs += [(predict(model, group, x), exact) for _, x, exact in mine]
     return pairs
 
@@ -103,6 +105,7 @@ class Evidence:
         self.mean_loud = loud[loud > 0.05].mean() if (loud > 0.05).any() else 0.0
         self.n = len(loud)
         self.support = doc.get("support", {})
+        self.sections = doc.get("sections", [])
         self.offset = self.support.get("phrase_offset", 0)
 
     def agreement(self, bar, kind):
@@ -121,6 +124,18 @@ class Evidence:
                         _change(lv["kick"], bar), _change(lv["bass"], bar), _change(lv["loud"], bar), self.share,
                         *(float(kind == k) for k in START_KINDS),
                         prob, *(float(exact.get(s, False)) for s in ("rules", "edmformer", "dropdetector")), near])
+
+    def exists(self, drop):
+        """Evidence for "a buildup exists before the drop at this bar": which sources have one within 24 bars before it, the levels over the
+        8 bars before, and what came before them (the fused label there)."""
+        lv, a = self.lv, max(0, drop - 8)
+        near = lambda source, kind="buildup": float(any(drop - 24 <= b <= drop - 4 for b, _ in self.support.get(kind, {}).get(source, [])))
+        rise = lambda key: float(np.polyfit(np.arange(drop - a), lv[key][a:drop], 1)[0] * (drop - a)) if key in lv and drop - a >= 3 else 0.0
+        before = next((s["label"] for s in self.sections if s["start_bar"] <= max(0, drop - 9) < s["end_bar"]), "")
+        em_drop = float(any(abs(b - drop) <= 8 for b, _ in self.support.get("drop", {}).get("edmformer", [])))
+        return _finite([near("rules"), near("edmformer"), em_drop, lv["kick"][a:drop].min(initial=1.0), lv["bass"][a:drop].min(initial=1.0),
+                        lv["loud"][drop:drop + 4].mean() - lv["loud"][max(0, drop - 4):drop].mean() if 0 < drop < self.n else 0.0,
+                        rise("onset"), rise("centroid"), float(before == "drop"), float(before == "breakdown"), self.share])
 
     def label(self, a, b, label):
         lv, b = self.lv, min(b, self.n)
@@ -143,7 +158,7 @@ def silver_rows(doc, vdj):
     marks = set(silver["vdj_break_start"]) | set(silver["vdj_break_end"]) | set(silver["mik_energy"])
     if marks:
         rows += [("start", ev.start(s["start_bar"], s["label"]), s["start_bar"] in marks)
-                 for s in doc["sections"] if 0 < s["start_bar"] < ev.n]
+                 for s in doc["sections"] if 0 < s["start_bar"] < ev.n and s["label"] != "buildup"]
     return rows
 
 
@@ -152,6 +167,8 @@ def _exact(record):
     answer = record["answer"]
     if answer == "skip":
         return None
+    if record["claim"]["kind"] == "buildup_exists":      # exact where the answer agrees with what was claimed
+        return (answer == "yes") == record["claim"]["claimed"]
     if answer.startswith("bar:"):   # a named bar is exact only where it is the Claim's own
         return int(answer[4:]) == record["claim"]["bar"]
     if "alternatives" in record:
@@ -169,18 +186,52 @@ def gold_bar(record):
     return claim["bar"] if answer == "yes" and claim["kind"] in (*START_KINDS, "missed") else None
 
 
+def buildup_exists(record):
+    """True, False or None: whether a buildup exists before the drop an answer is about. An existence Probe says it with yes or none; of the
+    older start Probes a named bar, "yes" (the marker is the start) or "earlier"/"later" mean one exists, "none" ("No buildup") that none does.
+    "Not at the marker" and a skip say nothing."""
+    claim, answer = record["claim"], record["answer"]
+    if answer == "skip":
+        return None
+    if claim["kind"] == "buildup_exists":
+        return answer == "yes"
+    if claim["kind"] == "buildup" or (claim["kind"] == "missed" and "none" in record.get("alternatives", {})):
+        if answer == "none":
+            return False
+        named = record.get("alternatives", {}).get(answer, {}).get("bar")
+        return True if answer in ("yes", "earlier", "later") or answer.startswith("bar:") or named is not None else None
+    return None
+
+
+def drop_for(doc, record):
+    """The start bar of the drop a buildup answer is about: the claim's own for an existence Probe or a missed one, else the first drop after the named or claimed bar."""
+    claim = record["claim"]
+    if claim["kind"] in ("buildup_exists", "missed"):
+        bar = claim["bar"]
+    else:
+        bar = gold_bar(record) if gold_bar(record) is not None else claim["bar"]
+    return next((s["start_bar"] for s in doc["sections"] if s["label"] == "drop" and s["start_bar"] > bar - (claim["kind"] in ("buildup_exists", "missed"))), None)
+
+
 def gold_rows(answers, docs):
     """(group, features, exact) for every Gold answer (a Probe and its repeats count once) whose track is still analysed.
-    A "missed" Claim is left out: a buildup the reviewer locates where we had none is Gold for the tables, but found by no source, so it would teach "unsupported is exact"."""
+    Buildup answers train the existence group only (a row per answer whose drop is still there, whatever was claimed); they leave the exact-bar group
+    alone, and so does a "missed" Claim."""
     from .rounds import gold_answers
 
     cache, rows = {}, []
     for record in gold_answers(answers).values():
-        exact, doc = _exact(record), docs.get(record["track"])
-        if exact is None or doc is None or record["claim"]["kind"] == "missed":
+        exact, doc, claim = _exact(record), docs.get(record["track"]), record["claim"]
+        if doc is None:
+            continue
+        if claim["kind"] in ("buildup", "buildup_exists", "missed"):
+            truth, drop = buildup_exists(record), drop_for(doc, record)
+            if truth is not None and drop is not None:
+                rows.append(("exists", cache.setdefault(record["track"], Evidence(doc)).exists(drop), truth))
+            continue
+        if exact is None:
             continue
         ev = cache.setdefault(record["track"], Evidence(doc))
-        claim = record["claim"]
         bar = int(np.argmin(np.abs(np.asarray(doc["bars"]["start"]) - claim["time"])))
         if claim["kind"] == "grid":
             rows.append(("grid", ev.grid, exact))
@@ -224,13 +275,13 @@ def fit_group(rows, names=()):
     return {"mean": mean.tolist(), "std": std.tolist(), "coef": coef.tolist(), "intercept": intercept}
 
 
-def fit(silver, gold, today=None):
-    """Model per group; Gold wins once a group has MIN_GOLD answers."""
+def fit(silver, gold, today=None, min_gold=MIN_GOLD):
+    """Model per group; Gold wins once a group has min_gold answers (MIN_GOLD)."""
     model = {"fitted": (today or date.today()).isoformat(), "groups": {}}
     for group, names in FEATURES.items():
         g = [(x, t) for k, x, t in gold if k == group]
         s = [(x, t) for k, x, t in silver if k == group]
-        source, rows = ("gold", g) if len(g) >= MIN_GOLD else ("silver+gold", s + g) if g and group in GOLD_FIRST else ("silver", s)
+        source, rows = ("gold", g) if len(g) >= min_gold else ("silver+gold", s + g) if g and group in GOLD_FIRST else ("silver", s)
         params = fit_group(rows, names) if rows else None
         if params:
             model["groups"][group] = {"features": list(names), "source": source, "n": len(rows), "gold": len(g), **params}
@@ -255,12 +306,29 @@ def with_confidence(doc, model):
     sections = []
     for s in doc["sections"]:
         a, b = s["start_bar"], s["end_bar"]
-        sections.append({**s, "confidence": predict(model, "start", ev.start(a, s["label"])) if 0 < a < ev.n else 100,
-                         "label_confidence": predict(model, "label", ev.label(a, b, s["label"])) if min(b, ev.n) > a else UNKNOWN})
+        if s["label"] == "buildup":      # an existence Claim: a buildup exists before the drop it leads to (its start is nominal)
+            conf = predict(model, "exists", ev.exists(b))
+        else:
+            conf = predict(model, "start", ev.start(a, s["label"])) if 0 < a < ev.n else 100
+        sections.append({**s, "confidence": conf, "label_confidence": predict(model, "label", ev.label(a, b, s["label"])) if min(b, ev.n) > a else UNKNOWN})
     by_start = {s["start_bar"]: s["confidence"] for s in sections}
     events = [{**e, "confidence": by_start.get(e["bar"], UNKNOWN)} if e["kind"] in START_KINDS else e for e in doc["events"]]
     return {**doc, "grid": {**doc["grid"], "bar1_confidence": predict(model, "grid", ev.grid)},
             "sections": sections, "events": events}
+
+
+def claims_of(docs):
+    """(group, confidence) of every Claim that coverage counts: grid, labels, drop and breakdown starts, and buildup existence (not buildup starts)."""
+    out = []
+    for d in docs.values():
+        out.append(("grid", d["grid"].get("bar1_confidence", UNKNOWN)))
+        for s in d["sections"]:
+            out.append(("label", s.get("label_confidence", UNKNOWN)))
+            if s["label"] == "buildup":
+                out.append(("exists", s.get("confidence", UNKNOWN)))
+            elif s["start_bar"] > 0 and s["label"] in START_KINDS:
+                out.append(("start", s.get("confidence", UNKNOWN)))
+    return out
 
 
 def calibration(model, rows, edges=(0, 50, 80, 95, 101)):

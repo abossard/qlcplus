@@ -10,6 +10,7 @@ PLAIN = [("intro", 0, 32), ("buildup", 32, 40), ("drop", 40, 88), ("outro", 88, 
 
 def make_doc(sections=PLAIN, **levels):
     flat = {k: [0.5] * N for k in ("kick", "hihat", "bass", "instruments", "vocal", "loud")}
+    flat["kick"] = [0.8] * N       # a running beat, as in most songs
     flat.update({k: list(v) for k, v in levels.items()})
     return {"track": {"path": "/m/a.mp3", "title": "a", "sha256": "ab" * 32}, "analyzer": {"features": 2, "structure": 5, "version": "2.5"},
             "grid": {"bpm": 120.0, "period": 0.5, "first_downbeat": 0.0, "confidence": 0.9},
@@ -88,21 +89,21 @@ def test_no_buildup_without_evidence(sections, found, expected):
     assert labels(fuse(make_doc(sections, loud=stepped(found[0][0])), {"dropdetector": detector(*found)})) == expected
 
 
-DROP_BUILDUP_DROP = [("intro", 0, 16), ("drop", 16, 40), ("buildup", 40, 48), ("drop", 48, 96)]
+DROP_BUILDUP_DROP = [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("buildup", 40, 48), ("drop", 48, 96)]
 
 
 def dip(a, b):
     """Kick and bass gone between bars a and b, as in a real break."""
-    gone = [0.3] * 16 + [0.9] * (a - 16) + [0.1] * (b - a) + [0.9] * (N - b)     # no beat before bar 16, so the first drop is no entry of a running beat
+    gone = [0.9] * a + [0.1] * (b - a) + [0.9] * (N - b)
     return {"kick": gone, "bass": gone}
 
 
 @pytest.mark.parametrize("em,levels,expected", [
-    (None, {}, [("intro", 0, 16), ("drop", 16, 96)]),                                    # a rules buildup between two drops, no dip, nothing behind it: one drop
-    ([(44, "buildup"), (48, "drop")], {}, [("intro", 0, 16), ("drop", 16, 96)]),         # EDMFormer has it but kick and bass play on
-    ([(44, "buildup"), (48, "drop")], dip(44, 48),                                       # EDMFormer has it and there is a real dip: a buildup
-     [("intro", 0, 16), ("drop", 16, 40), ("buildup", 40, 48), ("drop", 48, 96)]),
-    (None, dip(44, 48), [("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 48), ("drop", 48, 96)]),   # a dip with only the rules behind it is a breakdown, the drop after it stays
+    (None, {}, [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 96)]),                          # a rules buildup between two drops, no dip, nothing behind it: one drop
+    ([(44, "buildup"), (48, "drop")], {}, [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 96)]),         # EDMFormer has it but kick and bass play on
+    ([(44, "buildup"), (48, "drop")], dip(44, 48),                                                  # EDMFormer has it and there is a real dip: a buildup
+     [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("buildup", 40, 48), ("drop", 48, 96)]),
+    (None, dip(44, 48), [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("breakdown", 40, 48), ("drop", 48, 96)]),   # a dip with only the rules behind it is a breakdown, the drop after it stays
 ])
 def test_between_two_drops_a_buildup_needs_edmformer_and_a_real_dip(em, levels, expected):
     candidates = {"dropdetector": detector((16, 0.9), (48, 0.9)), **({"edmformer": edmformer((0, "intro"), *em)} if em else {})}
@@ -131,7 +132,7 @@ def test_a_drop_straight_after_a_drop_is_a_lift_inside_it(found, lifts):
 
 
 def test_a_drop_that_a_buildup_separates_from_the_one_before_is_no_lift():
-    got = fuse(make_doc([("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 56), ("buildup", 56, 64), ("drop", 64, 96)]), {"dropdetector": detector((16, 0.9), (64, 0.9))})
+    got = fuse(make_doc([("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("breakdown", 40, 56), ("buildup", 56, 64), ("drop", 64, 96)]), {"dropdetector": detector((16, 0.9), (64, 0.9))})
     assert [e["kind"] for e in got["events"] if e["kind"] in ("drop", "lift")] == ["drop", "drop"]
 
 
@@ -188,7 +189,7 @@ def test_sources_tell_who_supports_a_claim_on_its_exact_bar():
 def test_the_document_keeps_its_shape_and_the_rules_output():
     doc = make_doc()
     got = fuse(doc, {"dropdetector": detector((48, 0.9))})
-    assert {k for s in got["sections"] for k in s} == {"label", "start_bar", "end_bar", "start", "end", "sources", "energy"}
+    assert {k for s in got["sections"] for k in s} == {"label", "start_bar", "end_bar", "start", "end", "sources", "energy", "nominal"}
     assert [s["start_bar"] for s in got["sections"]] == sorted(s["start_bar"] for s in got["sections"])
     assert got["sections"][0]["start_bar"] == 0 and got["sections"][-1]["end_bar"] == N
     assert all(a["end_bar"] == b["start_bar"] for a, b in zip(got["sections"], got["sections"][1:]))
@@ -278,16 +279,16 @@ RISING = [0.5] * 64 + [0.5 + 0.05 * i for i in range(8)] + [0.9] * 24      # lou
     # a steady beat part before the first breakdown, buildup or drop is intro
     ([("intro", 0, 16), ("groove", 16, 32), ("drop", 32, 96)], [(32, 0.9)], {}, [("intro", 0, 32), ("drop", 32, 96)]),
     # after a drop with the beat still running it is part of that drop
-    ([("intro", 0, 16), ("drop", 16, 40), ("groove", 40, 56), ("breakdown", 56, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {},
-     [("intro", 0, 16), ("drop", 16, 56), ("breakdown", 56, 72), ("drop", 72, 96)]),
+    ([("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("groove", 40, 56), ("breakdown", 56, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {},
+     [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 56), ("breakdown", 56, 72), ("drop", 72, 96)]),
     # after a drop with the beat gone it is a breakdown
-    ([("intro", 0, 16), ("drop", 16, 40), ("groove", 40, 56), ("breakdown", 56, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {"kick": [0.5] * 40 + [0.1] * 16 + [0.5] * 40},
-     [("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 72), ("drop", 72, 96)]),
+    ([("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("groove", 40, 56), ("breakdown", 56, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {"kick": [0.5] * 40 + [0.1] * 16 + [0.5] * 40},
+     [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("breakdown", 40, 72), ("drop", 72, 96)]),
     # between a breakdown and a drop: flat is breakdown, rising is the buildup
-    ([("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 64), ("groove", 64, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {},
-     [("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 72), ("drop", 72, 96)]),
-    ([("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 64), ("groove", 64, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {"loud": RISING},
-     [("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 64), ("buildup", 64, 72), ("drop", 72, 96)]),
+    ([("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("breakdown", 40, 64), ("groove", 64, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {},
+     [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("breakdown", 40, 72), ("drop", 72, 96)]),
+    ([("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("breakdown", 40, 64), ("groove", 64, 72), ("drop", 72, 96)], [(16, 0.9), (72, 0.9)], {"loud": RISING},
+     [("intro", 0, 8), ("breakdown", 8, 16), ("drop", 16, 40), ("breakdown", 40, 64), ("buildup", 64, 72), ("drop", 72, 96)]),
     # between a buildup and its drop it belongs to the buildup, which starts 8 bars before the drop
     ([("intro", 0, 16), ("breakdown", 16, 32), ("buildup", 32, 40), ("groove", 40, 48), ("drop", 48, 96)], [(48, 0.9)], {},
      [("intro", 0, 16), ("breakdown", 16, 40), ("buildup", 40, 48), ("drop", 48, 96)]),
@@ -319,18 +320,6 @@ def test_no_fused_section_has_another_label_than_the_five(candidates):
     assert {s["label"] for s in got["sections"]} <= ALLOWED
     assert [s["label"] for s in got["sections"]].index("intro") == 0 and "intro" not in [s["label"] for s in got["sections"][1:]]
     assert "outro" not in [s["label"] for s in got["sections"][:-1]]
-
-
-@pytest.mark.parametrize("kick_before,expected,events", [
-    (0.8, [("intro", 0, 48), ("drop", 48, 64), ("breakdown", 64, 72), ("drop", 72, 96)], [48, 72]),      # the beat was already running: the entry is no drop, the next sure hit is
-    (0.3, [("intro", 0, 40), ("drop", 40, 64), ("breakdown", 64, 72), ("drop", 72, 96)], [40, 48, 72]),
-])
-def test_a_first_beat_entry_is_a_drop_only_where_the_kick_was_not_running_before_it(kick_before, expected, events):
-    kick = [kick_before] * 40 + [0.9] * 24 + [0.1] * 8 + [0.9] * 24
-    got = fuse(make_doc([("intro", 0, 40), ("drop", 40, 64), ("breakdown", 64, 72), ("drop", 72, 96)], kick=kick),
-               {"dropdetector": detector((40, 0.9), (48, 0.9), (72, 0.9))})
-    assert labels(got) == expected
-    assert [e["bar"] for e in got["events"] if e["kind"] in ("drop", "lift")] == events
 
 
 RUNNING = {"kick": [0.8] * N}      # the beat never stops: every drop looks like a first beat entry
@@ -381,12 +370,12 @@ def test_every_section_carries_an_energy_level_from_1_to_10_and_the_loudest_has_
     ([("intro", 0, 16), ("breakdown", 16, 32), ("buildup", 32, 48), ("drop", 48, 96)], None, 40),                       # 8 bars before the drop, not where the rules start
     ([("intro", 0, 16), ("breakdown", 16, 44), ("buildup", 44, 48), ("drop", 48, 96)], None, 40),
     ([("intro", 0, 16), ("breakdown", 16, 32), ("buildup", 32, 48), ("drop", 48, 96)], [(36, "buildup"), (48, "drop")], 40),   # EDMFormer at 12 bars: still 8
-    ([("intro", 0, 16), ("breakdown", 16, 32), ("buildup", 32, 48), ("drop", 48, 96)], [(34, "buildup"), (48, "drop")], 34),   # at 14 bars or more: EDMFormer's start
+    ([("intro", 0, 16), ("breakdown", 16, 32), ("buildup", 32, 48), ("drop", 48, 96)], [(34, "buildup"), (48, "drop")], 40),   # at 14 bars or more: still nominal, the start is no exact bar
     ([("intro", 0, 16), ("breakdown", 16, 43), ("buildup", 43, 48), ("drop", 48, 96)], None, 40),
     ([("intro", 0, 38), ("breakdown", 38, 44), ("buildup", 44, 48), ("drop", 48, 96)], None, 42),                       # never leaves the breakdown under 4 bars
     ([("intro", 0, 40), ("breakdown", 40, 44), ("buildup", 44, 48), ("drop", 48, 96)], None, 44),                       # nor takes a 4-bar breakdown whole
 ])
-def test_a_buildup_starts_8_bars_before_its_drop_unless_edmformer_has_a_long_one(sections, em, start):
+def test_a_buildup_is_nominally_8_bars_before_its_drop_whatever_edmformers_start_is(sections, em, start):
     found = [(s[1], 0.9) for s in sections if s[0] == "drop"]
     kick = [0.5] * 96
     for a, b in [(s[1], s[2]) for s in sections if s[0] in ("breakdown", "buildup")]:
@@ -400,3 +389,114 @@ def test_where_the_rules_have_no_buildup_the_section_before_the_drop_may_be_the_
     got = fuse(make_doc([("intro", 0, 32), ("breakdown", 32, 40), ("drop", 40, 96)]),
                {"dropdetector": detector((40, 0.9)), "edmformer": edmformer((0, "intro"), (34, "buildup"), (40, "drop"))})
     assert labels(got) == [("intro", 0, 32), ("buildup", 32, 40), ("drop", 40, 96)]
+
+
+# --- round 6: the entry is intro with an event, nominal buildups, outro by the beat ---------------
+
+@pytest.mark.parametrize("kick_before", [0.1, 0.5, 0.9])
+def test_a_first_beat_entry_is_intro_whatever_the_kick_was_and_says_where_the_beat_comes_in(kick_before):
+    kick = [kick_before] * 40 + [0.9] * 24 + [0.1] * 8 + [0.9] * 24
+    got = fuse(make_doc([("intro", 0, 40), ("drop", 40, 64), ("breakdown", 64, 72), ("drop", 72, 96)], kick=kick),
+               {"dropdetector": detector((40, 0.9), (48, 0.9), (72, 0.9))})
+    assert labels(got) == [("intro", 0, 48), ("drop", 48, 64), ("breakdown", 64, 72), ("drop", 72, 96)]
+    entry = [e for e in got["events"] if e["kind"] == "entry"]
+    assert entry == [{"kind": "entry", "bar": 40, "time": 80.0}]
+    assert [e["bar"] for e in got["events"] if e["kind"] in ("drop", "lift")] == [48, 72]
+
+
+@pytest.mark.parametrize("sections,found", [
+    ([("intro", 0, 40), ("drop", 40, 96)], [(40, 0.95)]),                                                   # the only drop stays, with no entry event
+    ([("intro", 0, 32), ("buildup", 32, 40), ("drop", 40, 96)], [(40, 0.95), (60, 0.95)]),                  # a buildup before it: no entry
+    ([("intro", 0, 32), ("breakdown", 32, 40), ("drop", 40, 96)], [(40, 0.95)]),
+])
+def test_no_entry_event_where_the_drop_stays_or_something_comes_before_it(sections, found):
+    got = fuse(make_doc(sections, **RUNNING), {"dropdetector": detector(*found)})
+    assert [e for e in got["events"] if e["kind"] == "entry"] == [] and any(s["label"] == "drop" for s in got["sections"])
+
+
+def test_at_most_one_entry_event_per_track():
+    got = fuse(make_doc([("intro", 0, 16), ("drop", 16, 64), ("breakdown", 64, 72), ("drop", 72, 96)], **RUNNING),
+               {"dropdetector": detector((16, 0.9), (32, 0.9), (48, 0.95), (72, 0.9))})
+    assert [e["bar"] for e in got["events"] if e["kind"] == "entry"] == [16]
+
+
+LOUD_END = {"kick": [0.9] * 40 + [0.8] * 56}
+
+
+@pytest.mark.parametrize("tail,kick,loud,expected", [
+    (20, 0.75, 0.74, "outro"),         # the beat is still running (r06-p008)
+    (4, 0.0, 0.0, "outro"),            # a silent tail, energy 1 (r06-p024)
+    (9, 0.27, 0.51, "breakdown"),      # the beat is mostly gone, the level is not (r06-p013)
+    (21, 0.46, 0.51, "breakdown"),     # (r06-p020)
+    (12, 0.6, 0.5, "outro"),           # the threshold itself is a running beat
+    (12, 0.59, 0.5, "breakdown"),
+])
+def test_the_last_section_is_outro_only_where_the_beat_is_running_or_the_song_fades_out(tail, kick, loud, expected):
+    start = N - tail
+    levels = {"kick": [0.9] * start + [kick] * tail, "loud": [0.95] * start + [loud] * tail}
+    got = fuse(make_doc([("intro", 0, 16), ("drop", 16, start), ("outro", start, N)], **levels), {"dropdetector": detector((16, 0.9))})
+    assert labels(got)[-1][0] == expected
+
+
+def test_an_outro_that_becomes_a_breakdown_merges_with_the_breakdown_before_it():
+    levels = {"kick": [0.9] * 40 + [0.1] * 56, "loud": [0.95] * 40 + [0.5] * 56}
+    got = fuse(make_doc([("intro", 0, 16), ("drop", 16, 40), ("breakdown", 40, 80), ("outro", 80, 96)], **levels), {"dropdetector": detector((16, 0.9), (24, 0.9))})
+    assert labels(got)[-1] == ("breakdown", 40, 96)
+
+
+def test_a_buildup_is_nominally_8_bars_and_says_so():
+    got = fuse(make_doc([("intro", 0, 16), ("breakdown", 16, 32), ("buildup", 32, 48), ("drop", 48, 96)]), {"dropdetector": detector((48, 0.9)), "edmformer": edmformer((0, "intro"), (34, "buildup"), (48, "drop"))})
+    assert [(s["label"], s["start_bar"], s.get("nominal")) for s in got["sections"] if s["label"] in ("buildup", "drop", "breakdown")] == [
+        ("breakdown", 16, None), ("buildup", 40, True), ("drop", 48, None)]       # EDMFormer's earlier start is not followed either
+
+
+# --- the ramp --------------------------------------------------------------------------------
+
+SECTIONS = [{"label": "intro", "start_bar": 0, "end_bar": 8}, {"label": "buildup", "start_bar": 8, "end_bar": 16}, {"label": "drop", "start_bar": 16, "end_bar": 24},
+            {"label": "breakdown", "start_bar": 24, "end_bar": 28}, {"label": "buildup", "start_bar": 28, "end_bar": 32}]
+
+
+def test_without_a_measured_rise_the_ramp_is_a_straight_line_over_each_buildup_and_zero_elsewhere():
+    from edm_analysis.fusion import ramp_levels
+
+    out = ramp_levels({}, SECTIONS, 32)
+    assert len(out) == 32 and out[:8] == [0.0] * 8 and out[16:28] == [0.0] * 12
+    assert out[8:16] == pytest.approx([i / 8 for i in range(1, 9)]) and out[28:32] == pytest.approx([0.25, 0.5, 0.75, 1.0])
+
+
+@pytest.mark.parametrize("key", ["onset", "centroid"])
+def test_a_measured_rise_in_onset_density_or_brightness_shapes_the_ramp(key):
+    from edm_analysis.fusion import ramp_levels
+
+    series = [0.5] * 8 + [0.0, 0.0, 0.1, 0.2, 0.6, 0.7, 0.9, 1.0] + [0.5] * 16
+    out = ramp_levels({key: series}, SECTIONS, 32)
+    assert out[8:16] == pytest.approx([0.0, 0.0, 0.1, 0.2, 0.6, 0.7, 0.9, 1.0])
+    assert out[15] == 1.0 and all(b >= a for a, b in zip(out[8:16], out[9:16]))
+
+
+@pytest.mark.parametrize("series", [
+    [0.5] * 32,                                                          # no change
+    [0.5] * 8 + [1.0, 0.9, 0.8, 0.7, 0.5, 0.3, 0.1, 0.0] + [0.5] * 16,     # falling
+    [0.5] * 8 + [0.50, 0.52, 0.50, 0.51, 0.50, 0.52, 0.51, 0.50] + [0.5] * 16,    # too small a range
+    [0.5] * 8 + [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0] + [0.5] * 16,     # noise, no trend
+])
+def test_a_rise_that_is_not_there_leaves_the_straight_line(series):
+    from edm_analysis.fusion import ramp_levels
+
+    assert ramp_levels({"onset": series, "centroid": series}, SECTIONS, 32)[8:16] == pytest.approx([i / 8 for i in range(1, 9)])
+
+
+def test_a_dip_inside_a_measured_rise_never_lowers_the_ramp():
+    from edm_analysis.fusion import ramp_levels
+
+    series = [0.5] * 8 + [0.0, 0.3, 0.2, 0.5, 0.45, 0.8, 0.7, 1.0] + [0.5] * 16
+    out = ramp_levels({"onset": series}, SECTIONS, 32)[8:16]
+    assert all(b >= a for a, b in zip(out, out[1:])) and out[-1] == 1.0
+
+
+def test_an_entry_that_would_leave_an_intro_over_half_the_track_stays_the_drop():
+    """Whatever else turns into intro after the entry goes (demoted drops, an outro the rules put early), the intro never passes INTRO_SHARE."""
+    sections = [("intro", 0, 8), ("drop", 8, 16), ("groove", 16, 24), ("drop", 24, 32), ("buildup", 32, 40), ("drop", 40, 72), ("outro", 72, 96)]
+    got = fuse(make_doc(sections), {"dropdetector": detector((24, 0.92), (84, 0.78))})
+    assert labels(got)[0][2] <= 0.55 * N
+    assert [e for e in got["events"] if e["kind"] == "entry"] == [] and any(s["label"] == "drop" for s in got["sections"])

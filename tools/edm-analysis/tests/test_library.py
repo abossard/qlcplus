@@ -156,7 +156,7 @@ def test_answers_on_tracks_outside_the_library_still_train_the_confidence(librar
     (library / "rounds" / "answers.json").write_text(json.dumps(
         {f"r01-p00{i}": {"answer": "yes", "round": 1, "track": t, "claim": claim} for i, t in enumerate((A, B), 1)}))
     fitted, written = [], []
-    monkeypatch.setattr(confidence, "fit", lambda silver, gold: fitted.append(gold) or {"fitted": "2026-11-12", "groups": {}})
+    monkeypatch.setattr(confidence, "fit", lambda silver, gold, **kw: fitted.append(gold) or {"fitted": "2026-11-12", "groups": {}})
     monkeypatch.setattr(final, "write_final", lambda out, d: written.append(d["track"]["title"]))
 
     assert main(["confidence", "--out", str(library)]) == 0

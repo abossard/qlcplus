@@ -167,7 +167,7 @@ def _fit_confidence(out_dir, say):
     part = lambda rows, split: [r for tid, rs in rows.items() if split in (None, split_of(tid)) for r in rs]
     model = {**fit(part(silver_without_gold(silver, gold), None), part(gold, None)), "analyzer": sorted({d["analyzer"]["version"] for d in docs.values()})}
     dev = fit(part(silver_without_gold(silver, {t: g for t, g in gold.items() if split_of(t) == "dev"}), "dev"), part(gold, "dev"))
-    for group in ("grid", "start", "label"):
+    for group in ("grid", "start", "label", "exists"):
         m = model["groups"].get(group)
         say(f"{group}: " + (f"fitted on {m['source']} ({m['n']} rows, {m['gold']} Gold answers; Gold alone from {MIN_GOLD})" if m
                      else f"no model ({sum(r[0] == group for rows in gold.values() for r in rows)} Gold answers, no Silver): confidence is {UNKNOWN}"))
@@ -183,19 +183,18 @@ def _fit_confidence(out_dir, say):
 
 def cmd_confidence(args):
     """Fit the confidence model, report it, rewrite the Library's final files."""
-    from .confidence import load_model, with_confidence
+    from .confidence import claims_of, load_model, with_confidence
     from .final import write_final
-    from .rounds import library_claims
 
     out_dir = Path(args.out)
     docs = _fit_confidence(out_dir, print)
     for doc in docs.values():
         write_final(out_dir, doc)
     model = load_model(out_dir)
-    claims = library_claims({tid: with_confidence(doc, model) for tid, doc in docs.items()})
+    claims = claims_of({tid: with_confidence(doc, model) for tid, doc in docs.items()})
     share = lambda cs: f"{sum(c >= 95 for c in cs) / max(1, len(cs)):.0%}"
     print(f"model saved, {len(docs)} final files rewritten")
-    print(f"Claims at 95% or more: {share([c for _, c in claims])} of {len(claims)}; " + ", ".join(f"{g} {share([c for k, c in claims if k == g])}" for g in ("grid", "start", "label")))
+    print(f"Claims at 95% or more: {share([c for _, c in claims])} of {len(claims)}; " + ", ".join(f"{g} {share([c for k, c in claims if k == g])}" for g in ("grid", "start", "label", "exists")))
     return 0
 
 
@@ -230,13 +229,6 @@ def _candidate_drops(out_dir, docs):
     return _candidate_bars(out_dir, docs, candidate_drop_bars)
 
 
-def _candidate_buildups(out_dir, docs):
-    from .transform import claims_candidate
-
-    return _candidate_bars(out_dir, docs, lambda tid, doc, name, loaded: sorted(
-        {c["bar"] for c in claims_candidate(tid, doc, name, loaded) if c["kind"] == "buildup"}))
-
-
 def cmd_round(args):
     """Make the next review round, or report how the rounds went."""
     from .rounds import make_round, report, save_round
@@ -248,8 +240,7 @@ def cmd_round(args):
         if open_probes and not args.force:
             print(f"round {rounds[-1]['round']} still has {len(open_probes)} unanswered questions (use --force)")
             return 1
-        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size,
-                         candidate_drops=_candidate_drops(out_dir, docs), candidate_buildups=_candidate_buildups(out_dir, docs))
+        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size, candidate_drops=_candidate_drops(out_dir, docs))
         save_round(out_dir, rnd)
         counts = {}
         for p in rnd["probes"]:

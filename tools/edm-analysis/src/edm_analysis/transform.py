@@ -50,8 +50,8 @@ def claims_ours(tid, doc):
     out += _section_claims(tid, doc, "rules", doc.get("rules", doc)["sections"])
     if "rules" not in doc:
         return out
-    lifts = [_claim(tid, doc, "fused", "lift", doc["bars"]["start"][e["bar"]], "lift", sources=e.get("sources", [])) for e in doc["events"] if e["kind"] == "lift"]
-    return out + _section_claims(tid, doc, "fused", doc["sections"]) + lifts
+    events = [_claim(tid, doc, "fused", e["kind"], doc["bars"]["start"][e["bar"]], e["kind"], sources=e.get("sources", [])) for e in doc["events"] if e["kind"] in ("lift", "entry")]
+    return out + _section_claims(tid, doc, "fused", doc["sections"]) + events
 
 
 def claims_candidate(tid, doc, name, loaded):
@@ -100,17 +100,19 @@ def claims_silver(tid, doc, vdj, mik_offset=MIK_MP3_OFFSET):
 def answer_rows(answers, docs):
     """One row per Gold answer (a Probe and its repeats count once, see rounds.gold_answers); `exact` is True, False or None (couldn't tell).
     A buildup the reviewer located where we had none is stored as a "missed" Claim with a "none" alternative: it is a buildup answer."""
-    from .confidence import _exact, gold_bar
+    from .confidence import _exact, buildup_exists, drop_for, gold_bar
     from .rounds import gold_answers
 
     rows = []
     for pid, a in sorted(gold_answers(answers).items()):
         claim, doc = a["claim"], docs.get(a["track"])
+        exists = buildup_exists(a)
         bar, offset = snap(doc, claim["time"]) if doc else (claim["bar"], None)
         rows.append({"probe": pid, "round": a["round"], "track": a["track"],
                      "kind": "buildup" if claim["kind"] == "missed" and "none" in a.get("alternatives", {}) else claim["kind"], "label": claim.get("label"), "time": claim["time"], "bar": bar, "offset_beats": offset,
                      "answer": a["answer"], "exact": _exact(a), "gold_bar": gold_bar(a), "confidence_asked": claim.get("confidence"),
-                     "answered_at": a.get("at"), "analyzer": doc.get("analyzer", {}).get("version") if doc else None})
+                     "answered_at": a.get("at"), "analyzer": doc.get("analyzer", {}).get("version") if doc else None,
+                     "claimed": claim.get("claimed"), "exists": exists, "drop_bar": drop_for(doc, a) if doc and exists is not None else None})
     return rows
 
 

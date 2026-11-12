@@ -1349,6 +1349,7 @@ def stable_round(ids):
         probe(8, ids[1], "locate", "Tap the bar where the buildup starts", main(0, 28, None), none_label="No buildup", before=12,
               claim={"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 40}),                                   # 14 bars, taps only before bar 12
         probe(9, ids[0], "yesno", "Does the drop start at the marker?", main(8, 40, 24.0)),                          # 16 bars
+        probe(10, ids[1], "yesno", "Is there a buildup before this drop?", main(16, 28, 24.0), tap=False, none_label="No"),   # nothing to tap
     ])
 
 
@@ -1417,7 +1418,7 @@ def test_nothing_moves_between_question_types_or_states(browser_, stable_library
     base, _, _ = stable_library
     page = open_page(browser_, size)
     open_round(page, base)
-    kinds = {1: "tap", 2: "tap", 3: "tap", 4: "label", 5: "label", 6: "ab", 7: "plain", 8: "tap", 9: "tap"}
+    kinds = {1: "tap", 2: "tap", 3: "tap", 4: "label", 5: "label", 6: "ab", 7: "plain", 8: "tap", 9: "tap", 10: "plain"}
     samples = [(n, state, lay) for n in kinds for state, lay in stable_states(page, n, kinds[n])]
     first = samples[0][2]
     assert all(box for box in first["zones"].values()), first["zones"]
@@ -1442,16 +1443,16 @@ def test_the_same_answer_is_in_the_same_place_on_every_question_type_and_bars_do
     page = open_page(browser_, size)
     open_round(page, base)
     seen = {}
-    for n in range(1, 10):
+    for n in range(1, 11):
         go(page, n)
         lay = layout(page)
         seen[n] = lay
     skip = {tuple(seen[n]["answers"]["skip"]) for n in seen}
     assert len(skip) == 1, skip                                                                    # Can't tell is always there
-    assert seen[1]["answers"]["yes"] == seen[4]["answers"]["yes"] == seen[6]["answers"]["a"] == seen[9]["answers"]["yes"]   # first and second answer cells
+    assert seen[1]["answers"]["yes"] == seen[4]["answers"]["yes"] == seen[6]["answers"]["a"] == seen[9]["answers"]["yes"] == seen[10]["answers"]["yes"]   # first and second answer cells
     assert seen[4]["answers"]["no"] == seen[6]["answers"]["b"]
-    assert seen[6]["answers"]["neither"] == seen[2]["answers"]["none"] == seen[1]["answers"]["none"] == seen[8]["answers"]["none"] == seen[9]["answers"]["none"]   # the third cell
-    assert [len(seen[n]["bars"]) for n in (1, 2, 3, 7, 8, 9)] == [5, 17, 3, 0, 15, 17]
+    assert seen[6]["answers"]["neither"] == seen[2]["answers"]["none"] == seen[1]["answers"]["none"] == seen[8]["answers"]["none"] == seen[9]["answers"]["none"] == seen[10]["answers"]["none"]   # the third cell
+    assert [len(seen[n]["bars"]) for n in (1, 2, 3, 7, 8, 9, 10)] == [5, 17, 3, 0, 15, 17, 0]
     for k in range(3):
         assert seen[1]["bars"][k] == seen[2]["bars"][k] == seen[3]["bars"][k] == seen[8]["bars"][k] == seen[9]["bars"][k]   # the first bars sit where they always do
     for n in (2, 9):
@@ -1665,3 +1666,108 @@ def test_the_bright_part_of_a_band_is_the_sections_energy(browser_, library, siz
     tap_section(page, size, "overview", "drop")
     assert (f"energy {energy} of 10" in page.locator("#menu .title").inner_text()) == (energy is not None)
     assert "energy, 1 to 10" in page.locator("details.help").text_content()
+
+
+# --- a yes/no that takes no bar tap: "Is there a buildup before this drop?" ----------------------------------------------
+
+@pytest.fixture
+def nobar_library(library, contract):
+    ids = library[2]
+    main = [{"id": "main", "start": 16.0, "end": 28.0, "mark": 24.0}]
+    return put_round(library, make_round(ids, [probe(n, ids[n % 2], "yesno", "Is there a buildup before this drop?", main, tap=False, none_label="No") for n in (1, 2)]))
+
+
+def test_the_no_tap_yes_no_has_an_empty_inert_bar_zone_and_a_dimmed_it_starts_now(browser_, nobar_library):
+    base, _, _ = nobar_library
+    page = open_page(browser_, "phone")
+    open_round(page, base)
+    assert page.locator(".q-barbtn").count() == 0 and page.locator(".q-barzone .q-hint").inner_text() == ""
+    assert page.locator(".q-answers button").evaluate_all("els => els.map(e => [e.dataset.v, e.innerText.replace(/ [A-Z]$/, '')])") == [["yes", "Yes"], ["none", "No"], ["skip", "Can't tell"]]
+    hit(page, ".q-play")
+    playing(page)
+    assert not page.locator("#qNow").is_enabled()
+
+
+@pytest.mark.parametrize("key,expected", [("y", "yes"), ("n", "none"), ("c", "skip")])
+def test_y_n_and_c_answer_the_no_tap_yes_no(browser_, nobar_library, key, expected):
+    base, root, _ = nobar_library
+    page = open_page(browser_, "desktop")
+    open_round(page, base)
+    press(page, "1", wait=True)                      # a digit means a bar, and there are none
+    page.wait_for_timeout(300)
+    assert answers(root) == {}
+    press(page, key, wait=False)
+    assert wait_for(lambda: answers(root) == {"r01-p001": expected})
+
+
+# --- the song view: entry and lift as small markers, the ramp of a buildup, no hard start for a buildup ----------------
+
+RAMP = [0.0] * 8 + [0.25, 0.5, 0.75, 1.0] + [0.0] * 20      # rising through the buildup at bars 8 to 12
+
+
+def with_extras(page, ramp):
+    """Serves the track with an entry event at bar 6, a lift at bar 18 and, if `ramp`, the per-bar ramp."""
+    def handle(route):
+        doc = route.fetch().json()
+        doc["events"] += [{"kind": "entry", "bar": 6, "sources": []}, {"kind": "lift", "bar": 18, "sources": []}]
+        if ramp:
+            doc["bars"]["ramp"] = RAMP
+        route.fulfill(json=doc)
+    page.route("**/api/track/*", handle)
+
+
+def overview_pixel(page, bar, y, dx=0):
+    """RGB of the overview at a bar line; y is a row of the canvas in CSS px, or "lanes" for the middle of the lanes."""
+    return page.evaluate("""([bar, y, dx]) => { const c = document.querySelector('#overview'), v = views.overview, k = devicePixelRatio, r = v.rows;
+        const row = y === 'lanes' ? r.lanes[0] + r.lanes[1] / 2 : y;
+        return [...c.getContext('2d').getImageData(Math.round((barTime(bar) - v.t0) / (v.t1 - v.t0) * c.width) + dx, Math.round(row * k), 1, 1).data].slice(0, 3); }""", [bar, y, dx])
+
+
+def open_extras(browser, library, size, ramp):
+    base, _, _ = library
+    page = open_page(browser, size)
+    page.goto(base + "/")
+    with_extras(page, ramp)
+    open_track(page, base, size)
+    page.locator("#overview").evaluate("el => el.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(250)
+    return page
+
+
+def ink_share(page, bar):
+    """Share of the lanes' height, at a bar line of the overview, that is the plain ink colour of a marker line."""
+    return page.evaluate("""(bar) => { const c = document.querySelector('#overview'), v = views.overview, k = devicePixelRatio, r = v.rows, ink = css('--text-primary');
+        const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)), want = p(ink);
+        const x = Math.round((barTime(bar) - v.t0) / (v.t1 - v.t0) * c.width), y0 = Math.round(r.lanes[0] * k), y1 = Math.round((r.lanes[0] + r.lanes[1]) * k);
+        const d = c.getContext('2d').getImageData(x, y0, 1, y1 - y0).data; let n = 0;
+        for (let i = 0; i < d.length; i += 4) n += d[i] === want[0] && d[i + 1] === want[1] && d[i + 2] === want[2];
+        return n / (d.length / 4); }""", bar)
+
+
+@pytest.mark.parametrize("size", ["phone", "desktop"])
+@pytest.mark.parametrize("bar", [6, 18])
+def test_entry_and_lift_are_small_markers_under_the_band_not_lines_through_the_track(browser_, library, size, bar):
+    page = open_extras(browser_, library, size, False)
+    under = page.evaluate("rows('overview').sec[0] + rows('overview').sec[1] + 3")
+    assert overview_pixel(page, bar, under) != overview_pixel(page, bar + 1, under)        # a marker sits under the band at its bar
+    assert ink_share(page, bar) < 0.1                                                      # and no line runs down through the lanes
+
+
+@pytest.mark.parametrize("size", ["phone", "desktop"])
+@pytest.mark.parametrize("ramp", [True, False])
+def test_the_ramp_fills_a_buildup_band_up_to_the_drop(browser_, library, size, ramp):
+    page = open_extras(browser_, library, size, ramp)
+    base = colour(page, "--sec-buildup")
+    top, bottom = 2, page.evaluate("rows('overview').sec[1] - 3")
+    low = overview_pixel(page, 8, bottom, dx=6)         # inside the first bar of the buildup, early in the ramp
+    assert (overview_pixel(page, 11, top, dx=6) != base) == ramp and (low != base) == ramp     # the fill reaches the top where the ramp is 1
+    assert overview_pixel(page, 8, top, dx=6) == base                                          # and stays low where it is 0.25
+    assert overview_pixel(page, 14, top, dx=6) == colour(page, "--sec-drop")                   # the drop band has no ramp
+
+
+@pytest.mark.parametrize("size", ["phone", "desktop"])
+@pytest.mark.parametrize("bar,solid", [(12, True), (8, False)])
+def test_a_buildup_start_is_not_drawn_as_a_hard_edge_like_a_drop_start(browser_, library, size, bar, solid):
+    page = open_extras(browser_, library, size, False)
+    share = ink_share(page, bar)
+    assert (share > 0.9) == solid and (share < 0.6) == (not solid), share

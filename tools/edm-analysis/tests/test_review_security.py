@@ -368,3 +368,14 @@ def test_only_bars_before_the_limit_are_accepted(buildup_site, answer, status):
     port, root, _ = buildup_site
     assert post_answer(port, login(port), "r01-p001", {"answer": answer})[0] == status
     assert (root / "rounds" / "answers.json").exists() == (status == 200)
+
+
+@pytest.mark.parametrize("extra,tap", [({"tap": False, "none_label": "No"}, False), ({}, True)])
+def test_a_yes_no_that_takes_no_bar_tap_says_so_and_its_none_is_labelled_no(site, extra, tap):
+    port, root, _ = site
+    probe = {**ROUND["probes"][0], "claim": {**CLAIM, "kind": "buildup"}, **extra}
+    (root / "rounds").mkdir()
+    (root / "rounds" / "round-01.json").write_text(json.dumps({**ROUND, "probes": [probe]}))
+    shown = json.loads(call(port, "GET", "/api/round", headers={"Cookie": login(port)})[2])["probes"][0]
+    assert shown["tap"] is tap
+    assert [o["label"] for o in shown["options"]] == (["Yes", "No", "Can't tell"] if extra else ["Yes", "Not in this clip", "Can't tell"])

@@ -228,7 +228,7 @@ def test_where_sources_disagree_about_a_drop_the_reviewer_taps_the_bar(ends, dro
 def test_calibration_questions_about_a_drop_carry_what_the_other_sources_say(ends, drops, sources):
     tid, d = doc(1)
     out = theory_candidates(tid, d, vdj_ends(*ends) if ends else None, random.Random(0), drops)["calibration"]
-    (p,) = [p for p in out if p["question"] == "yesno"]
+    (p,) = [p for p in out if p["question"] == "yesno" and p["claim"]["kind"] != "buildup_exists"]
     assert p.get("sources") == sources
 
 
@@ -237,7 +237,7 @@ def test_only_questions_about_a_drop_carry_sources():
     d["sections"] = [d["sections"][0], {"label": "buildup", "start_bar": 12, "end_bar": 16, "confidence": 50},
                      {**d["sections"][1], "start_bar": 16}]
     out = theory_candidates(tid, d, None, random.Random(0), {"edmformer": [13, 17]})["calibration"]
-    assert {p["claim"]["kind"]: p.get("sources") for p in out if p["question"] == "yesno"} == {"buildup": None, "drop": {"edmformer": 17}}
+    assert {p["claim"]["kind"]: p.get("sources") for p in out if p["question"] == "yesno" and p["claim"]["kind"] != "buildup_exists"} == {"drop": {"edmformer": 17}}
 
 
 def test_the_play_does_not_start_before_the_track():
@@ -393,81 +393,83 @@ def with_buildup(d, start, end=16):
     return d
 
 
-def buildup_probes(ours, others=None, drop_bar=16, kind="buildup"):
+def existence_probes(ours, drop_bar=16, kind="buildup"):
     tid, d = doc(1, drop_bar=drop_bar)
     if ours:
         with_buildup(d, ours, drop_bar)
-    return tid, d, theory_candidates(tid, d, None, random.Random(0), None, others)[kind]
+    return tid, d, theory_candidates(tid, d, None, random.Random(0))[kind]
 
 
-NONE_OURS = {"none": {"source": "ours"}}
-
-
-@pytest.mark.parametrize("ours,others,drop_bar,claim,alternatives,play_bars", [
-    (None, None, 16, {"kind": "missed", "bar": 16, "time": 32.0, "confidence": 50}, NONE_OURS, (2, 18)),
-    (8, None, 16, {"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, {"ours": {"bar": 8}}, (2, 18)),
-    (2, None, 16, {"kind": "buildup", "bar": 2, "time": 4.0, "confidence": 70}, {"ours": {"bar": 2}}, (2, 18)),     # the first bar of the clip
-    (8, {"edmformer": [10]}, 16, {"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, {"ours": {"bar": 8}, "edmformer": {"bar": 10}}, (2, 18)),
-    (None, {"edmformer": [12]}, 16, {"kind": "missed", "bar": 16, "time": 32.0, "confidence": 50}, {**NONE_OURS, "edmformer": {"bar": 12}}, (2, 18)),
-    (8, {"edmformer": [4, 11]}, 16, {"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, {"ours": {"bar": 8}, "edmformer": {"bar": 11}}, (2, 18)),
-    (8, {"edmformer": [1, 16, 20]}, 16, {"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, {"ours": {"bar": 8}}, (2, 18)),   # outside the clip or not before the drop
-    (None, None, 4, {"kind": "missed", "bar": 4, "time": 8.0, "confidence": 50}, NONE_OURS, (0, 6)),
+@pytest.mark.parametrize("ours,drop_bar,claimed,confidence,play_bars", [
+    (None, 16, False, 50, (8, 18)),
+    (8, 16, True, 70, (8, 18)),
+    (12, 16, True, 70, (8, 18)),
+    (None, 4, False, 50, (0, 6)),
 ])
-def test_the_reviewer_taps_where_the_buildup_before_a_drop_starts(ours, others, drop_bar, claim, alternatives, play_bars):
-    tid, d, probes = buildup_probes(ours, others, drop_bar)
-    (p,) = probes
-    assert (p["theory"], p["question"], p["prompt"]) == ("buildup", "locate", "Tap the bar where the buildup starts")
-    assert p["claim"] == claim and p["alternatives"] == alternatives
-    assert p["plays"] == [{"id": "main", "start": 2.0 * play_bars[0], "end": 2.0 * play_bars[1], "mark": None}]
-    assert "sources" not in p
-
-
-def test_a_buildup_longer_than_the_clip_can_hold_is_not_asked_about():
-    assert buildup_probes(1)[2] == []
+def test_the_reviewer_is_asked_whether_a_buildup_exists_before_a_drop(ours, drop_bar, claimed, confidence, play_bars):
+    for pool, theory in (("buildup", "buildup"), ("calibration", "calibration")):
+        found = [q for q in existence_probes(ours, drop_bar, pool)[2] if q["claim"]["kind"] == "buildup_exists"]
+        p = found[0]
+        assert all(q == p for q in found) and len(found) == (2 if ours and pool == "calibration" else 1)   # a buildup draw asks for its drop's too
+        assert (p["theory"], p["question"], p["prompt"]) == (theory, "yesno", "Is there a buildup before this drop?")
+        assert p["claim"] == {"kind": "buildup_exists", "bar": drop_bar, "time": 2.0 * drop_bar, "claimed": claimed, "confidence": confidence}
+        assert p["plays"] == [{"id": "main", "start": 2.0 * play_bars[0], "end": 2.0 * play_bars[1], "mark": 2.0 * drop_bar}]
+        assert p["tap"] is False and p["none_label"] == "No" and "alternatives" not in p and "sources" not in p
 
 
 def test_the_buildup_theory_names_no_source():
     assert not any(name in THEORIES["buildup"].lower() for name in ("vdj", "virtualdj", "edmformer", "drop detector", "allin1", "rules"))
 
 
-@pytest.mark.parametrize("ours,others,answer,exact,gold", [
-    (8, None, "bar:8", True, 8), (8, None, "bar:10", False, 10), (8, None, "none", False, None), (8, None, "skip", None, None),
-    (None, None, "none", True, None), (None, None, "bar:10", False, 10), (None, None, "skip", None, None),
-    (8, {"edmformer": [10]}, "none", False, None), (None, {"edmformer": [10]}, "none", True, None),
-    (None, {"edmformer": [10]}, "bar:10", False, 10), (8, {"edmformer": [10]}, "bar:10", False, 10),
-])
-def test_a_buildup_answer_is_exact_and_names_a_gold_bar_both_with_and_without_our_buildup(tmp_path, ours, others, answer, exact, gold):
-    tid, d, (p,) = buildup_probes(ours, others)
-    write_round(tmp_path, {**ROUND, "probes": [{**p, "id": "r01-p001"}]})
-
-    assert record_answer(tmp_path, "r01-p001", answer) == (200, None)
-
-    record = load_answers(tmp_path)["r01-p001"]
-    assert (_exact(record), gold_bar(record)) == (exact, gold)
-    assert bool(gold_rows({"r01-p001": record}, {tid: d})) == bool(ours and answer != "skip")   # no row for a Claim we did not make
-
-
-@pytest.mark.parametrize("ours,answer,ok", [
-    (None, "bar:2", True), (None, "bar:15", True), (None, "bar:16", False), (None, "bar:17", False), (None, "bar:1", True), (None, "bar:0", True),
-    (8, "bar:2", True), (8, "bar:15", True), (8, "bar:16", False), (8, "bar:33", False), (8, "yes", False), (8, "no", False), (8, "none", True),
-])
-def test_the_tap_on_a_buildup_question_must_be_a_bar_before_the_drop(ours, answer, ok):
-    p = buildup_probes(ours)[2][0]
+@pytest.mark.parametrize("answer,ok", [("yes", True), ("none", True), ("skip", True), ("no", True), ("bar:8", False), ("bar:16", False), ("is:drop", False)])
+def test_an_existence_question_takes_no_bar(answer, ok):
+    p = existence_probes(8)[2][0]
     assert (validate_answer(p, answer) is None) == ok
 
 
-def test_the_buildup_question_says_what_none_means():
-    p = buildup_probes(8)[2][0]
-    pub = public_round({**ROUND, "probes": [{**p, "id": "r01-p001"}]}, {})["probes"][0]
-    assert [(o["value"], o["label"]) for o in pub["options"]] == [("none", "No buildup"), ("skip", "Can't tell")]
-    assert pub["tap"] is True
-    for hidden in ("confidence", "bucket", "source", "alternatives", "ours", "claim", "before", "none_label"):
+@pytest.mark.parametrize("ours", [None, 8])
+def test_the_existence_question_shows_no_bar_taps_and_a_no_button(ours):
+    p = {**existence_probes(ours)[2][0], "id": "r01-p001"}
+    pub = public_round({**ROUND, "probes": [p]}, {})["probes"][0]
+    assert [(o["value"], o["label"]) for o in pub["options"]] == [("yes", "Yes"), ("none", "No"), ("skip", "Can't tell")] and pub["tap"] is False
+    for hidden in ("confidence", "bucket", "source", "alternatives", "claim", "claimed", "none_label"):
         assert f'"{hidden}"' not in json.dumps(pub)
 
 
-def test_calibration_may_draw_a_buildup_question_with_the_calibration_theory():
-    (p,) = [q for q in buildup_probes(8, kind="calibration")[2] if q["question"] == "locate"]
-    assert p["theory"] == "calibration" and p["prompt"] == "Tap the bar where the buildup starts" and p["claim"]["kind"] == "buildup"
+def test_a_probe_without_its_own_tap_gets_it_from_its_question():
+    pub = public_round({**ROUND, "probes": [YESNO, {**YESNO, "id": "r01-p009", "tap": False}]}, {})["probes"]
+    assert [p["tap"] for p in pub] == [True, False]
+
+
+@pytest.mark.parametrize("claimed,answer,confirmed", [(True, "yes", True), (True, "none", False), (False, "yes", True), (False, "none", False)])
+def test_the_buildup_theory_is_confirmed_by_a_buildup_whatever_we_claimed(claimed, answer, confirmed):
+    record = {"answer": answer, "claim": {"kind": "buildup_exists", "bar": 16, "time": 32.0, "claimed": claimed, "confidence": 50}}
+    assert CONFIRMS["buildup"](record) is confirmed
+
+
+@pytest.mark.parametrize("claim,answer,alternatives,confirmed", [
+    ({"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, "bar:8", {"ours": {"bar": 8}}, True),
+    ({"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, "bar:10", {"ours": {"bar": 8}}, False),
+    ({"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, "none", {"ours": {"bar": 8}}, False),
+    ({"kind": "missed", "bar": 16, "time": 32.0, "confidence": 50}, "none", {"none": {"source": "ours"}}, False),
+])
+def test_buildup_answers_of_earlier_rounds_still_count(claim, answer, alternatives, confirmed):
+    old = {"id": "r04-p003", "track": TRACKS[0], "theory": "buildup", "question": "locate", "claim": claim, "alternatives": alternatives}
+    record = {"answer": answer, "round": 4, "track": old["track"], "claim": claim, "alternatives": alternatives}
+    out = report([earlier_round([old], 4)], {old["id"]: record}, DOCS)
+    assert out["theories"]["buildup"]["n"] == 1 and out["theories"]["buildup"]["confirmed"] == float(confirmed)
+
+
+OLD_BUILDUP = {**YESNO, "id": "r04-p003", "theory": "buildup", "question": "locate", "prompt": "Tap the bar where the buildup starts",
+               "claim": {"kind": "buildup", "bar": 8, "time": 16.0, "confidence": 70}, "none_label": "No buildup", "before": 16,
+               "alternatives": {"ours": {"bar": 8}}, "plays": [{"id": "main", "start": 4.0, "end": 36.0, "mark": None}]}
+
+
+@pytest.mark.parametrize("answer,ok", [("bar:2", True), ("bar:15", True), ("bar:16", False), ("none", True), ("yes", False)])
+def test_the_buildup_questions_of_earlier_rounds_keep_their_buttons_and_answers(answer, ok):
+    assert (validate_answer(OLD_BUILDUP, answer) is None) == ok
+    pub = public_round({**ROUND, "probes": [OLD_BUILDUP]}, {})["probes"][0]
+    assert [(o["value"], o["label"]) for o in pub["options"]] == [("none", "No buildup"), ("skip", "Can't tell")] and pub["tap"] is True
 
 
 # --- start questions with room to tap ---
@@ -485,14 +487,14 @@ def test_calibration_may_draw_a_buildup_question_with_the_calibration_theory():
 def test_a_start_question_holds_every_other_bar_it_knows_with_a_bar_to_spare(drops, play_bars):
     tid, d = doc(1)
     out = theory_candidates(tid, d, None, random.Random(0), drops or None)["calibration"]
-    (p,) = [p for p in out if p["question"] == "yesno"]
+    (p,) = [p for p in out if p["question"] == "yesno" and p["claim"]["kind"] != "buildup_exists"]
     assert (p["plays"][0]["start"], p["plays"][0]["end"], p["plays"][0]["mark"]) == (2.0 * play_bars[0], 2.0 * play_bars[1], 32.0)
 
 
 def test_the_clip_of_a_start_question_does_not_start_before_the_track():
     tid, d = doc(1, drop_bar=2)
     out = theory_candidates(tid, d, None, random.Random(0), {"edmformer": [4]})["calibration"]
-    assert [p["plays"][0]["start"] for p in out if p["question"] == "yesno"] == [0.0]
+    assert [p["plays"][0]["start"] for p in out if p["question"] == "yesno" and p["claim"]["kind"] != "buildup_exists"] == [0.0]
 
 
 @pytest.mark.parametrize("kind,answer,exact,gold", [(k, "none", False, None) for k in ("drop", "buildup", "breakdown")])
@@ -572,10 +574,13 @@ def earlier_round(probes, number=1):
 TRACKS = list(DOCS)
 
 
-@pytest.mark.parametrize("answer,repeated", [("yes", True), ("no", True), ("bar:18", True), ("skip", False), ("earlier", False), ("later", False),
-                                             ("none", False), ("is:groove", False), ("a", False)])
-def test_only_answers_that_named_a_bar_or_said_yes_or_no_are_asked_again(answer, repeated):
-    p = asked("r01-p001", TRACKS[0])
+@pytest.mark.parametrize("kind,answer,repeated", [
+    ("drop", "yes", True), ("drop", "no", True), ("drop", "bar:18", True), ("drop", "skip", False), ("drop", "earlier", False), ("drop", "later", False),
+    ("drop", "none", True), ("drop", "is:groove", False), ("drop", "a", False),
+    ("buildup_exists", "yes", True), ("buildup_exists", "none", True), ("buildup_exists", "skip", False),
+])
+def test_only_answers_that_named_a_bar_or_said_yes_or_no_are_asked_again(kind, answer, repeated):
+    p = asked("r01-p001", TRACKS[0], kind=kind)
     rnd = make_round(2, DOCS, {}, {p["id"]: given(p, answer)}, [earlier_round([p])], size=10)
     assert [r["repeat_of"] for r in repeats_of(rnd)] == (["r01-p001"] if repeated else [])
 
@@ -591,6 +596,21 @@ def test_a_repeat_prefers_answers_where_two_sources_agree_on_a_bar_the_reviewer_
         rnd = make_round(2, DOCS, {}, answers, [earlier_round(probes)], size=40, seed=seed)
         chosen = {p["repeat_of"] for p in repeats_of(rnd)}
         assert len(chosen) == 4 and chosen <= {p["id"] for p in disputed}
+
+
+def test_a_drop_the_reviewer_rejected_although_sources_agree_comes_right_after_the_unresolved():
+    agree = {"edmformer": 16, "dropdetector": 16}
+    rejected = [asked(f"r01-p{i:03d}", TRACKS[i], sources=agree) for i in range(3)]
+    elsewhere = [asked(f"r01-p{i:03d}", TRACKS[i], sources={"edmformer": 18, "dropdetector": 18}) for i in range(3, 8)]
+    plain = [asked(f"r01-p{i:03d}", TRACKS[i]) for i in range(8, 14)]
+    plain_no = [asked(f"r01-p{i:03d}", TRACKS[i]) for i in range(14, 17)]
+    probes = rejected + elsewhere + plain + plain_no
+    answers = {p["id"]: given(p, "no" if p in rejected + plain_no else "yes") for p in probes}
+    answers[rejected[0]["id"]] = given(rejected[0], "none")
+    for seed in range(5):
+        rnd = make_round(2, DOCS, {}, answers, [earlier_round(probes)], size=40, seed=seed)
+        chosen = {p["repeat_of"] for p in repeats_of(rnd)}
+        assert {p["id"] for p in rejected} <= chosen and len(chosen) == 4 and (chosen - {p["id"] for p in rejected}) <= {p["id"] for p in elsewhere}
 
 
 def test_a_repeat_that_disagrees_is_asked_a_third_time_before_anything_else():
@@ -685,28 +705,12 @@ def test_the_detectors_and_buildup_pools_get_two_turns_per_cycle_and_the_others_
     assert abs(counts["detectors"] - counts["buildup"]) <= 1
 
 
-def test_calibration_draws_buildup_questions_for_drops_that_were_not_picked_for_doubt():
+def test_calibration_draws_existence_questions_for_drops_that_were_not_picked_for_doubt():
     drops = {t: {"edmformer": [18]} for t in DOCS}
     rnd = make_round(1, DOCS, {}, {}, [], size=24, candidate_drops=drops)
-    drawn = [p for p in rnd["probes"] if p["bucket"] in ("style", "random") and p["question"] == "locate"]
+    drawn = [p for p in rnd["probes"] if p["bucket"] in ("style", "random") and p["claim"]["kind"] == "buildup_exists"]
     assert drawn and {p["theory"] for p in drawn} == {"calibration"}
-    assert {p["prompt"] for p in drawn} == {"Tap the bar where the buildup starts"}
     assert len({p["track"] for p in rnd["probes"]}) == len(rnd["probes"])
-
-
-# --- answers that mean the same ---
-
-@pytest.mark.parametrize("kind,first,second,same", [
-    ("drop", "no", "none", True), ("drop", "none", "no", True), ("buildup", "no", "none", True), ("breakdown", "no", "none", True),
-    ("drop", "yes", "bar:16", True), ("drop", "no", "yes", False), ("drop", "none", "yes", False), ("drop", "no", "bar:18", False),
-    ("missed", "no", "none", False), ("label", "no", "none", False),
-])
-def test_two_answers_to_one_probe_are_the_same_when_they_mean_the_same(kind, first, second, same):
-    root = asked("r01-p001", TRACKS[0], kind=kind)
-    again = {**asked("r02-p001", TRACKS[0], kind=kind), "repeat_of": "r01-p001"}
-    answers = {root["id"]: given(root, first), again["id"]: given(again, second, 2)}
-    assert report([earlier_round([root]), earlier_round([again], 2)], answers, DOCS)["reviewer"] == {"repeats": 1, "same": 1.0 if same else 0.0}
-    assert len(gold_answers(answers)) == (1 if same else 0)
 
 
 # --- the first time the beat comes in ---
@@ -716,44 +720,47 @@ def with_sections(d, *sections):
     return d
 
 
-def entry_probes(*sections):
+def with_entry(*bars, sections=(("intro", 0, 16), ("drop", 16, 32))):
     tid, d = doc(1)
     with_sections(d, *sections)
+    d["events"] = [*d["events"], *({"kind": "entry", "bar": b, "time": 2.0 * b} for b in bars)]
     return tid, d, theory_candidates(tid, d, None, random.Random(0))["entry"]
 
 
-@pytest.mark.parametrize("sections,drop_bars", [
-    ([("intro", 0, 16), ("drop", 16, 32)], [16]),
-    ([("intro", 0, 8), ("groove", 8, 16), ("drop", 16, 32)], [16]),
-    ([("intro", 0, 16), ("breakdown", 16, 24), ("drop", 24, 32)], []),
-    ([("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 32)], []),
-    ([("intro", 0, 8), ("drop", 8, 16), ("groove", 16, 24), ("drop", 24, 32)], [8, 24]),       # no breakdown or buildup yet before either
-    ([("intro", 0, 8), ("drop", 8, 16), ("breakdown", 16, 24), ("drop", 24, 32)], [8]),
-    ([("breakdown", 0, 8), ("drop", 8, 16)], []),
-    ([("intro", 0, 32)], []),
+@pytest.mark.parametrize("entries,sections,expected", [
+    ([], (("intro", 0, 16), ("drop", 16, 32)), []),
+    ([4], (("intro", 0, 16), ("drop", 16, 32)), [(4, 16, 40, 0, 8)]),
+    ([8, 20], (("intro", 0, 16), ("drop", 16, 32)), [(8, 16, 40, 4, 12), (20, 32, 40, 16, 24)]),
+    ([0], (("intro", 0, 16), ("drop", 16, 32)), [(0, 16, 40, 0, 4)]),               # the clip does not start before the track
+    ([40], (("intro", 0, 16), ("drop", 16, 32)), [(40, 44, 50, 36, 44)]),           # no section holds the entry
 ])
-def test_a_drop_before_any_breakdown_or_buildup_is_asked_about_as_the_first_beat_entry(sections, drop_bars):
-    tid, d, probes = entry_probes(*sections)
-    assert [p["claim"]["bar"] for p in probes] == drop_bars
-    for p in probes:
-        assert (p["theory"], p["question"], p["prompt"]) == ("entry", "label", "Is this part a drop?")
-        assert p["claim"] == {"kind": "label", "label": "drop", "bar": p["claim"]["bar"], "end_bar": p["claim"]["end_bar"], "time": 2.0 * p["claim"]["bar"],
-                              "confidence": 40}
-        assert p["plays"] == [{"id": "main", "start": max(0.0, 2.0 * (p["claim"]["bar"] - 4)), "end": 2.0 * (p["claim"]["bar"] + 4), "mark": 2.0 * p["claim"]["bar"]}]
+def test_a_track_with_an_entry_event_is_asked_whether_the_stretch_after_it_is_an_intro(entries, sections, expected):
+    tid, d, probes = with_entry(*entries, sections=sections)
+    assert len(probes) == len(expected)
+    for p, (bar, end_bar, confidence, first, last) in zip(probes, expected):
+        assert (p["theory"], p["question"], p["prompt"]) == ("entry", "label", "Is this part an intro?")
+        assert p["claim"] == {"kind": "label", "label": "intro", "bar": bar, "end_bar": end_bar, "time": 2.0 * bar, "confidence": confidence}
+        assert p["plays"] == [{"id": "main", "start": 2.0 * first, "end": 2.0 * last, "mark": 2.0 * bar}]
 
 
-@pytest.mark.parametrize("answer,ok,confirmed", [("yes", True, False), ("no", True, True), ("is:intro", True, True), ("is:buildup", True, True), ("skip", True, None),
-                                                 ("is:chorus", False, None), ("bar:16", False, None)])
-def test_the_first_beat_entry_theory_is_confirmed_by_anything_but_yes(tmp_path, answer, ok, confirmed):
-    tid, d, (p,) = entry_probes(("intro", 0, 16), ("drop", 16, 32))
+@pytest.mark.parametrize("answer,ok,confirmed", [("yes", True, True), ("no", True, False), ("is:drop", True, False), ("skip", True, None),
+                                                 ("is:chorus", False, None), ("bar:4", False, None)])
+def test_the_first_beat_entry_theory_is_confirmed_by_an_intro(tmp_path, answer, ok, confirmed):
+    tid, d, (p,) = with_entry(4)
     write_round(tmp_path, {**ROUND, "probes": [{**p, "id": "r01-p001"}]})
     assert (record_answer(tmp_path, "r01-p001", answer)[0] == 200) == ok
     if confirmed is not None:
         assert CONFIRMS["entry"](load_answers(tmp_path)["r01-p001"]) is confirmed
 
 
+@pytest.mark.parametrize("answer,confirmed", [("yes", False), ("no", True), ("is:groove", True)])
+def test_entry_answers_of_earlier_rounds_about_a_drop_still_count(answer, confirmed):
+    claim = {"kind": "label", "label": "drop", "bar": 16, "end_bar": 32, "time": 32.0, "confidence": 40}
+    assert CONFIRMS["entry"]({"answer": answer, "claim": claim}) is confirmed
+
+
 def test_the_first_beat_entry_theory_names_no_source():
-    assert not any(name in THEORIES["entry"].lower() for name in ("vdj", "virtualdj", "edmformer", "drop detector", "allin1", "rules"))
+    assert not any(name in THEORIES["entry"].lower() for name in ("vdj", "virtualdj", "edmformer", "drop detector", "allin1", "rules", "entry event"))
 
 
 # --- a second hit inside a drop ---
@@ -887,8 +894,8 @@ def test_the_random_bucket_may_draw_a_label_question_of_a_label_asked_little():
 def with_lifts(docs, tracks):
     out = {}
     for tid, d in docs.items():
-        d = {**d, "events": [*d["events"], {"kind": "lift", "bar": 24, "time": 48.0, "confidence": 50}]} if tid in tracks else d
-        out[tid] = d
+        extra = [{"kind": "lift", "bar": 24, "time": 48.0, "confidence": 50}] if tid in tracks else []
+        out[tid] = {**d, "events": [*d["events"], {"kind": "entry", "bar": 4, "time": 8.0}, *extra]}
     return out
 
 
@@ -911,5 +918,67 @@ def test_a_lift_question_waits_for_lift_events():
 
 
 def test_the_random_bucket_may_draw_a_first_beat_entry_question():
-    rounds = [make_round(1, DOCS, {}, {}, [], size=24, seed=seed) for seed in range(8)]
+    rounds = [make_round(1, with_lifts(DOCS, set()), {}, {}, [], size=24, seed=seed) for seed in range(8)]
     assert [p for r in rounds for p in r["probes"] if p["bucket"] == "random" and p["theory"] == "entry"]
+
+
+@pytest.mark.parametrize("sections,asked_bars", [
+    ((("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 24), ("breakdown", 24, 28), ("outro", 28, 30)), [0, 8, 16, 24, 28]),
+    ((("intro", 0, 8), ("drop", 8, 12), ("buildup", 12, 14), ("drop", 14, 22), ("breakdown", 22, 23), ("outro", 23, 24)), [0, 8, 14, 22, 23]),
+    ((("intro", 0, 8), ("drop", 8, 16), ("breakdown", 16, 18)), [0, 8, 16]),
+    ((("intro", 0, 2), ("drop", 2, 16)), [0, 2]),
+])
+def test_the_labels_pool_reaches_the_last_sections_however_short(sections, asked_bars):
+    tid, d = doc(1)
+    with_sections(d, *sections)
+    out = theory_candidates(tid, d, None, random.Random(0))["labels"]
+    assert [p["claim"]["bar"] for p in out] == asked_bars
+
+
+# --- a buildup's start is not a Claim to ask about ---
+
+BUILDUP_START = "Does the buildup start at the marker?"
+
+
+@pytest.mark.parametrize("sections,existence_bars", [
+    ((("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 32)), [16, 16]),       # the drop's own existence question, and the one a buildup draw turns into
+    ((("intro", 0, 8), ("buildup", 8, 16), ("groove", 16, 32)), []),           # no drop after it: nothing to ask
+    ((("intro", 0, 8), ("buildup", 8, 12), ("breakdown", 12, 20), ("drop", 20, 32)), [20]),
+    ((("intro", 0, 8), ("drop", 8, 32)), [8]),
+])
+def test_the_calibration_draw_never_asks_about_a_buildup_start_and_asks_for_the_existence_of_its_drop_instead(sections, existence_bars):
+    tid, d = doc(1)
+    with_sections(d, *sections)
+    out = theory_candidates(tid, d, None, random.Random(0))["calibration"]
+    assert BUILDUP_START not in {p["prompt"] for p in out} and "buildup" not in {p["claim"]["kind"] for p in out}
+    assert sorted(p["claim"]["bar"] for p in out if p["claim"]["kind"] == "buildup_exists") == existence_bars
+
+
+def test_no_bucket_asks_about_a_buildup_start():
+    docs = {t: with_sections(d, ("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 24), ("breakdown", 24, 28)) for t, d in DOCS.items()}
+    for seed in range(5):
+        rnd = make_round(1, docs, {}, {}, [], size=24, seed=seed)
+        assert not [p for p in rnd["probes"] if p["prompt"] == BUILDUP_START]
+
+
+@pytest.mark.parametrize("kind", ["buildup", "drop"])
+def test_a_follow_up_is_not_made_for_a_buildup_start(kind):
+    p = asked("r01-p001", TRACKS[0], kind=kind)
+    rnd = make_round(2, DOCS, {}, {p["id"]: given(p, "earlier")}, [earlier_round([p])], size=10)
+    assert len([q for q in rnd["probes"] if q["theory"] == "followup"]) == (0 if kind == "buildup" else 1)
+
+
+@pytest.mark.parametrize("probe,repeated", [
+    (asked("r01-p001", TRACKS[0], kind="drop"), True),
+    (asked("r01-p001", TRACKS[0], kind="buildup_exists"), True),
+    (asked("r01-p001", TRACKS[0], kind="buildup"), False),                                                        # a yes/no on a buildup start
+    ({**asked("r01-p001", TRACKS[0], kind="buildup"), "question": "locate", "prompt": "Tap the bar where the buildup starts",
+      "alternatives": {"ours": {"bar": 16}}}, False),
+    ({**asked("r01-p001", TRACKS[0], kind="missed"), "question": "locate", "prompt": "Tap the bar where the buildup starts",
+      "alternatives": {"none": {"source": "ours"}}}, False),                                                      # the old none-case Claim
+    (asked("r01-p001", TRACKS[0], kind="missed"), True),                                                          # an ordinary yes/no on a missed part
+])
+def test_buildup_start_questions_are_not_asked_again(probe, repeated):
+    answer = "bar:16" if probe["question"] == "locate" else "yes"
+    rnd = make_round(2, DOCS, {}, {probe["id"]: given(probe, answer)}, [earlier_round([probe])], size=10)
+    assert [r["repeat_of"] for r in repeats_of(rnd)] == (["r01-p001"] if repeated else [])

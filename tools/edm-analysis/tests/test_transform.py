@@ -205,3 +205,22 @@ def test_fused_section_claims_carry_the_energy_level():
     rows = claims_ours(TID, doc)
     assert [r["energy"] for r in rows if r["source"] == "fused" and r["kind"] == "section"] == [2, 6, 10]
     assert all(r["energy"] is None for r in rows if r["source"] == "rules")
+
+
+def test_answer_rows_say_whether_a_buildup_exists_before_which_drop_and_what_was_claimed():
+    doc = {**DOC, "sections": [*DOC["sections"][:2], {"label": "drop", "start_bar": 16, "end_bar": 32}]}
+    answers = {
+        "r06-p001": {"answer": "none", "round": 6, "track": TID, "claim": {"kind": "buildup_exists", "bar": 16, "time": 33.0, "claimed": True, "confidence": 60}},
+        "r04-p002": {"answer": "bar:9", "round": 4, "track": TID, "claim": {"kind": "buildup", "bar": 12, "time": 25.0, "confidence": 50}},
+        "r04-p003": {"answer": "no", "round": 4, "track": TID, "claim": {"kind": "buildup", "bar": 12, "time": 25.0, "confidence": 50}},
+        "r04-p004": {"answer": "yes", "round": 4, "track": TID, "claim": {"kind": "drop", "bar": 16, "time": 33.0, "confidence": 50}},
+    }
+    rows = {r["probe"]: r for r in answer_rows(answers, {TID: doc})}
+    assert [(rows[p]["exists"], rows[p]["drop_bar"], rows[p]["claimed"]) for p in ("r06-p001", "r04-p002", "r04-p003", "r04-p004")] == [
+        (False, 16, True), (True, 16, None), (None, None, None), (None, None, None)]
+    assert rows["r06-p001"]["kind"] == "buildup_exists" and rows["r06-p001"]["exact"] is False and rows["r06-p001"]["gold_bar"] is None
+
+
+def test_an_entry_event_is_a_claim_of_the_fusion():
+    doc = {**FUSED, "events": [{"kind": "entry", "bar": 5, "time": 11.0}, {"kind": "lift", "bar": 25, "time": 51.0, "sources": []}]}
+    assert sorted((r["kind"], r["bar"]) for r in claims_ours(TID, doc) if r["source"] == "fused" and r["kind"] in ("entry", "lift")) == [("entry", 5), ("lift", 25)]

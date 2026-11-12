@@ -81,12 +81,12 @@ def validate_answer(probe, answer):
         if answer in allowed or (q == "label" and answer.startswith("is:") and answer[3:] in LABELS):
             return None
         bar = BAR_ANSWER.fullmatch(answer)
-        if bar and q in TAP:
+        if bar and q in TAP and probe.get("tap", True):
             if int(bar[1]) >= probe.get("before", int(bar[1]) + 1):
                 return f"bar must be before bar {probe['before']}"
             near = probe.get("near", probe["claim"]["bar"])
             return None if abs(int(bar[1]) - near) <= MAX_TAP else f"bar must be within {MAX_TAP} bars of the marker"
-    forms = ["is:<label>"] if q == "label" else ["bar:<n>"] if q in TAP else []
+    forms = ["is:<label>"] if q == "label" else ["bar:<n>"] if q in TAP and probe.get("tap", True) else []
     return f"answer must be one of {', '.join(allowed + forms)}"
 
 
@@ -122,7 +122,7 @@ def public_round(rnd, answers):
     probes = [{**{k: p[k] for k in PUBLIC_PROBE},
                "plays": [{k: play[k] for k in PUBLIC_PLAY if k in play} for play in p["plays"]],
                "options": [{"value": v, "label": label} for v, label in options(p)],
-               "tap": p["question"] in TAP, **({"labels": list(LABELS)} if p["question"] == "label" else {}),
+               "tap": p.get("tap", p["question"] in TAP), **({"labels": list(LABELS)} if p["question"] == "label" else {}),
                "answer": answers.get(p["id"], {}).get("answer")} for p in rnd["probes"]]
     return {"round": rnd["round"], "theories": [{"id": t["id"], "text": t["text"]} for t in rnd["theories"]],
             "probes": probes, "progress": {"answered": sum(p["answer"] is not None for p in probes), "total": len(probes)}}
@@ -135,14 +135,13 @@ BUCKETS = {"unsure": 0.6, "style": 0.2, "random": 0.2}   # share of a round; uns
 REPEAT_SHARE = 0.1   # of a round, asked again on top of the other shares: answers the reviewer gave earlier
 STYLE_GROUPS = 8
 MAX_CLIP = 16        # bars
-MAX_BUILDUP = 14     # bars before a drop where a buildup may start: its clip ends 2 bars after the drop
 THEORIES = {
     "followup": "Where you said earlier or later, the real start is 4 bars away",
     "grid": "Bar 1 is wrong where our grid disagrees with VirtualDJ",
     "drop": "Where our drop and VirtualDJ's break end disagree, VirtualDJ is right",
     "detectors": "Where the detectors disagree about a drop, one of them has the exact bar",
-    "buildup": "Every drop has a buildup, and we know where it starts",
-    "entry": "The first time the beat comes in is not a drop",
+    "buildup": "Every drop has a buildup",
+    "entry": "The first time the beat comes in is an intro",
     "lift": "Long drops start where we say",
     "intro": "Long loud intros hide a new part at Mixed In Key's energy cues",
     "labels": "Section labels are right",
@@ -223,23 +222,23 @@ def _locate(tid, doc, s, sources):
                   {"ours": {"bar": s["start_bar"]}, **{name: {"bar": b} for name, b in near.items()}})
 
 
-def _buildup_locate(tid, doc, drop, sources, theory):
-    """Tap the bar where the buildup before our drop starts, in a clip that ends 2 bars after the drop. Our Claim is
-    our buildup ending at the drop, or that there is none: then the Claim is "missed" (gold_rows skips it) and the
-    answer 'none' is exact (so a tap must be before the drop). sources: {name: [buildup bars]}. None where our buildup
-    starts before the clip."""
-    first = max(0, drop - MAX_BUILDUP)
+def _buildup_exists(tid, doc, drop, theory):
+    """Is there a buildup before our drop? The Claim says whether our Analysis has one ending at the drop; no bar is asked
+    for, so the probe takes no bar taps and its 'none' reads "No"."""
     ours = next((s for s in doc["sections"] if s["label"] == "buildup" and s["end_bar"] == drop), None)
-    if ours and ours["start_bar"] < first:
-        return None
-    claim, alternatives = (_start_claim(doc, ours), {"ours": {"bar": ours["start_bar"]}}) if ours else (
-        {"kind": "missed", "bar": drop, "time": _bar_time(doc, drop), "confidence": UNKNOWN}, {"none": {"source": "ours"}})
-    for name, bars in sources.items():
-        before = [b for b in bars if first <= b < drop]
-        if before:
-            alternatives[name] = {"bar": max(before)}
-    play = {"id": "main", "start": _bar_time(doc, first), "end": _bar_time(doc, drop + 2), "mark": None}
-    return _probe(tid, doc, theory, "locate", "Tap the bar where the buildup starts", claim, [play], alternatives, none_label="No buildup", before=drop)
+    t = _bar_time(doc, drop)
+    claim = {"kind": "buildup_exists", "bar": drop, "time": t, "claimed": ours is not None, "confidence": ours["confidence"] if ours else UNKNOWN}
+    return _probe(tid, doc, theory, "yesno", "Is there a buildup before this drop?", claim, [{"id": "main", **_excerpt(doc, t, 8, 2)}],
+                  tap=False, none_label="No")
+
+
+def _entry(tid, doc, bar):
+    """Is the stretch after the beat comes in (the section that holds it) an intro?"""
+    section = next((s for s in doc["sections"] if s["start_bar"] <= bar < s["end_bar"]), None)
+    t = _bar_time(doc, bar)
+    claim = {"kind": "label", "label": "intro", "bar": bar, "end_bar": section["end_bar"] if section else bar + 4, "time": t,
+             "confidence": section.get("label_confidence", UNKNOWN) if section else UNKNOWN}
+    return _probe(tid, doc, "entry", "label", "Is this part an intro?", claim, [{"id": "main", **_excerpt(doc, t, 4, 4)}])
 
 
 def _lift(tid, doc, bar):
@@ -257,10 +256,9 @@ def _lift(tid, doc, bar):
                   {"ours": {"bar": s["start_bar"]}, "lift": {"bar": bar}})
 
 
-def theory_candidates(tid, doc, vdj, rng, drops=None, buildups=None):
+def theory_candidates(tid, doc, vdj, rng, drops=None):
     """{theory: [probe]} for one track whose analysis carries confidence. drops: {Candidate: drop bars} where
-    Candidates have output for the track; its drops are then located by tapping, not compared with A/B.
-    buildups: {Candidate: buildup bars}, stored with the buildup question of each drop."""
+    Candidates have output for the track; its drops are then located by tapping, not compared with A/B."""
     from .evaluate import silver_boundaries
     from .vdj import grid_agreement
 
@@ -302,29 +300,25 @@ def theory_candidates(tid, doc, vdj, rng, drops=None, buildups=None):
     out["grid"] = out["grid"] or [_probe(tid, doc, "calibration", "label", PROMPTS["grid"], grid_claim,
                                          [{"id": "main", **_excerpt(doc, grid_at, 0, 4, click_shift=0)}])]
     if grid_ok:
-        for s in doc["sections"]:
-            if s["end_bar"] - s["start_bar"] >= 4:
+        for i, s in enumerate(doc["sections"]):
+            if s["end_bar"] - s["start_bar"] >= 4 or i >= len(doc["sections"]) - 2:   # the last two sections however short
                 t = _bar_time(doc, s["start_bar"])
                 out["labels"].append(_probe(tid, doc, "labels", "label", f"Is this part {'an' if s['label'][0] in 'aeiou' else 'a'} {s['label']}?",
                                             {"kind": "label", "label": s["label"], "bar": s["start_bar"], "end_bar": s["end_bar"],
                                              "time": t, "confidence": s.get("label_confidence", 50)},
                                             [{"id": "main", **_excerpt(doc, t, 1, 4)}]))
-        for s in starts:
-            if s["label"] == "drop" and not any(x["label"] in ("breakdown", "buildup") and x["start_bar"] < s["start_bar"] for x in doc["sections"]):
-                t = _bar_time(doc, s["start_bar"])
-                out["entry"].append(_probe(tid, doc, "entry", "label", "Is this part a drop?",
-                                           {"kind": "label", "label": "drop", "bar": s["start_bar"], "end_bar": s["end_bar"], "time": t,
-                                            "confidence": s.get("label_confidence", 50)}, [{"id": "main", **_excerpt(doc, t, 4, 4)}]))
+        out["entry"] = [_entry(tid, doc, e["bar"]) for e in doc.get("events", []) if e["kind"] == "entry"]
         out["lift"] = [p for p in (_lift(tid, doc, e["bar"]) for e in doc.get("events", []) if e["kind"] == "lift" and e["bar"] > 0) if p]
         others = {**(drops or {}), "vdj": ends}
         out["calibration"] = [_yesno_start(tid, doc, s, "calibration", _near(s["start_bar"], others) if s["label"] == "drop" else None)
-                              for s in starts]
+                              for s in starts if s["label"] != "buildup"]
+        for s in starts:   # a buildup's start is not asked about: a draw on one asks whether its drop has a buildup
+            if s["label"] == "buildup" and any(x["label"] == "drop" and x["start_bar"] == s["end_bar"] for x in doc["sections"]):
+                out["calibration"].append(_buildup_exists(tid, doc, s["end_bar"], "calibration"))
         for s in starts:
             if s["label"] == "drop":
                 for pool in ("buildup", "calibration"):
-                    p = _buildup_locate(tid, doc, s["start_bar"], buildups or {}, pool)
-                    if p:
-                        out[pool].append(p)
+                    out[pool].append(_buildup_exists(tid, doc, s["start_bar"], pool))
     return out
 
 
@@ -334,7 +328,7 @@ def followups(answers, docs, previous):
     out = []
     for pid, a in sorted(answers.items()):
         doc = docs.get(a["track"])
-        if a["answer"] not in ("earlier", "later") or doc is None or pid in asked:
+        if a["answer"] not in ("earlier", "later") or doc is None or pid in asked or a["claim"]["kind"] == "buildup":
             continue
         bar = a["claim"]["bar"] + (-4 if a["answer"] == "earlier" else 4)
         if bar <= 0 or bar >= len(doc["bars"]["start"]):
@@ -369,8 +363,8 @@ def _rank(p):
     """Order within a pool: locate probes by how much the sources disagree, the others by confidence."""
     if p["question"] != "locate":
         return (p["claim"]["confidence"],)
-    bars = {a["bar"] for a in p["alternatives"].values() if "bar" in a}
-    return (-len(bars) - ("none" in p["alternatives"]), min(bars) - max(bars) if bars else 0, p["claim"]["confidence"])
+    bars = {a["bar"] for a in p["alternatives"].values()}
+    return (-len(bars), min(bars) - max(bars))
 
 
 def _said(record):
@@ -403,33 +397,39 @@ def gold_answers(answers):
     return {pid: answers[pid] for pid in kept if pid is not None}
 
 
+def _asks_buildup_start(probe):
+    """A buildup's start is nominal, not a Claim: its yes/no and its old locate questions (also the none-case) are not asked again."""
+    return probe["claim"]["kind"] == "buildup" or probe["prompt"] == "Tap the bar where the buildup starts"
+
+
 def repeat_candidates(answers, docs, previous):
     """[(urgency, probe)]: earlier probes whose yes, no or bar answer is worth asking again unchanged. 0: the repeats
-    disagree, 1: two sources agree on a bar the answer did not name, 2: any other. Not those already settled or waiting."""
+    disagree, 1: a drop the reviewer rejected although two sources agree on a bar, 2: two sources agree on a bar the answer
+    did not name, 3: any other. Not those already settled or waiting."""
     probes = {p["id"]: p for r in previous for p in r["probes"]}
     waiting = {p["repeat_of"] for p in probes.values() if "repeat_of" in p and p["id"] not in answers}
     out = []
     for root, pids in _groups(answers).items():
         first, probe = answers[pids[0]], probes.get(root)
-        named = first["answer"] in ("yes", "no") or first["answer"].startswith("bar:")
-        if probe is None or root in waiting or probe["track"] not in docs or not named:
+        named = first["answer"] in ("yes", "no") or first["answer"].startswith("bar:") or (first["answer"] == "none" and "alternatives" not in first and first["claim"]["kind"] in (*START_KINDS, "buildup_exists"))
+        if probe is None or root in waiting or probe["track"] not in docs or not named or _asks_buildup_start(probe):
             continue
         voted = [p for p in pids if answers[p]["answer"] != "skip"]
         if len(voted) >= 2 and _winner(answers, pids) is not None:
             continue
-        agree = any(n >= 2 and bar != gold_bar(first) for bar, n in Counter(source_bars(first).values()).items())
-        out.append((0 if len(voted) >= 2 else 1 if agree else 2, probe))
+        agreed = [bar for bar, n in Counter(source_bars(first).values()).items() if n >= 2]
+        rejected = first["claim"]["kind"] == "drop" and first["answer"] in ("no", "none") and agreed
+        out.append((0 if len(voted) >= 2 else 1 if rejected else 2 if any(bar != gold_bar(first) for bar in agreed) else 3, probe))
     return out
 
 
-def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, seed=None, created=None, candidate_drops=None,
-               candidate_buildups=None):
+def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, seed=None, created=None, candidate_drops=None):
     """A new round: unsure Claims across the Theories, Claims from the least-reviewed Styles, and random ones,
     and on top of them REPEAT_SHARE of the size in earlier answers asked again unchanged.
 
     Pure: docs must already carry confidence. One probe per track, and only tracks no earlier round got an
-    answer on, so every round measures Fresh accuracy (follow-ups and repeats excepted). candidate_drops and
-    candidate_buildups: {track id: {Candidate: bars on our grid}}."""
+    answer on, so every round measures Fresh accuracy (follow-ups and repeats excepted). candidate_drops:
+    {track id: {Candidate: drop bars on our grid}}."""
     import random
 
     rng = random.Random(seed if seed is not None else number)
@@ -437,8 +437,7 @@ def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, se
     fresh = sorted(t for t in docs if t not in seen_tracks)
     rng.shuffle(fresh)
     asked = Counter(a["claim"]["label"] for a in answers.values() if a["claim"]["kind"] == "label")   # label questions go to the labels asked least
-    cands = {tid: theory_candidates(tid, docs[tid], vdj_by_path.get(docs[tid]["track"]["path"]), rng, (candidate_drops or {}).get(tid),
-                                    (candidate_buildups or {}).get(tid))
+    cands = {tid: theory_candidates(tid, docs[tid], vdj_by_path.get(docs[tid]["track"]["path"]), rng, (candidate_drops or {}).get(tid))
              for tid in fresh}
     repeats, repeated = [], set()
     for _, p in sorted(repeat_candidates(answers, docs, previous), key=lambda c: (c[0], rng.random())):
@@ -516,8 +515,8 @@ BANDS = (0, 50, 80, 95, 101)
 CONFIRMS = {"detectors": lambda r: gold_bar(r) in [b for src, b in source_bars(r).items() if src != "ours"],
             "grid": lambda r: r.get("alternatives", {}).get(r["answer"], {}).get("source") == "vdj",
             "drop": lambda r: r.get("alternatives", {}).get(r["answer"], {}).get("source") == "vdj",
-            "buildup": lambda r: r["claim"]["kind"] == "buildup" and _exact(r),
-            "entry": lambda r: r["answer"] != "yes", "lift": _exact,
+            "buildup": lambda r: r["answer"] == "yes" if r["claim"]["kind"] == "buildup_exists" else r["claim"]["kind"] == "buildup" and _exact(r),
+            "entry": lambda r: (r["answer"] == "yes") == (r["claim"].get("label") == "intro"), "lift": _exact,
             "intro": lambda r: r["answer"] == "yes", "labels": lambda r: r["answer"] == "yes",
             "followup": lambda r: r["answer"] == "yes"}
 

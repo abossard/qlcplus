@@ -10,9 +10,10 @@ import numpy as np
 
 from .candidates import fused
 from .confidence import load_model, with_confidence
+from .fusion import ramp_levels
 
 FINAL_SCHEMA = "qlcplus-edm-final/3"    # 3 adds energy per section and bars.energy; what schema 2 readers know is unchanged
-SECTION_KEYS = ("label", "start_bar", "end_bar", "start", "end", "confidence", "label_confidence", "sources", "energy")
+SECTION_KEYS = ("label", "start_bar", "end_bar", "start", "end", "confidence", "label_confidence", "sources", "energy", "nominal")
 EVENT_KEYS = ("kind", "bar", "time", "confidence", "sources")
 
 
@@ -28,7 +29,8 @@ def final_document(doc):
     return {"schema": FINAL_SCHEMA, "analyzer": doc.get("analyzer", {}).get("version"),
             "track": {k: doc["track"][k] for k in ("path", "title", "sha256")},
             "grid": grid, "sections": sections, "events": [pick(e, EVENT_KEYS) for e in doc["events"]],
-            "bars": {"energy": [round(float(x), 3) for x in np.nan_to_num(np.asarray(doc["bars"]["levels"]["loud"], float))]}}
+            "bars": {"energy": [round(float(x), 3) for x in np.nan_to_num(np.asarray(doc["bars"]["levels"]["loud"], float))],
+                     "ramp": ramp_levels(doc["bars"].get("descriptors", {}), doc["sections"], len(doc["bars"]["levels"]["loud"]))}}
 
 
 def write_final(out_dir, doc):

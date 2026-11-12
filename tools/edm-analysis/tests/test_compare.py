@@ -216,8 +216,8 @@ def test_gold_shares_come_with_what_they_mean_under_the_reviewers_error_rate(kin
 
 def test_the_structure_counts_drops_with_a_buildup_and_the_buildup_lengths():
     out = compare(FUSED_CLAIMS)["structure"]
-    assert out["rules"] == {"drops": 2, "with_buildup": 1, "buildup_lengths": {8: 1}, "after_drop": 0, "buildups": 1, "unsupported": 0, "lifts": 0, "entries": 1}     # G has no buildup before its drop
-    assert out["fused"] == {"drops": 2, "with_buildup": 2, "buildup_lengths": {8: 1, 10: 1}, "after_drop": 0, "buildups": 2, "unsupported": 0, "lifts": 0, "entries": 0}
+    assert out["rules"] == {"drops": 2, "with_buildup": 1, "buildup_lengths": {8: 1}, "after_drop": 0, "buildups": 1, "unsupported": 0, "lifts": 0, "entries": 1, "entry_events": 0}     # G has no buildup before its drop
+    assert out["fused"] == {"drops": 2, "with_buildup": 2, "buildup_lengths": {8: 1, 10: 1}, "after_drop": 0, "buildups": 2, "unsupported": 0, "lifts": 0, "entries": 0, "entry_events": 0}
 
 
 def test_the_structure_counts_drops_after_drops_buildups_without_a_source_and_lifts():
@@ -242,24 +242,25 @@ def test_the_table_shows_the_fusion_numbers():
     assert "None" not in text
 
 
-def test_a_track_is_printed_as_rules_fused_and_answers_side_by_side():
+def test_a_track_is_printed_as_rules_fused_events_and_answers_side_by_side():
     from edm_analysis.compare import side_by_side
 
     doc = {"track": {"title": "Some Song"},
            "rules": {"sections": [{"label": "intro", "start_bar": 0, "end_bar": 16}, {"label": "drop", "start_bar": 16, "end_bar": 40}]},
            "sections": [{"label": "intro", "start_bar": 0, "end_bar": 14, "confidence": 100, "sources": ["rules"]},
-                        {"label": "buildup", "start_bar": 14, "end_bar": 24, "confidence": 55, "sources": []},
-                        {"label": "drop", "start_bar": 24, "end_bar": 40, "confidence": 91, "sources": ["dropdetector", "edmformer"]}]}
+                        {"label": "buildup", "start_bar": 14, "end_bar": 24, "confidence": 55, "sources": [], "nominal": True},
+                        {"label": "drop", "start_bar": 24, "end_bar": 40, "confidence": 91, "sources": ["dropdetector", "edmformer"]}],
+           "events": [{"kind": "entry", "bar": 8, "time": 16.0}, {"kind": "drop", "bar": 24, "time": 48.0}, {"kind": "lift", "bar": 32, "time": 64.0}, {"kind": "vocal_in", "bar": 3, "time": 6.0}]}
     answers = [{"kind": "drop", "bar": 16, "answer": "bar:24", "gold_bar": 24}, {"kind": "label", "bar": 14, "answer": "no", "gold_bar": None}]
 
     lines = side_by_side(doc, answers).splitlines()
 
-    assert lines[0] == "Some Song" and lines[1].split() == ["rules", "fused", "answers"]
+    assert lines[0] == "Some Song" and lines[1].split() == ["rules", "fused", "events", "answers"]
     rows = [[col.strip() for col in line.split("|")] for line in lines[2:]]
-    assert rows[0][:2] == ["intro 0-16", "intro 0-14 100% rules"]
-    assert rows[1][:2] == ["drop 16-40", "buildup 14-24 55%"]
+    assert rows[0][:3] == ["intro 0-16", "intro 0-14 100% rules", "entry 8"]
+    assert rows[1][:3] == ["drop 16-40", "buildup ~14-24 55%", "lift 32"]            # ~ marks a nominal start
     assert rows[2][1] == "drop 24-40 91% dropdetector+edmformer"
-    assert rows[0][2] == "label 14: no" and rows[1][2] == "drop 16: bar:24 (gold bar 24)"
+    assert rows[0][3] == "label 14: no" and rows[1][3] == "drop 16: bar:24 (gold bar 24)"
 
 
 # --- rejected Claims ---
@@ -309,3 +310,41 @@ def test_mean_energy_per_label_shows_drops_above_breakdowns():
 
 def test_no_energy_table_for_tables_exported_without_it():
     assert compare(FUSED_CLAIMS)["energy"] is None and "mean energy" not in format_table(compare(FUSED_CLAIMS))
+
+
+# --- buildup existence ------------------------------------------------------------------------
+
+EXIST_CLAIMS = [
+    c("X", "rules", "buildup", 8), c("X", "fused", "buildup", 8), c("X", "edmformer", "buildup", 6), *[c("X", s, "drop", 16) for s in ("rules", "fused", "edmformer")],
+    c("Y", "fused", "buildup", 24), *[c("Y", s, "drop", 32) for s in ("rules", "fused", "edmformer")],
+    *[c("Z", s, "drop", 48) for s in ("rules", "fused", "edmformer")],
+    c("W", "fused", "buildup", 2), c("W", "fused", "drop", 40),            # a buildup 38 bars before the drop is another one
+]
+EXIST_ANSWERS = [
+    {"track": "X", "kind": "buildup_exists", "exists": True, "drop_bar": 16, "claimed": True},
+    {"track": "Y", "kind": "buildup_exists", "exists": False, "drop_bar": 32, "claimed": True},
+    {"track": "Z", "kind": "buildup", "exists": True, "drop_bar": 48, "claimed": None},
+    {"track": "W", "kind": "buildup", "exists": False, "drop_bar": 40, "claimed": None},
+    {"track": "X", "kind": "buildup", "exists": None, "drop_bar": None},      # no word about existence
+]
+
+
+@pytest.mark.parametrize("source,expected", [
+    ("fused", {"n": 4, "confirmed": 1, "rejected": 1, "missed": 1, "agreed_none": 1}),
+    ("rules", {"n": 3, "confirmed": 1, "rejected": 0, "missed": 1, "agreed_none": 1}),         # W has no rules claims at all
+    ("edmformer", {"n": 3, "confirmed": 1, "rejected": 0, "missed": 1, "agreed_none": 1}),
+])
+def test_buildup_existence_counts_claimed_and_confirmed_rejected_missed_and_agreed_none(source, expected):
+    got = compare(EXIST_CLAIMS, EXIST_ANSWERS)["existence"][source]
+    assert {k: got[k] for k in expected} == expected
+    assert got["right"] == pytest.approx((expected["confirmed"] + expected["agreed_none"]) / expected["n"], abs=1e-3)
+
+
+def test_there_is_no_existence_table_without_existence_answers():
+    assert compare(EXIST_CLAIMS, EXIST_ANSWERS[-1:])["existence"] is None
+
+
+def test_the_table_prints_buildup_existence_and_entry_events():
+    text = format_table(compare([*FUSED_CLAIMS, *EXIST_CLAIMS, {**c("F", "fused", "entry", 8), "label": "entry"}], EXIST_ANSWERS))
+    for part in ("buildup existence", "claimed and confirmed", "entry events"):
+        assert part in text, part

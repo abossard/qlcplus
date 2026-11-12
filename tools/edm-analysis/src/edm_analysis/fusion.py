@@ -7,17 +7,19 @@ put it on its exact bar (`sources`). The choices below were made on the reviewer
 - a drop detector drop at DROP_SCORE or above is a drop start; a rules drop within MOVE_WINDOW bars of one moves onto it;
 - a rules drop no source supports is no drop where a drop detector has looked (Gold: 3 of 3 such drops rejected), else it stands,
   and is corrected as far as the rules' own levels allow (the drop is where loudness, kick and bass step up);
-- a buildup needs evidence (the rules' buildup, or EDMFormer's) and starts BUILDUP_BARS before its drop, or at EDMFormer's start where
-  that is EM_LONG bars or more before it (Gold after round 5, ten named starts: within one bar 7 of 10, exact 2); between two drops it
-  also needs EDMFormer and a real dip in kick and bass; at least MIN_BUILDUP bars, never before the section it eats into;
+- a buildup is an existence claim: it needs evidence (the rules' buildup, or EDMFormer's) and has a nominal length of BUILDUP_BARS before
+  its drop (`nominal`: the start is no exact-bar Claim; the reviewer's thirteen named starts range from 1 to 14 bars before the drop and
+  no rule found the bar); between two drops it also needs EDMFormer and a real dip in kick and bass;
 - a drop straight after a drop is the same drop: the later hit is a `lift` event, not a section start;
 - the labels are intro, buildup, drop, breakdown, outro. A steady beat part that is none of them (the rules' groove, an intro in the
   middle, an outro before the end) is named by where it sits: before the first breakdown, buildup or drop it is intro; after a drop with
   the beat running it is that drop; before a drop it is a buildup if the loudness rises; as the last section it is the outro; else breakdown;
-- the first drop of a track, when no breakdown or buildup comes before it (a first beat entry), is no drop where the kick was already
-  running before it (Gold: 3 of 3 such entries were "not a drop", 2 of 2 without a running kick were drops). The rule applies once: the
+- the last section is outro only where the beat is still running (mean kick OUTRO_KICK or more) or the song fades out (energy OUTRO_FADE
+  or less); else it is a breakdown (Gold: 4 answers, kick 0.75 and silence were outro, kick 0.27 and 0.46 at energy 5 were breakdown);
+- the first drop of a track, when no breakdown or buildup comes before it (a first beat entry), is intro (Gold: 6 of 9 entries were not
+  drops, and a kick threshold fitted 5 of 5 and then 1 of 4), with an `entry` event where the beat comes in. The rule applies once: the
   next hit the detector is sure of, or the next drop after a breakdown or buildup, stands; a track never loses its only drop to it,
-  and the intro never grows past half the track this way;
+  and where the intro would pass half the track the entry stays the drop;
 - every section carries `energy`, 1 to 10: its mean loudness against the loudest section of the track.
 """
 
@@ -25,19 +27,21 @@ import numpy as np
 
 from .transform import DROP_SCORE, START_KINDS, snap
 
-FUSION_VERSION = 2       # bump when these rules change: documents made from older ones are told apart by analyzer.version
+FUSION_VERSION = 3       # bump when these rules change: documents made from older ones are told apart by analyzer.version
 MOVE_WINDOW = 8          # bars within which a rules drop is the same drop as another source's
 MIN_BUILDUP = 4
 MIN_SECTION = 4          # no fused section is shorter
 LEVELS = ("kick", "hihat", "bass", "instruments", "vocal", "loud")
 SOURCE_REACH = 2         # bars around a fused buildup start within which a source's buildup start counts as the same one
-BUILDUP_BARS = 8         # a buildup starts this many bars before its drop
-EM_LONG = 14             # unless EDMFormer starts it at least this many bars before the drop: a long buildup
+BUILDUP_BARS = 8         # a buildup is nominally this many bars long
+RAMP_FEATURES = ("onset", "centroid")    # per-bar onset density and brightness: a riser or snare roll shows in one of them
+RAMP_CORR = 0.7          # correlation with the bar position at which a feature counts as rising through the buildup
+RAMP_RANGE = 0.1         # and the least it must rise (descriptors are scaled 0 to 1 within the track)
+OUTRO_KICK = 0.6         # mean kick of a last section at which the beat counts as still running
+OUTRO_FADE = 2           # energy at or under which a last section is a song fading out
 STEADY = "groove"        # inside this module only: a steady beat part waiting for its name; never a fused label
 KICK_ON = 0.4
-ENTRY_KICK = 0.6         # mean kick over the ENTRY_BARS before a first beat entry at which the beat counts as already running
-ENTRY_BARS = 8
-INTRO_SHARE = 0.5        # demoting a first beat entry never makes the intro longer than this share of the track
+INTRO_SHARE = 0.55       # an intro never passes this share of the track by demoting a first beat entry (the rules' own longest sane intro, 0.45 plus a nominal buildup)
 RISE = 0.1               # loudness climb across a steady part before a drop that makes it the buildup
 PHRASE = 8
 SURE_DROP = 0.9          # detector probability that sets a track's phrase offset
@@ -107,9 +111,9 @@ def _run_start(labels, i):
 
 def _pre_drop(labels, d, sup, kick, bass):
     """(label, start, sources) of the stretch before the drop at d: a buildup, a breakdown, or None for neither. A buildup needs evidence:
-    the rules' own buildup or EDMFormer's. It starts BUILDUP_BARS before the drop, or at EDMFormer's start where that is EM_LONG bars or more
-    before it. Between two drops it also needs EDMFormer and a real dip in kick and bass; with only the rules and a dip the stretch is a
-    breakdown, and without a dip the second drop is a lift inside the first. At least MIN_BUILDUP bars; the section before it is taken whole or keeps MIN_SECTION bars."""
+    the rules' own buildup or EDMFormer's. It is nominally BUILDUP_BARS long (its start is no exact bar). Between two drops it also needs
+    EDMFormer and a real dip in kick and bass; with only the rules and a dip the stretch is a breakdown, and without a dip the second drop
+    is a lift inside the first. At least MIN_BUILDUP bars; the section before it is taken whole or keeps MIN_SECTION bars."""
     if d < MIN_BUILDUP:
         return None
     run = _run_start(labels, d - 1) if labels[d - 1] == "buildup" else d
@@ -119,12 +123,11 @@ def _pre_drop(labels, d, sup, kick, bass):
     sources = sorted([*(["rules"] if run <= d - MIN_BUILDUP else []), *(["edmformer"] if em else [])])    # a shorter stretch is no buildup of the rules
     if not sources:
         return None
-    long = bool(em) and em[-1] <= d - EM_LONG
-    start = em[-1] if long else d - BUILDUP_BARS
+    start = d - BUILDUP_BARS
     if start < run:
         start = max(start, floor)
         # the section before may become the buildup whole, but not a drop, not a breakdown the rules set apart from their own buildup, and never a fragment
-        keep = start > floor or labels[floor] == "drop" or (run < d and not long)
+        keep = start > floor or labels[floor] == "drop" or run < d
         if start - floor < MIN_SECTION and keep:
             start = min(run, floor + MIN_SECTION)
     if d - start < MIN_BUILDUP:
@@ -146,28 +149,28 @@ def _mark_steady(labels):
 
 
 def _demote_entry(labels, fused, kick, bass, sup):
-    """The first drop of a track is a first beat entry when no breakdown and no buildup comes before it. Where the kick was already running
-    before it, it is intro, up to the next drop that stands: the next hit the detector is sure of (SURE_DROP), or the next drop after a
-    breakdown or buildup. Applied once; a track whose only standing drop is the entry keeps it, and so does one whose intro would grow past
-    INTRO_SHARE of the track. Returns the drop starts that are left."""
+    """The first drop of a track is a first beat entry when no breakdown and no buildup comes before it. It is intro, up to the next drop
+    that stands: the next hit the detector is sure of (SURE_DROP), or the next drop after a breakdown or buildup. Applied once; a track whose
+    only standing drop is the entry keeps it, and so does one whose intro would grow past INTRO_SHARE of the track.
+    Returns (the drop starts that are left, the bar of the entry or None)."""
     if not fused or fused[0] == 0:
-        return fused
+        return fused, None
     first, pre = fused[0], _pre_drop(labels, fused[0], sup, kick, bass)
     broken = lambda a, b: any(l in ("breakdown", "buildup") for l in labels[a:b])
-    if broken(0, first) or (pre and pre[0] == "buildup") or kick[max(0, first - ENTRY_BARS):first].mean() < ENTRY_KICK:
-        return fused
+    if broken(0, first) or (pre and pre[0] == "buildup"):
+        return fused, None
     probability = dict(map(tuple, sup["drop"].get("dropdetector", [])))
     sure = lambda d: "dropdetector" not in sup["drop"] or probability.get(d, 0.0) >= SURE_DROP
     stay = next((d for d in fused[1:] if len(labels) - d >= MIN_SECTION and (sure(d) or broken(first, d))), None)     # a drop too short to be a section cannot stand in
     if stay is None:
-        return fused
+        return fused, None
     intro_end = next((i for i in range(first, stay) if labels[i] in ("breakdown", "buildup")), stay)
     if intro_end > INTRO_SHARE * len(labels):       # an intro is never more than this share of the track: then the entry is the drop
-        return fused
+        return fused, None
     for i in range(first, stay):
         if labels[i] == "drop":
             labels[i] = "intro"
-    return [d for d in fused if not first <= d < stay]
+    return [d for d in fused if not first <= d < stay], first
 
 
 def _name_steady(labels, kick, loud):
@@ -194,6 +197,34 @@ def _name_steady(labels, kick, loud):
         if new == "buildup" and before != "buildup" and b - a > BUILDUP_BARS:     # the buildup is its last bars, the rest stays a breakdown
             labels[a:b - BUILDUP_BARS] = ["breakdown"] * (b - a - BUILDUP_BARS)
         a = b
+
+
+def _fix_outro(labels, kick, loud, fused):
+    """The last section is an outro only where the beat is still running or the song fades out; else it is a breakdown."""
+    cuts = _cuts(labels, fused)
+    a, b = cuts[-2], cuts[-1]
+    if labels[a] == "outro" and round(float(kick[a:b].mean()), 3) < OUTRO_KICK and energy_levels(loud, cuts)[-1] > OUTRO_FADE:
+        labels[a:b] = ["breakdown"] * (b - a)
+
+
+def ramp_levels(descriptors, sections, n):
+    """Per bar 0 to 1: 0 outside buildups, rising to 1 at the drop inside each. The measured rise of the onset density or brightness where
+    one of them climbs through the buildup (never falling back), else a straight line."""
+    out = np.zeros(n)
+    for s in (s for s in sections if s["label"] == "buildup"):
+        a, b = s["start_bar"], min(s["end_bar"], n)
+        if b <= a:
+            continue
+        out[a:b] = np.arange(1, b - a + 1) / (b - a)
+        best = None
+        for key in RAMP_FEATURES:
+            x = np.nan_to_num(np.asarray(descriptors.get(key, [])[a:b], float))
+            if len(x) == b - a >= 3 and np.ptp(x) >= RAMP_RANGE and (c := float(np.corrcoef(x, np.arange(b - a))[0, 1])) >= RAMP_CORR and (best is None or c > best[0]):
+                best = (c, x)
+        if best:
+            rising = np.maximum.accumulate((best[1] - best[1].min()) / np.ptp(best[1]))
+            out[a:b] = rising / rising[-1]
+    return [round(float(x), 3) for x in out]
 
 
 def energy_levels(loud, cuts):
@@ -246,7 +277,16 @@ def _sources(sup, rules_starts, bar, label):
 
 
 def fuse(doc, loaded):
-    """doc: the rule analysis (or an earlier fusion of it); loaded: {Candidate name: candidates.load output} for those with output."""
+    """doc: the rule analysis (or an earlier fusion of it); loaded: {Candidate name: candidates.load output} for those with output.
+    The intro never passes INTRO_SHARE of the track: where demoting the first beat entry leaves a longer one, the entry stays the drop."""
+    got = _fuse(doc, loaded, True)
+    first = got["sections"][0]
+    if first["label"] == "intro" and first["end_bar"] > INTRO_SHARE * len(doc["bars"]["levels"]["loud"]) and any(e["kind"] == "entry" for e in got["events"]):
+        return _fuse(doc, loaded, False)
+    return got
+
+
+def _fuse(doc, loaded, demote):
     rules = doc.get("rules") or {"sections": doc["sections"], "events": doc["events"]}
     n, t = len(doc["bars"]["levels"]["loud"]), bar_time(doc)
     sup = support(doc, rules["sections"], loaded)
@@ -274,7 +314,7 @@ def fuse(doc, loaded):
     for d in fused:
         _fill(labels, d, section_end(d), "drop")
     _mark_steady(labels)
-    fused = _demote_entry(labels, fused, kick, bass, sup)
+    fused, entry = _demote_entry(labels, fused, kick, bass, sup) if demote else (fused, None)
     evidence = {}        # buildup start: the sources that have a buildup before that drop
     for d in fused:
         if d and labels[d - 1] == STEADY and (g := _run_start(labels, d - 1)) and labels[g - 1] == "buildup":
@@ -292,14 +332,17 @@ def fuse(doc, loaded):
     labels, fused = _merge_fragments(labels, fused, np.stack([np.nan_to_num(np.asarray(doc["bars"]["levels"][k], float)) for k in LEVELS], axis=1))
     lifts = [d for d in fused if d > 0 and labels[d - 1] == "drop"]     # a drop straight after a drop is the same drop: a step inside it
     fused = [d for d in fused if d not in lifts]
+    _fix_outro(labels, kick, loud, fused)
     cuts = _cuts(labels, fused)
     rules_starts = {s["start_bar"] for s in rules["sections"]}
     sections = [{"label": labels[a], "start_bar": a, "end_bar": b, "start": round(t(a), 3) if a else 0.0, "end": round(t(b), 3),
-                 "sources": sorted({*_sources(sup, rules_starts, a, labels[a]), *(evidence.get(a, []) if labels[a] == "buildup" else [])}), "energy": e}
+                 "sources": sorted({*_sources(sup, rules_starts, a, labels[a]), *(evidence.get(a, []) if labels[a] == "buildup" else [])}), "energy": e,
+                 **({"nominal": True} if labels[a] == "buildup" else {})}
                 for (a, b), e in zip(zip(cuts, cuts[1:]), energy_levels(loud, cuts))]
     events = [{"kind": s["label"], "bar": s["start_bar"], "time": round(t(s["start_bar"]), 3), "sources": s["sources"]}
               for prev, s in zip([None, *sections], sections) if s["label"] in START_KINDS and (prev is None or prev["label"] != s["label"] or s["start_bar"] in fused)]
     events += [{"kind": "lift", "bar": d, "time": round(t(d), 3), "sources": _sources(sup, rules_starts, d, "drop")} for d in lifts]
+    events += [{"kind": "entry", "bar": entry, "time": round(t(entry), 3)}] if entry is not None else []
     events = sorted([*events, *(e for e in rules["events"] if e["kind"] not in START_KINDS)], key=lambda e: (e["bar"], e["kind"]))
     version = ".".join(str(doc["analyzer"]["version"]).split(".")[:2])
     return {**doc, "analyzer": {**doc["analyzer"], "fusion": FUSION_VERSION, "version": f"{version}.{FUSION_VERSION}"},

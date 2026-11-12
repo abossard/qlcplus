@@ -65,11 +65,15 @@ A step inside a drop: a drop that directly follows a drop is the same drop, so t
 _Avoid_: second drop
 
 **First beat entry**:
-A drop with no breakdown and no buildup before it (`fusion.entry_drops`). Where the kick was already running before it, it is no drop but part of the intro; where the beat comes in on it, it stays a drop.
+The first drop of a track when no breakdown and no buildup comes before it. It is intro, and an event `entry` (bar, time) says where the beat comes in so QLC+ can react. It stays a drop only where the track would otherwise have none, or the intro would pass 55 % of the track.
 _Avoid_: intro drop
 
+**Buildup**:
+An existence Claim: "a buildup exists before this drop". Its start is nominal (8 bars before the drop, marked `nominal`), not an exact-bar Claim, because the reviewer's named starts range from 1 to 14 bars before the drop. The final file carries `bars.ramp`, 0 outside buildups and rising to 1 at the drop.
+_Avoid_: buildup start
+
 **Label**:
-One of intro, buildup, drop, breakdown, outro. There is no groove: a steady beat part is named by where it sits (intro before the first breakdown, buildup or drop; part of the drop it follows; buildup or breakdown before a drop; outro as the last section). Intro only opens a track, outro only closes it. An old answer "is:groove" still counts: it means "not the asked label, a steady beat part".
+One of intro, buildup, drop, breakdown, outro. There is no groove: a steady beat part is named by where it sits (intro before the first breakdown, buildup or drop; part of the drop it follows; buildup or breakdown before a drop; outro as the last section). Intro only opens a track, outro only closes it, and the last section is outro only where the beat is still running or the song fades out (else breakdown). An old answer "is:groove" still counts: it means "not the asked label, a steady beat part".
 _Avoid_: groove, part type
 
 **Energy**:

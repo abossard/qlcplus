@@ -48,7 +48,7 @@ def test_the_final_file_is_the_fused_structure_with_its_sources(tmp_path):
 
     assert [(s["label"], s["start_bar"], s["sources"]) for s in final["sections"]] == [("intro", 0, ["rules"]), ("drop", 10, ["dropdetector"])]
     assert [(e["kind"], e["bar"], e["sources"]) for e in final["events"] if e["kind"] == "drop"] == [("drop", 10, ["dropdetector"])]
-    assert final["analyzer"] == "2.5.2"
+    assert final["analyzer"] == "2.5.3"
 
 
 def test_a_fused_document_is_written_as_it_is(tmp_path):
@@ -76,3 +76,14 @@ def test_bars_without_a_level_have_no_energy_rather_than_nan(tmp_path):
     doc = {**DOC, "bars": {**DOC["bars"], "levels": {**DOC["bars"]["levels"], "loud": loud}}}
     text = write_final(tmp_path, doc).read_text()
     assert "NaN" not in text and json.loads(text)["bars"]["energy"][:8] == [0.0] * 8
+
+
+def test_the_final_file_carries_a_ramp_per_bar_as_long_as_the_energy(tmp_path):
+    doc = {**DOC, "sections": [{"label": "intro", "start_bar": 0, "end_bar": 12, "start": 0.0, "end": 24.0},
+                               {"label": "buildup", "start_bar": 12, "end_bar": 16, "start": 24.0, "end": 32.0},
+                               {"label": "drop", "start_bar": 16, "end_bar": 20, "start": 32.0, "end": 40.0}],
+           "events": []}
+    final = json.loads(write_final(tmp_path, doc).read_text())
+    assert len(final["bars"]["ramp"]) == len(final["bars"]["energy"]) == 20
+    assert final["bars"]["ramp"] == [0.0] * 8 + [i / 8 for i in range(1, 9)] + [0.0] * 4 and final["schema"] == "qlcplus-edm-final/3"     # the buildup is nominally 8 bars
+    assert [(s["label"], s["start_bar"], s.get("nominal")) for s in final["sections"]] == [("intro", 0, None), ("buildup", 8, True), ("drop", 16, None)]
