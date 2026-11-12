@@ -27,6 +27,9 @@ private slots:
     void readerSectionConfidence();
     void parseDocument_data();
     void parseDocument();
+    void liftEventsAndSourcesParse();
+    void nextDropIgnoresLifts_data();
+    void nextDropIgnoresLifts();
     void confidenceIsRounded_data();
     void confidenceIsRounded();
     void lookupByPath_data();

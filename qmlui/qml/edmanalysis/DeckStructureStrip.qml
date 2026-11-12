@@ -45,7 +45,7 @@ Rectangle
         {
             case "lookup": return qsTr("looking up")
             case "queued": return qsTr("queued")
-            case "analysing": return qsTr("analysing") + (info.stage ? ": " + info.stage : "")
+            case "analysing": return "⟳ " + qsTr("analysing") + (info.stage ? ": " + info.stage : "")
             case "failed": return qsTr("failed") + (info.error ? ": " + info.error : "")
             default: return qsTr("no structure")
         }
@@ -74,9 +74,17 @@ Rectangle
         {
             Layout.fillWidth: true
             text: qsTr("Deck %1: %2").arg(strip.deck).arg(strip.message)
-            color: strip.state === "failed" ? "#e74c3c" : "#999"
+            color: strip.state === "failed" ? "#e74c3c" : strip.state === "analysing" ? "#f1c40f" : "#999"
             font.pixelSize: 12
+            font.bold: strip.state === "analysing"
             elide: Text.ElideRight
+        }
+        Button
+        {
+            visible: strip.state === "none"
+            text: qsTr("Analyse now")
+            implicitHeight: 20
+            onClicked: edmStructure.analyse(strip.info.path)
         }
         Button
         {

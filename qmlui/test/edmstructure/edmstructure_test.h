@@ -32,6 +32,8 @@ private slots:
     void samePathRunsOnce();
     void movedFileIsFoundByContent();
     void autoAnalyseOffQueuesNothing();
+    void autoAnalyseIsOffByDefault();
+    void analyseByHandRunsOnceAndReachesTheDeck();
     void leftDeckGetsNoStaleState();
     void ejectDuringRunKeepsDeckEmpty();
     void queueRunsInOrderOnce();
@@ -46,6 +48,9 @@ private slots:
     void newWorkspaceClearsMapping();
     void directorPressesTheLookOfEachSection();
     void directorHoldsAfterTheDjChangesALook();
+    void directorKeepsTheOverrideThroughLoops();
+    void directorReleasesEveryOtherLook();
+    void directorIgnoresLifts();
     void directorIgnoresStateChangesThatKeepTheLookOn();
     void directorFollowsOnlyTheActiveDeck();
     void directorChangesNothingWithoutAnalysisOrAuto_data();

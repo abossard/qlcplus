@@ -46,7 +46,6 @@ signals:
 /** What the director remembers between events */
 struct EdmLookState
 {
-    quint32 pressed = kNoLookWidget;   // the look the director pressed last and still holds
     bool overridden = false;           // the DJ changed a look: hands off until the next trigger
 };
 
@@ -55,19 +54,21 @@ struct EdmLookEvent
 {
     bool activeDeck = false;
     bool sectionStart = false;
-    bool jumped = false;
+    bool jumped = false;               // the playhead went backwards
+    bool sameSection = false;          // ... and landed in the section it was in: a loop, not a trigger
     bool becameActive = false;
     QString label;                     // the section now playing
+    QList<quint32> mappedOn;           // the mapped look buttons that are on now
 };
 
 struct EdmLookDecision
 {
-    quint32 release = kNoLookWidget;   // released first
+    QList<quint32> release;            // released first: every other look that is on
     quint32 press = kNoLookWidget;
     EdmLookState state;
 };
 
-/** The look to show: calculation only */
+/** The look to show: calculation only. The mapped buttons are one group: the target is on, the rest off. */
 EdmLookDecision edmLookDecide(const EdmStructureMapping &mapping, const EdmLookState &state, const EdmLookEvent &event);
 
 /** The DJ changed a button the director did not touch */
@@ -116,6 +117,7 @@ private:
     QHash<quint32, bool> m_expected;   // widget -> the state the director asked for and has not seen yet
     QHash<quint32, bool> m_known;      // widget -> on when last reported; a report that keeps it is no change
     int m_deck = 0;
+    int m_section = -1;                // the followed deck's section at the last event
     QString m_label;
 };
 

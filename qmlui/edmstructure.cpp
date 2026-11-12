@@ -64,6 +64,14 @@ void EdmStructure::retry(const QString &path)
     m_queue->retry(path);
 }
 
+void EdmStructure::analyse(const QString &path)
+{
+    if (m_queue->entry(path).state == "failed")
+        m_queue->retry(path);
+    else if (m_reader.analysis(path).valid == false)
+        m_queue->enqueue(path);
+}
+
 void EdmStructure::slotSongChanged(int deck)
 {
     syncDeck(deck);
@@ -160,7 +168,7 @@ void EdmStructure::contentLookupDone(int deck, int token, const QString &id)
     }
 
     d.missed = true;
-    if (QSettings().value(SETTINGS_AUTO_ANALYSE, true).toBool())
+    if (QSettings().value(SETTINGS_AUTO_ANALYSE, false).toBool())
         m_queue->enqueue(d.path);
     takeQueueState(deck);
 }

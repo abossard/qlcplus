@@ -106,8 +106,9 @@ public:
     /** none, queued, analysing, ready or failed, for a song on a deck or not */
     Q_INVOKABLE QString analysisStateForPath(const QString &path);
 
-    /** Run a failed analysis again */
+    /** Analyse this song now, whatever the auto setting; a song that is ready, queued or running is left alone, a failed one runs again */
     Q_INVOKABLE void retry(const QString &path);
+    Q_INVOKABLE void analyse(const QString &path);
 
 signals:
     /** A followed deck (it has an analysis and a position) moved: crossed

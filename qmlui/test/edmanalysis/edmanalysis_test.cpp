@@ -309,6 +309,47 @@ void EdmAnalysis_Test::confidenceIsRounded()
     QCOMPARE(a.grid.confidence, grid);
 }
 
+void EdmAnalysis_Test::liftEventsAndSourcesParse()
+{
+    const QString sections = R"({"label": "buildup", "start_bar": 0, "end_bar": 16, "start": 0.0, "end": 31.0, "confidence": 40, "sources": ["rules", "model"]})";
+    const QString events = R"({"kind": "lift", "bar": 6, "time": 13.0, "sources": ["dropdetector"]}, {"kind": "drop", "bar": 12, "time": 25.0, "confidence": 70, "sources": ["rules"]})";
+
+    const EdmAnalysis a = parseEdmAnalysis(document("qlcplus-edm-final/2", kGrid, sections, events));
+
+    QVERIFY(a.valid);
+    QCOMPARE(a.sections.size(), 1);
+    QCOMPARE(a.sections[0].confidence, 40);
+    QCOMPARE(a.events.size(), 2);
+    QCOMPARE(a.events[0].kind, QString("lift"));
+    QCOMPARE(a.events[0].confidence, kEdmNoConfidence);
+}
+
+void EdmAnalysis_Test::nextDropIgnoresLifts_data()
+{
+    QTest::addColumn<QString>("events");
+    QTest::addColumn<int>("nextDrop");
+    QTest::addColumn<double>("barsToDrop");
+
+    const QString lift = R"({"kind": "lift", "bar": 6, "time": 13.0})";
+    const QString drop = R"({"kind": "drop", "bar": 12, "time": 25.0})";
+    QTest::newRow("a lift before the drop") << lift + "," + drop << 1 << 7.0;
+    QTest::newRow("only a lift") << lift << -1 << -1.0;
+    QTest::newRow("a lift after the drop") << drop + "," + R"({"kind": "lift", "bar": 14, "time": 29.0})" << 0 << 7.0;
+}
+
+void EdmAnalysis_Test::nextDropIgnoresLifts()
+{
+    QFETCH(QString, events);
+    QFETCH(int, nextDrop);
+    QFETCH(double, barsToDrop);
+
+    const EdmAnalysis a = parseEdmAnalysis(document("qlcplus-edm-final/2", kGrid, R"({"label": "buildup", "start_bar": 0, "end_bar": 16, "start": 0.0, "end": 31.0})", events));
+    const EdmSongPosition p = edmSongPosition(a, a.grid.firstDownbeatMs + 5 * a.grid.barMs, "drop");
+
+    QCOMPARE(p.nextEvent, nextDrop);
+    QCOMPARE(p.barsToNextEvent, barsToDrop);
+}
+
 static void writeAnalysisDir(const QString &dir, const QString &audioPathInIndex, const QString &id, const QByteArray &final)
 {
     QDir().mkpath(dir + "/final");

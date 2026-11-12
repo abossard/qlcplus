@@ -17,23 +17,31 @@
 
 #include "edmstructuredirector.h"
 
+#include <QSet>
+
+#include <algorithm>
+
 EdmLookDecision edmLookDecide(const EdmStructureMapping &mapping, const EdmLookState &state, const EdmLookEvent &event)
 {
     EdmLookDecision decision;
     decision.state = state;
-    const bool trigger = event.sectionStart || event.jumped || event.becameActive;
+    const bool jumpedAway = event.jumped && event.sameSection == false;
+    const bool trigger = event.sectionStart || jumpedAway || event.becameActive;
     if (mapping.autoEnabled() == false || event.activeDeck == false || trigger == false)
         return decision;
 
     decision.state.overridden = false;
     const quint32 target = mapping.widget(event.label);
-    if (target == kNoLookWidget || target == state.pressed)
+    if (target == kNoLookWidget)
         return decision;
 
-    decision.press = target;
-    if (state.pressed != kNoLookWidget)
-        decision.release = state.pressed;
-    decision.state.pressed = target;
+    for (quint32 id : event.mappedOn)
+    {
+        if (id != target)
+            decision.release.append(id);
+    }
+    if (event.mappedOn.contains(target) == false)
+        decision.press = target;
     return decision;
 }
 
@@ -41,10 +49,7 @@ EdmLookState edmLookExternalChange(const EdmStructureMapping &mapping, const Edm
 {
     EdmLookState result = state;
     if (mapping.autoEnabled() && mapping.widgets().contains(widgetId))
-    {
         result.overridden = true;
-        result.pressed = kNoLookWidget;
-    }
     return result;
 }
 
@@ -81,11 +86,23 @@ void EdmStructureDirector::slotDeckAdvanced(int deck, const EdmAnalysis &analysi
     event.activeDeck = true;
     event.becameActive = deck != m_deck;
     event.jumped = crossings.jumped;
+    event.sameSection = deck == m_deck && position.section == m_section;
     for (const EdmCrossing &c : crossings.crossed)
         event.sectionStart = event.sectionStart || c.kind == EdmCrossing::SectionStart;
     event.label = position.section >= 0 ? analysis.sections[position.section].label : QString();
 
+    QSet<quint32> mapped;
+    for (quint32 id : m_mapping->widgets())
+        mapped.insert(id);
+    for (quint32 id : mapped)
+    {
+        if (m_surface->isOn(id))
+            event.mappedOn.append(id);
+    }
+    std::sort(event.mappedOn.begin(), event.mappedOn.end());
+
     m_deck = deck;
+    m_section = position.section;
     m_label = event.label;
     apply(edmLookDecide(*m_mapping, m_state, event));
     emit statusChanged();
@@ -122,10 +139,13 @@ void EdmStructureDirector::apply(const EdmLookDecision &decision)
 {
     m_state = decision.state;
     m_expected.clear();
-    if (decision.release != kNoLookWidget && m_surface->isOn(decision.release))
+    for (quint32 release : decision.release)
     {
-        m_expected.insert(decision.release, false);
-        m_surface->set(decision.release, false);
+        if (m_surface->isOn(release))
+        {
+            m_expected.insert(release, false);
+            m_surface->set(release, false);
+        }
     }
     if (decision.press != kNoLookWidget && m_surface->isOn(decision.press) == false)
     {
