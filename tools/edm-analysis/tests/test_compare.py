@@ -296,3 +296,16 @@ def test_the_table_lists_the_rejected_claims_and_the_structure_counts():
     text = format_table(compare([*FUSED_CLAIMS, *REJECTED_CLAIMS], REJECTED_ANSWERS))
     for part in ("rejected", "still make", "drops after a drop", "lifts"):
         assert part in text, part
+
+
+def test_mean_energy_per_label_shows_drops_above_breakdowns():
+    claims = [{**sec("E", "fused", b, l), "energy": e} for b, l, e in ((0, "intro", 3), (16, "drop", 10), (48, "breakdown", 4), (64, "drop", 9), (96, "outro", 2))]
+    claims += [sec("E", "rules", 0, "intro")]
+    out = compare(claims)["energy"]
+    assert out == {"breakdown": {"n": 1, "mean": 4.0}, "drop": {"n": 2, "mean": 9.5}, "intro": {"n": 1, "mean": 3.0}, "outro": {"n": 1, "mean": 2.0}}
+    text = format_table(compare(claims))
+    assert "mean energy per label" in text and "9.5" in text
+
+
+def test_no_energy_table_for_tables_exported_without_it():
+    assert compare(FUSED_CLAIMS)["energy"] is None and "mean energy" not in format_table(compare(FUSED_CLAIMS))

@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from edm_analysis.fusion import FUSION_VERSION
 from edm_analysis.review import Auth, ReviewServer, host_allowed, make_handler, validate_rating
 
 TID = "abababababababab"
@@ -155,7 +156,7 @@ def test_a_valid_rating_is_stored_but_never_reaches_the_final_file(site):
     status, _, body = post_rating(port, login(port), GOOD)
     assert status == 200
     stored = json.loads((root / "ratings.json").read_text())[TID]
-    assert stored["overall"] == 4 and stored["analyzer_version"] == "2.5.1"
+    assert stored["overall"] == 4 and stored["analyzer_version"] == f"2.5.{FUSION_VERSION}"
     assert not (root / "final").exists()
 
 

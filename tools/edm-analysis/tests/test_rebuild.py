@@ -36,8 +36,8 @@ def test_rebuild_writes_every_final_file_from_the_raw_outputs(library):
     assert [d[:2] for d in drops(finals[TIDS[0]])] == [(18, ["dropdetector"])]       # moved onto the detector's drop
     assert [d[:2] for d in drops(finals[TIDS[1]])] == [(16, ["rules"])]              # no Candidate output: the rules stand
     assert all(isinstance(s["confidence"], int) for f in finals.values() for s in f["sections"])
-    assert finals[TIDS[0]]["analyzer"] == "2.5.1"
-    assert json.loads((library / "confidence-model.json").read_text())["analyzer"] == ["2.5.1"]     # the structure the model was fitted on
+    assert finals[TIDS[0]]["analyzer"] == "2.5.2"
+    assert json.loads((library / "confidence-model.json").read_text())["analyzer"] == ["2.5.2"]     # the structure the model was fitted on
 
 
 def test_rebuild_leaves_the_raw_outputs_as_they_were(library):

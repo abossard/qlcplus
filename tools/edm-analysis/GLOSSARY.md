@@ -65,8 +65,16 @@ A step inside a drop: a drop that directly follows a drop is the same drop, so t
 _Avoid_: second drop
 
 **First beat entry**:
-A drop with no breakdown and no buildup before it, so the track enters on a full beat (`fusion.entry_drops`). Not relabelled until the reviewer says whether it counts as a drop.
+A drop with no breakdown and no buildup before it (`fusion.entry_drops`). Where the kick was already running before it, it is no drop but part of the intro; where the beat comes in on it, it stays a drop.
 _Avoid_: intro drop
+
+**Label**:
+One of intro, buildup, drop, breakdown, outro. There is no groove: a steady beat part is named by where it sits (intro before the first breakdown, buildup or drop; part of the drop it follows; buildup or breakdown before a drop; outro as the last section). Intro only opens a track, outro only closes it. An old answer "is:groove" still counts: it means "not the asked label, a steady beat part".
+_Avoid_: groove, part type
+
+**Energy**:
+The level of a section, 1 to 10: its mean loudness against the loudest section of the track (10). The final file also carries the loudness per bar (`bars.energy`, 0 to 1) so the level inside a long section can be followed.
+_Avoid_: intensity, loudness rank
 
 **Reviewer error rate**:
 The assumed share (10 %) of the reviewer's answers that are wrong, so even a perfect source reads about 0.9 on Gold. Exact rates on Gold are reported as observed and as read under this rate; the Target itself is not changed.

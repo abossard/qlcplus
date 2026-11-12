@@ -6,11 +6,13 @@ Reviews never reach this file: they are training and scoring data only (GLOSSARY
 import json
 from pathlib import Path
 
+import numpy as np
+
 from .candidates import fused
 from .confidence import load_model, with_confidence
 
-FINAL_SCHEMA = "qlcplus-edm-final/2"
-SECTION_KEYS = ("label", "start_bar", "end_bar", "start", "end", "confidence", "label_confidence", "sources")
+FINAL_SCHEMA = "qlcplus-edm-final/3"    # 3 adds energy per section and bars.energy; what schema 2 readers know is unchanged
+SECTION_KEYS = ("label", "start_bar", "end_bar", "start", "end", "confidence", "label_confidence", "sources", "energy")
 EVENT_KEYS = ("kind", "bar", "time", "confidence", "sources")
 
 
@@ -25,7 +27,8 @@ def final_document(doc):
         grid["confidence"] = doc["grid"]["bar1_confidence"]
     return {"schema": FINAL_SCHEMA, "analyzer": doc.get("analyzer", {}).get("version"),
             "track": {k: doc["track"][k] for k in ("path", "title", "sha256")},
-            "grid": grid, "sections": sections, "events": [pick(e, EVENT_KEYS) for e in doc["events"]]}
+            "grid": grid, "sections": sections, "events": [pick(e, EVENT_KEYS) for e in doc["events"]],
+            "bars": {"energy": [round(float(x), 3) for x in np.nan_to_num(np.asarray(doc["bars"]["levels"]["loud"], float))]}}
 
 
 def write_final(out_dir, doc):

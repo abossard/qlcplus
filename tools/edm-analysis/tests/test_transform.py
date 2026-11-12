@@ -198,3 +198,10 @@ def test_fused_claims_name_their_sources_and_lifts_are_claims_of_their_own():
     assert [(r["kind"], r["bar"], r["sources"]) for r in rows if r["kind"] != "section"] == [
         ("buildup", 10, "rules"), ("drop", 18, "dropdetector+edmformer"), ("lift", 25, "dropdetector")]
     assert [r["sources"] for r in claims_ours(TID, doc) if r["source"] == "rules"] == [None] * 6
+
+
+def test_fused_section_claims_carry_the_energy_level():
+    doc = {**FUSED, "sections": [{**s, "energy": e} for s, e in zip(FUSED["sections"], (2, 6, 10))]}
+    rows = claims_ours(TID, doc)
+    assert [r["energy"] for r in rows if r["source"] == "fused" and r["kind"] == "section"] == [2, 6, 10]
+    assert all(r["energy"] is None for r in rows if r["source"] == "rules")

@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from edm_analysis import candidates, confidence, library, review
+from edm_analysis.fusion import FUSION_VERSION
 from edm_analysis.review import Clips, LibraryReport, ReviewServer, make_handler, parse_range
 
 
@@ -340,7 +341,7 @@ def test_the_report_comes_from_rounds_report_over_the_library(clip_site, monkeyp
     assert json.loads(fetch(base + "/api/report")[2]) == {"rounds": [], "sources": {"vdj": {"n": 3, "exact": 0.5}}}
     assert [r["round"] for r in seen["rounds"]] == [1] and list(seen["docs"]) == [TID]
     doc = seen["docs"][TID]   # the Analysis QLC+ gets: fused, with the model's confidence, without the large arrays
-    assert "peaks" not in doc and doc["analyzer"]["fusion"] == 1 and all("sources" in s for s in doc["sections"])
+    assert "peaks" not in doc and doc["analyzer"]["fusion"] == FUSION_VERSION and all("sources" in s for s in doc["sections"])
     assert [s.get("confidence") for s in doc["sections"] if s["start_bar"]] == [50 if model else None]
 
 
@@ -652,13 +653,16 @@ def test_the_track_is_the_fused_analysis_with_the_models_confidence_and_without_
         (root / confidence.MODEL_FILE).write_text(json.dumps({"groups": {}}))
     track = served(base, "track")
     expected = candidates.fused(root, raw)
-    assert track["sections"] != raw["sections"] and [s["start_bar"] for s in track["sections"]] == [s["start_bar"] for s in expected["sections"]]
-    assert track["rules"]["sections"] == raw["sections"] and track["analyzer"]["version"] == "3.5.1" and track["analyzer"]["fusion"] == 1
+    assert track["sections"] != raw["sections"] and [(s["label"], s["start_bar"]) for s in track["sections"]] == [(s["label"], s["start_bar"]) for s in expected["sections"]]
+    assert track["rules"]["sections"] == raw["sections"] and track["analyzer"]["version"] == FUSED and track["analyzer"]["fusion"] == FUSION_VERSION
     assert all("sources" in s for s in track["sections"]) and "path" not in track["track"]
     assert all("confidence" in s for s in track["sections"]) == model
 
 
-@pytest.mark.parametrize("stored,kept", [("1.5.1", True), ("3.5.1", True), ("3.5.2", False), ("3.6.1", False), ("3.5", False)])
+FUSED = f"3.5.{FUSION_VERSION}"   # the fused version of FUSED_RAW
+
+
+@pytest.mark.parametrize("stored,kept", [(f"1.5.{FUSION_VERSION}", True), (FUSED, True), (f"3.5.{FUSION_VERSION + 1}", False), (f"3.6.{FUSION_VERSION}", False), ("3.5", False)])
 def test_a_rating_of_the_fused_analysis_survives_only_a_features_update(fused_site, stored, kept):
     base, root = fused_site
     (root / "ratings.json").write_text(json.dumps({FUSED_TID: {"analyzer_version": stored, "overall": 5}}))
@@ -667,7 +671,7 @@ def test_a_rating_of_the_fused_analysis_survives_only_a_features_update(fused_si
 
 def test_a_saved_rating_carries_the_fused_version_and_reading_gold_does_not_archive_it(fused_site):
     base, root = fused_site
-    assert post(base, "ratings", {"overall": 4})["analyzer_version"] == "3.5.1"
+    assert post(base, "ratings", {"overall": 4})["analyzer_version"] == FUSED
     served(base, "gold")
     assert served(base, "ratings")["overall"] == 4 and not (root / "ratings_history.json").exists()
 
@@ -680,7 +684,7 @@ def test_a_candidate_file_being_rewritten_is_a_retry_later_and_archives_no_ratin
     with pytest.raises(urllib.error.HTTPError) as e:
         fetch(f"{base}/api/{what}/{FUSED_TID}")
     assert e.value.code == 503
-    assert json.loads((root / "ratings.json").read_text())[FUSED_TID]["analyzer_version"] == "3.5.1" and not (root / "ratings_history.json").exists()
+    assert json.loads((root / "ratings.json").read_text())[FUSED_TID]["analyzer_version"] == FUSED and not (root / "ratings_history.json").exists()
 
 
 # --- the report and the song list describe the fused Analysis, recomputed only for changed inputs ----------------

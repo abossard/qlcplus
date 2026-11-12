@@ -284,3 +284,21 @@ def test_a_claim_kind_with_too_little_gold_stays_unknown_when_gold_alone_fits_th
 def test_silver_rows_cover_every_kind_of_start():
     model = fit(_start_rows({"drop": 40, "buildup": 40, "other": 40}, np.random.default_rng(11)), [])
     assert "kinds" not in model["groups"]["start"]
+
+
+def test_the_labels_are_the_five_the_reviewer_uses():
+    from edm_analysis.confidence import LABELS
+
+    assert LABELS == ("intro", "buildup", "drop", "breakdown", "outro")
+    assert [f for f in FEATURES["label"] if f.startswith("is_")] == [f"is_{l}" for l in LABELS]
+
+
+@pytest.mark.parametrize("label,answer,rows", [
+    ("drop", "is:groove", [False]),      # an old answer: not a drop, a steady beat part
+    ("drop", "yes", [True]),
+    ("groove", "yes", []),               # a Claim for a label the Analysis no longer makes trains nothing
+    ("groove", "no", []),
+])
+def test_old_groove_answers_stay_gold_but_groove_claims_train_nothing(label, answer, rows):
+    record = {"answer": answer, "round": 1, "track": "abababababababab", "claim": {"kind": "label", "label": label, "bar": 16, "end_bar": 32, "time": 32.0}}
+    assert [e for _, _, e in gold_rows({"r01-p001": record}, {"abababababababab": DOC})] == rows

@@ -3,6 +3,8 @@ import random
 
 import pytest
 
+from edm_analysis.confidence import LABELS
+
 from edm_analysis.rounds import current_round, load_answers, public_round, record_answer, validate_answer
 
 YESNO = {"id": "r01-p001", "track": "abababababababab", "title": "song", "theory": "t1", "bucket": "unsure",
@@ -34,7 +36,7 @@ def write_round(root, rnd):
     (LABEL, "yes", True), (LABEL, "no", True), (LABEL, "earlier", False),
     (YESNO, "bar:0", True), (YESNO, "bar:12", True), (YESNO, "bar:24", True), (YESNO, "bar:25", False),
     (YESNO, "bar:-1", False), (YESNO, "bar:08", False), (YESNO, "bar:", False), (YESNO, "bar:x", False), (YESNO, "bar:1.5", False),
-    (LABEL, "is:drop", True), (LABEL, "is:groove", True), (LABEL, "is:chorus", False), (LABEL, "is:", False), (LABEL, "bar:9", False),
+    (LABEL, "is:drop", True), (LABEL, "is:outro", True), (LABEL, "is:chorus", False), (LABEL, "is:", False), (LABEL, "bar:9", False),
     (AB, "bar:9", False), (AB, "is:drop", False), (YESNO, "is:drop", False),
     (LOCATE, "bar:9", True), (LOCATE, "bar:24", True), (LOCATE, "bar:25", False), (LOCATE, "none", True), (LOCATE, "skip", True),
     (LOCATE, "yes", False), (LOCATE, "earlier", False), (LOCATE, "no", False),
@@ -88,7 +90,7 @@ def test_the_public_round_hides_what_could_bias_the_reviewer(tmp_path):
     (YESNO, ["yes", "none", "skip"], True, None),
     (MISSED, ["yes", "no", "skip"], True, None),
     (AB, ["a", "b", "neither", "skip"], False, None),
-    (LABEL, ["yes", "no", "skip"], False, ["intro", "buildup", "drop", "breakdown", "groove", "outro"]),
+    (LABEL, ["yes", "no", "skip"], False, list(LABELS)),
     (LOCATE, ["none", "skip"], True, None),
 ])
 def test_the_public_probe_says_what_the_page_may_offer(probe, options, tap, labels):
@@ -363,7 +365,8 @@ def test_the_detectors_pool_gets_two_turns_per_cycle():
     drops = {t: {"edmformer": [18]} for t in DOCS}
     rnd = make_round(1, DOCS, {}, {}, [], size=24, candidate_drops=drops)
     counts = {t: sum(p["theory"] == t and p["bucket"] == "unsure" for p in rnd["probes"]) for t in ("detectors", "grid", "labels")}
-    assert counts["detectors"] >= 2 * counts["labels"] and counts["detectors"] > counts["grid"]
+    counts["grid"] = sum(p["claim"]["kind"] == "grid" and p["bucket"] == "unsure" for p in rnd["probes"])
+    assert counts["detectors"] >= 2 * counts["grid"] - 1 and counts["detectors"] > counts["grid"]
 
 
 def test_every_answer_ever_given_stays_in_the_log(tmp_path):
@@ -676,7 +679,8 @@ def test_the_detectors_and_buildup_pools_get_two_turns_per_cycle_and_the_others_
     rnd = make_round(1, DOCS, vdj, {}, [], size=40, candidate_drops=drops)
     unsure = [p for p in rnd["probes"] if p["bucket"] == "unsure"]
     counts = {t: sum(p["theory"] == t for p in unsure) for t in ("detectors", "buildup", "grid", "labels")}
-    assert counts["detectors"] >= 2 * counts["labels"] and counts["buildup"] >= 2 * counts["labels"]
+    counts["grid"] = sum(p["claim"]["kind"] == "grid" for p in unsure)
+    assert counts["detectors"] >= 2 * counts["grid"] - 1 and counts["buildup"] >= 2 * counts["grid"] - 1
     assert counts["detectors"] > counts["grid"] and counts["buildup"] > counts["grid"]
     assert abs(counts["detectors"] - counts["buildup"]) <= 1
 
@@ -738,7 +742,7 @@ def test_a_drop_before_any_breakdown_or_buildup_is_asked_about_as_the_first_beat
         assert p["plays"] == [{"id": "main", "start": max(0.0, 2.0 * (p["claim"]["bar"] - 4)), "end": 2.0 * (p["claim"]["bar"] + 4), "mark": 2.0 * p["claim"]["bar"]}]
 
 
-@pytest.mark.parametrize("answer,ok,confirmed", [("yes", True, False), ("no", True, True), ("is:groove", True, True), ("is:buildup", True, True), ("skip", True, None),
+@pytest.mark.parametrize("answer,ok,confirmed", [("yes", True, False), ("no", True, True), ("is:intro", True, True), ("is:buildup", True, True), ("skip", True, None),
                                                  ("is:chorus", False, None), ("bar:16", False, None)])
 def test_the_first_beat_entry_theory_is_confirmed_by_anything_but_yes(tmp_path, answer, ok, confirmed):
     tid, d, (p,) = entry_probes(("intro", 0, 16), ("drop", 16, 32))
@@ -761,63 +765,121 @@ def with_lift(*bars, sections=(("intro", 0, 8), ("drop", 8, 40))):
     return tid, d, theory_candidates(tid, d, None, random.Random(0))["lift"]
 
 
-def test_no_lift_events_make_no_lift_question():
-    assert with_lift()[2] == []
-
-
-@pytest.mark.parametrize("lifts,claim_bar,sections", [
-    ([24], 8, (("intro", 0, 8), ("drop", 8, 40))),
-    ([24, 32], 8, (("intro", 0, 8), ("drop", 8, 40))),
-    ([30], 24, (("intro", 0, 8), ("drop", 8, 24), ("groove", 24, 36), ("drop", 36, 40))),    # the section our lift is inside
+@pytest.mark.parametrize("lifts,sections,expected", [
+    ([], (("intro", 0, 8), ("drop", 8, 40)), []),
+    ([16], (("intro", 0, 8), ("drop", 8, 40)), [(8, 16, 4, 18)]),
+    ([12, 18], (("intro", 0, 8), ("drop", 8, 40)), [(8, 12, 4, 14), (8, 18, 4, 20)]),
+    ([10], (("intro", 0, 2), ("drop", 2, 40)), [(2, 10, 0, 12)]),                 # the clip does not start before the track
+    ([19], (("intro", 0, 8), ("drop", 8, 40)), []),                               # the clip would be longer than 16 bars
+    ([30], (("intro", 0, 8), ("drop", 8, 24), ("breakdown", 24, 40)), []),        # not inside a drop
+    ([28], (("intro", 0, 8), ("drop", 8, 24), ("drop", 24, 40)), [(24, 28, 20, 30)]),
 ])
-def test_a_lift_becomes_a_start_question_where_not_in_this_clip_confirms_our_analysis(lifts, claim_bar, sections):
+def test_a_merged_drop_is_located_in_a_clip_that_holds_its_start_and_the_lift(lifts, sections, expected):
     tid, d, probes = with_lift(*lifts, sections=sections)
-    assert [p["alternatives"]["yes"]["bar"] for p in probes] == lifts
-    p = probes[0]
-    assert (p["theory"], p["question"], p["prompt"]) == ("lift", "yesno", "Does a new drop start at the marker?")
-    assert p["claim"] == {"kind": "missed", "bar": claim_bar, "time": 2.0 * lifts[0], "confidence": 50}
-    assert p["alternatives"] == {"yes": {"source": "lift", "bar": lifts[0]}, "none": {"source": "ours"}}
-    assert p["plays"] == [{"id": "main", "start": 2.0 * (lifts[0] - 2), "end": 2.0 * (lifts[0] + 2), "mark": 2.0 * lifts[0]}]
+    assert len(probes) == len(expected)
+    for p, (start, lift, first, last) in zip(probes, expected):
+        assert (p["theory"], p["question"], p["prompt"]) == ("lift", "locate", "Tap the bar where the drop starts")
+        assert p["claim"] == {"kind": "drop", "bar": start, "time": 2.0 * start, "confidence": 60}
+        assert p["alternatives"] == {"ours": {"bar": start}, "lift": {"bar": lift}}
+        assert p["plays"] == [{"id": "main", "start": 2.0 * first, "end": 2.0 * last, "mark": None}]
 
 
-@pytest.mark.parametrize("answer,exact,gold", [
-    ("none", True, None), ("yes", False, 24), ("skip", None, None), ("bar:24", False, 24), ("bar:26", False, 26), ("bar:8", True, 8), ("no", False, None),
+@pytest.mark.parametrize("answer,exact,gold,confirmed", [
+    ("bar:8", True, 8, True), ("bar:16", False, 16, False), ("bar:12", False, 12, False), ("none", False, None, False), ("skip", None, None, None),
 ])
-def test_a_lift_answer_is_exact_when_no_new_drop_starts_and_names_the_bar_of_a_new_one(tmp_path, answer, exact, gold):
-    tid, d, (p,) = with_lift(24)
+def test_the_tapped_bar_says_whether_the_merge_was_right(tmp_path, answer, exact, gold, confirmed):
+    tid, d, (p,) = with_lift(16)
     write_round(tmp_path, {**ROUND, "probes": [{**p, "id": "r01-p001"}]})
-    status = record_answer(tmp_path, "r01-p001", answer)
-    assert status == (200, None)
+    assert record_answer(tmp_path, "r01-p001", answer) == (200, None)
     record = load_answers(tmp_path)["r01-p001"]
     assert (_exact(record), gold_bar(record)) == (exact, gold)
-    assert gold_rows({"r01-p001": record}, {tid: d}) == []
+    if confirmed is not None:
+        assert CONFIRMS["lift"](record) is confirmed
 
 
-@pytest.mark.parametrize("answer,ok", [("bar:24", True), ("bar:40", True), ("bar:8", True), ("bar:41", False), ("bar:7", False), ("none", True), ("yes", True),
-                                       ("no", True), ("is:drop", False)])
-def test_a_tap_on_a_lift_question_must_be_near_the_lift(answer, ok):
-    p = with_lift(24)[2][0]
-    assert (validate_answer(p, answer) is None) == ok
-
-
-def test_the_lift_question_looks_like_any_start_question_to_the_page():
-    p = {**with_lift(24)[2][0], "id": "r01-p001"}
+def test_the_lift_question_looks_like_any_locate_question_and_its_theory_gives_no_hint():
+    p = {**with_lift(16)[2][0], "id": "r01-p001"}
     pub = public_round({**ROUND, "probes": [p]}, {})["probes"][0]
-    assert [(o["value"], o["label"]) for o in pub["options"]] == [("yes", "Yes"), ("none", "Not in this clip"), ("skip", "Can't tell")] and pub["tap"] is True
-    for hidden in ("confidence", "bucket", "source", "alternatives", "claim", "near", "none_label"):
-        assert f'"{hidden}"' not in json.dumps(pub)
+    assert [(o["value"], o["label"]) for o in pub["options"]] == [("none", "Not in this clip"), ("skip", "Can't tell")] and pub["tap"] is True
+    for hidden in ("confidence", "bucket", "source", "alternatives", "claim", "ours", "lift"):
+        assert f'"{hidden}"' not in json.dumps({**pub, "theory": ""})
+    assert not any(word in THEORIES["lift"].lower() for word in ("second", "twice", "hit", "lift", "merge", "new drop", "vdj", "edmformer", "detector", "allin1", "rules"))
 
 
-@pytest.mark.parametrize("answer,confirmed", [("none", True), ("bar:8", True), ("yes", False), ("bar:26", False)])
-def test_the_lift_theory_is_confirmed_when_no_new_drop_starts(tmp_path, answer, confirmed):
-    tid, d, (p,) = with_lift(24)
-    write_round(tmp_path, {**ROUND, "probes": [{**p, "id": "r01-p001"}]})
-    record_answer(tmp_path, "r01-p001", answer)
-    assert CONFIRMS["lift"](load_answers(tmp_path)["r01-p001"]) is confirmed
+OLD_LIFT = {**YESNO, "id": "r05-p006", "theory": "lift", "prompt": "Does a new drop start at the marker?",
+            "claim": {"kind": "missed", "bar": 8, "time": 48.0, "confidence": 50}, "none_label": "Not in this clip", "near": 24,
+            "alternatives": {"yes": {"source": "lift", "bar": 24}, "none": {"source": "ours"}}}
 
 
-def test_the_lift_theory_names_no_source():
-    assert not any(name in THEORIES["lift"].lower() for name in ("vdj", "virtualdj", "edmformer", "drop detector", "allin1", "rules"))
+@pytest.mark.parametrize("answer,ok", [("bar:24", True), ("bar:40", True), ("bar:41", False), ("bar:7", False), ("none", True), ("yes", True), ("skip", True)])
+def test_the_lift_questions_of_round_5_keep_their_buttons_and_answers(answer, ok):
+    assert (validate_answer(OLD_LIFT, answer) is None) == ok
+    assert [o["value"] for o in public_round({**ROUND, "probes": [OLD_LIFT]}, {})["probes"][0]["options"]] == ["yes", "none", "skip"]
+
+
+# --- labels ---
+
+FIVE = ("intro", "buildup", "drop", "breakdown", "outro")
+
+
+def test_the_label_list_and_new_answers_follow_the_labels_of_the_analysis(monkeypatch):
+    monkeypatch.setattr("edm_analysis.rounds.LABELS", FIVE)
+    assert public_round({**ROUND, "probes": [LABEL]}, {})["probes"][0]["labels"] == list(FIVE)
+    assert validate_answer(LABEL, "is:groove") is not None and validate_answer(LABEL, "is:outro") is None
+
+
+def test_a_stored_answer_with_a_label_that_is_gone_still_counts(monkeypatch):
+    monkeypatch.setattr("edm_analysis.rounds.LABELS", FIVE)
+    claim = {"kind": "label", "label": "drop", "bar": 16, "end_bar": 32, "time": 32.0, "confidence": 40}
+    probes = [{"id": f"r01-p00{i}", "track": TRACKS[i], "theory": "labels", "question": "label", "claim": claim} for i in (1, 2)]
+    answers = {p["id"]: {"answer": a, "round": 1, "track": p["track"], "claim": claim} for p, a in zip(probes, ("is:groove", "yes"))}
+    out = report([earlier_round(probes)], answers, DOCS)
+    assert out["rounds"][0]["fresh_exact"]["label"] == 0.5 and out["theories"]["labels"]["n"] == 2
+    assert len(gold_answers(answers)) == 2
+
+
+def five_part_docs(n=24):
+    out = {}
+    for i in range(1, n + 1):
+        tid, d = doc(i)
+        out[tid] = with_sections(d, ("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 24), ("breakdown", 24, 28), ("outro", 28, 32))
+    return out
+
+
+def label_of(p):
+    return p["claim"]["label"]
+
+
+def test_the_labels_pool_gets_two_turns_per_cycle():
+    rnd = make_round(1, five_part_docs(), {}, {}, [], size=30)
+    unsure = [p for p in rnd["probes"] if p["bucket"] == "unsure"]
+    counts = {t: sum(p["theory"] == t for p in unsure) for t in ("labels", "buildup", "grid")}
+    assert abs(counts["labels"] - counts["buildup"]) <= 1 and counts["labels"] >= 2 * counts["grid"] - 1 and counts["labels"] > counts["grid"]
+
+
+@pytest.mark.parametrize("asked_before,first", [
+    ({}, set(FIVE)),
+    ({"drop": 5, "intro": 5, "breakdown": 5}, {"buildup", "outro"}),
+    ({"drop": 3, "intro": 3, "breakdown": 3, "buildup": 1, "outro": 3}, {"buildup"}),
+])
+def test_label_questions_go_to_the_labels_asked_least(asked_before, first):
+    docs = five_part_docs()
+    claim = lambda label: {"kind": "label", "label": label, "bar": 16, "end_bar": 24, "time": 32.0, "confidence": 50}
+    answers = {f"r00-{label}-{i}": {"answer": "yes", "round": 0, "track": "f" * 16, "claim": claim(label)} for label, n in asked_before.items() for i in range(n)}
+    rnd = make_round(1, docs, {}, answers, [], size=30)
+    labels = [label_of(p) for p in rnd["probes"] if p["theory"] == "labels" and p["bucket"] == "unsure"]
+    assert set(labels[:len(first)]) == first
+    total = {l: asked_before.get(l, 0) + labels.count(l) for l in FIVE}
+    assert max(total.values()) - min(total.values()) <= max(1, max(asked_before.values(), default=0) - min(total.values()))
+
+
+def test_the_random_bucket_may_draw_a_label_question_of_a_label_asked_little():
+    docs = five_part_docs()
+    rounds = [make_round(1, docs, {}, {}, [], size=24, seed=seed) for seed in range(8)]
+    drawn = [p for r in rounds for p in r["probes"] if p["bucket"] == "random" and p["theory"] == "labels"]
+    assert drawn and len({label_of(p) for p in drawn}) > 1
+    for r in rounds:
+        assert len({p["track"] for p in r["probes"]}) == len(r["probes"])
 
 
 # --- composition with the new pools ---
@@ -833,11 +895,13 @@ def with_lifts(docs, tracks):
 def test_the_entry_pool_gets_two_turns_per_cycle_and_the_lift_pool_one():
     docs = with_lifts(DOCS, set(DOCS))
     drops = {t: {"edmformer": [18]} for t in DOCS}
-    rnd = make_round(1, docs, {}, {}, [], size=30, candidate_drops=drops)
+    rnd = make_round(1, docs, {}, {}, [], size=33, candidate_drops=drops)
     unsure = [p for p in rnd["probes"] if p["bucket"] == "unsure"]
     counts = {t: sum(p["theory"] == t for p in unsure) for t in ("detectors", "buildup", "entry", "lift", "grid", "labels")}
-    assert counts["entry"] >= 2 * counts["lift"] and counts["entry"] >= 2 * counts["labels"] and counts["entry"] > counts["grid"]
-    assert abs(counts["lift"] - counts["labels"]) <= 1 and counts["lift"] > 0
+    counts["grid"] = sum(p["claim"]["kind"] == "grid" for p in unsure)
+    assert counts["entry"] >= 2 * counts["lift"] and counts["entry"] > counts["grid"]
+    assert abs(counts["lift"] - counts["grid"]) <= 1 and counts["lift"] > 0
+    assert abs(counts["labels"] - counts["entry"]) <= 1
     assert abs(counts["entry"] - counts["detectors"]) <= 1
 
 

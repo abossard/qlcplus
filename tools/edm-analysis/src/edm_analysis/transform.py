@@ -27,18 +27,18 @@ def snap(doc, t):
     return bar, round(float((t - starts[bar]) / doc["grid"]["period"]), 3)
 
 
-def _claim(tid, doc, source, kind, t, label=None, score=None, sources=None):
+def _claim(tid, doc, source, kind, t, label=None, score=None, sources=None, energy=None):
     bar, offset = snap(doc, t)
     return {"track": tid, "source": source, "kind": kind, "label": label, "time": round(float(t), 3),
             "bar": bar, "offset_beats": offset, "score": None if score is None else float(score),
-            "sources": None if sources is None else "+".join(sources)}
+            "sources": None if sources is None else "+".join(sources), "energy": energy}
 
 
 def _section_claims(tid, doc, source, sections):
     starts, out = doc["bars"]["start"], []
     for s in sections:
         t = starts[s["start_bar"]] if s["start_bar"] < len(starts) else s.get("start", 0.0)
-        out.append(_claim(tid, doc, source, "section", t, s["label"], s.get("confidence"), s.get("sources")))
+        out.append(_claim(tid, doc, source, "section", t, s["label"], s.get("confidence"), s.get("sources"), s.get("energy")))
         if s["label"] in START_KINDS and s["start_bar"] > 0:
             out.append(_claim(tid, doc, source, s["label"], t, s["label"], s.get("confidence"), s.get("sources")))
     return out

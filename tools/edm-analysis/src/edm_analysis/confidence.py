@@ -22,7 +22,7 @@ MIN_GOLD = 30              # answers a group needs before Gold replaces Silver
 UNKNOWN = 50
 RAW_DOWNBEAT_TOLERANCE = 0.07
 START_KINDS = ("drop", "buildup", "breakdown")
-LABELS = ("intro", "buildup", "drop", "breakdown", "groove", "outro")
+LABELS = ("intro", "buildup", "drop", "breakdown", "outro")     # no groove: a steady beat part is named by where it sits (fusion.py)
 FEATURES = {
     "grid": ("grid_share", "raw_downbeats_on_bar1"),
     "start": ("novelty", "phrase_line", "kick_change", "bass_change", "loud_change", "grid_share",
@@ -69,7 +69,7 @@ def held_out(silver, gold, group):
 
 
 def _kind(x):
-    """The kind of a start Claim from its evidence: drop, buildup, breakdown, or other (intro, groove, outro)."""
+    """The kind of a start Claim from its evidence: drop, buildup, breakdown, or other (intro, outro)."""
     return next((k for k in START_KINDS if x[FEATURES["start"].index(f"is_{k}")]), "other")
 
 
@@ -184,6 +184,8 @@ def gold_rows(answers, docs):
         bar = int(np.argmin(np.abs(np.asarray(doc["bars"]["start"]) - claim["time"])))
         if claim["kind"] == "grid":
             rows.append(("grid", ev.grid, exact))
+        elif claim["kind"] == "label" and claim["label"] not in LABELS:
+            continue     # a Claim for a label the Analysis no longer makes (groove); "is:groove" on another label stays an answer
         elif claim["kind"] == "label":
             rows.append(("label", ev.label(bar, bar + claim["end_bar"] - claim["bar"], claim["label"]), exact))
         else:

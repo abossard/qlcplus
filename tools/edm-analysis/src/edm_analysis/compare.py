@@ -104,6 +104,16 @@ def _structure(by, covered):
     return out
 
 
+def _energy(by, covered):
+    """Mean energy level of the fused sections per label, or None where the tables carry none: drops should sit above breakdowns."""
+    levels = {}
+    for t in covered.get("fused", ()):
+        for c in _sections(by, t, "fused"):
+            if c.get("energy") is not None:
+                levels.setdefault(c.get("label"), []).append(c["energy"])
+    return {label: {"n": len(v), "mean": round(sum(v) / len(v), 2)} for label, v in sorted(levels.items())} or None
+
+
 def _rejected(by, covered, answers):
     """Per kind, per source: of the start Claims the reviewer rejected ("no", "Not in this clip", "No buildup"), the share the source still makes on that bar."""
     out = {}
@@ -152,7 +162,7 @@ def compare(claims, answers=()):
             "structure": _structure(by, covered), "label_changes": _label_changes(by, covered),
             "section_starts": {s: {"n": len(bars), "on_8": _share(sum(b % 8 == 0 for b in bars), len(bars))}
                                for s, bars in sections.items() if bars},
-            "gold": _gold(by, covered, answers), "rejected": _rejected(by, covered, answers)}
+            "gold": _gold(by, covered, answers), "rejected": _rejected(by, covered, answers), "energy": _energy(by, covered)}
 
 
 def format_table(result):
@@ -182,6 +192,8 @@ def format_table(result):
         lines += [f"  {s_:<24}{v['after_drop']:>8}{v['buildups']:>9}{v['unsupported']:>10}{v['lifts']:>7}{v['entries']:>9}" for s_, v in result["structure"].items()]
         lines += ["", "buildup length in bars: number of buildups"]
         lines += [f"  {s_:<24}" + "  ".join(f"{n}: {c}" for n, c in v["buildup_lengths"].items()) for s_, v in result["structure"].items()]
+    if result["energy"]:
+        lines += ["", "mean energy per label (fused sections, 1 to 10)", "  " + "  ".join(f"{label}: {v['mean']:.1f} (n {v['n']})" for label, v in result["energy"].items())]
     changes = result["label_changes"]
     if changes["sections"]:
         lines += ["", f"label changes: {changes['changed']} of {changes['sections']} rules sections have another label in the fusion",

@@ -9,14 +9,14 @@ import time
 
 import pytest
 
-from edm_analysis import rounds
+from edm_analysis import candidates, rounds
 from edm_analysis.review import Auth, Clips, ReviewServer, make_handler
 from edm_analysis.rounds import record_answer
 
 PIN = "135790"
 BARS, PERIOD = 32, 0.5
 DURATION = BARS * 4 * PERIOD
-SECTIONS = [("intro", 0, 8), ("buildup", 8, 12), ("drop", 12, 24), ("outro", 24, 32)]   # what the page shows: the fusion starts a buildup 2 bars before the rules do
+SECTIONS = [("intro", 0, 8), ("buildup", 8, 12), ("drop", 12, 24), ("outro", 24, 32)]   # the fused Analysis the page shows (see shown_analysis); the raw rules differ
 RULES = [("intro", 0, 10), ("buildup", 10, 12), ("drop", 12, 24), ("outro", 24, 32)]
 VIEWPORTS = {
     "phone": {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 3, "has_touch": True, "is_mobile": True},
@@ -51,9 +51,22 @@ def mp3(tmp_path_factory):
     return path
 
 
+SOURCES = {"intro": ["rules"], "buildup": [], "drop": ["rules"], "outro": ["rules"]}
+
+
+def shown_analysis(out_dir, doc):
+    """The fused Analysis the page tests show: SECTIONS, whatever the fusion's rules are at the moment (its own tests
+    and test_review.py cover what it makes; these tests are about the page)."""
+    events = [e for e in doc["events"] if e["kind"] not in ("buildup", "drop")] + [{"kind": "buildup", "bar": 8, "sources": []}, {"kind": "drop", "bar": 12, "sources": ["rules"]}]
+    return {**doc, "analyzer": {**doc["analyzer"], "fusion": 1, "version": doc["analyzer"]["version"] + ".1"},
+            "sections": [{"label": label, "start_bar": a, "end_bar": b, "sources": SOURCES[label]} for label, a, b in SECTIONS],
+            "events": sorted(events, key=lambda e: e["bar"]), "rules": {"sections": doc["sections"], "events": doc["events"]}}
+
+
 @pytest.fixture
-def library(request, tmp_path, mp3):
+def library(request, tmp_path, mp3, monkeypatch):
     """Parametrize indirectly with the seconds before bar 0 to get a beatless intro."""
+    monkeypatch.setattr(candidates, "fused", shown_analysis)
     index = {}
     for n, title in enumerate(["Alpha (Extended Mix) - Some Artist feat. Someone With A Long Name 2024 [120 8A]", "Beta - Other"]):
         tid = f"{n + 1:x}" * 16
@@ -71,6 +84,7 @@ def library(request, tmp_path, mp3):
 
 
 CLAIM = {"kind": "drop", "bar": 12, "time": 24.0, "confidence": 40}
+LABELS = ["intro", "buildup", "drop", "breakdown", "outro"]   # the reviewer's labels; old documents and answers may still say groove
 
 
 def probe(n, tid, question, prompt, plays, **extra):
@@ -93,11 +107,11 @@ def new_round(ids, labels_probe=True):
     probes = [
         probe(1, ids[0], "yesno", "Does the drop start at the marker?", main(20, 28, 24.0)),
         probe(2, ids[1], "locate", "Where does the new part start?", main(28, 36, None)),
-        probe(3, ids[0], "label", "Is this part a drop?", main(40, 48, 44.0)),
+        probe(3, ids[0], "label", "Is this part a drop?", main(40, 48, 44.0), labels=LABELS),
         probe(4, ids[1], "yesno", "Does the buildup start at the marker?", main(8, 16, 12.0), tap=False),
         probe(5, ids[0], "ab", "Which one has the accent on bar 1?", [{"id": "a", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 0},
                                                                     {"id": "b", "start": 20.0, "end": 28.0, "mark": 20.0, "click_shift": 1}]),
-        probe(6, ids[1], "label", "Is this part a drop?", main(44, 52, 48.0), labels=["drop", "groove", "outro"]),
+        probe(6, ids[1], "label", "Is this part a drop?", main(44, 52, 48.0), labels=["drop", "breakdown", "outro"]),
     ]
     return make_round(ids, probes)
 
@@ -365,9 +379,10 @@ def test_rating_a_track_end_to_end(browser_, library, size):
     assert wait_for(lambda: stored(root, ids[0])["sections"][0]["verdict"] == "ok")
 
     tap_section(page, size, "overview", "drop")
-    page.locator("#menu button[data-l='groove']").click()
+    assert page.locator("#menu button[data-l]").evaluate_all("els => els.map(e => e.dataset.l)") == ["buildup", "breakdown", "intro", "outro", "other"]
+    page.locator("#menu button[data-l='breakdown']").click()
     drop = lambda: next(s for s in stored(root, ids[0])["sections"] if s["label"] == "drop")
-    assert wait_for(lambda: drop()["correct_label"] == "groove" and drop()["verdict"] == "wrong")
+    assert wait_for(lambda: drop()["correct_label"] == "breakdown" and drop()["verdict"] == "wrong")
 
     if size in TOUCH:
         page.locator("#btnRate").click()
@@ -728,7 +743,7 @@ def test_a_round_in_the_stored_shape_still_shows_bar_buttons_and_the_old_answers
     assert "breakdown" in page.locator(".q-define").inner_text().lower()   # the label comes from the prompt, the choices from the defaults
     answer(page, "no")
     assert page.locator(".q-what button[data-v^='is:']").evaluate_all("els => els.map(e => e.dataset.v)") == \
-        [f"is:{l}" for l in ("intro", "buildup", "drop", "groove", "outro")]
+        [f"is:{l}" for l in ("intro", "buildup", "drop", "outro")]
     assert answers(root) == {"r01-p001": "earlier"}
 
 
@@ -753,9 +768,6 @@ def test_a_question_that_takes_no_bar_taps_has_no_bar_buttons(browser_, new_libr
         assert page.locator(".q-barbtn").count() == 0
 
 
-LABELS = ["intro", "buildup", "drop", "breakdown", "groove", "outro"]
-
-
 @pytest.mark.parametrize("label", LABELS)
 def test_a_label_question_says_in_one_line_what_the_label_means(browser_, library, contract, label):
     base, _, ids = library
@@ -768,22 +780,23 @@ def test_a_label_question_says_in_one_line_what_the_label_means(browser_, librar
     assert page.locator(".q-define").evaluate("el => el.getClientRects().length > 0 && el.getBoundingClientRect().height < 70")
 
 
-def test_the_six_definitions_are_different(browser_, library, contract):
+def test_the_five_definitions_are_different_and_none_mentions_groove(browser_, library, contract):
     base, _, ids = library
     put_round(library, make_round(ids, [probe(i, ids[0], "label", f"Is this part a {l}?", [{"id": "main", "start": 40.0, "end": 48.0, "mark": 44.0}]) for i, l in enumerate(LABELS, 1)]))
     page = open_page(browser_, "phone")
     open_round(page, base)
     texts = []
-    for n in range(1, 7):
+    for n in range(1, 6):
         go(page, n)
         texts.append(page.locator(".q-define").inner_text())
-    assert len(set(texts)) == 6
+    assert len(set(texts)) == 5 and "groove" not in " ".join(texts).lower()
+    assert "groove" not in page.evaluate("JSON.stringify([LABELS, DEFAULT_LABELS, DEFINITIONS])").lower()
 
 
 @pytest.mark.parametrize("n,others,pick,expected", [
-    (3, ["intro", "buildup", "breakdown", "groove", "outro"], "is:groove", "is:groove"),
-    (3, ["intro", "buildup", "breakdown", "groove", "outro"], "no", "no"),
-    (6, ["groove", "outro"], "is:outro", "is:outro"),
+    (3, ["intro", "buildup", "breakdown", "outro"], "is:breakdown", "is:breakdown"),
+    (3, ["intro", "buildup", "breakdown", "outro"], "no", "no"),
+    (6, ["breakdown", "outro"], "is:outro", "is:outro"),
 ])
 def test_no_on_a_label_question_asks_what_it_is(browser_, new_library, n, others, pick, expected):
     base, root, _ = new_library
@@ -795,18 +808,25 @@ def test_no_on_a_label_question_asks_what_it_is(browser_, new_library, n, others
     assert answers(root) == {}     # nothing is stored until the reviewer says what it is, or just no
     assert page.locator(".q-what button[data-v^='is:']").evaluate_all("els => els.map(e => e.dataset.v)") == [f"is:{o}" for o in others]
     assert page.locator(".q-what button[data-v='no']").inner_text().startswith("Just no")
+    zone = page.locator("#qAnswers").bounding_box()
+    assert all(b["y"] + b["height"] <= zone["y"] + zone["height"] + 0.5 for b in map(lambda e: e.bounding_box(), page.locator(".q-what button").all()))   # the grid fits its fixed zone
     hit(page, f".q-what button[data-v='{pick}']")
     assert wait_for(lambda: answers(root) == {f"r01-p{n:03d}": expected})
 
 
-@pytest.mark.parametrize("stored", ["no", "is:groove"])
+@pytest.mark.parametrize("stored", ["no", "is:breakdown", "is:groove"])
 def test_a_label_question_answered_no_shows_no_when_it_comes_back(browser_, new_library, stored):
     base, root, _ = new_library
-    record_answer(root, "r01-p003", stored)
+    record_answer(root, "r01-p003", "no")
+    path = root / "rounds" / "answers.json"     # written as an earlier version stored it: groove is no longer a label
+    path.write_text(json.dumps({k: {**v, "answer": stored} for k, v in json.loads(path.read_text()).items()}))
     page = open_page(browser_, "phone")
     open_round(page, base)
+    go(page, 6)
+    fresh = layout(page)
     go(page, 3)
     assert page.locator(".q-answers button.on").get_attribute("data-v") == "no"
+    assert layout(page)["zones"] == fresh["zones"] and "groove" not in page.locator(".quiz").inner_text().lower()
 
 
 def test_autoplay_starts_the_next_question_after_an_answer_and_can_be_turned_off(browser_, new_library):
@@ -1166,22 +1186,12 @@ def test_section_bands_show_the_claim_confidence_when_the_analysis_has_it(browse
     assert page.evaluate(f"bandLabel({index})") == text
 
 
-MOVED_DROP = [("intro", 0, 8), ("drop", 8, 24), ("outro", 24, 32)]   # the levels only rise at bar 12: the fusion moves the drop there, onto no source's bar
-
-
 @pytest.mark.parametrize("size", list(VIEWPORTS))
-@pytest.mark.parametrize("raw,label,said", [(RULES, "drop", "On this bar in: rules"), (RULES, "buildup", "On this bar in: rules"),
-                                            (MOVED_DROP, "buildup", "On this bar in: rules"), (MOVED_DROP, "drop", "No source has it on this bar")])
-def test_the_section_box_says_which_sources_put_the_section_on_its_bar(browser_, library, size, raw, label, said):
-    base, root, ids = library
-    path = root / f"{ids[0]}.json"
-    doc = json.loads(path.read_text())
-    doc["sections"] = [{"label": n, "start_bar": a, "end_bar": b} for n, a, b in raw]
-    doc["events"] = [e for e in doc["events"] if e["kind"] != "drop"] + [{"kind": "drop", "bar": next(a for n, a, _ in raw if n == "drop")}]
-    path.write_text(json.dumps(doc))
+@pytest.mark.parametrize("label,said", [("drop", "On this bar in: rules"), ("buildup", "No source has it on this bar")])
+def test_the_section_box_says_which_sources_put_the_section_on_its_bar(browser_, library, size, label, said):
+    base, _, _ = library
     page = open_page(browser_, size)
     open_track(page, base, size)
-    assert page.evaluate("rating.sections.map(s => [s.label, s.start_bar, s.end_bar])") == [[n, a, b] for n, a, b in SECTIONS]
     tap_section(page, size, "overview", label)
     assert said in page.locator("#menu .title").inner_text()
     assert page.locator("#menu").bounding_box()["y"] + page.locator("#menu").bounding_box()["height"] <= page.viewport_size["height"] + 1
@@ -1596,3 +1606,62 @@ def test_no_theory_text_or_id_is_in_the_question_view_in_any_state(browser_, the
     for state in states:
         assert "ZQ theory text" not in state and "zq-theory-id" not in state
     assert page.locator(".q-theory").inner_text() == "" and page.locator(".q-theory").is_visible()
+
+
+# --- five labels and the section's energy in the song view -------------------------------------------------------
+
+def band_pixel(page, t, part):
+    """RGB of the overview's section band at track time t; part is "top" or "bottom" of the band."""
+    return page.evaluate("""([t, part]) => { const c = document.querySelector('#overview'), v = views.overview, k = devicePixelRatio, r = v.rows.sec;
+        const y = part === 'top' ? r[0] + 2 : r[0] + r[1] - 2;
+        return [...c.getContext('2d').getImageData(Math.round((t - v.t0) / (v.t1 - v.t0) * c.width), Math.round(y * k), 1, 1).data].slice(0, 3); }""", [t, part])
+
+
+def with_sections(page, change):
+    """Serves the track with each fused section changed by `change`, a JS function body over the section s."""
+    def handle(route):
+        doc = route.fetch().json()
+        route.fulfill(json=page.evaluate("([doc, f]) => { doc.sections.forEach(new Function('s', f)); return doc; }", [doc, change]))
+    page.route("**/api/track/*", handle)
+
+
+@pytest.mark.parametrize("size", ["phone", "desktop"])
+def test_the_legend_has_the_five_labels(browser_, library, size):
+    base, _, _ = library
+    page = open_page(browser_, size)
+    open_track(page, base, size)
+    page.locator("details.help summary").click()
+    assert sorted(page.locator(".legend > span").all_inner_texts()) == sorted(LABELS)
+
+
+@pytest.mark.parametrize("size", ["phone", "desktop"])
+def test_a_section_an_old_document_calls_groove_is_drawn_in_a_neutral_colour(browser_, library, size):
+    base, _, _ = library
+    page = open_page(browser_, size)
+    page.goto(base + "/")
+    with_sections(page, "if (s.label === 'drop') s.label = 'groove';")
+    open_track(page, base, size)
+    page.locator("#overview").evaluate("el => el.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(200)
+    assert page.evaluate("rating.sections.map(s => s.label)") == ["intro", "buildup", "groove", "outro"]
+    assert band_pixel(page, 44.0, "bottom") == colour(page, "--text-muted")
+    assert band_pixel(page, 8.0, "bottom") == colour(page, "--sec-intro")
+
+
+@pytest.mark.parametrize("size", ["phone", "desktop"])
+@pytest.mark.parametrize("energy,full", [(None, True), (10, True), (3, False), (1, False)])
+def test_the_bright_part_of_a_band_is_the_sections_energy(browser_, library, size, energy, full):
+    base, _, _ = library
+    page = open_page(browser_, size)
+    page.goto(base + "/")
+    with_sections(page, f"delete s.energy; if (s.label === 'drop') s.energy = {energy};" if energy else "delete s.energy;")   # only the drop has an energy
+    open_track(page, base, size)
+    page.locator("#overview").evaluate("el => el.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(200)
+    drop = colour(page, "--sec-drop")
+    assert band_pixel(page, 44.0, "bottom") == drop                  # the bright part starts at the bottom
+    assert (band_pixel(page, 44.0, "top") == drop) == full           # and reaches the top only at energy 10, or where there is no energy
+    assert band_pixel(page, 8.0, "top") == colour(page, "--sec-intro")
+    tap_section(page, size, "overview", "drop")
+    assert (f"energy {energy} of 10" in page.locator("#menu .title").inner_text()) == (energy is not None)
+    assert "energy, 1 to 10" in page.locator("details.help").text_content()

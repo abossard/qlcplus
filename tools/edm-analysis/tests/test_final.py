@@ -48,7 +48,7 @@ def test_the_final_file_is_the_fused_structure_with_its_sources(tmp_path):
 
     assert [(s["label"], s["start_bar"], s["sources"]) for s in final["sections"]] == [("intro", 0, ["rules"]), ("drop", 10, ["dropdetector"])]
     assert [(e["kind"], e["bar"], e["sources"]) for e in final["events"] if e["kind"] == "drop"] == [("drop", 10, ["dropdetector"])]
-    assert final["analyzer"] == "2.5.1"
+    assert final["analyzer"] == "2.5.2"
 
 
 def test_a_fused_document_is_written_as_it_is(tmp_path):
@@ -56,3 +56,23 @@ def test_a_fused_document_is_written_as_it_is(tmp_path):
 
     doc = fused(tmp_path, DOC)
     assert json.loads(write_final(tmp_path, doc).read_text()) == json.loads(write_final(tmp_path, DOC).read_text())
+
+
+def test_schema_3_carries_an_energy_level_per_section_and_per_bar(tmp_path):
+    loud = [0.16] * 8 + [0.8] * 12
+    doc = {**DOC, "bars": {**DOC["bars"], "levels": {**DOC["bars"]["levels"], "loud": loud}}}
+
+    final = json.loads(write_final(tmp_path, doc).read_text())
+
+    assert final["schema"] == "qlcplus-edm-final/3"
+    assert [(s["label"], s["energy"]) for s in final["sections"]] == [("intro", 2), ("drop", 10)]
+    assert final["bars"]["energy"] == loud
+    assert {"label", "start_bar", "end_bar", "start", "end"} <= set(final["sections"][0])      # what a schema 2 reader knows is still there
+    assert {"bpm", "period", "beats_per_bar", "first_downbeat"} <= set(final["grid"])
+
+
+def test_bars_without_a_level_have_no_energy_rather_than_nan(tmp_path):
+    loud = [float("nan")] * 8 + [0.8] * 12
+    doc = {**DOC, "bars": {**DOC["bars"], "levels": {**DOC["bars"]["levels"], "loud": loud}}}
+    text = write_final(tmp_path, doc).read_text()
+    assert "NaN" not in text and json.loads(text)["bars"]["energy"][:8] == [0.0] * 8
