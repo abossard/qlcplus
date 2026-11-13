@@ -133,6 +133,8 @@ def public_round(rnd, answers):
 ROUND_SIZE = 40
 BUCKETS = {"unsure": 0.6, "style": 0.2, "random": 0.2}   # share of a round; unsure includes follow-ups
 REPEAT_SHARE = 0.1   # of a round, asked again on top of the other shares: answers the reviewer gave earlier
+EXISTENCE_SHARE = 0.3   # of the rest: is there a buildup before a drop, balanced over our claim and EDMFormer output
+LIMITS = {"entry": 1}   # questions per round from a pool that only checks
 STYLE_GROUPS = 8
 MAX_CLIP = 16        # bars
 THEORIES = {
@@ -143,6 +145,7 @@ THEORIES = {
     "buildup": "Every drop has a buildup",
     "entry": "The first time the beat comes in is an intro",
     "lift": "Long drops start where we say",
+    "breakdown": "Breakdowns start where we say",
     "intro": "Long loud intros hide a new part at Mixed In Key's energy cues",
     "labels": "Section labels are right",
     "calibration": "The confidence numbers are honest",
@@ -256,16 +259,17 @@ def _lift(tid, doc, bar):
                   {"ours": {"bar": s["start_bar"]}, "lift": {"bar": bar}})
 
 
-def theory_candidates(tid, doc, vdj, rng, drops=None):
+def theory_candidates(tid, doc, vdj, rng, drops=None, breakdowns=None):
     """{theory: [probe]} for one track whose analysis carries confidence. drops: {Candidate: drop bars} where
-    Candidates have output for the track; its drops are then located by tapping, not compared with A/B."""
+    Candidates have output for the track; its drops are then located by tapping, not compared with A/B.
+    breakdowns: {Candidate: breakdown bars}; with VirtualDJ's break starts they widen a breakdown's clip."""
     from .evaluate import silver_boundaries
     from .vdj import grid_agreement
 
     out = {t: [] for t in THEORIES}
     grid_ok = doc["grid"].get("bar1_confidence", 0) >= 50
     starts = [s for s in doc["sections"] if s["start_bar"] > 0 and s["label"] in ("drop", "buildup", "breakdown")]
-    ends = []
+    ends, break_starts = [], []
     first_drop = next((s for s in starts if s["label"] == "drop"), None)
     grid_at = _bar_time(doc, first_drop["start_bar"] if first_drop else len(doc["bars"]["start"]) // 2)
     grid_claim = {"kind": "grid", "bar": 0, "time": grid_at, "confidence": doc["grid"].get("bar1_confidence", 50)}
@@ -276,7 +280,7 @@ def theory_candidates(tid, doc, vdj, rng, drops=None):
             out["grid"].append(_ab(tid, doc, "grid", "Which one has the accent on bar 1?", grid_claim, {"shift_beats": 0}, {"shift_beats": shift},
                                    "vdj", rng, lambda alt: _excerpt(doc, grid_at, 0, 4, click_shift=alt["shift_beats"])))
         silver = silver_boundaries(vdj, doc["bars"]["start"])
-        ends = silver["vdj_break_end"]
+        ends, break_starts = silver["vdj_break_end"], silver["vdj_break_start"]
         for s in starts:
             if s["label"] == "drop" and ends and grid_ok and drops is None:
                 near = min(ends, key=lambda b: abs(b - s["start_bar"]))
@@ -309,16 +313,11 @@ def theory_candidates(tid, doc, vdj, rng, drops=None):
                                             [{"id": "main", **_excerpt(doc, t, 1, 4)}]))
         out["entry"] = [_entry(tid, doc, e["bar"]) for e in doc.get("events", []) if e["kind"] == "entry"]
         out["lift"] = [p for p in (_lift(tid, doc, e["bar"]) for e in doc.get("events", []) if e["kind"] == "lift" and e["bar"] > 0) if p]
-        others = {**(drops or {}), "vdj": ends}
-        out["calibration"] = [_yesno_start(tid, doc, s, "calibration", _near(s["start_bar"], others) if s["label"] == "drop" else None)
-                              for s in starts if s["label"] != "buildup"]
-        for s in starts:   # a buildup's start is not asked about: a draw on one asks whether its drop has a buildup
-            if s["label"] == "buildup" and any(x["label"] == "drop" and x["start_bar"] == s["end_bar"] for x in doc["sections"]):
-                out["calibration"].append(_buildup_exists(tid, doc, s["end_bar"], "calibration"))
-        for s in starts:
-            if s["label"] == "drop":
-                for pool in ("buildup", "calibration"):
-                    out[pool].append(_buildup_exists(tid, doc, s["start_bar"], pool))
+        others = {"drop": {**(drops or {}), "vdj": ends}, "breakdown": {**(breakdowns or {}), "vdj": break_starts}}
+        sources = lambda s: _near(s["start_bar"], others[s["label"]]) if s["label"] in others else None
+        out["calibration"] = [_yesno_start(tid, doc, s, "calibration", sources(s)) for s in starts if s["label"] != "buildup"]   # a buildup's start is no Claim
+        out["breakdown"] = [_yesno_start(tid, doc, s, "breakdown", sources(s)) for s in starts if s["label"] == "breakdown"]
+        out["buildup"] = [_buildup_exists(tid, doc, s["start_bar"], "buildup") for s in starts if s["label"] == "drop"]
     return out
 
 
@@ -361,8 +360,8 @@ def style_groups(docs, k=STYLE_GROUPS, seed=0):
 
 def _rank(p):
     """Order within a pool: locate probes by how much the sources disagree, the others by confidence."""
-    if p["question"] != "locate":
-        return (p["claim"]["confidence"],)
+    if p["question"] != "locate":   # first where other sources put the start elsewhere
+        return (-len({b for b in p.get("sources", {}).values() if b != p["claim"]["bar"]}), p["claim"]["confidence"])
     bars = {a["bar"] for a in p["alternatives"].values()}
     return (-len(bars), min(bars) - max(bars))
 
@@ -423,29 +422,43 @@ def repeat_candidates(answers, docs, previous):
     return out
 
 
-def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, seed=None, created=None, candidate_drops=None):
-    """A new round: unsure Claims across the Theories, Claims from the least-reviewed Styles, and random ones,
-    and on top of them REPEAT_SHARE of the size in earlier answers asked again unchanged.
+def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, seed=None, created=None, candidate_drops=None,
+               candidate_breakdowns=None):
+    """A new round: buildup existence balanced over our claim and EDMFormer output, unsure Claims across the
+    Theories, Claims from the least-reviewed Styles, and random ones, and on top of them REPEAT_SHARE of the size
+    in earlier answers asked again unchanged.
 
-    Pure: docs must already carry confidence. One probe per track, and only tracks no earlier round got an
-    answer on, so every round measures Fresh accuracy (follow-ups and repeats excepted). candidate_drops:
-    {track id: {Candidate: drop bars on our grid}}."""
+    Pure: docs must already carry confidence. One probe per track. Tracks no earlier round got an answer on come
+    first and measure Fresh accuracy; answered tracks follow with Claims nobody answered yet, marked fresh: false
+    (Gold, not Fresh accuracy, like follow-ups and repeats). candidate_drops, candidate_breakdowns:
+    {track id: {Candidate: bars on our grid}}."""
     import random
 
     rng = random.Random(seed if seed is not None else number)
     seen_tracks = {p["track"] for r in previous for p in r["probes"] if p["id"] in answers}
-    fresh = sorted(t for t in docs if t not in seen_tracks)
+    fresh, seen = sorted(t for t in docs if t not in seen_tracks), sorted(t for t in docs if t in seen_tracks)
     rng.shuffle(fresh)
+    rng.shuffle(seen)
     asked = Counter(a["claim"]["label"] for a in answers.values() if a["claim"]["kind"] == "label")   # label questions go to the labels asked least
-    cands = {tid: theory_candidates(tid, docs[tid], vdj_by_path.get(docs[tid]["track"]["path"]), rng, (candidate_drops or {}).get(tid))
-             for tid in fresh}
+    answered = {(a["track"], a["claim"]["kind"], a["claim"]["bar"]) for a in answers.values()}
+
+    def candidates(tid):
+        out = theory_candidates(tid, docs[tid], vdj_by_path.get(docs[tid]["track"]["path"]), rng, (candidate_drops or {}).get(tid),
+                                (candidate_breakdowns or {}).get(tid))
+        if tid in seen_tracks:
+            out = {t: [{**p, "fresh": False} for p in ps if (tid, p["claim"]["kind"], p["claim"]["bar"]) not in answered] for t, ps in out.items()}
+        return out
+
+    tracks = fresh + seen
+    cands = {tid: candidates(tid) for tid in tracks}
+    stale = lambda p: "fresh" in p   # an answered track: after every fresh one
     repeats, repeated = [], set()
     for _, p in sorted(repeat_candidates(answers, docs, previous), key=lambda c: (c[0], rng.random())):
         if len(repeats) < round(size * REPEAT_SHARE) and p["track"] not in repeated:
             repeated.add(p["track"])
             repeats.append({**{k: v for k, v in p.items() if k != "id"}, "bucket": "repeat", "repeat_of": p.get("repeat_of", p["id"])})
     size -= len(repeats)
-    used, probes = set(), []
+    used, probes = set(repeated), []
 
     def take(p, bucket):
         if p["track"] in used and p["theory"] != "followup":
@@ -455,15 +468,32 @@ def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, se
         asked.update([p["claim"]["label"]] if p["claim"]["kind"] == "label" else [])
         return True
 
+    # existence first, in turn from (our claim, EDMFormer output) groups, at random within each: no selection bias
+    kind = lambda p: (p["claim"]["claimed"], "edmformer" in (candidate_drops or {}).get(p["track"], {}))
+    balance, got = {}, Counter()
+    for p in sorted((p for tid in tracks for p in cands[tid]["buildup"]), key=lambda p: (stale(p), rng.random())):
+        balance.setdefault(kind(p), []).append(p)
+    n_exist = round(size * EXISTENCE_SHARE)
+    while len(probes) < n_exist and balance:
+        key = min(balance, key=lambda k: (got[k], k))
+        while balance[key] and not take(balance[key].pop(0), "existence"):
+            pass
+        got = Counter(kind(p) for p in probes)
+        balance = {k: g for k, g in balance.items() if g}
+    base, size = len(probes), size - len(probes)
+
     n_unsure = round(size * BUCKETS["unsure"])
     for p in followups(answers, docs, previous)[:n_unsure // 3]:
         take(p, "unsure")
     # disputed grids first, then the least confident grids; every other pool by confidence
-    pools = {t: sorted((p for c in cands.values() for p in c[t]), key=lambda p: (p["theory"] != t, _rank(p), rng.random()))
-             for t in ("grid", "detectors", "buildup", "entry", "lift", "drop", "intro", "labels")}
+    n_unsure += base
+    pools = {t: sorted((p for c in cands.values() for p in c[t]), key=lambda p: (stale(p), p["theory"] != t, _rank(p), rng.random()))
+             for t in ("grid", "detectors", "breakdown", "entry", "lift", "drop", "intro", "labels")}
     while len(probes) < n_unsure and any(pools.values()):
-        for t in (*pools, "detectors", "buildup", "entry", "labels"):   # the pools that tell most per answer get two turns
-            pools["labels"].sort(key=lambda p: asked[p["claim"]["label"]])
+        for t in (*pools, "detectors", "breakdown", "labels"):   # the pools that tell most per answer get two turns
+            pools["labels"].sort(key=lambda p: (stale(p), asked[p["claim"]["label"]]))
+            if sum(p["theory"] == t for p in probes) >= LIMITS.get(t, size):
+                pools[t] = []
             while pools[t] and not take(pools[t].pop(0), "unsure"):
                 pass
             if len(probes) >= n_unsure:
@@ -477,19 +507,19 @@ def make_round(number, docs, vdj_by_path, answers, previous, size=ROUND_SIZE, se
         reviewed[groups.get(p["track"])] = reviewed.get(groups.get(p["track"]), 0) + 1
     n_style = round(size * BUCKETS["style"])
     for _ in range(n_style):
-        options = [tid for tid in fresh if tid not in used and cands[tid]["calibration"]]
+        options = [tid for tid in tracks if tid not in used and cands[tid]["calibration"]]
         if not options:
             break
-        tid = min(options, key=lambda t: (reviewed.get(groups.get(t), 0), rng.random()))
+        tid = min(options, key=lambda t: (t in seen_tracks, reviewed.get(groups.get(t), 0), rng.random()))
         take(rng.choice(cands[tid]["calibration"]), "style")
         reviewed[groups[tid]] = reviewed.get(groups[tid], 0) + 1
 
     rarest = lambda ps: sorted(ps, key=lambda p: (asked[p["claim"]["label"]], rng.random()))[:1]
-    pool = [p for tid in fresh if tid not in used
-            for p in cands[tid]["calibration"] + cands[tid]["grid"][:1] + cands[tid]["entry"] + rarest(cands[tid]["labels"])]
+    pool = [p for tid in tracks if tid not in used
+            for p in cands[tid]["calibration"] + cands[tid]["grid"][:1] + rarest(cands[tid]["labels"])]
     rng.shuffle(pool)
-    for p in pool:
-        if len(probes) >= size:
+    for p in sorted(pool, key=stale):
+        if len(probes) >= base + size:
             break
         take(p, "random")
 
@@ -516,6 +546,7 @@ CONFIRMS = {"detectors": lambda r: gold_bar(r) in [b for src, b in source_bars(r
             "grid": lambda r: r.get("alternatives", {}).get(r["answer"], {}).get("source") == "vdj",
             "drop": lambda r: r.get("alternatives", {}).get(r["answer"], {}).get("source") == "vdj",
             "buildup": lambda r: r["answer"] == "yes" if r["claim"]["kind"] == "buildup_exists" else r["claim"]["kind"] == "buildup" and _exact(r),
+            "breakdown": _exact,
             "entry": lambda r: (r["answer"] == "yes") == (r["claim"].get("label") == "intro"), "lift": _exact,
             "intro": lambda r: r["answer"] == "yes", "labels": lambda r: r["answer"] == "yes",
             "followup": lambda r: r["answer"] == "yes"}
@@ -558,16 +589,17 @@ def reviewer_agreement(answers):
 
 
 def report(rounds, answers, docs):
-    """Fresh accuracy per round, Theory results, calibration of all Gold, coverage and the Target. Repeats are not
+    """Fresh accuracy per round (with how many of its probes were fresh), Theory results, calibration of all Gold, coverage and the Target. Repeats are not
     fresh and not Theory results; they count as Gold once, and not at all while they disagree."""
     probes = {p["id"]: p for r in rounds for p in r["probes"]}
     judged = [(probes[pid], a, _exact(a)) for pid, a in gold_answers(answers).items() if pid in probes]
     judged = [(p, a, e) for p, a, e in judged if e is not None]
     per_round = []
     for r in rounds:
-        mine = [(p, a, e) for p, a, e in judged if a["round"] == r["round"] and p["theory"] != "followup" and "repeat_of" not in p]
+        fresh = lambda p: p["theory"] != "followup" and "repeat_of" not in p and p.get("fresh", True)
+        mine = [(p, a, e) for p, a, e in judged if a["round"] == r["round"] and fresh(p)]
         per_round.append({"round": r["round"], "answered": sum(1 for p in r["probes"] if p["id"] in answers),
-                          "total": len(r["probes"]),
+                          "total": len(r["probes"]), "fresh": sum(1 for p in r["probes"] if fresh(p)),
                           "fresh_exact": {g: _share([e for p, a, e in mine if group_of(p["claim"]) == g])
                                           for g in ("grid", "start", "label")}})
     theories = {}

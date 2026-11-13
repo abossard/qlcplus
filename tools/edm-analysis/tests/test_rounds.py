@@ -1,5 +1,6 @@
 import json
 import random
+from collections import Counter
 
 import pytest
 
@@ -132,7 +133,7 @@ def test_a_round_asks_once_per_track_within_its_size():
     tracks = [p["track"] for p in rnd["probes"]]
     assert len(rnd["probes"]) == 10 and len(set(tracks)) == 10
     assert [p["id"] for p in rnd["probes"]][:2] == ["r01-p001", "r01-p002"]
-    assert {p["bucket"] for p in rnd["probes"]} <= set(BUCKETS)
+    assert {p["bucket"] for p in rnd["probes"]} <= {*BUCKETS, "existence"}
     assert {t["id"] for t in rnd["theories"]} == {p["theory"] for p in rnd["probes"]}
     assert all(0 <= p["claim"]["confidence"] <= 100 for p in rnd["probes"])
 
@@ -162,7 +163,7 @@ def test_only_tracks_of_answered_probes_count_as_used(answered):
 
     second = make_round(2, DOCS, {}, answers, [first], size=len(DOCS))
 
-    assert {p["track"] for p in second["probes"] if "repeat_of" not in p} == set(DOCS) - {p["track"] for p in done}
+    assert {p["track"] for p in second["probes"] if "repeat_of" not in p and "fresh" not in p} == set(DOCS) - {p["track"] for p in done}
 
 
 @pytest.mark.parametrize("answer,follow_ups", [("earlier", 1), ("later", 1), ("bar:12", 0), ("bar:20", 0), ("yes", 0), ("no", 0)])
@@ -407,11 +408,9 @@ def existence_probes(ours, drop_bar=16, kind="buildup"):
     (None, 4, False, 50, (0, 6)),
 ])
 def test_the_reviewer_is_asked_whether_a_buildup_exists_before_a_drop(ours, drop_bar, claimed, confidence, play_bars):
-    for pool, theory in (("buildup", "buildup"), ("calibration", "calibration")):
-        found = [q for q in existence_probes(ours, drop_bar, pool)[2] if q["claim"]["kind"] == "buildup_exists"]
-        p = found[0]
-        assert all(q == p for q in found) and len(found) == (2 if ours and pool == "calibration" else 1)   # a buildup draw asks for its drop's too
-        assert (p["theory"], p["question"], p["prompt"]) == (theory, "yesno", "Is there a buildup before this drop?")
+    (p,) = existence_probes(ours, drop_bar, "buildup")[2]
+    if True:
+        assert (p["theory"], p["question"], p["prompt"]) == ("buildup", "yesno", "Is there a buildup before this drop?")
         assert p["claim"] == {"kind": "buildup_exists", "bar": drop_bar, "time": 2.0 * drop_bar, "claimed": claimed, "confidence": confidence}
         assert p["plays"] == [{"id": "main", "start": 2.0 * play_bars[0], "end": 2.0 * play_bars[1], "mark": 2.0 * drop_bar}]
         assert p["tap"] is False and p["none_label"] == "No" and "alternatives" not in p and "sources" not in p
@@ -533,12 +532,12 @@ def test_a_round_repeats_four_earlier_answers_outside_its_other_shares():
 
     roots = {p["id"]: p for p in first["probes"]}
     repeats = repeats_of(second)
-    assert REPEAT_SHARE == 0.1 and len(repeats) == 4 and len(second["probes"]) == 12 + 4
+    assert REPEAT_SHARE == 0.1 and len(repeats) == 4 and len([p for p in second["probes"] if "repeat_of" not in p and "fresh" not in p]) == 12
     assert {p["bucket"] for p in repeats} == {"repeat"} and len({p["track"] for p in repeats}) == 4
     for p in repeats:
         assert p["repeat_of"] in roots and stripped(p) == stripped(roots[p["repeat_of"]])
-    assert [p["id"] for p in second["probes"]] == [f"r02-p{i + 1:03d}" for i in range(16)]
-    assert len({p["track"] for p in second["probes"] if "repeat_of" not in p}) == 12
+    assert [p["id"] for p in second["probes"]] == [f"r02-p{i + 1:03d}" for i in range(len(second["probes"]))]
+    assert len({p["track"] for p in second["probes"]}) == len(second["probes"])
 
 
 def test_a_repeat_looks_like_a_new_question_to_the_page():
@@ -693,24 +692,14 @@ def test_the_report_says_how_often_the_reviewer_repeats_an_answer(pairs, repeats
 
 # --- the unsure bucket and calibration ---
 
-def test_the_detectors_and_buildup_pools_get_two_turns_per_cycle_and_the_others_one():
+def test_the_detectors_pool_gets_two_turns_per_cycle_and_the_others_one():
     drops = {t: {"edmformer": [18]} for t in DOCS}
     vdj = {d["track"]["path"]: vdj_ends(14) for d in DOCS.values()}
     rnd = make_round(1, DOCS, vdj, {}, [], size=40, candidate_drops=drops)
     unsure = [p for p in rnd["probes"] if p["bucket"] == "unsure"]
     counts = {t: sum(p["theory"] == t for p in unsure) for t in ("detectors", "buildup", "grid", "labels")}
     counts["grid"] = sum(p["claim"]["kind"] == "grid" for p in unsure)
-    assert counts["detectors"] >= 2 * counts["grid"] - 1 and counts["buildup"] >= 2 * counts["grid"] - 1
-    assert counts["detectors"] > counts["grid"] and counts["buildup"] > counts["grid"]
-    assert abs(counts["detectors"] - counts["buildup"]) <= 1
-
-
-def test_calibration_draws_existence_questions_for_drops_that_were_not_picked_for_doubt():
-    drops = {t: {"edmformer": [18]} for t in DOCS}
-    rnd = make_round(1, DOCS, {}, {}, [], size=24, candidate_drops=drops)
-    drawn = [p for p in rnd["probes"] if p["bucket"] in ("style", "random") and p["claim"]["kind"] == "buildup_exists"]
-    assert drawn and {p["theory"] for p in drawn} == {"calibration"}
-    assert len({p["track"] for p in rnd["probes"]}) == len(rnd["probes"])
+    assert counts["detectors"] >= 2 * counts["grid"] - 1 and counts["detectors"] > counts["grid"] and counts["buildup"] == 0
 
 
 # --- the first time the beat comes in ---
@@ -860,8 +849,8 @@ def label_of(p):
 def test_the_labels_pool_gets_two_turns_per_cycle():
     rnd = make_round(1, five_part_docs(), {}, {}, [], size=30)
     unsure = [p for p in rnd["probes"] if p["bucket"] == "unsure"]
-    counts = {t: sum(p["theory"] == t for p in unsure) for t in ("labels", "buildup", "grid")}
-    assert abs(counts["labels"] - counts["buildup"]) <= 1 and counts["labels"] >= 2 * counts["grid"] - 1 and counts["labels"] > counts["grid"]
+    counts = {t: sum(p["theory"] == t for p in unsure) for t in ("labels", "breakdown", "grid")}
+    assert abs(counts["labels"] - counts["breakdown"]) <= 1 and counts["labels"] >= 2 * counts["grid"] - 1 and counts["labels"] > counts["grid"]
 
 
 @pytest.mark.parametrize("asked_before,first", [
@@ -899,17 +888,15 @@ def with_lifts(docs, tracks):
     return out
 
 
-def test_the_entry_pool_gets_two_turns_per_cycle_and_the_lift_pool_one():
+def test_the_entry_pool_gives_one_question_and_the_lift_pool_one_turn_per_cycle():
     docs = with_lifts(DOCS, set(DOCS))
     drops = {t: {"edmformer": [18]} for t in DOCS}
     rnd = make_round(1, docs, {}, {}, [], size=33, candidate_drops=drops)
     unsure = [p for p in rnd["probes"] if p["bucket"] == "unsure"]
     counts = {t: sum(p["theory"] == t for p in unsure) for t in ("detectors", "buildup", "entry", "lift", "grid", "labels")}
     counts["grid"] = sum(p["claim"]["kind"] == "grid" for p in unsure)
-    assert counts["entry"] >= 2 * counts["lift"] and counts["entry"] > counts["grid"]
-    assert abs(counts["lift"] - counts["grid"]) <= 1 and counts["lift"] > 0
-    assert abs(counts["labels"] - counts["entry"]) <= 1
-    assert abs(counts["entry"] - counts["detectors"]) <= 1
+    assert counts["entry"] == 1 and abs(counts["lift"] - counts["grid"]) <= 1 and counts["lift"] > 0
+    assert counts["detectors"] >= 2 * counts["lift"] - 1 and abs(counts["labels"] - counts["detectors"]) <= 1
 
 
 def test_a_lift_question_waits_for_lift_events():
@@ -917,9 +904,9 @@ def test_a_lift_question_waits_for_lift_events():
     assert not [p for p in rnd["probes"] if p["theory"] == "lift"]
 
 
-def test_the_random_bucket_may_draw_a_first_beat_entry_question():
+def test_the_random_bucket_draws_no_first_beat_entry_question():
     rounds = [make_round(1, with_lifts(DOCS, set()), {}, {}, [], size=24, seed=seed) for seed in range(8)]
-    assert [p for r in rounds for p in r["probes"] if p["bucket"] == "random" and p["theory"] == "entry"]
+    assert not [p for r in rounds for p in r["probes"] if p["bucket"] == "random" and p["theory"] == "entry"]
 
 
 @pytest.mark.parametrize("sections,asked_bars", [
@@ -941,12 +928,12 @@ BUILDUP_START = "Does the buildup start at the marker?"
 
 
 @pytest.mark.parametrize("sections,existence_bars", [
-    ((("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 32)), [16, 16]),       # the drop's own existence question, and the one a buildup draw turns into
-    ((("intro", 0, 8), ("buildup", 8, 16), ("groove", 16, 32)), []),           # no drop after it: nothing to ask
-    ((("intro", 0, 8), ("buildup", 8, 12), ("breakdown", 12, 20), ("drop", 20, 32)), [20]),
-    ((("intro", 0, 8), ("drop", 8, 32)), [8]),
+    ((("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 32)), []),             # existence questions have a bucket of their own
+    ((("intro", 0, 8), ("buildup", 8, 16), ("groove", 16, 32)), []),
+    ((("intro", 0, 8), ("buildup", 8, 12), ("breakdown", 12, 20), ("drop", 20, 32)), []),
+    ((("intro", 0, 8), ("drop", 8, 32)), []),
 ])
-def test_the_calibration_draw_never_asks_about_a_buildup_start_and_asks_for_the_existence_of_its_drop_instead(sections, existence_bars):
+def test_the_calibration_draw_never_asks_about_a_buildup_start(sections, existence_bars):
     tid, d = doc(1)
     with_sections(d, *sections)
     out = theory_candidates(tid, d, None, random.Random(0))["calibration"]
@@ -982,3 +969,149 @@ def test_buildup_start_questions_are_not_asked_again(probe, repeated):
     answer = "bar:16" if probe["question"] == "locate" else "yes"
     rnd = make_round(2, DOCS, {}, {probe["id"]: given(probe, answer)}, [earlier_round([probe])], size=10)
     assert [r["repeat_of"] for r in repeats_of(rnd)] == (["r01-p001"] if repeated else [])
+
+
+# --- answered tracks come back for Claims nobody answered ---
+
+def answered_round(docs=DOCS, size=None, answer=yes_or_a):
+    first = make_round(1, docs, {}, {}, [], size=size or len(docs))
+    return first, answer_all(first, answer)
+
+
+def claim_key(p):
+    return (p["claim"]["kind"], p["claim"]["bar"])
+
+
+def test_a_track_with_answers_is_asked_again_only_about_a_claim_nobody_answered():
+    first, answers = answered_round()
+    second = make_round(2, DOCS, {}, answers, [first], size=40)
+    done = {(a["track"], claim_key(a)) for a in answers.values()}
+    again = [p for p in second["probes"] if "repeat_of" not in p]
+    assert again and all(p["fresh"] is False for p in again)
+    assert not [p for p in again if (p["track"], claim_key(p)) in done]
+    assert len({p["track"] for p in second["probes"]}) == len(second["probes"])      # one question per track, repeats included
+
+
+@pytest.mark.parametrize("answered", [6, 12, 20])
+def test_fresh_tracks_are_asked_before_answered_ones(answered):
+    first = make_round(1, DOCS, {}, {}, [], size=len(DOCS))
+    answers = answer_all({**first, "probes": first["probes"][:answered]}, yes_or_a)
+    second = make_round(2, DOCS, {}, answers, [first], size=40)
+    left = set(DOCS) - {a["track"] for a in answers.values()}
+    new = [p for p in second["probes"] if "repeat_of" not in p]
+    assert {p["track"] for p in new if p.get("fresh", True)} == left
+    assert all("fresh" not in p for p in new if p["track"] in left)
+
+
+def test_the_report_says_how_many_probes_of_a_round_were_fresh_and_scores_only_those():
+    fresh = asked("r02-p001", TRACKS[0])
+    old = {**asked("r02-p002", TRACKS[1]), "fresh": False}
+    answers = {fresh["id"]: given(fresh, "yes", 2), old["id"]: given(old, "no", 2)}
+    out = report([earlier_round([fresh, old], 2)], answers, DOCS)
+    assert out["rounds"][0]["fresh"] == 1 and out["rounds"][0]["fresh_exact"]["start"] == 1.0
+    assert sum(b["n"] for b in out["calibration"]) == 2                              # both are Gold
+
+
+def test_the_fresh_mark_stays_secret():
+    p = {**YESNO, "fresh": False}
+    assert '"fresh"' not in json.dumps(public_round({**ROUND, "probes": [p]}, {}))
+
+
+def test_a_drop_rejected_twice_is_not_asked_again():
+    root = asked("r05-p029", TRACKS[0])
+    again = {**asked("r07-p025", TRACKS[0]), "repeat_of": "r05-p029"}
+    answers = {root["id"]: given(root, "none", 5), again["id"]: given(again, "none", 7)}
+    rnd = make_round(8, DOCS, {}, answers, [earlier_round([root], 5), earlier_round([again], 7)], size=40)
+    assert "r05-p029" not in {p.get("repeat_of") for p in rnd["probes"]}
+
+
+# --- breakdown starts ---
+
+def breakdown_doc(start=16, conf=60):
+    tid, d = doc(1)
+    with_sections(d, ("intro", 0, 8), ("drop", 8, start), ("breakdown", start, start + 8), ("drop", start + 8, 32))
+    d["sections"][2]["confidence"] = conf
+    return tid, d
+
+
+@pytest.mark.parametrize("ends_starts,breakdowns,sources,play_bars", [
+    (None, None, None, (14, 18)),
+    (None, {"edmformer": [18]}, {"edmformer": 18}, (14, 20)),
+    (None, {"edmformer": [12, 30]}, {"edmformer": 12}, (11, 18)),
+    ([14], None, {"vdj": 14}, (13, 18)),
+    ([14], {"edmformer": [24]}, {"vdj": 14, "edmformer": 24}, (13, 26)),
+    (None, {"edmformer": [40]}, None, (14, 18)),
+])
+def test_a_breakdown_start_is_asked_in_a_clip_wide_enough_to_tap_where_others_put_it(ends_starts, breakdowns, sources, play_bars):
+    tid, d = breakdown_doc()
+    vdj = {"period": 0.5, "phase": 0.0, "cues": [], "breaks": [(2.0 * b - 0.5, 2.0 * 30) for b in ends_starts]} if ends_starts else None
+    out = theory_candidates(tid, d, vdj, random.Random(0), None, breakdowns)
+    (p,) = out["breakdown"]
+    assert (p["theory"], p["question"], p["prompt"]) == ("breakdown", "yesno", "Does the breakdown start at the marker?")
+    assert p["claim"] == {"kind": "breakdown", "bar": 16, "time": 32.0, "confidence": 60} and p.get("sources") == sources
+    assert (p["plays"][0]["start"], p["plays"][0]["end"]) == (2.0 * play_bars[0], 2.0 * play_bars[1])
+    (c,) = [q for q in out["calibration"] if q["claim"]["kind"] == "breakdown"]
+    assert c.get("sources") == sources and c["plays"] == p["plays"]
+
+
+@pytest.mark.parametrize("answer,confirmed", [("yes", True), ("bar:16", True), ("bar:17", False), ("none", False)])
+def test_the_breakdown_theory_is_confirmed_by_our_exact_bar(answer, confirmed):
+    record = {"answer": answer, "claim": {"kind": "breakdown", "bar": 16, "time": 32.0, "confidence": 60}}
+    assert CONFIRMS["breakdown"](record) is confirmed
+    assert not any(name in THEORIES["breakdown"].lower() for name in ("vdj", "virtualdj", "edmformer", "drop detector", "allin1", "rules"))
+
+
+def five_with_breakdowns(n=24):
+    return {t: with_sections(d, ("intro", 0, 8), ("drop", 8, 16), ("breakdown", 16, 24), ("drop", 24, 32)) for t, d in list(DOCS.items())[:n]}
+
+
+def test_the_breakdown_pool_gets_two_turns_per_cycle():
+    docs = five_with_breakdowns()
+    rnd = make_round(1, docs, {}, {}, [], size=40)
+    unsure = [p for p in rnd["probes"] if p["bucket"] == "unsure"]
+    counts = {t: sum(p["theory"] == t for p in unsure) for t in ("breakdown", "labels")}
+    grid = sum(p["claim"]["kind"] == "grid" for p in unsure)
+    assert counts["breakdown"] > grid and abs(counts["breakdown"] - counts["labels"]) <= 1
+
+
+# --- buildup existence: a balanced bucket of its own ---
+
+from edm_analysis.rounds import EXISTENCE_SHARE  # noqa: E402
+
+
+def existence_docs():
+    out = {}
+    for i, (tid, d) in enumerate(DOCS.items()):
+        with_sections(d, *((("intro", 0, 8), ("buildup", 8, 16), ("drop", 16, 32)) if i % 4 else (("intro", 0, 16), ("drop", 16, 32))))
+        out[tid] = d
+    return out
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_existence_questions_are_a_bucket_of_their_own_balanced_over_claims_and_edmformer(seed):
+    docs = existence_docs()
+    with_edm = {t for i, t in enumerate(docs) if i % 8 < 4}
+    rnd = make_round(1, docs, {}, {}, [], size=40, seed=seed, candidate_drops={t: {"edmformer": [18]} if t in with_edm else {"dropdetector": [16]} for t in docs})
+    exist = [p for p in rnd["probes"] if p["claim"]["kind"] == "buildup_exists"]
+    assert len(exist) == round(40 * EXISTENCE_SHARE) == 12           # no earlier answers, so no repeats: 40 to share
+    assert {p["bucket"] for p in exist} == {"existence"} and {p["theory"] for p in exist} == {"buildup"}
+    claimed = sum(p["claim"]["claimed"] for p in exist)
+    edm = sum(p["track"] in with_edm for p in exist)
+    assert abs(2 * claimed - len(exist)) <= 1 and abs(2 * edm - len(exist)) <= 1
+    groups = Counter((p["claim"]["claimed"], p["track"] in with_edm) for p in exist)
+    assert max(groups.values()) - min(groups.values()) <= 1 and len(groups) == 4
+
+
+def test_existence_questions_are_asked_nowhere_else():
+    tid, d = existence_probes(8)[:2]
+    out = theory_candidates(tid, d, None, random.Random(0))
+    assert [k for k, ps in out.items() if any(p["claim"]["kind"] == "buildup_exists" for p in ps)] == ["buildup"]
+
+
+# --- first beat entries: one per round as a check ---
+
+def test_a_round_asks_one_first_beat_entry_question():
+    docs = with_lifts(DOCS, set())
+    for seed in range(4):
+        rnd = make_round(1, docs, {}, {}, [], size=40, seed=seed)
+        assert len([p for p in rnd["probes"] if p["theory"] == "entry"]) == 1

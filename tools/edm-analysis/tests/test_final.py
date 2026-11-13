@@ -84,6 +84,7 @@ def test_the_final_file_carries_a_ramp_per_bar_as_long_as_the_energy(tmp_path):
                                {"label": "drop", "start_bar": 16, "end_bar": 20, "start": 32.0, "end": 40.0}],
            "events": []}
     final = json.loads(write_final(tmp_path, doc).read_text())
-    assert len(final["bars"]["ramp"]) == len(final["bars"]["energy"]) == 20
+    assert len(final["bars"]["ramp"]) == len(final["bars"]["energy"]) == 20 and final["bars"]["ramp_unsure"] is True
     assert final["bars"]["ramp"] == [0.0] * 8 + [i / 8 for i in range(1, 9)] + [0.0] * 4 and final["schema"] == "qlcplus-edm-final/3"     # the buildup is nominally 8 bars
     assert [(s["label"], s["start_bar"], s.get("nominal")) for s in final["sections"]] == [("intro", 0, None), ("buildup", 8, True), ("drop", 16, None)]
+    assert [s.get("unsure") for s in final["sections"]] == [None, True, None]

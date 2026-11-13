@@ -33,6 +33,7 @@ FEATURES = {
 AGREEMENT = ("det_prob", "rules_exact", "em_exact", "dd_exact", "near", "rules_bu", "em_bu", "em_drop")   # more agreement never lowers confidence (Gold is picked where sources disagree)
 MODEL_FILE = "confidence-model.json"
 REVIEWER_ERROR = 0.10      # share of the reviewer's answers assumed wrong; exact rates are also reported read under it
+UNSURE = ("exists",)       # groups left at 50 however much Gold they have: round 7 found nothing in the stored sound that told the reviewer's yes from no
 GOLD_FIRST = ("grid",)     # a group whose few Gold answers join the Silver rows (replacing those of their tracks) before it has MIN_GOLD
 
 
@@ -278,7 +279,7 @@ def fit_group(rows, names=()):
 def fit(silver, gold, today=None, min_gold=MIN_GOLD):
     """Model per group; Gold wins once a group has min_gold answers (MIN_GOLD)."""
     model = {"fitted": (today or date.today()).isoformat(), "groups": {}}
-    for group, names in FEATURES.items():
+    for group, names in ((g, n) for g, n in FEATURES.items() if g not in UNSURE):
         g = [(x, t) for k, x, t in gold if k == group]
         s = [(x, t) for k, x, t in silver if k == group]
         source, rows = ("gold", g) if len(g) >= min_gold else ("silver+gold", s + g) if g and group in GOLD_FIRST else ("silver", s)

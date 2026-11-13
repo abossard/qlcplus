@@ -7,6 +7,8 @@ if the reviewer errs at confidence.REVIEWER_ERROR.
 
 from itertools import zip_longest
 
+import numpy as np
+
 from .confidence import REVIEWER_ERROR, corrected_rate
 from .fusion import entry_drops
 from .transform import DROP_SCORE
@@ -125,6 +127,105 @@ def _existence(by, covered, answers):
     return out or None
 
 
+RISE_KEYS = ("centroid", "inst_centroid", "onset", "hihat_onset", "loud")
+RISE_WINDOWS = (4, 8, 16)
+
+
+def _series(bars, key, a, b):
+    return np.array([float(bars[i].get(key) or 0.0) for i in range(max(0, a), b) if i in bars], float)
+
+
+def sound_before(bars, drop):
+    """Candidate features of the sound before a drop, from per-bar rows {bar: row}: the rise of brightness (mix and instruments), onset density
+    (mix and hihat) and loudness over the last 4, 8 and 16 bars (fitted slope times length), kick and bass dropping out over the last 8 bars
+    (1 less their lowest level), and a dip in loudness over the last 2 bars against the 6 before them."""
+    out = {}
+    for key in RISE_KEYS:
+        for w in RISE_WINDOWS:
+            x = _series(bars, key, drop - w, drop)
+            out[f"{key} rise {w}"] = float(np.polyfit(np.arange(len(x)), x, 1)[0] * len(x)) if len(x) >= 3 and np.ptp(x) > 0 else 0.0
+    for key in ("kick", "bass"):
+        x = _series(bars, key, drop - 8, drop)
+        out[f"{key} out 8"] = float(1 - x.min()) if len(x) else 0.0
+    before, last = _series(bars, "loud", drop - 8, drop - 2), _series(bars, "loud", drop - 2, drop)
+    out["loud dip 2"] = float(before.mean() - last.mean()) if len(before) and len(last) else 0.0
+    return out
+
+
+def fall_at(bars, bar, w=4, reach=8):
+    """How kick, bass and loudness fall away at a claimed breakdown start (mean of the w bars before less the w bars after), and the offset
+    within `reach` bars where kick and bass together fall most."""
+    fall = lambda key, b: (_series(bars, key, b - w, b).mean() - _series(bars, key, b, b + w).mean()) if len(_series(bars, key, b, b + w)) else 0.0
+    both = lambda b: fall("kick", b) + fall("bass", b)
+    best = max(range(-reach, reach + 1), key=lambda o: (round(both(bar + o), 6), -abs(o)))
+    return {"kick fall": float(fall("kick", bar)), "bass fall": float(fall("bass", bar)), "loud fall": float(fall("loud", bar)),
+            "strongest fall within 8 bars": best}
+
+
+def _threshold(xs, ys):
+    """(threshold, sign) with the best accuracy on these values: predict yes where sign * (x - threshold) > 0."""
+    cuts = sorted(set(xs))
+    cuts = [cuts[0] - 1, *[(a + b) / 2 for a, b in zip(cuts, cuts[1:])], cuts[-1] + 1]
+    score = lambda c, sign: sum((sign * (x - c) > 0) == y for x, y in zip(xs, ys))
+    return max(((c, sign) for c in cuts for sign in (1, -1)), key=lambda cs: score(*cs))
+
+
+def separation(rows):
+    """How well each feature separates the answers, held out one track at a time. rows: [(track, {feature: value}, answer)].
+    Per feature: mean for yes and no, and the accuracy of a threshold fitted without the track. Rules: the majority answer, the best
+    feature chosen inside each fold (the honest number for "pick the best feature"), and a logistic model of all features."""
+    from .confidence import fit_group
+
+    names, tracks = sorted(rows[0][1]), sorted({t for t, _, _ in rows})
+    folds = [([r for r in rows if r[0] != t], [r for r in rows if r[0] == t]) for t in tracks]
+    held = lambda predict: _share(sum(predict(train, row) == row[2] for train, test in folds for row in test), len(rows))
+
+    def by_threshold(name):
+        def predict(train, row):
+            c, sign = _threshold([f[name] for _, f, _ in train], [y for _, _, y in train])
+            return sign * (row[1][name] - c) > 0
+        return predict
+
+    def best_feature(train, row):
+        fitted = {n: _threshold([f[n] for _, f, _ in train], [y for _, _, y in train]) for n in names}
+        right = lambda n: sum((fitted[n][1] * (f[n] - fitted[n][0]) > 0) == y for _, f, y in train)
+        return by_threshold(max(names, key=lambda n: (right(n), n)))(train, row)
+
+    def logistic(train, row):
+        m = fit_group([([f[n] for n in names], y) for _, f, y in train])
+        if m is None:
+            return bool(np.mean([y for _, _, y in train]) >= 0.5)
+        z = np.dot((np.array([row[1][n] for n in names]) - m["mean"]) / m["std"], m["coef"]) + m["intercept"]
+        return bool(z > 0)
+
+    mean = lambda name, y: round(float(np.mean([f[name] for _, f, a in rows if a == y])), 3) if any(a == y for _, _, a in rows) else None
+    return {"n": len(rows), "yes": sum(y for _, _, y in rows),
+            "features": {n: {"yes_mean": mean(n, True), "no_mean": mean(n, False), "held_out": held(by_threshold(n))} for n in names},
+            "rules": {"majority": held(lambda train, row: np.mean([y for _, _, y in train]) >= 0.5),
+                      "best feature chosen per fold": held(best_feature), "logistic of all features": held(logistic)}}
+
+
+def _buildup_sound(by, covered, answers, bars):
+    """separation() of the buildup existence answers on the sound before their drop, with the current rule's accuracy on the same answers."""
+    rows = [(a["track"], a["drop_bar"], a["exists"]) for a in answers if a.get("exists") is not None and a.get("drop_bar") is not None and a["track"] in bars]
+    if not rows:
+        return None
+    out = separation([(t, sound_before(bars[t], d), e) for t, d, e in rows])
+    claimed = lambda t, d: any(d - EXISTENCE_REACH <= c["bar"] < d for c in by.get(t, {}).get(("fused", "buildup"), []))
+    out["rules"]["current rule (fused)"] = _share(sum(claimed(t, d) == e for t, d, e in rows), len(rows))
+    return out
+
+
+def _breakdown_sound(answers, bars):
+    """The answered breakdown starts: how kick, bass and loudness fall at the claimed bar, per answer and as separation()."""
+    rows = [a for a in answers if a.get("kind") == "breakdown" and a.get("exact") is not None and a["track"] in bars]
+    if not rows:
+        return None
+    each = [{"probe": a.get("probe"), "bar": a["bar"], "answer": a["answer"], "exact": a["exact"], **fall_at(bars[a["track"]], a["bar"])} for a in rows]
+    feats = lambda a: {k: v for k, v in fall_at(bars[a["track"]], a["bar"]).items() if k != "strongest fall within 8 bars"}
+    return {"answers": each, **separation([(a["track"], feats(a), a["exact"]) for a in rows])}
+
+
 def _energy(by, covered):
     """Mean energy level of the fused sections per label, or None where the tables carry none: drops should sit above breakdowns."""
     levels = {}
@@ -163,8 +264,12 @@ def _label_changes(by, covered):
     return {"sections": sections, "changed": sum(from_to.values()), "from_to": dict(sorted(from_to.items()))}
 
 
-def compare(claims, answers=()):
+def compare(claims, answers=(), bars=()):
+    """claims, answers and bars: rows of the exported tables (bars: per-bar levels, needed only for the sound tables)."""
     by = _index(claims)
+    per_track = {}
+    for r in bars:
+        per_track.setdefault(r["track"], {})[r["bar"]] = r
     covered = {s: {t for t, kinds in by.items() if any(k[0] == s for k in kinds)} for s in sorted({c["source"] for c in claims})}
     covered = {**{s: set() for s in GOLD_SOURCES}, **covered}
     ends = {t: _bars(by, t, "vdj", "break_end") for t in set.intersection(*(covered[s] for s in GOLD_SOURCES))}
@@ -183,7 +288,8 @@ def compare(claims, answers=()):
             "structure": _structure(by, covered), "label_changes": _label_changes(by, covered),
             "section_starts": {s: {"n": len(bars), "on_8": _share(sum(b % 8 == 0 for b in bars), len(bars))}
                                for s, bars in sections.items() if bars},
-            "gold": _gold(by, covered, answers), "rejected": _rejected(by, covered, answers), "energy": _energy(by, covered), "existence": _existence(by, covered, answers)}
+            "gold": _gold(by, covered, answers), "rejected": _rejected(by, covered, answers), "energy": _energy(by, covered), "existence": _existence(by, covered, answers),
+            "buildup_sound": _buildup_sound(by, covered, answers, per_track), "breakdown_sound": _breakdown_sound(answers, per_track)}
 
 
 def format_table(result):
@@ -223,6 +329,14 @@ def format_table(result):
         lines += ["", "buildup existence against the reviewer's answers (a buildup exists before this drop, yes or no)",
                   f"  {'':<24}{'answers':>8}{'claimed and confirmed':>23}{'claimed and rejected':>22}{'not claimed, named':>20}{'agreed none':>13}{'right':>8}"]
         lines += [f"  {s_:<24}{v['n']:>8}{v['confirmed']:>23}{v['rejected']:>22}{v['missed']:>20}{v['agreed_none']:>13}{cell(v['right']):>8}" for s_, v in result["existence"].items()]
+    for title, sound in (("buildup exists (yes or no), from the sound before the drop", result.get("buildup_sound")),
+                         ("breakdown start on the claimed bar, from how kick, bass and loudness fall there", result.get("breakdown_sound"))):
+        if sound:
+            lines += ["", f"what in the sound separates the answers: {title} ({sound['n']} answers, {sound['yes']} yes; held out one track at a time)",
+                      f"  {'':<28}{'yes mean':>10}{'no mean':>10}{'held out':>10}"]
+            lines += [f"  {n:<28}{cell(v['yes_mean']):>10}{cell(v['no_mean']):>10}{cell(v['held_out']):>10}"
+                      for n, v in sorted(sound["features"].items(), key=lambda kv: -(kv[1]["held_out"] or 0))]
+            lines += [f"  {n:<48}{cell(v):>10}" for n, v in sound["rules"].items()]
     for kind, table in (result["gold"] or {}).items():
         lines += ["", f"against Gold bars of {kind}s (observed; 'if' is the share if the reviewer errs {REVIEWER_ERROR:.0%} of the time)",
                   f"  {'':<24}{'answers':>8}{'exact':>9}{'if':>7}{'+-1':>9}{'if':>7}"]

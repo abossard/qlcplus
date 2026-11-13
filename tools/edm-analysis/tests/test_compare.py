@@ -1,5 +1,7 @@
 import json
 
+import numpy as np
+
 import pytest
 
 from edm_analysis.compare import compare, format_table
@@ -348,3 +350,69 @@ def test_the_table_prints_buildup_existence_and_entry_events():
     text = format_table(compare([*FUSED_CLAIMS, *EXIST_CLAIMS, {**c("F", "fused", "entry", 8), "label": "entry"}], EXIST_ANSWERS))
     for part in ("buildup existence", "claimed and confirmed", "entry events"):
         assert part in text, part
+
+
+# --- what in the sound separates the reviewer's answers ---------------------------------------------
+
+def bars_of(track, n=48, **series):
+    """Per-bar rows of one track: every level 0.5 unless given."""
+    keys = ("kick", "bass", "loud", "centroid", "inst_centroid", "onset", "hihat_onset")
+    return [{"track": track, "bar": k, **{key: series.get(key, [0.5] * n)[k] for key in keys}} for k in range(n)]
+
+
+def test_the_sound_before_a_drop_is_read_as_rises_dropouts_and_a_dip():
+    from edm_analysis.compare import sound_before
+
+    rising = [0.5] * 24 + [i / 8 for i in range(8)] + [0.5] * 16
+    rows = bars_of("T", centroid=rising, kick=[0.9] * 28 + [0.0] * 4 + [0.9] * 16, loud=[0.8] * 30 + [0.2] * 2 + [0.9] * 16)
+    got = sound_before({r["bar"]: r for r in rows}, 32)
+    assert got["centroid rise 8"] == pytest.approx(1.0, abs=0.05) and got["centroid rise 4"] > 0.3 and got["onset rise 8"] == 0.0
+    assert got["kick out 8"] == pytest.approx(1.0) and got["bass out 8"] == pytest.approx(0.5)
+    assert got["loud dip 2"] == pytest.approx(0.6)
+
+
+def test_missing_levels_read_as_nothing_rather_than_nan():
+    from edm_analysis.compare import sound_before
+
+    rows = bars_of("T", centroid=[None] * 48)
+    assert all(v == v for v in sound_before({r["bar"]: r for r in rows}, 32).values())
+
+
+@pytest.mark.parametrize("noise,at_least,at_most", [(0.0, 1.0, 1.0), (10.0, 0.0, 0.95)])
+def test_each_feature_gets_a_held_out_accuracy_and_the_best_one_is_chosen_inside_each_fold(noise, at_least, at_most):
+    from edm_analysis.compare import separation
+
+    rng = np.random.default_rng(0)
+    rows = [(f"t{i}", {"clear": float(i % 2) + noise * rng.normal(), "noise": rng.normal()}, bool(i % 2)) for i in range(30)]
+    out = separation(rows)
+    assert out["n"] == 30 and out["yes"] == 15
+    assert at_least <= out["features"]["clear"]["held_out"] <= at_most
+    assert set(out["rules"]) >= {"majority", "best feature chosen per fold", "logistic of all features"}
+    assert out["features"]["clear"]["yes_mean"] > out["features"]["clear"]["no_mean"] or noise
+
+
+def test_one_track_with_several_answers_is_held_out_as_a_whole():
+    from edm_analysis.compare import separation
+
+    rows = [("same", {"f": 1.0}, True), ("same", {"f": 1.0}, True), ("other", {"f": 0.0}, False), ("third", {"f": 0.0}, False)]
+    assert separation(rows)["rules"]["majority"] == 0.0     # held out together, both "same" answers meet an all-"no" rest; split up, one would vote for the other
+
+
+def test_compare_reads_the_sound_before_each_answered_drop_and_scores_the_current_rule():
+    claims = [*EXIST_CLAIMS]
+    bars = [*bars_of("X"), *bars_of("Y"), *bars_of("Z", n=60), *bars_of("W")]
+    out = compare(claims, EXIST_ANSWERS, bars)["buildup_sound"]
+    assert out["n"] == 4 and out["yes"] == 2
+    assert out["rules"]["current rule (fused)"] == pytest.approx(0.5)
+    assert "centroid rise 8" in out["features"]
+    assert compare(claims, EXIST_ANSWERS)["buildup_sound"] is None
+    assert "what in the sound" in format_table(compare(claims, EXIST_ANSWERS, bars))
+
+
+def test_breakdown_starts_are_read_as_kick_and_bass_falling_away_at_the_claimed_bar():
+    from edm_analysis.compare import fall_at
+
+    rows = bars_of("T", kick=[0.9] * 16 + [0.1] * 32, bass=[0.8] * 16 + [0.8] * 32, loud=[0.9] * 16 + [0.5] * 32)
+    got = fall_at({r["bar"]: r for r in rows}, 16)
+    assert got["kick fall"] == pytest.approx(0.8) and got["bass fall"] == pytest.approx(0.0) and got["loud fall"] == pytest.approx(0.4)
+    assert got["strongest fall within 8 bars"] == 0

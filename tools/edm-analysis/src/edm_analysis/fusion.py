@@ -10,6 +10,7 @@ put it on its exact bar (`sources`). The choices below were made on the reviewer
 - a buildup is an existence claim: it needs evidence (the rules' buildup, or EDMFormer's) and has a nominal length of BUILDUP_BARS before
   its drop (`nominal`: the start is no exact-bar Claim; the reviewer's thirteen named starts range from 1 to 14 bars before the drop and
   no rule found the bar); between two drops it also needs EDMFormer and a real dip in kick and bass;
+  The buildup is `unsure`: round 7 found its existence rule right in 3 of 11 fresh answers and nothing in the stored sound did better;
 - a drop straight after a drop is the same drop: the later hit is a `lift` event, not a section start;
 - the labels are intro, buildup, drop, breakdown, outro. A steady beat part that is none of them (the rules' groove, an intro in the
   middle, an outro before the end) is named by where it sits: before the first breakdown, buildup or drop it is intro; after a drop with
@@ -337,7 +338,7 @@ def _fuse(doc, loaded, demote):
     rules_starts = {s["start_bar"] for s in rules["sections"]}
     sections = [{"label": labels[a], "start_bar": a, "end_bar": b, "start": round(t(a), 3) if a else 0.0, "end": round(t(b), 3),
                  "sources": sorted({*_sources(sup, rules_starts, a, labels[a]), *(evidence.get(a, []) if labels[a] == "buildup" else [])}), "energy": e,
-                 **({"nominal": True} if labels[a] == "buildup" else {})}
+                 **({"nominal": True, "unsure": True} if labels[a] == "buildup" else {})}
                 for (a, b), e in zip(zip(cuts, cuts[1:]), energy_levels(loud, cuts))]
     events = [{"kind": s["label"], "bar": s["start_bar"], "time": round(t(s["start_bar"]), 3), "sources": s["sources"]}
               for prev, s in zip([None, *sections], sections) if s["label"] in START_KINDS and (prev is None or prev["label"] != s["label"] or s["start_bar"] in fused)]

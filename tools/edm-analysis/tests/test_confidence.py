@@ -359,11 +359,11 @@ def test_the_existence_evidence_reads_the_levels_before_the_drop():
     assert got["kick_min"] == 0.0 and got["bass_min"] == 0.0 and got["loud_step"] == pytest.approx(0.6) and got["rise_onset"] > 0.5 and got["rise_centroid"] == 0.0
 
 
-def test_existence_has_no_silver_so_it_stays_unknown_until_there_are_thirty_gold_answers():
-    rng = np.random.default_rng(12)
-    assert "exists" not in fit([], rows("exists", MIN_GOLD - 1, rng))["groups"]
-    model = fit([], rows("exists", MIN_GOLD, rng))
-    assert model["groups"]["exists"]["source"] == "gold" and model["groups"]["exists"]["n"] == MIN_GOLD
+@pytest.mark.parametrize("n_gold", [MIN_GOLD - 1, MIN_GOLD, 3 * MIN_GOLD])
+def test_existence_stays_unknown_however_many_answers_while_nothing_in_the_sound_separates_them(n_gold):
+    """Round 7: no stored feature told the reviewer's yes from no held out (compare's sound table), so no model is fitted for it."""
+    model = fit([], rows("exists", n_gold, np.random.default_rng(12)))
+    assert "exists" not in model["groups"] and predict(model, "exists", [0.0] * len(FEATURES["exists"])) == UNKNOWN
 
 
 @pytest.mark.parametrize("name", ["rules_bu", "em_bu", "em_drop"])
@@ -371,7 +371,9 @@ def test_more_sources_with_a_buildup_never_lowers_its_existence_confidence(name)
     rng = np.random.default_rng(13)
     i = FEATURES["exists"].index(name)
     data = [(g, [*x[:i], 1.0 - float(e), *x[i + 1:]], e) for g, x, e in rows("exists", 60, rng)]
-    assert fit([], data)["groups"]["exists"]["coef"][i] >= 0
+    from edm_analysis.confidence import fit_group
+
+    assert fit_group([(x, e) for _, x, e in data], FEATURES["exists"])["coef"][i] >= 0
 
 
 BUILDUP_DOC = {**DOC, "sections": [{"label": "intro", "start_bar": 0, "end_bar": 8, "start": 0.0, "end": 16.0},
@@ -385,7 +387,7 @@ def test_a_buildup_gets_its_existence_confidence_and_its_start_is_no_exact_bar_c
     exists_only = fit([], rows("exists", 40, rng))
     got = with_confidence(BUILDUP_DOC, exists_only)
     buildup, drop = got["sections"][1], got["sections"][2]
-    assert buildup["confidence"] == predict(exists_only, "exists", Evidence(BUILDUP_DOC).exists(16))
+    assert buildup["confidence"] == UNKNOWN                    # existence is unsure: 50
     assert drop["confidence"] == UNKNOWN and got["events"][0]["confidence"] == buildup["confidence"]
     start_only = fit(rows("start", 50, rng), [])
     assert with_confidence(BUILDUP_DOC, start_only)["sections"][1]["confidence"] == UNKNOWN      # the start model has nothing to say about a buildup

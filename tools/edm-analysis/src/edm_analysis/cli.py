@@ -229,6 +229,13 @@ def _candidate_drops(out_dir, docs):
     return _candidate_bars(out_dir, docs, candidate_drop_bars)
 
 
+def _candidate_breakdowns(out_dir, docs):
+    from .transform import claims_candidate
+
+    return _candidate_bars(out_dir, docs, lambda tid, doc, name, loaded: sorted(
+        {c["bar"] for c in claims_candidate(tid, doc, name, loaded) if c["kind"] == "breakdown"}))
+
+
 def cmd_round(args):
     """Make the next review round, or report how the rounds went."""
     from .rounds import make_round, report, save_round
@@ -240,7 +247,8 @@ def cmd_round(args):
         if open_probes and not args.force:
             print(f"round {rounds[-1]['round']} still has {len(open_probes)} unanswered questions (use --force)")
             return 1
-        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size, candidate_drops=_candidate_drops(out_dir, docs))
+        rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size, candidate_drops=_candidate_drops(out_dir, docs),
+                         candidate_breakdowns=_candidate_breakdowns(out_dir, docs))
         save_round(out_dir, rnd)
         counts = {}
         for p in rnd["probes"]:
@@ -323,7 +331,7 @@ def cmd_compare(args):
         print("no claims table: run `edm-analysis export` first", file=sys.stderr)
         return 1
     read = lambda name: pq.read_table(folder / f"{name}.parquet").to_pylist() if (folder / f"{name}.parquet").exists() else []
-    result = compare(read("claims"), read("answers"))
+    result = compare(read("claims"), read("answers"), read("bars"))
     print(json.dumps(result, indent=1) if args.json else format_table(result))
     return 0
 

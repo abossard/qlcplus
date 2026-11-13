@@ -189,7 +189,7 @@ def test_sources_tell_who_supports_a_claim_on_its_exact_bar():
 def test_the_document_keeps_its_shape_and_the_rules_output():
     doc = make_doc()
     got = fuse(doc, {"dropdetector": detector((48, 0.9))})
-    assert {k for s in got["sections"] for k in s} == {"label", "start_bar", "end_bar", "start", "end", "sources", "energy", "nominal"}
+    assert {k for s in got["sections"] for k in s} == {"label", "start_bar", "end_bar", "start", "end", "sources", "energy", "nominal", "unsure"}
     assert [s["start_bar"] for s in got["sections"]] == sorted(s["start_bar"] for s in got["sections"])
     assert got["sections"][0]["start_bar"] == 0 and got["sections"][-1]["end_bar"] == N
     assert all(a["end_bar"] == b["start_bar"] for a, b in zip(got["sections"], got["sections"][1:]))
@@ -500,3 +500,8 @@ def test_an_entry_that_would_leave_an_intro_over_half_the_track_stays_the_drop()
     got = fuse(make_doc(sections), {"dropdetector": detector((24, 0.92), (84, 0.78))})
     assert labels(got)[0][2] <= 0.55 * N
     assert [e for e in got["events"] if e["kind"] == "entry"] == [] and any(s["label"] == "drop" for s in got["sections"])
+
+
+def test_a_buildup_section_is_marked_unsure():
+    got = fuse(make_doc(), {"dropdetector": detector((40, 0.9))})
+    assert [(s["label"], s.get("unsure")) for s in got["sections"] if s["label"] in ("buildup", "drop")] == [("buildup", True), ("drop", None)]
