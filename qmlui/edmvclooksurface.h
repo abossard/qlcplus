@@ -26,7 +26,7 @@
 class VirtualConsole;
 class VCButton;
 
-/** The Virtual Console's buttons as look buttons; Toggle buttons only */
+/** The Virtual Console's Toggle buttons as look buttons; any other button is no look */
 class EdmVcLookSurface : public EdmLookSurface
 {
     Q_OBJECT

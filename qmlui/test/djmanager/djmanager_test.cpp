@@ -10,6 +10,7 @@
 #include "djfsm.h"
 #include "showfactory.h"
 #include "vdjbridge.h"
+#include "edmanalysismanager.h"
 
 #include "doc.h"
 #include "show.h"
@@ -24,6 +25,7 @@
 #include <QQuickView>
 #include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 
 #include <algorithm>
 
@@ -1352,6 +1354,69 @@ void DjManager_Test::liveWorkspaceClearKeepsPerformOffTheRecycledId()
     mgr.setPerformMode(false);
 
     delete doc;
+}
+
+/** A tool folder whose .venv/bin/edm-analysis is this script; the page's output dir in the same temp folder */
+static void useTool(const QTemporaryDir &dir, const QByteArray &script)
+{
+    QDir().mkpath(dir.filePath(".venv/bin"));
+    QFile tool(dir.filePath(".venv/bin/edm-analysis"));
+    QVERIFY(tool.open(QIODevice::WriteOnly));
+    tool.write(script);
+    tool.close();
+    QVERIFY(tool.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+    QDir().mkpath(dir.filePath("songs"));
+    QSettings().setValue("edmanalysis/toolDir", dir.path());
+    QSettings().setValue("edmanalysis/outputDir", dir.filePath("out"));
+}
+
+void DjManager_Test::startWithUnstartableToolEndsRun()
+{
+    QTemporaryDir dir;
+    useTool(dir, "#!/nonexistent/python\nprint('never')\n");
+    const auto forget = qScopeGuard([]() { QSettings().remove("edmanalysis"); });
+    QQuickView view;
+    EdmAnalysisManager manager(&view, m_doc);
+    QSignalSpy progress(&manager, &EdmAnalysisManager::progressChanged);
+
+    manager.start(QUrl::fromLocalFile(dir.filePath("songs")));
+    QCOMPARE(progress.count(), 1);
+
+    QTRY_VERIFY(manager.running() == false);
+    QTRY_VERIFY2(progress.count() >= 2, "the page never hears that the run ended");
+}
+
+void DjManager_Test::folderStartWhileQueueRunsStartsAfterQueue()
+{
+    QTemporaryDir dir;
+    useTool(dir, "#!/bin/sh\nsleep 30\n");
+    const auto forget = qScopeGuard([]() { QSettings().remove("edmanalysis"); });
+    QQuickView view;
+    EdmAnalysisManager manager(&view, m_doc);
+
+    manager.setQueueRunning(true);
+    manager.start(QUrl::fromLocalFile(dir.filePath("songs")));
+    manager.setQueueRunning(false);
+
+    QVERIFY(manager.running());
+}
+
+void DjManager_Test::cancelForgetsTheWaitingFolder()
+{
+    QTemporaryDir dir;
+    useTool(dir, "#!/bin/sh\nsleep 30\n");
+    const auto forget = qScopeGuard([]() { QSettings().remove("edmanalysis"); });
+    QQuickView view;
+    EdmAnalysisManager manager(&view, m_doc);
+
+    manager.setQueueRunning(true);
+    manager.start(QUrl::fromLocalFile(dir.filePath("songs")));
+    QCOMPARE(manager.property("waiting").toBool(), true);
+    manager.cancel();
+    QCOMPARE(manager.property("waiting").toBool(), false);
+    manager.setQueueRunning(false);
+
+    QCOMPARE(manager.running(), false);
 }
 
 QTEST_MAIN(DjManager_Test)

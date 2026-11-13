@@ -375,6 +375,12 @@ function beatsToTimeSize(beatsMs, bpmNumber, timescale, tickSize)
     return timeToSize(beatsMsToMs(beatsMs, bpmNumber), timescale, tickSize);
 }
 
+/** A real time in ms as a pixel position on the ruler shown: time based, or one bar per tick at the BPM */
+function msToTimelinePos(ms, msMode, timescale, tickSize, bpmNumber, beatsDivision)
+{
+    return msMode ? timeToSize(ms, timescale, tickSize) : timeToBeatSize(ms, bpmNumber, beatsDivision, tickSize);
+}
+
 /** A "beats as ms" value (1000 units per beat) in real milliseconds at the given BPM */
 function beatsMsToMs(beatsMs, bpmNumber)
 {

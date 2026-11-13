@@ -27,6 +27,8 @@
 #include <QSettings>
 #include <QTimer>
 
+#include <utility>
+
 #ifndef EDM_ANALYSIS_TOOL_DIR
 #define EDM_ANALYSIS_TOOL_DIR ""
 #endif
@@ -114,6 +116,12 @@ EdmAnalysisManager::EdmAnalysisManager(QQuickView *view, Doc *doc, QObject *pare
     connect(m_process, &QProcess::readyReadStandardOutput, this, &EdmAnalysisManager::slotReadOutput);
     connect(m_process, &QProcess::readyReadStandardError, this, &EdmAnalysisManager::slotReadErrors);
     connect(m_process, &QProcess::finished, this, &EdmAnalysisManager::slotFinished);
+    connect(m_process, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart)
+            return;
+        setLastMessage(tr("The analysis tool could not be started: %1").arg(m_process->errorString()));
+        emit progressChanged();
+    });
     toolCommand();
 }
 
@@ -202,6 +210,8 @@ void EdmAnalysisManager::setLastMessage(const QString &message)
 void EdmAnalysisManager::setQueueRunning(bool running)
 {
     m_queueRunning = running;
+    if (running == false && m_waitingFolder.isEmpty() == false)
+        start(std::exchange(m_waitingFolder, QUrl()));
 }
 
 void EdmAnalysisManager::start(const QUrl &folder)
@@ -210,7 +220,9 @@ void EdmAnalysisManager::start(const QUrl &folder)
         return;
     if (m_queueRunning)
     {
+        m_waitingFolder = folder;
         setLastMessage(tr("Waiting for the song analysis to finish."));
+        emit progressChanged();
         return;
     }
 
@@ -233,6 +245,12 @@ void EdmAnalysisManager::start(const QUrl &folder)
 
 void EdmAnalysisManager::cancel()
 {
+    if (waiting())
+    {
+        m_waitingFolder.clear();
+        setLastMessage(tr("Stopped."));
+        emit progressChanged();
+    }
     if (running())
     {
         m_process->terminate();

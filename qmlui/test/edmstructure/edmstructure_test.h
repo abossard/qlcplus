@@ -56,6 +56,23 @@ private slots:
     void directorChangesNothingWithoutAnalysisOrAuto_data();
     void directorChangesNothingWithoutAnalysisOrAuto();
     void directorLeavesLightsWhenTheDeckIsEjected();
+
+    // review findings
+    void destroyingParentWhileRunningDoesNotCallToolAgain();
+    void readyEntryWithMissingFileCanBeRetried();
+    void analysisWrittenOutsideTheQueueReachesTheDeck();
+    void deckCountDecreaseLosesTheFollowedDeck();
+    void directorKeepsFollowingWhenTheOldMasterIsEjectedInTheSameWrite();
+    void directorSeesReleaseOfButtonOnBeforeWatch_data();
+    void directorSeesReleaseOfButtonOnBeforeWatch();
+    void nonMp3SongIsNotQueued();
+    void newSongClearsLiveValues();
+    void rewrittenFinalFileReachesTheDeck();
+    void analysisFolderChangesAreCoalesced();
+    void readyFileWinsOverAFailedEntryInTheSongList();
+    void newSongOnTheDeckTriggersItsSection();
+    void directorPressesOnlyOnForwardSectionChanges_data();
+    void directorPressesOnlyOnForwardSectionChanges();
 };
 
 #endif

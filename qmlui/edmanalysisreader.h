@@ -50,6 +50,7 @@ struct EdmSection
     int confidence = 50;
     int labelConfidence = 50;
     double energy = -1; // -1 when the file has none
+    bool unsure = false;   // the tool marks sections it cannot confirm (buildups)
 };
 
 struct EdmEvent
@@ -90,6 +91,9 @@ public:
 
     /** Path of the first Audio function on the show's timeline, or empty */
     static QString firstAudioFile(Doc *doc, Show *show);
+
+    /** sections() of the show's first Audio clip, in Show time: moved by the clip's start */
+    QVariantList showSections(Doc *doc, Show *show);
 
     /** Sections as {label, startMs, endMs, confidence, labelConfidence}, the
      *  last two in percent (50 when the file has no value); empty when the

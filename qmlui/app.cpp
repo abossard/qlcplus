@@ -377,11 +377,13 @@ void App::startup()
     m_edmAnalysis = new EdmAnalysisManager(this, m_doc, this);
     m_contextManager->registerContext(m_edmAnalysis);
     m_edmQueue = new EdmAnalysisQueue(m_edmAnalysis->outputDir(), this);
-    m_edmQueue->setTool([this]() { return m_edmAnalysis->toolCommand(); }, EdmAnalysisManager::toolEnvironment());
+    m_edmQueue->setTool([page = QPointer<EdmAnalysisManager>(m_edmAnalysis)]() { return page ? page->toolCommand() : QStringList(); },
+                        EdmAnalysisManager::toolEnvironment());
     connect(m_edmQueue, &EdmAnalysisQueue::runningChanged, this, [this]() { m_edmAnalysis->setQueueRunning(m_edmQueue->running()); });
     connect(m_edmAnalysis, &EdmAnalysisManager::progressChanged, this, [this]() { m_edmQueue->setBlocked(m_edmAnalysis->running()); });
     m_edmStructure = new EdmStructure(m_vdjBridge->djFsm(), m_edmQueue, m_edmAnalysis->outputDir(), this);
     rootContext()->setContextProperty("edmStructure", m_edmStructure);
+    connect(m_edmStructure, &EdmStructure::analysisFilesChanged, m_showManager, &ShowManager::refreshAnalysisSections);
     m_edmMapping = new EdmStructureMapping(m_doc, this);
     m_edmDirector = new EdmStructureDirector(m_edmStructure, m_edmMapping, new EdmVcLookSurface(m_virtualConsole, this), this);
     rootContext()->setContextProperty("edmMapping", m_edmMapping);

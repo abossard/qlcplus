@@ -45,7 +45,6 @@ struct EdmCrossing
 
 struct EdmCrossings
 {
-    bool jumped = false;         // the playhead went backwards: nothing crossed
     int activeSection = -1;
     QList<EdmCrossing> crossed;  // in bar order, a section start before an event on the same bar
 };
@@ -60,7 +59,7 @@ EdmSongPosition edmSongPosition(const EdmAnalysis &analysis, double elapsedMs, c
 EdmCrossings edmFirstCrossings(const EdmAnalysis &analysis, double bar);
 
 /** Section starts and events in (from, to]; the first section's start is only
- *  ever reported by edmFirstCrossings. to < from is a jump. */
+ *  ever reported by edmFirstCrossings. A step back (to < from) crosses nothing. */
 EdmCrossings edmCrossings(const EdmAnalysis &analysis, double from, double to);
 
 #endif

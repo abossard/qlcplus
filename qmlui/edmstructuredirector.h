@@ -53,9 +53,7 @@ struct EdmLookState
 struct EdmLookEvent
 {
     bool activeDeck = false;
-    bool sectionStart = false;
-    bool jumped = false;               // the playhead went backwards
-    bool sameSection = false;          // ... and landed in the section it was in: a loop, not a trigger
+    bool sectionChanged = false;       // the playhead crossed a section start going forward
     bool becameActive = false;
     QString label;                     // the section now playing
     QList<quint32> mappedOn;           // the mapped look buttons that are on now
@@ -110,6 +108,8 @@ private slots:
 
 private:
     void apply(const EdmLookDecision &decision);
+    /** Watch the mapped buttons, knowing their state now, and start over */
+    void watch();
 
     EdmStructureMapping *m_mapping;
     EdmLookSurface *m_surface;
@@ -117,7 +117,6 @@ private:
     QHash<quint32, bool> m_expected;   // widget -> the state the director asked for and has not seen yet
     QHash<quint32, bool> m_known;      // widget -> on when last reported; a report that keeps it is no change
     int m_deck = 0;
-    int m_section = -1;                // the followed deck's section at the last event
     QString m_label;
 };
 

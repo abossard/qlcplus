@@ -226,6 +226,8 @@ public:
     /** Sections of the song in this show from the offline audio analysis
      *  as {label, startMs, endMs, confidence, labelConfidence} */
     QVariantList analysisSections() const;
+    /** Re-read the song structure band, after the analysis files changed */
+    void refreshAnalysisSections();
 
     /** Get/Set the show's own tempo (BPM) used to draw the editor beat grid.
      *  This is the SONG tempo (beats<->time conversion for authoring), distinct

@@ -19,6 +19,10 @@ add_executable(${PROJECT_NAME}
     ../../vdjdatabasereader.h
     ../../performfsm.cpp
     ../../performfsm.h
+    ../../edmanalysismanager.cpp
+    ../../edmanalysismanager.h
+    ../../edmanalysisprogress.cpp
+    ../../edmanalysisprogress.h
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

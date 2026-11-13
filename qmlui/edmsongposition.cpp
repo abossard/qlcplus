@@ -99,10 +99,7 @@ EdmCrossings edmCrossings(const EdmAnalysis &analysis, double from, double to)
     if (analysis.valid == false)
         return result;
     if (to < from)
-    {
-        result.jumped = true;
-        return result;
-    }
+        return result;   // backwards: nothing is crossed
 
     for (int i = 1; i < analysis.sections.size(); i++)
     {

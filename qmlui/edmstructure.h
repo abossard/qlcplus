@@ -23,7 +23,9 @@
 #include "edmanalysisreader.h"
 #include "edmsongposition.h"
 
+#include <QFileSystemWatcher>
 #include <QObject>
+#include <QTimer>
 #include <QVariantList>
 
 /**
@@ -36,12 +38,12 @@ class EdmDeckStructure : public QObject
 {
     Q_OBJECT
 
-    // static: none (no song, or no analysis and none coming), lookup, queued, analysing, ready, failed
+    // static: none (no song, or no analysis and none coming), lookup, queued, analysing, ready, failed, unsupported
     Q_PROPERTY(QString path MEMBER m_path NOTIFY staticChanged)               // the song on the deck, empty when none
     Q_PROPERTY(QString state MEMBER m_state NOTIFY staticChanged)
     Q_PROPERTY(QString stage MEMBER m_stage NOTIFY staticChanged)
     Q_PROPERTY(QString error MEMBER m_error NOTIFY staticChanged)
-    Q_PROPERTY(QVariantList sections MEMBER m_sections NOTIFY staticChanged)   // {label, startBar, endBar, confidence}
+    Q_PROPERTY(QVariantList sections MEMBER m_sections NOTIFY staticChanged)   // {label, startBar, endBar, confidence, unsure}
     Q_PROPERTY(QVariantList events MEMBER m_events NOTIFY staticChanged)       // {kind, bar, confidence}, -1 without one
     Q_PROPERTY(double totalBars MEMBER m_totalBars NOTIFY staticChanged)
 
@@ -112,19 +114,27 @@ public:
 
 signals:
     /** A followed deck (it has an analysis and a position) moved: crossed
-     *  something, jumped back, or became or stopped being the active deck */
+     *  something going forward, or became or stopped being the active deck */
     void deckAdvanced(int deck, const EdmAnalysis &analysis, const EdmSongPosition &position,
                       const EdmCrossings &crossings, bool activeDeck);
-    /** A deck that was followed has no analysis any more (ejected, another song), or the
-     *  active deck became one without an analysis (then deck is the new active deck) */
+    /** A deck that was followed has no analysis any more (ejected, another song, beyond a
+     *  smaller deck count); activeDeck when it was the active one and no other deck took over.
+     *  Also when the active deck became one without an analysis (then deck is the new active deck) */
     void deckLost(int deck, bool activeDeck);
     void activeDeckChanged();
+    /** A song's analysis state changed; an empty path: any song's may have */
     void analysisStateChanged(const QString &path);
+    /** The analysis folder changed: anything showing analysis files may re-read them */
+    void analysisFilesChanged();
 
 private slots:
     void slotSongChanged(int deck);
     void slotSettled();
     void slotEntryChanged(const QString &path);
+    /** The analysis folder changed (the watcher): refresh once it is quiet */
+    void slotFolderChanged();
+    /** Decks whose song has a new or changed analysis on disk take it */
+    void refreshDecks();
 
 private:
     struct Deck
@@ -154,6 +164,8 @@ private:
     EdmAnalysisQueue *m_queue;
     QString m_dir;
     EdmAnalysisReader m_reader;
+    QFileSystemWatcher m_watcher;
+    QTimer m_refreshTimer;
     Deck m_decks[DjFsm::MaxDecks];
     int m_active = 0;
 };

@@ -188,6 +188,9 @@ Rectangle
 
             var subTickTop = height * 0.75
 
+            // under the tick marks, which are drawn over it
+            paintAnalysisSections(context, subTickTop)
+
             context.beginPath()
 
             // paint the small sub-tick markers first, in gray
@@ -249,34 +252,35 @@ Rectangle
             // read live from the VirtualDJ database (read-only)
             if (timeDivision === Show.VDJBeat && showManager.vdjGridValid)
                 paintVdjOverlay(context, fontSize)
-            paintAnalysisSections(context, fontSize)
         }
 
         // sections of the song from the offline audio analysis: a colored band
-        // along the bottom of the header, stronger where the label is more certain
-        function paintAnalysisSections(context, fontSize)
+        // above the sub-ticks, stronger where the label is more certain
+        function paintAnalysisSections(context, bandBottom)
         {
             var sections = showManager.analysisSections
             if (!sections || sections.length === 0)
                 return
             var colors = { "drop": "#3987e5", "buildup": "#d95926", "breakdown": "#199e70",
                            "intro": "#c98500", "outro": "#d55181", "groove": "#008300" }
-            var msPerPx = (timeScale * 1000.0) / tickSize
             var bandTop = height * 0.5
+            var toX = function(ms) {
+                return TimeUtils.msToTimelinePos(ms, msMode, timeScale, tickSize, bpmNumber, beatsDivision) - x
+            }
             for (var i = 0; i < sections.length; i++)
             {
-                var sx = (sections[i].startMs / msPerPx) - x
-                var ex = (sections[i].endMs / msPerPx) - x
+                var sx = toX(sections[i].startMs)
+                var ex = toX(sections[i].endMs)
                 if (ex < 0 || sx > width)
                     continue
                 context.globalAlpha = 0.35 + 0.45 * sections[i].labelConfidence / 100.0
                 context.fillStyle = colors[sections[i].label] || "#888888"
-                context.fillRect(sx + 1, bandTop, ex - sx - 2, height - bandTop)
+                context.fillRect(sx + 1, bandTop, ex - sx - 2, bandBottom - bandTop)
                 context.globalAlpha = 1.0
                 if (ex - sx > 40)
                 {
                     context.fillStyle = "white"
-                    context.fillText(sections[i].label, sx + 4, height - 3)
+                    context.fillText(sections[i].label, sx + 4, bandBottom - 3)
                 }
             }
         }

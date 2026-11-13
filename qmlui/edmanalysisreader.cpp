@@ -43,21 +43,44 @@ QString EdmAnalysisReader::defaultDir()
         .absoluteFilePath("edm-analysis");
 }
 
-QString EdmAnalysisReader::firstAudioFile(Doc *doc, Show *show)
+/** The first Audio clip on the show's timeline, or null */
+static ShowFunction *firstAudioClip(Doc *doc, Show *show)
 {
     if (doc == nullptr || show == nullptr)
-        return QString();
+        return nullptr;
 
     for (Track *track : show->tracks())
     {
         for (ShowFunction *sf : track->showFunctions())
         {
-            Audio *audio = qobject_cast<Audio *>(doc->function(sf->functionID()));
-            if (audio != nullptr)
-                return audio->getSourceFileName();
+            if (qobject_cast<Audio *>(doc->function(sf->functionID())) != nullptr)
+                return sf;
         }
     }
-    return QString();
+    return nullptr;
+}
+
+QString EdmAnalysisReader::firstAudioFile(Doc *doc, Show *show)
+{
+    const ShowFunction *clip = firstAudioClip(doc, show);
+    return clip != nullptr ? qobject_cast<Audio *>(doc->function(clip->functionID()))->getSourceFileName() : QString();
+}
+
+QVariantList EdmAnalysisReader::showSections(Doc *doc, Show *show)
+{
+    const ShowFunction *clip = firstAudioClip(doc, show);
+    if (clip == nullptr)
+        return QVariantList();
+
+    QVariantList list = sections(firstAudioFile(doc, show));
+    for (QVariant &value : list)
+    {
+        QVariantMap map = value.toMap();
+        map["startMs"] = map.value("startMs").toDouble() + clip->startTime();
+        map["endMs"] = map.value("endMs").toDouble() + clip->startTime();
+        value = map;
+    }
+    return list;
 }
 
 /** Percent used when a section has no confidence value (older files) */
@@ -102,6 +125,8 @@ EdmAnalysis parseEdmAnalysis(const QByteArray &bytes)
         return result;
 
     result.grid.beatsPerBar = grid.value("beats_per_bar").toInt(4);
+    if (result.grid.beatsPerBar <= 0)
+        return result;
     result.grid.barMs = period * result.grid.beatsPerBar * 1000.0;
     result.grid.bpm = grid.contains("bpm") ? grid.value("bpm").toDouble() : 60.0 / period;
     result.grid.firstDownbeatMs = grid.value("first_downbeat").toDouble() * 1000.0;
@@ -120,6 +145,7 @@ EdmAnalysis parseEdmAnalysis(const QByteArray &bytes)
         section.confidence = percent(s, "confidence", kUnknownConfidence);
         section.labelConfidence = percent(s, "label_confidence", kUnknownConfidence);
         section.energy = s.value("energy").toDouble(-1);
+        section.unsure = s.value("unsure").toBool();
         result.sections.append(section);
     }
 
@@ -154,8 +180,16 @@ void EdmAnalysisReader::refreshIndex()
     m_indexTime = modified;
     m_idByPath.clear();
     const QJsonObject index = readJson(indexPath);
+    QHash<QString, QDateTime> newest;   // two ids for one song: the newest final file wins
     for (auto it = index.constBegin(); it != index.constEnd(); ++it)
-        m_idByPath.insert(pathKey(it.value().toObject().value("path").toString()), it.key());
+    {
+        const QString key = pathKey(it.value().toObject().value("path").toString());
+        const QDateTime written = QFileInfo(QDir(m_dir).filePath("final/" + it.key() + ".json")).lastModified();
+        if (m_idByPath.contains(key) && newest.value(key) >= written)
+            continue;
+        m_idByPath.insert(key, it.key());
+        newest.insert(key, written);
+    }
 }
 
 EdmAnalysis EdmAnalysisReader::analysis(const QString &audioPath)

@@ -528,18 +528,17 @@ void EdmAnalysis_Test::crossingsOfOneStep_data()
     QTest::addColumn<double>("from");
     QTest::addColumn<double>("to");
     QTest::addColumn<QString>("crossed");
-    QTest::addColumn<bool>("jumped");
     QTest::addColumn<int>("active");
 
-    QTest::newRow("one boundary") << 3.5 << 4.5 << "S1@4:70" << false << 1;
-    QTest::newRow("no boundary") << 4.5 << 5.5 << "" << false << 1;
-    QTest::newRow("three sections in one step") << 3.5 << 16.5 << "S1@4:70 S2@8:90 E1@8:80 S3@16:60" << false << 3;
-    QTest::newRow("ends on an event bar") << 7.0 << 8.0 << "S2@8:90 E1@8:80" << false << 2;
-    QTest::newRow("starts on an event bar") << 8.0 << 9.0 << "" << false << 2;
-    QTest::newRow("event without confidence") << 17.0 << 19.0 << "E2@18:-1" << false << 3;
-    QTest::newRow("step into the first section does not report it") << -1.0 << 0.5 << "" << false << 0;
-    QTest::newRow("backward jump") << 12.0 << 5.0 << "" << true << 1;
-    QTest::newRow("jump back to before the downbeat") << 12.0 << -1.0 << "" << true << 0;
+    QTest::newRow("one boundary") << 3.5 << 4.5 << "S1@4:70" << 1;
+    QTest::newRow("no boundary") << 4.5 << 5.5 << "" << 1;
+    QTest::newRow("three sections in one step") << 3.5 << 16.5 << "S1@4:70 S2@8:90 E1@8:80 S3@16:60" << 3;
+    QTest::newRow("ends on an event bar") << 7.0 << 8.0 << "S2@8:90 E1@8:80" << 2;
+    QTest::newRow("starts on an event bar") << 8.0 << 9.0 << "" << 2;
+    QTest::newRow("event without confidence") << 17.0 << 19.0 << "E2@18:-1" << 3;
+    QTest::newRow("step into the first section does not report it") << -1.0 << 0.5 << "" << 0;
+    QTest::newRow("backward jump") << 12.0 << 5.0 << "" << 1;
+    QTest::newRow("jump back to before the downbeat") << 12.0 << -1.0 << "" << 0;
 }
 
 void EdmAnalysis_Test::crossingsOfOneStep()
@@ -547,13 +546,11 @@ void EdmAnalysis_Test::crossingsOfOneStep()
     QFETCH(double, from);
     QFETCH(double, to);
     QFETCH(QString, crossed);
-    QFETCH(bool, jumped);
     QFETCH(int, active);
 
     const EdmCrossings c = edmCrossings(songWithBpm(120), from, to);
 
     QCOMPARE(describe(c), crossed);
-    QCOMPARE(c.jumped, jumped);
     QCOMPARE(c.activeSection, active);
 }
 
@@ -582,6 +579,55 @@ void EdmAnalysis_Test::consecutiveStepsReportOnce()
     seen.removeAll(QString());
 
     QCOMPARE(seen.join(" "), all);
+}
+
+void EdmAnalysis_Test::parseEdmAnalysis_unsure()
+{
+    const QString buildup = R"({"label": "buildup", "start_bar": 0, "end_bar": 8, "start": 0.0, "end": 17.0, "confidence": 50, "label_confidence": 50, "unsure": true})";
+
+    const EdmAnalysis a = parseEdmAnalysis(document("qlcplus-edm-final/3", kGrid, buildup, kEvent));
+
+    QVERIFY(a.valid);
+    QCOMPARE(a.sections[0].unsure, true);
+}
+
+void EdmAnalysis_Test::parseEdmAnalysis_badGrid_data()
+{
+    QTest::addColumn<int>("beatsPerBar");
+
+    QTest::newRow("beats_per_bar 0") << 0;
+    QTest::newRow("beats_per_bar -4") << -4;
+}
+
+void EdmAnalysis_Test::parseEdmAnalysis_badGrid()
+{
+    QFETCH(int, beatsPerBar);
+
+    const QString grid = QString(R"("grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": %1, "first_downbeat": 1.0})").arg(beatsPerBar);
+    const EdmAnalysis a = parseEdmAnalysis(document("qlcplus-edm-final/3", grid, kSection, kEvent));
+
+    QVERIFY2(a.valid == false || a.grid.barMs > 0, qPrintable(QString("valid with barMs %1").arg(a.grid.barMs)));
+}
+
+void EdmAnalysis_Test::analysis_duplicatePathPicksNewest()
+{
+    QTemporaryDir dir;
+    QDir().mkpath(dir.filePath("final"));
+    // two ids for one path: "aaaa…" sorts first but its final file was written later
+    writeFile(dir.filePath("index.json"), R"({"aaaaaaaaaaaaaaaa": {"path": "/music/a.mp3"}, "ffffffffffffffff": {"path": "/music/a.mp3"}})");
+    const auto final = [](const QString &id) {
+        return QString::fromUtf8(document("qlcplus-edm-final/3", kGrid, kSection, kEvent)).replace("0123456789abcdef0123", id + "0000").toUtf8();
+    };
+    writeFile(dir.filePath("final/ffffffffffffffff.json"), final("ffffffffffffffff"));
+    writeFile(dir.filePath("final/aaaaaaaaaaaaaaaa.json"), final("aaaaaaaaaaaaaaaa"));
+    QFile older(dir.filePath("final/ffffffffffffffff.json"));
+    QVERIFY(older.open(QIODevice::ReadWrite));
+    QVERIFY(older.setFileTime(QDateTime::currentDateTime().addSecs(-3600), QFileDevice::FileModificationTime));
+    older.close();
+
+    EdmAnalysisReader reader(dir.path());
+
+    QCOMPARE(reader.analysis("/music/a.mp3").id, QString("aaaaaaaaaaaaaaaa"));
 }
 
 QTEST_GUILESS_MAIN(EdmAnalysis_Test)

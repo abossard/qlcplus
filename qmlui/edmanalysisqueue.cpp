@@ -16,6 +16,10 @@
 */
 
 #include "edmanalysisqueue.h"
+#include "edmanalysisreader.h"
+
+#include <QDir>
+#include <QFile>
 
 EdmAnalysisQueue::EdmAnalysisQueue(const QString &outputDir, QObject *parent)
     : QObject(parent)
@@ -33,6 +37,8 @@ EdmAnalysisQueue::EdmAnalysisQueue(const QString &outputDir, QObject *parent)
 
 EdmAnalysisQueue::~EdmAnalysisQueue()
 {
+    // the end of the tool killed here must not start the next one or reach the owner
+    m_process->disconnect(this);
     if (m_process->state() != QProcess::NotRunning)
     {
         m_process->kill();
@@ -55,6 +61,12 @@ void EdmAnalysisQueue::enqueue(const QString &path)
 {
     if (path.isEmpty() || m_entries.contains(path))
         return;
+    if (path.endsWith(".mp3", Qt::CaseInsensitive) == false)   // the tool reads MP3 only
+    {
+        m_entries[path] = EdmQueueEntry{"unsupported", QString(), tr("Only MP3 files can be analysed."), QString()};
+        emit entryChanged(path);
+        return;
+    }
 
     m_entries[path].state = "queued";
     m_waiting.append(path);
@@ -64,13 +76,21 @@ void EdmAnalysisQueue::enqueue(const QString &path)
 
 void EdmAnalysisQueue::retry(const QString &path)
 {
-    if (m_entries.value(path).state != "failed")
+    const EdmQueueEntry e = m_entries.value(path);
+    const bool fileGone = e.state == "ready" && analysisFileValid(e.id) == false;
+    if (e.state != "failed" && fileGone == false)
         return;
 
     m_entries[path] = EdmQueueEntry{"queued", QString(), QString(), QString()};
     m_waiting.append(path);
     emit entryChanged(path);
     startNext();
+}
+
+bool EdmAnalysisQueue::analysisFileValid(const QString &id) const
+{
+    QFile file(QDir(m_outputDir).filePath("final/" + id + ".json"));
+    return file.open(QIODevice::ReadOnly) && parseEdmAnalysis(file.readAll()).valid;
 }
 
 void EdmAnalysisQueue::setBlocked(bool blocked)

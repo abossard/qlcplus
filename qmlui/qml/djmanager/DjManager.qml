@@ -482,17 +482,18 @@ Rectangle
 
                     // analysis state: ready, being analysed, failed
                     Text {
+                        id: analysisMarker
                         property string analysis: edmStructure ? edmStructure.analysisStateForPath(model.filepath) : "none"
                         Layout.preferredWidth: 18
-                        text: analysis === "ready" ? "●" : analysis === "failed" ? "✕" : analysis === "none" ? "" : "…"
+                        text: analysis === "ready" ? "●" : analysis === "failed" ? "✕" : analysis === "none" || analysis === "unsupported" ? "" : "…"
                         color: analysis === "ready" ? "#2ecc71" : analysis === "failed" ? "#e74c3c" : "#f1c40f"
                         font.pixelSize: 12
                         horizontalAlignment: Text.AlignHCenter
                         Connections {
                             target: edmStructure
                             function onAnalysisStateChanged(path) {
-                                if (path === model.filepath)
-                                    parent.analysis = edmStructure.analysisStateForPath(path)
+                                if (path === model.filepath || path === "")
+                                    analysisMarker.analysis = edmStructure.analysisStateForPath(path)
                             }
                         }
                     }

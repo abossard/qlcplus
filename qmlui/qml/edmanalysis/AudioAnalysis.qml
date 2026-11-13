@@ -55,13 +55,13 @@ Rectangle
             {
                 objectName: "chooseFolderButton"
                 label: qsTr("Analyze folder…")
-                enabled: !audioAnalysis.running && audioAnalysis.toolProblem === ""
+                enabled: !audioAnalysis.running && !audioAnalysis.waiting && audioAnalysis.toolProblem === ""
                 onClicked: folderDialog.open()
             }
             GenericButton
             {
                 label: qsTr("Stop")
-                visible: audioAnalysis.running
+                visible: audioAnalysis.running || audioAnalysis.waiting
                 onClicked: audioAnalysis.cancel()
             }
             GenericButton

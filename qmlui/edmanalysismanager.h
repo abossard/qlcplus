@@ -55,6 +55,7 @@ class EdmAnalysisManager : public PreviewContext
     Q_OBJECT
 
     Q_PROPERTY(bool running READ running NOTIFY progressChanged)
+    Q_PROPERTY(bool waiting READ waiting NOTIFY progressChanged)
     Q_PROPERTY(int total READ total NOTIFY progressChanged)
     Q_PROPERTY(int done READ done NOTIFY progressChanged)
     Q_PROPERTY(int failed READ failed NOTIFY progressChanged)
@@ -71,6 +72,8 @@ public:
     ~EdmAnalysisManager();
 
     bool running() const;
+    /** A folder run waits for the song queue to stop */
+    bool waiting() const { return m_waitingFolder.isEmpty() == false; }
     int total() const;
     int done() const;
     int failed() const;
@@ -117,6 +120,7 @@ private:
     QString m_toolProblem;
     QString m_lastMessage;
     bool m_queueRunning = false;
+    QUrl m_waitingFolder;   // started when the song queue stops
 };
 
 #endif

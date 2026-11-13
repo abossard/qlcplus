@@ -47,6 +47,7 @@ Rectangle
             case "queued": return qsTr("queued")
             case "analysing": return "⟳ " + qsTr("analysing") + (info.stage ? ": " + info.stage : "")
             case "failed": return qsTr("failed") + (info.error ? ": " + info.error : "")
+            case "unsupported": return qsTr("no structure: unsupported format") + (info.error ? " (" + info.error + ")" : "")
             default: return qsTr("no structure")
         }
     }
@@ -203,7 +204,7 @@ Rectangle
             if (s.endBar < from || s.startBar > to)
                 continue
             var x = px(s.startBar), sw = px(s.endBar) - x - 1
-            var sure = s.confidence >= sureConfidence
+            var sure = s.confidence >= sureConfidence && !s.unsure
             g.globalAlpha = sure ? 1 : 0.45
             g.fillStyle = colorOf(s.label)
             g.fillRect(x, top, sw, bh)

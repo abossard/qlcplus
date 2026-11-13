@@ -16,6 +16,7 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QPointer>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -38,6 +39,15 @@ const QString kFinal = R"({"schema": "qlcplus-edm-final/2", "track": {"title": "
       {"kind": "vocal_in", "bar": 2, "time": 5.0},
       {"kind": "drop", "bar": 8, "time": 17.0, "confidence": 80},
       {"kind": "drop", "bar": 12, "time": 25.0, "confidence": 60}]})";
+
+/** intro 0-4, a long buildup 4-24, drop 24-40, same grid as kFinal */
+const QString kLongFinal = R"({"schema": "qlcplus-edm-final/2", "track": {"title": "long", "sha256": "999999999999999900"},
+    "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 1.0},
+    "sections": [
+      {"label": "intro", "start_bar": 0, "end_bar": 4, "start": 0.0, "end": 9.0, "confidence": 100},
+      {"label": "buildup", "start_bar": 4, "end_bar": 24, "start": 9.0, "end": 49.0, "confidence": 70},
+      {"label": "drop", "start_bar": 24, "end_bar": 40, "start": 49.0, "end": 81.0, "confidence": 90}],
+    "events": [{"kind": "drop", "bar": 24, "time": 49.0, "confidence": 80}]})";
 
 void writeFile(const QString &path, const QByteArray &data)
 {
@@ -122,7 +132,8 @@ struct Rig
         QString lifted = kFinal;
         lifted.replace(R"("events": [)", R"("events": [{"kind": "lift", "bar": 6, "time": 13.0, "sources": ["dropdetector"]},)");
         writeFile(dir + "/final/dddddddddddddddd.json", lifted.toUtf8());
-        writeFile(dir + "/index.json", R"({"aaaaaaaaaaaaaaaa": {"path": "/m/a.mp3"}, "bbbbbbbbbbbbbbbb": {"path": "/m/b.mp3"}, "dddddddddddddddd": {"path": "/m/lift.mp3"}})");
+        writeFile(dir + "/final/9999999999999999.json", kLongFinal.toUtf8());
+        writeFile(dir + "/index.json", R"({"aaaaaaaaaaaaaaaa": {"path": "/m/a.mp3"}, "bbbbbbbbbbbbbbbb": {"path": "/m/b.mp3"}, "dddddddddddddddd": {"path": "/m/lift.mp3"}, "9999999999999999": {"path": "/m/long.mp3"}})");
         writeFile(root.filePath("template.json"), kFinal.toUtf8());
 
         const QString script = root.filePath("tool.sh");
@@ -148,7 +159,7 @@ echo "{\"event\":\"finished\",\"total\":1,\"done\":1,\"failed\":0,\"out\":\"$out
 
         QObject::connect(&structure, &EdmStructure::deckAdvanced, &structure,
                          [this](int deck, const EdmAnalysis &, const EdmSongPosition &, const EdmCrossings &c, bool active) {
-            advanced << QString("%1:%2%3%4").arg(deck).arg(c.jumped ? "jumped " : "", describe(c), active ? " active" : "");
+            advanced << QString("%1:%2%3").arg(deck).arg(describe(c), active ? " active" : "");
         });
         QObject::connect(&structure, &EdmStructure::deckLost, &structure,
                          [this](int deck, bool active) { lost << QString("%1:%2").arg(deck).arg(active ? "active" : "idle"); });
@@ -329,8 +340,8 @@ void EdmStructure_Test::backwardJumpFiresAgain()
     rig.at(1, 9.0);
     rig.advanced.clear();
 
-    rig.at(1, 5.0);
-    QCOMPARE(rig.advanced, QStringList{"1:jumped  active"});
+    rig.at(1, 5.0);   // a jump back crosses nothing
+    QCOMPARE(rig.advanced, QStringList());
     rig.at(1, 9.0);
     QCOMPARE(rig.advanced.last(), QString("1:S2@8 E1@8 active"));
 }
@@ -578,9 +589,7 @@ void EdmStructure_Test::lookDecision_data()
     QTest::addColumn<QList<quint32>>("on");
     QTest::addColumn<bool>("overridden");
     QTest::addColumn<bool>("activeDeck");
-    QTest::addColumn<bool>("sectionStart");
-    QTest::addColumn<bool>("jumped");
-    QTest::addColumn<bool>("sameSection");
+    QTest::addColumn<bool>("sectionChanged");
     QTest::addColumn<bool>("becameActive");
     QTest::addColumn<QString>("label");
     QTest::addColumn<quint32>("press");
@@ -589,24 +598,20 @@ void EdmStructure_Test::lookDecision_data()
 
     const quint32 none = kNoLookWidget;
     using L = QList<quint32>;
-    //                                     auto  on         ovr    act   start  jump   same   became label
-    QTest::newRow("section start")         << true << L{2} << false << true << true << false << false << false << "drop" << 3u << L{2} << false;
-    QTest::newRow("first look")            << true << L{} << false << true << true << false << false << false << "intro" << 1u << L{} << false;
-    QTest::newRow("unmapped label")        << true << L{2} << false << true << true << false << false << false << "groove" << none << L{} << false;
-    QTest::newRow("jump into another section") << true << L{3} << false << true << false << true << false << false << "buildup" << 2u << L{3} << false;
-    QTest::newRow("jump within the section") << true << L{3} << false << true << false << true << true << false << "drop" << none << L{} << false;
-    QTest::newRow("became active")         << true << L{} << false << true << false << false << false << true << "drop" << 3u << L{} << false;
-    QTest::newRow("not the active deck")   << true << L{2} << false << false << true << false << false << false << "drop" << none << L{} << false;
-    QTest::newRow("auto off")              << false << L{2} << false << true << true << false << false << false << "drop" << none << L{} << false;
-    QTest::newRow("no trigger")            << true << L{2} << false << true << false << false << false << false << "drop" << none << L{} << false;
-    QTest::newRow("overridden, no trigger") << true << L{2} << true << true << false << false << false << false << "drop" << none << L{} << true;
-    QTest::newRow("override, next section: the DJ's look is released") << true << L{2} << true << true << true << false << false << false << "drop" << 3u << L{2} << false;
-    QTest::newRow("override, jump within the section") << true << L{2} << true << true << false << true << true << false << "buildup" << none << L{} << true;
-    QTest::newRow("override, jump into another section") << true << L{} << true << true << false << true << false << false << "buildup" << 2u << L{} << false;
-    QTest::newRow("override, unmapped section") << true << L{2} << true << true << true << false << false << false << "groove" << none << L{} << false;
-    QTest::newRow("same button twice")     << true << L{2} << false << true << true << false << false << false << "breakdown" << none << L{} << false;
-    QTest::newRow("two stray looks on")    << true << L{1, 2} << false << true << true << false << false << false << "drop" << 3u << L{1, 2} << false;
-    QTest::newRow("target on and another on") << true << L{2, 3} << false << true << true << false << false << false << "drop" << none << L{2} << false;
+    //                                     auto    on        ovr      act     changed became  label
+    QTest::newRow("section change")        << true << L{2} << false << true << true << false << "drop" << 3u << L{2} << false;
+    QTest::newRow("first look")            << true << L{} << false << true << true << false << "intro" << 1u << L{} << false;
+    QTest::newRow("unmapped label")        << true << L{2} << false << true << true << false << "groove" << none << L{} << false;
+    QTest::newRow("became active")         << true << L{} << false << true << false << true << "drop" << 3u << L{} << false;
+    QTest::newRow("not the active deck")   << true << L{2} << false << false << true << false << "drop" << none << L{} << false;
+    QTest::newRow("auto off")              << false << L{2} << false << true << true << false << "drop" << none << L{} << false;
+    QTest::newRow("same section")          << true << L{2} << false << true << false << false << "drop" << none << L{} << false;
+    QTest::newRow("overridden, same section") << true << L{2} << true << true << false << false << "drop" << none << L{} << true;
+    QTest::newRow("override, section change: the DJ's look is released") << true << L{2} << true << true << true << false << "drop" << 3u << L{2} << false;
+    QTest::newRow("override, unmapped section") << true << L{2} << true << true << true << false << "groove" << none << L{} << false;
+    QTest::newRow("same button twice")     << true << L{2} << false << true << true << false << "breakdown" << none << L{} << false;
+    QTest::newRow("two stray looks on")    << true << L{1, 2} << false << true << true << false << "drop" << 3u << L{1, 2} << false;
+    QTest::newRow("target on and another on") << true << L{2, 3} << false << true << true << false << "drop" << none << L{2} << false;
 }
 
 void EdmStructure_Test::lookDecision()
@@ -615,9 +620,7 @@ void EdmStructure_Test::lookDecision()
     QFETCH(QList<quint32>, on);
     QFETCH(bool, overridden);
     QFETCH(bool, activeDeck);
-    QFETCH(bool, sectionStart);
-    QFETCH(bool, jumped);
-    QFETCH(bool, sameSection);
+    QFETCH(bool, sectionChanged);
     QFETCH(bool, becameActive);
     QFETCH(QString, label);
     QFETCH(quint32, press);
@@ -630,9 +633,7 @@ void EdmStructure_Test::lookDecision()
     state.overridden = overridden;
     EdmLookEvent event;
     event.activeDeck = activeDeck;
-    event.sectionStart = sectionStart;
-    event.jumped = jumped;
-    event.sameSection = sameSection;
+    event.sectionChanged = sectionChanged;
     event.becameActive = becameActive;
     event.label = label;
     event.mappedOn = on;
@@ -736,8 +737,8 @@ void EdmStructure_Test::directorPressesTheLookOfEachSection()
     QCOMPARE(rig.director.followedDeck(), 1);
     QCOMPARE(rig.director.followedLabel(), QString("drop"));
 
-    rig.at(1, 3.0);   // a loop back
-    QCOMPARE(rig.surface.log.mid(5), (QStringList{"off3", "on1"}));
+    rig.at(1, 3.0);   // a jump back: no look
+    QCOMPARE(rig.surface.log.size(), 5);
 }
 
 void EdmStructure_Test::directorHoldsAfterTheDjChangesALook()
@@ -891,6 +892,307 @@ void EdmStructure_Test::directorLeavesLightsWhenTheDeckIsEjected()
     QCOMPARE(rig.surface.log, QStringList());
     QCOMPARE(rig.surface.isOn(2), true);
     QCOMPARE(rig.director.followedDeck(), 0);
+}
+
+void EdmStructure_Test::destroyingParentWhileRunningDoesNotCallToolAgain()
+{
+    QTemporaryDir root;
+    QObject *parent = new QObject;
+    QObject *manager = new QObject(parent);   // the App creates the page before the queue
+    EdmAnalysisQueue *queue = new EdmAnalysisQueue(root.filePath("analysis"), parent);
+    const QPointer<QObject> watched(manager);
+    int calls = 0;
+    bool calledWithoutManager = false;
+    // sh -c keeps the tool running; the queue appends its own arguments after the command
+    queue->setTool([&]() {
+        calls++;
+        calledWithoutManager = calledWithoutManager || watched.isNull();
+        return QStringList{"/bin/sh", "-c", "sleep 30"};
+    }, QProcessEnvironment::systemEnvironment());
+
+    queue->enqueue("/m/x.mp3");
+    queue->enqueue("/m/y.mp3");
+    QVERIFY(queue->running());
+    QCOMPARE(calls, 1);
+
+    delete parent;
+
+    QVERIFY2(calledWithoutManager == false, qPrintable(QString("the tool command ran %1 times, once after its owner was gone").arg(calls)));
+}
+
+void EdmStructure_Test::readyEntryWithMissingFileCanBeRetried()
+{
+    Rig rig;
+    rig.load(1, "/m/new.mp3");
+    rig.structure.analyse("/m/new.mp3");
+    QVERIFY(rig.waitFor(1, "ready"));
+    QVERIFY(QFile::remove(rig.dir + "/final/cccccccccccccccc.json"));
+    rig.queue.setBlocked(true);
+
+    rig.structure.retry("/m/new.mp3");
+
+    QCOMPARE(rig.queue.entry("/m/new.mp3").state, QString("queued"));
+}
+
+void EdmStructure_Test::analysisWrittenOutsideTheQueueReachesTheDeck()
+{
+    QSettings().setValue(kAutoAnalyse, false);
+    Rig rig;
+    rig.load(1, "/m/new.mp3");
+    QVERIFY(rig.waitFor(1, "none"));
+
+    // the Audio Analysis page (or a run from the shell) writes the song's files
+    writeFile(rig.dir + "/final/eeeeeeeeeeeeeeee.json", kFinal.toUtf8());
+    writeFile(rig.dir + "/index.json", R"({"aaaaaaaaaaaaaaaa": {"path": "/m/a.mp3"}, "eeeeeeeeeeeeeeee": {"path": "/m/new.mp3"}})");
+    QFile index(rig.dir + "/index.json");
+    QVERIFY(index.open(QIODevice::ReadWrite));
+    QVERIFY(index.setFileTime(QDateTime::currentDateTime().addSecs(60), QFileDevice::FileModificationTime));
+    index.close();
+
+    rig.structure.analyse("/m/new.mp3");
+
+    QCOMPARE(rig.state(1), QString("ready"));
+}
+
+void EdmStructure_Test::deckCountDecreaseLosesTheFollowedDeck()
+{
+    Rig rig;
+    mapLooks(rig.mapping);
+    rig.fsm.setDeckCount(4);
+    rig.master(3);
+    rig.load(3, "/m/a.mp3");
+    rig.at(3, 4.5);
+    QCOMPARE(rig.director.followedDeck(), 3);
+    rig.lost.clear();
+
+    rig.fsm.setDeckCount(2);
+
+    QCOMPARE(rig.lost, QStringList{"3:active"});
+    QCOMPARE(rig.director.followedDeck(), 0);
+}
+
+void EdmStructure_Test::directorKeepsFollowingWhenTheOldMasterIsEjectedInTheSameWrite()
+{
+    Rig rig;
+    mapLooks(rig.mapping);
+    rig.master(2);
+    rig.load(1, "/m/a.mp3");
+    rig.load(2, "/m/b.mp3");
+    rig.at(1, 4.5);
+    rig.at(2, 9.0);
+    QCOMPARE(rig.director.followedDeck(), 2);
+
+    // one write: deck 2 ejected, deck 1 the master
+    rig.fsm.onDeckTrigger(2, "loaded", "off");
+    rig.fsm.onDeckTrigger(2, "masterdeck", "off");
+    rig.fsm.onDeckTrigger(1, "masterdeck", "on");
+    rig.fsm.onTickEnded();
+
+    QCOMPARE(rig.director.followedDeck(), 1);
+}
+
+void EdmStructure_Test::directorSeesReleaseOfButtonOnBeforeWatch_data()
+{
+    QTest::addColumn<bool>("newWorkspace");
+
+    QTest::newRow("onBeforeWatch") << false;
+    QTest::newRow("clearedWorkspace") << true;
+}
+
+void EdmStructure_Test::directorSeesReleaseOfButtonOnBeforeWatch()
+{
+    QFETCH(bool, newWorkspace);
+
+    Rig rig;
+    if (newWorkspace)
+    {
+        // workspace A: the director turns look 3 on
+        mapLooks(rig.mapping);
+        rig.master(1);
+        rig.load(1, "/m/a.mp3");
+        rig.at(1, 9.0);
+        QCOMPARE(rig.surface.isOn(3), true);
+
+        // workspace B: new buttons with the same ids, all off, the same mapping loaded
+        rig.surface.on.clear();
+        QString xml;
+        QXmlStreamWriter writer(&xml);
+        rig.mapping.saveXML(&writer);
+        QXmlStreamReader reader(xml);
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(rig.mapping.loadXML(reader));
+
+        rig.surface.external(3, true);   // the DJ presses look 3 in workspace B
+    }
+    else
+    {
+        rig.surface.on[3] = true;         // a look already on when the director starts watching
+        mapLooks(rig.mapping);
+        rig.surface.external(3, false);  // the DJ turns it off
+    }
+
+    QCOMPARE(rig.director.overridden(), true);
+}
+
+void EdmStructure_Test::nonMp3SongIsNotQueued()
+{
+    QSettings().setValue(kAutoAnalyse, false);
+    Rig rig;
+    // the real tool skips files that are not MP3: it reports no track and exits 0
+    const QString script = rig.root.filePath("mp3only.sh");
+    writeFile(script, QString(R"(#!/bin/sh
+echo run >> %1
+echo "{\"event\":\"start\",\"total\":0,\"out\":\"$4\"}"
+echo "{\"event\":\"finished\",\"total\":0,\"done\":0,\"failed\":0,\"out\":\"$4\"}"
+)").arg(rig.log).toUtf8());
+    rig.queue.setTool([script]() { return QStringList{"/bin/sh", script}; }, QProcessEnvironment::systemEnvironment());
+    rig.load(1, "/m/song.m4a");
+    QVERIFY(rig.waitFor(1, "none"));
+
+    rig.structure.analyse("/m/song.m4a");
+    QSignalSpy entries(&rig.queue, &EdmAnalysisQueue::entryChanged);
+    while (rig.queue.running() || rig.queue.entry("/m/song.m4a").state == "queued")
+        QVERIFY(entries.wait(5000));
+
+    QCOMPARE(rig.runs(), 0);
+    QVERIFY2(rig.state(1) != "failed" || rig.structure.deck(1)->property("error").toString().contains("exit code 0") == false,
+             qPrintable(rig.structure.deck(1)->property("error").toString()));
+}
+
+void EdmStructure_Test::newSongClearsLiveValues()
+{
+    Rig rig;
+    rig.master(1);
+    rig.load(1, "/m/a.mp3");
+    rig.at(1, 12.0);
+    QCOMPARE(rig.structure.deck(1)->property("section").toInt(), 2);
+
+    // B's filepath alone: B's first position sample is still ahead
+    rig.fsm.onDeckTrigger(1, "get_filepath", "/m/b.mp3");
+    rig.fsm.onTickEnded();
+    QCOMPARE(rig.state(1), QString("ready"));
+
+    QCOMPARE(rig.structure.deck(1)->property("section").toInt(), -1);
+    QCOMPARE(rig.prop(1, "bar"), 0.0);
+}
+
+void EdmStructure_Test::rewrittenFinalFileReachesTheDeck()
+{
+    Rig rig;
+    rig.load(1, "/m/a.mp3");
+    QCOMPARE(rig.state(1), QString("ready"));
+
+    // `edm-analysis confidence` or a rebuild rewrites only final/<id>.json
+    QString relabelled = kFinal;
+    relabelled.replace(R"("label": "intro")", R"("label": "breakdown")");
+    writeFile(rig.dir + "/final/aaaaaaaaaaaaaaaa.json", relabelled.toUtf8());
+    QFile final(rig.dir + "/final/aaaaaaaaaaaaaaaa.json");
+    QVERIFY(final.open(QIODevice::ReadWrite));
+    QVERIFY(final.setFileTime(QDateTime::currentDateTime().addSecs(60), QFileDevice::FileModificationTime));
+    final.close();
+
+    QSignalSpy changed(rig.structure.deck(1), SIGNAL(staticChanged()));
+    auto firstLabel = [&]() { return rig.structure.deck(1)->property("sections").toList().first().toMap().value("label").toString(); };
+    while (firstLabel() != "breakdown")
+        QVERIFY2(changed.wait(3000), qPrintable("the deck still shows " + firstLabel()));
+}
+
+void EdmStructure_Test::analysisFolderChangesAreCoalesced()
+{
+    // no Rig: nothing writes into this folder, so no late file events from the OS reach the test
+    QTemporaryDir root;
+    DjFsm fsm;
+    EdmAnalysisQueue queue(root.filePath("analysis"));
+    EdmStructure structure(&fsm, &queue, root.filePath("analysis"));
+    QSignalSpy refreshed(&structure, &EdmStructure::analysisFilesChanged);
+
+    // a batch run: a change every 100 ms for 800 ms, longer than the 500 ms wait
+    for (int i = 0; i < 8; i++)
+    {
+        QVERIFY(QMetaObject::invokeMethod(&structure, "slotFolderChanged"));
+        QTest::qWait(100);
+    }
+    QCOMPARE(refreshed.count(), 0);
+    QVERIFY(refreshed.wait(3000));
+    QVERIFY(refreshed.wait(1000) == false);
+
+    QCOMPARE(refreshed.count(), 1);
+}
+
+void EdmStructure_Test::readyFileWinsOverAFailedEntryInTheSongList()
+{
+    Rig rig;
+    writeFile(rig.failFlag, "");
+    rig.queue.enqueue("/m/x.mp3");
+    QVERIFY(rig.waitForQueue("/m/x.mp3", "failed"));
+
+    // the page or a shell run analyses the song after all
+    writeFile(rig.dir + "/final/eeeeeeeeeeeeeeee.json", kFinal.toUtf8());
+    writeFile(rig.dir + "/index.json", R"({"aaaaaaaaaaaaaaaa": {"path": "/m/a.mp3"}, "eeeeeeeeeeeeeeee": {"path": "/m/x.mp3"}})");
+    QFile index(rig.dir + "/index.json");
+    QVERIFY(index.open(QIODevice::ReadWrite));
+    QVERIFY(index.setFileTime(QDateTime::currentDateTime().addSecs(60), QFileDevice::FileModificationTime));
+    index.close();
+    QSignalSpy rows(&rig.structure, &EdmStructure::analysisStateChanged);
+
+    rig.structure.analyse("/m/x.mp3");
+
+    QCOMPARE(rig.structure.analysisStateForPath("/m/x.mp3"), QString("ready"));
+    QVERIFY2(rows.isEmpty() == false, "the song list is not told to read the states again");
+}
+
+void EdmStructure_Test::newSongOnTheDeckTriggersItsSection()
+{
+    Rig rig;
+    mapLooks(rig.mapping);
+    rig.master(1);
+    rig.load(1, "/m/a.mp3");
+    rig.at(1, 4.5);
+    rig.at(1, 8.5);                  // the drop look
+    rig.surface.external(4, true);   // the DJ's own look
+    QCOMPARE(rig.director.overridden(), true);
+
+    // song B on the same deck, its first sample in its drop: the same section index as before
+    rig.load(1, "/m/b.mp3");
+    rig.at(1, 8.5);
+
+    QCOMPARE(rig.director.overridden(), false);
+}
+
+void EdmStructure_Test::directorPressesOnlyOnForwardSectionChanges_data()
+{
+    QTest::addColumn<QList<double>>("bars");
+    QTest::addColumn<bool>("overridden");
+    QTest::addColumn<QStringList>("presses");
+
+    const QStringList dropAgain = {"off4", "on3"};
+    QTest::newRow("1-bar loop over the buildup/drop boundary") << QList<double>{23.5, 24.5, 23.5, 24.5, 23.5, 24.5} << false << dropAgain;
+    QTest::newRow("cue back 16 bars, then play into the drop") << QList<double>{8.5, 23.0, 24.5} << false << dropAgain;
+    QTest::newRow("backward jump into another section") << QList<double>{8.5} << true << QStringList();
+    QTest::newRow("a loop inside the drop") << QList<double>{28.0, 25.0, 28.0, 25.0} << true << QStringList();
+}
+
+void EdmStructure_Test::directorPressesOnlyOnForwardSectionChanges()
+{
+    QFETCH(QList<double>, bars);
+    QFETCH(bool, overridden);
+    QFETCH(QStringList, presses);
+
+    Rig rig;
+    mapLooks(rig.mapping);
+    rig.master(1);
+    rig.load(1, "/m/long.mp3");
+    rig.at(1, 20.0);
+    rig.at(1, 24.5);                 // the drop look
+    rig.surface.external(3, false);  // the DJ takes the drop look off
+    rig.surface.external(4, true);   // and puts their own on
+    rig.surface.log.clear();
+
+    for (double bar : bars)
+        rig.at(1, bar);
+
+    QCOMPARE(rig.director.overridden(), overridden);
+    QCOMPARE(rig.surface.log, presses);
 }
 
 QTEST_GUILESS_MAIN(EdmStructure_Test)

@@ -70,6 +70,11 @@ private slots:
     void twoDecksWithOneSongBuildOneShow();
     void liveWorkspaceClearKeepsPerformOffTheRecycledId();
 
+    // Audio Analysis page (review findings)
+    void startWithUnstartableToolEndsRun();
+    void folderStartWhileQueueRunsStartsAfterQueue();
+    void cancelForgetsTheWaitingFolder();
+
 private:
     Doc *m_doc = nullptr;
 };

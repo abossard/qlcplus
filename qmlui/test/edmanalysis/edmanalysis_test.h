@@ -44,6 +44,12 @@ private slots:
     void crossingsOfOneStep();
     void consecutiveStepsReportOnce_data();
     void consecutiveStepsReportOnce();
+
+    // review findings
+    void parseEdmAnalysis_unsure();
+    void parseEdmAnalysis_badGrid_data();
+    void parseEdmAnalysis_badGrid();
+    void analysis_duplicatePathPicksNewest();
 };
 
 #endif

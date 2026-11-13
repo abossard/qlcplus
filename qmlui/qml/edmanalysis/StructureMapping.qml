@@ -29,6 +29,14 @@ Rectangle
 
     property bool expanded: false
     property var buttons: []
+    property int mappingRevision: 0   // edmMapping.widgetId() has no notify: the rows read it again on this
+
+    // another workspace, a cleared one or an edit: the button list and every row follow
+    Connections
+    {
+        target: edmMapping
+        function onChanged() { mappingPanel.loadButtons(); mappingPanel.mappingRevision++ }
+    }
 
     readonly property var labelColors: ({ "intro": "#5b6b82", "buildup": "#e0a030", "drop": "#e0408a",
                                           "breakdown": "#3d7fe0", "groove": "#3fae6a", "outro": "#6b6b78" })
@@ -42,16 +50,14 @@ Rectangle
         return qsTr("waiting for a song with a structure")
     }
 
-    // the buttons by caption; page and number when a caption repeats
+    // the Toggle buttons (only those are looks) by caption; page and number when a caption repeats
     function loadButtons() {
         var list = virtualConsole.widgetsList([VCWidget.ButtonWidget]), seen = {}, out = [{ "id": -1, "text": qsTr("none") }]
+        list = list.filter(function(w) { return w.id !== undefined && w.classRef.actionType === VCButton.Toggle })
         for (var i = 0; i < list.length; i++)
-            if (list[i].id !== undefined)
-                seen[list[i].label] = (seen[list[i].label] || 0) + 1
+            seen[list[i].label] = (seen[list[i].label] || 0) + 1
         for (var j = 0; j < list.length; j++)
         {
-            if (list[j].id === undefined)
-                continue
             var l = list[j]
             out.push({ "id": l.id, "text": seen[l.label] > 1 ? l.label + "  (page " + (l.classRef.page + 1) + ", #" + l.id + ")" : l.label })
         }
@@ -152,7 +158,7 @@ Rectangle
                     Layout.preferredHeight: 26
                     model: mappingPanel.buttons
                     textRole: "text"
-                    currentIndex: mappingPanel.indexOfWidget(edmMapping.widgetId(modelData))
+                    currentIndex: mappingPanel.mappingRevision, mappingPanel.indexOfWidget(edmMapping.widgetId(modelData))
                     onActivated: edmMapping.setWidgetId(modelData, mappingPanel.buttons[index].id)
                 }
             }

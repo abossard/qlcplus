@@ -17,6 +17,8 @@
 
 #include "edmstructure.h"
 
+#include <QDir>
+
 #include <QPointer>
 #include <QSettings>
 #include <QThreadPool>
@@ -39,6 +41,60 @@ EdmStructure::EdmStructure(DjFsm *fsm, EdmAnalysisQueue *queue, const QString &a
     connect(m_fsm, &DjFsm::songChanged, this, &EdmStructure::slotSongChanged);
     connect(m_fsm, &DjFsm::settled, this, &EdmStructure::slotSettled);
     connect(m_queue, &EdmAnalysisQueue::entryChanged, this, &EdmStructure::slotEntryChanged);
+
+    // the page, a shell run or a rewrite by the tool: the decks re-read what changed
+    // a batch run changes it thousands of times: one refresh once it is quiet
+    QDir().mkpath(m_dir + "/final");
+    m_watcher.addPaths({m_dir, m_dir + "/final"});
+    m_refreshTimer.setSingleShot(true);
+    m_refreshTimer.setInterval(500);
+    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, &EdmStructure::slotFolderChanged);
+    connect(&m_refreshTimer, &QTimer::timeout, this, &EdmStructure::refreshDecks);
+}
+
+/** The same song structure: a re-read that changes nothing keeps the deck as it is */
+static bool sameStructure(const EdmAnalysis &a, const EdmAnalysis &b)
+{
+    if (a.valid != b.valid || a.id != b.id || a.sections.size() != b.sections.size() || a.events.size() != b.events.size()
+        || a.grid.barMs != b.grid.barMs || a.grid.firstDownbeatMs != b.grid.firstDownbeatMs)
+        return false;
+    for (int i = 0; i < a.sections.size(); i++)
+    {
+        const EdmSection &x = a.sections[i], &y = b.sections[i];
+        if (x.label != y.label || x.startBar != y.startBar || x.endBar != y.endBar || x.confidence != y.confidence
+            || x.unsure != y.unsure)
+            return false;
+    }
+    for (int i = 0; i < a.events.size(); i++)
+    {
+        if (a.events[i].kind != b.events[i].kind || a.events[i].bar != b.events[i].bar)
+            return false;
+    }
+    return true;
+}
+
+void EdmStructure::slotFolderChanged()
+{
+    m_refreshTimer.start();   // every change restarts the wait: one refresh once the folder is quiet
+}
+
+void EdmStructure::refreshDecks()
+{
+    for (int deck = 1; deck <= DjFsm::MaxDecks; deck++)
+    {
+        const Deck &d = m_decks[deck - 1];
+        const QString state = d.view->m_state;
+        if (d.path.isEmpty() || state == "lookup" || state == "queued" || state == "analysing")
+            continue;
+        const EdmAnalysis found = m_reader.analysis(d.path);
+        if (found.valid && sameStructure(found, d.analysis) == false)
+        {
+            setAnalysis(deck, found);
+            setState(deck, "ready");
+        }
+    }
+    emit analysisStateChanged(QString());
+    emit analysisFilesChanged();
 }
 
 QObject *EdmStructure::deck(int deck)
@@ -53,10 +109,13 @@ QString EdmStructure::analysisStateForPath(const QString &path)
         if (d.path == path && d.path.isEmpty() == false)
             return d.view->m_state;
     }
+    // a run under way, else a file on disk, else what the queue last made of it
     const QString state = m_queue->entry(path).state;
-    if (state.isEmpty() == false)
+    if (state == "queued" || state == "analysing")
         return state;
-    return m_reader.analysis(path).valid ? "ready" : "none";
+    if (m_reader.analysis(path).valid)
+        return "ready";
+    return state.isEmpty() ? "none" : state;
 }
 
 void EdmStructure::retry(const QString &path)
@@ -66,9 +125,11 @@ void EdmStructure::retry(const QString &path)
 
 void EdmStructure::analyse(const QString &path)
 {
-    if (m_queue->entry(path).state == "failed")
+    if (m_reader.analysis(path).valid)
+        refreshDecks();
+    else if (m_queue->entry(path).state.isEmpty() == false)
         m_queue->retry(path);
-    else if (m_reader.analysis(path).valid == false)
+    else
         m_queue->enqueue(path);
 }
 
@@ -82,8 +143,9 @@ void EdmStructure::slotSettled()
     for (int deck = 1; deck <= DjFsm::MaxDecks; deck++)
         syncDeck(deck);
 
+    // every deck: one a smaller deck count leaves out is lost like an ejected one
     const int active = m_fsm->activeDeck();
-    for (int deck = 1; deck <= m_fsm->deckCount(); deck++)
+    for (int deck = 1; deck <= DjFsm::MaxDecks; deck++)
         advance(deck, active);
 
     if (active != m_active)
@@ -120,6 +182,7 @@ void EdmStructure::syncDeck(int deck)
     d.hasLast = false;
     d.view->m_path = path;
     setAnalysis(deck, EdmAnalysis());
+    setLive(d, EdmSongPosition());
     if (path.isEmpty())
         setState(deck, "none");
     else
@@ -215,7 +278,7 @@ void EdmStructure::setAnalysis(int deck, const EdmAnalysis &analysis)
     view->m_sections.clear();
     view->m_events.clear();
     for (const EdmSection &s : analysis.sections)
-        view->m_sections.append(QVariantMap{{"label", s.label}, {"startBar", s.startBar}, {"endBar", s.endBar}, {"confidence", s.confidence}});
+        view->m_sections.append(QVariantMap{{"label", s.label}, {"startBar", s.startBar}, {"endBar", s.endBar}, {"confidence", s.confidence}, {"unsure", s.unsure}});
     for (const EdmEvent &e : analysis.events)
         view->m_events.append(QVariantMap{{"kind", e.kind}, {"bar", e.bar}, {"confidence", e.confidence}});
     view->m_totalBars = analysis.valid ? analysis.sections.last().endBar : 0;
@@ -254,7 +317,8 @@ void EdmStructure::advance(int deck, int active)
         {
             d.followed = false;
             setLive(d, EdmSongPosition());
-            emit deckLost(deck, deck == m_active);
+            // the active one, unless another deck took over in this same write
+            emit deckLost(deck, deck == m_active && (active == 0 || active == deck));
         }
         return;
     }
@@ -273,6 +337,6 @@ void EdmStructure::advance(int deck, int active)
     d.lastActive = isActive;
     setLive(d, position);
 
-    if (crossings.crossed.isEmpty() == false || crossings.jumped || activeChanged)
+    if (crossings.crossed.isEmpty() == false || activeChanged)
         emit deckAdvanced(deck, d.analysis, position, crossings, isActive);
 }

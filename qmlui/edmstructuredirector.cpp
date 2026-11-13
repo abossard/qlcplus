@@ -25,8 +25,7 @@ EdmLookDecision edmLookDecide(const EdmStructureMapping &mapping, const EdmLookS
 {
     EdmLookDecision decision;
     decision.state = state;
-    const bool jumpedAway = event.jumped && event.sameSection == false;
-    const bool trigger = event.sectionStart || jumpedAway || event.becameActive;
+    const bool trigger = event.sectionChanged || event.becameActive;
     if (mapping.autoEnabled() == false || event.activeDeck == false || trigger == false)
         return decision;
 
@@ -63,10 +62,10 @@ EdmStructureDirector::EdmStructureDirector(EdmStructure *structure, EdmStructure
     connect(structure, &EdmStructure::deckLost, this, &EdmStructureDirector::slotDeckLost);
     connect(m_surface, &EdmLookSurface::changed, this, &EdmStructureDirector::slotWidgetChanged);
     connect(m_mapping, &EdmStructureMapping::changed, this, [this]() {
-        m_surface->watch(m_mapping->widgets());
+        watch();
         emit statusChanged();
     });
-    m_surface->watch(m_mapping->widgets());
+    watch();
 }
 
 void EdmStructureDirector::slotDeckAdvanced(int deck, const EdmAnalysis &analysis, const EdmSongPosition &position,
@@ -85,11 +84,18 @@ void EdmStructureDirector::slotDeckAdvanced(int deck, const EdmAnalysis &analysi
     EdmLookEvent event;
     event.activeDeck = true;
     event.becameActive = deck != m_deck;
-    event.jumped = crossings.jumped;
-    event.sameSection = deck == m_deck && position.section == m_section;
+    // only when the playhead crosses a section start going forward: the last one crossed
+    // (a new song's first position reports the start of the section it is in)
     for (const EdmCrossing &c : crossings.crossed)
-        event.sectionStart = event.sectionStart || c.kind == EdmCrossing::SectionStart;
-    event.label = position.section >= 0 ? analysis.sections[position.section].label : QString();
+    {
+        if (c.kind == EdmCrossing::SectionStart)
+        {
+            event.sectionChanged = true;
+            event.label = analysis.sections[c.index].label;
+        }
+    }
+    if (event.sectionChanged == false)
+        event.label = position.section >= 0 ? analysis.sections[position.section].label : QString();
 
     QSet<quint32> mapped;
     for (quint32 id : m_mapping->widgets())
@@ -102,10 +108,20 @@ void EdmStructureDirector::slotDeckAdvanced(int deck, const EdmAnalysis &analysi
     std::sort(event.mappedOn.begin(), event.mappedOn.end());
 
     m_deck = deck;
-    m_section = position.section;
     m_label = event.label;
     apply(edmLookDecide(*m_mapping, m_state, event));
     emit statusChanged();
+}
+
+void EdmStructureDirector::watch()
+{
+    // another workspace or mapping: what the director knew about the old buttons is gone
+    m_state = EdmLookState();
+    m_expected.clear();
+    m_known.clear();
+    m_surface->watch(m_mapping->widgets());
+    for (quint32 id : m_mapping->widgets())
+        m_known.insert(id, m_surface->isOn(id));
 }
 
 void EdmStructureDirector::slotDeckLost(int deck, bool activeDeck)

@@ -31,7 +31,7 @@
 /** Where one song stands in the queue */
 struct EdmQueueEntry
 {
-    QString state;   // queued, analysing, ready, failed; empty for a path never queued
+    QString state;   // queued, analysing, ready, failed, unsupported (not an MP3); empty for a path never queued
     QString stage;   // while analysing
     QString error;   // when failed
     QString id;      // when ready: final/<id>.json
@@ -55,6 +55,7 @@ public:
     void setTool(const ToolCommand &command, const QProcessEnvironment &environment);
 
     void enqueue(const QString &path);
+    /** Runs a failed song again, or a ready one whose analysis file is gone or broken */
     void retry(const QString &path);
     EdmQueueEntry entry(const QString &path) const;
 
@@ -73,6 +74,7 @@ private slots:
 
 private:
     void startNext();
+    bool analysisFileValid(const QString &id) const;
     void finishCurrent(const QString &error);
 
     QString m_outputDir;
