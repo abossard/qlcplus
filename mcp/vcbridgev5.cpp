@@ -590,7 +590,7 @@ QVariantMap VCBridgeV5::recordingState() const
     };
 }
 
-QVariantMap VCBridgeV5::pressWidget(int widgetID, const QString &action)
+QVariantMap VCBridgeV5::pressWidget(quint32 widgetID, const QString &action)
 {
     if (!hasMatchingAuthoringContext())
         return {{QStringLiteral("error"), QStringLiteral("Live VC input requires the application context")}};

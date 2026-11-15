@@ -405,14 +405,14 @@ inline Json serializeWidget(const VCBridge::WidgetDetails &d,
     };
 
     Json w;
-    w["id"] = d.id;  // always included
+    w["id"] = mcp::widgetIdJson(d.id);  // always included
 
     if (has("type"))      w["type"]     = d.type.toStdString();
     if (has("machineType") && !d.machineType.isEmpty())
         w["machineType"] = d.machineType.toStdString();
     if (has("caption"))   w["caption"]  = d.caption.toStdString();
-    if (has("parentID"))  w["parentID"] = d.parentID;
-    if (has("childPageIndex") && d.parentID >= 0)
+    if (has("parentID"))  w["parentID"] = mcp::widgetIdJson(d.parentID);
+    if (has("childPageIndex") && d.parentID != -1)
         w["childPageIndex"] = d.childPageIndex;
     if (has("geometry"))
     {

@@ -112,13 +112,13 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     if (!geo[g]) geoErr = mcp::integerError(geoFields[g], kMinInt, kMaxInt);
                 }
                 const auto widgetID = item.contains("widgetID")
-                    ? mcp::jsonInteger(item["widgetID"], 0, kMaxInt) : std::nullopt;
+                    ? mcp::jsonInteger(item["widgetID"], 0, mcp::kMaxId) : std::nullopt;
                 const auto newParentID = item.contains("newParentID")
-                    ? mcp::jsonInteger(item["newParentID"], 0, kMaxInt) : std::nullopt;
+                    ? mcp::jsonInteger(item["newParentID"], 0, mcp::kMaxId) : std::nullopt;
                 if (!item.contains("widgetID")) geoErr = "widgetID is required";
                 else if (!item.contains("newParentID")) geoErr = "newParentID is required";
-                else if (!widgetID) geoErr = mcp::integerError("widgetID", 0, kMaxInt);
-                else if (!newParentID) geoErr = mcp::integerError("newParentID", 0, kMaxInt);
+                else if (!widgetID) geoErr = mcp::integerError("widgetID", 0, mcp::kMaxId);
+                else if (!newParentID) geoErr = mcp::integerError("newParentID", 0, mcp::kMaxId);
                 if (!geoErr.empty()) { results.push_back(mcp::itemError(i, geoErr)); continue; }
 
                 const int wid = int(*widgetID);
@@ -126,20 +126,20 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 const auto d = vcBridge->getWidgetDetails(wid);
                 const auto target = vcBridge->getWidgetDetails(newParent);
                 std::string reject;
-                if (d.id < 0)
-                    reject = "widget " + std::to_string(wid) + " not found";
-                else if (target.id < 0)
-                    reject = "newParentID " + std::to_string(newParent) + " not found";
+                if (d.id == -1)
+                    reject = "widget " + std::to_string(*widgetID) + " not found";
+                else if (target.id == -1)
+                    reject = "newParentID " + std::to_string(*newParentID) + " not found";
                 else if (target.machineType != QStringLiteral("frame") &&
                          target.machineType != QStringLiteral("soloframe"))
                     reject = "newParentID must be a frame or soloframe";
-                else if (d.parentID < 0)
+                else if (d.parentID == -1)
                     reject = "widget has no parent frame and cannot be moved";
                 else if (d.parentID == newParent)
-                    reject = "widget is already in frame " + std::to_string(newParent);
+                    reject = "widget is already in frame " + std::to_string(*newParentID);
                 else
                 {
-                    for (int p = newParent; p >= 0; p = vcBridge->getWidgetDetails(p).parentID)
+                    for (int p = newParent; p != -1; p = vcBridge->getWidgetDetails(p).parentID)
                         if (p == wid) { reject = "cannot move a frame into itself or its descendant"; break; }
                 }
                 if (!reject.empty()) { results.push_back(mcp::itemError(i, reject)); continue; }
@@ -148,8 +148,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                                  int(geo[2].value_or(d.geometry.width())),
                                  int(geo[3].value_or(d.geometry.height())));
                 if (vcBridge->reparentWidget(wid, newParent, rect))
-                    results.push_back(mcp::itemOk(i, {{"outcome", "moved"}, {"widgetID", wid},
-                                                      {"newParentID", newParent}}));
+                    results.push_back(mcp::itemOk(i, {{"outcome", "moved"}, {"widgetID", *widgetID},
+                                                      {"newParentID", *newParentID}}));
                 else
                     results.push_back(mcp::itemError(i, "could not move widget"));
             }
@@ -174,7 +174,6 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             if (!err.empty()) return err;
             if (!args.contains("ids") || !args.at("ids").is_array())
                 return Json({{"error", "ids must be an array of integers"}}).dump();
-            constexpr int64_t kMaxInt = std::numeric_limits<int>::max();
             const Json &ids = args.at("ids");
 
             // Ancestry is captured before any deletion so a child listed after
@@ -183,11 +182,11 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             std::vector<std::vector<int>> lineage(ids.size());
             for (size_t i = 0; i < ids.size(); ++i)
             {
-                if (auto v = mcp::jsonInteger(ids[i], 0, kMaxInt)) parsed[i] = int(*v);
+                if (auto v = mcp::jsonInteger(ids[i], 0, mcp::kMaxId)) parsed[i] = int(*v);
                 else continue;
-                for (int p = *parsed[i]; p >= 0; p = vcBridge->getWidgetDetails(p).parentID)
+                for (int p = *parsed[i]; p != -1; p = vcBridge->getWidgetDetails(p).parentID)
                 {
-                    if (vcBridge->getWidgetDetails(p).id < 0) break;
+                    if (vcBridge->getWidgetDetails(p).id == -1) break;
                     lineage[i].push_back(p);
                 }
             }
@@ -197,7 +196,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             std::map<int, size_t> deletedAt;
             for (size_t i = 0; i < ids.size(); ++i)
             {
-                if (!parsed[i]) { results.push_back(mcp::itemError(i, mcp::integerError("ids[]", 0, kMaxInt))); continue; }
+                if (!parsed[i]) { results.push_back(mcp::itemError(i, mcp::integerError("ids[]", 0, mcp::kMaxId))); continue; }
                 const int id = *parsed[i];
                 auto first = firstAt.find(id);
                 if (first != firstAt.end())
@@ -231,7 +230,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     else
                         rec = mcp::itemError(i, "could not delete widget");
                 }
-                rec["id"] = id;
+                rec["id"] = mcp::widgetIdJson(id);
                 results.push_back(rec);
             }
             return results.dump();
@@ -335,12 +334,12 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             else
                 return std::string("{\"error\": \"Provide parentID or pageIndex\"}");
 
-            if (snap.id < 0 && snap.children.isEmpty())
+            if (snap.id == -1 && snap.children.isEmpty())
                 return std::string("{\"error\": \"Frame/page not found\"}");
 
             auto overlaps = VCBridge::detectOverlaps(snap.children);
             Json result;
-            result["parentID"] = snap.id;
+            result["parentID"] = mcp::widgetIdJson(snap.id);
             result["childCount"] = (int)snap.children.size();
             Json overlapArr = Json::array();
             for (const auto &ov : overlaps)
@@ -457,7 +456,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             // Page-level reflow defaults to dryRun (destructive at page scale)
             bool dryRun = args.value("dryRun", isPage);
 
-            if (snap.id < 0 && snap.children.isEmpty())
+            if (snap.id == -1 && snap.children.isEmpty())
                 return std::string("{\"error\": \"Frame/page not found\"}");
 
             VCBridge::LayoutPlan plan;
@@ -595,12 +594,12 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
 
                 constexpr int64_t kIntMax = std::numeric_limits<int>::max();
-                auto frameIDValue = item.contains("frameID") ? mcp::jsonInteger(item.at("frameID"), 0, kIntMax) : std::nullopt;
-                if (!frameIDValue) { results.push_back(mcp::itemError(i, mcp::integerError("frameID", 0, kIntMax))); continue; }
+                auto frameIDValue = item.contains("frameID") ? mcp::jsonInteger(item.at("frameID"), 0, mcp::kMaxId) : std::nullopt;
+                if (!frameIDValue) { results.push_back(mcp::itemError(i, mcp::integerError("frameID", 0, mcp::kMaxId))); continue; }
                 const int frameID = int(*frameIDValue);
                 auto itemError = [&](const std::string &msg) {
                     Json rec = mcp::itemError(i, msg);
-                    rec["frameID"] = frameID;
+                    rec["frameID"] = mcp::widgetIdJson(frameID);
                     results.push_back(rec);
                 };
 
@@ -631,7 +630,7 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
 
                 if (!vcBridge->setFrameGridLayout(frameID, mode, columns, rowHeight, compact))
                 { itemError("grid layout not applied"); continue; }
-                results.push_back(mcp::itemOk(i, {{"frameID", frameID}, {"outcome", "updated"},
+                results.push_back(mcp::itemOk(i, {{"frameID", mcp::widgetIdJson(frameID)}, {"outcome", "updated"},
                     {"layoutMode", mode.toStdString()}, {"columns", columns},
                     {"rowHeight", rowHeight}, {"compact", compact}}));
             }

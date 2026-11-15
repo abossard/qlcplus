@@ -631,11 +631,11 @@ namespace VCValidate
         bool hasPage = item.contains("pageIndex");
         bool hasParent = item.contains("parentID");
 
-        for (const char *field : {"parentID", "pageIndex"})
+        for (const auto &[field, max] : {std::pair<const char *, int64_t>{"parentID", mcp::kMaxId},
+                                         {"pageIndex", std::numeric_limits<int>::max()}})
         {
-            if (item.contains(field) &&
-                !mcp::jsonInteger(item[field], 0, std::numeric_limits<int>::max()))
-                return Json({{"error", mcp::integerError(field, 0, std::numeric_limits<int>::max())}}).dump();
+            if (item.contains(field) && !mcp::jsonInteger(item[field], 0, max))
+                return Json({{"error", mcp::integerError(field, 0, max)}}).dump();
         }
 
         if (widgetType == VCType::Frame || widgetType == VCType::SoloFrame)

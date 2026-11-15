@@ -236,10 +236,10 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
 
                 if (item.contains("childPageIndex"))
                 {
-                    const int parentID = item.at("parentID").get<int>();
+                    const quint32 parentID = item.at("parentID").get<quint32>();
                     const int pageIndex = item.at("childPageIndex").get<int>();
-                    const VCBridge::WidgetDetails parent = vcBridge->getWidgetDetails(parentID);
-                    if (parent.id < 0 || pageIndex >= parent.totalPages)
+                    const VCBridge::WidgetDetails parent = vcBridge->getWidgetDetails(int(parentID));
+                    if (parent.id == -1 || pageIndex >= parent.totalPages)
                     {
                         const std::string range = parent.totalPages > 0
                             ? "0-" + std::to_string(parent.totalPages - 1)
@@ -255,9 +255,9 @@ void registerVCCreateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                                          && item.contains("pageIndex");
                 if (!frameOnPage && item.contains("parentID"))
                 {
-                    const int parentID = item.at("parentID").get<int>();
-                    const VCBridge::WidgetDetails parent = vcBridge->getWidgetDetails(parentID);
-                    if (parent.id < 0 || (parent.machineType != "frame" && parent.machineType != "soloframe"))
+                    const quint32 parentID = item.at("parentID").get<quint32>();
+                    const VCBridge::WidgetDetails parent = vcBridge->getWidgetDetails(int(parentID));
+                    if (parent.id == -1 || (parent.machineType != "frame" && parent.machineType != "soloframe"))
                     {
                         results.push_back({{"error", "parentID " + std::to_string(parentID) +
                             " is not an existing frame or page"}});

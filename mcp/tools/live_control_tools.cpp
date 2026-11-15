@@ -90,7 +90,7 @@ void registerLiveControlTools(fastmcpp::tools::ToolManager &tm, Doc *doc,
     tm.register_tool(Tool(
         "press_vc_widget",
         Json{{"type", "object"}, {"properties", {
-            {"widget", {{"type", "integer"}, {"minimum", 0}, {"maximum", std::numeric_limits<int>::max()},
+            {"widget", {{"type", "integer"}, {"minimum", 0}, {"maximum", mcp::kMaxId},
                         {"description", "VC button widget ID"}}},
             {"action", {{"type", "string"}, {"enum", {"press", "release", "toggle"}}}}
         }}, {"required", {"widget", "action"}}},
@@ -100,7 +100,7 @@ void registerLiveControlTools(fastmcpp::tools::ToolManager &tm, Doc *doc,
                 const auto err = validateFields(args, {"widget", "action"});
                 if (!err.empty()) return err;
                 const auto widget = args.contains("widget")
-                    ? mcp::jsonInteger(args.at("widget"), 0, std::numeric_limits<int>::max()) : std::nullopt;
+                    ? mcp::jsonInteger(args.at("widget"), 0, mcp::kMaxId) : std::nullopt;
                 if (!widget)
                     return Json({{"error", "widget is required and must be a nonnegative integer widget ID"}}).dump();
                 static const Json enums = {{"action", {{"enum", {"press", "release", "toggle"}}}}};
@@ -108,7 +108,7 @@ void registerLiveControlTools(fastmcpp::tools::ToolManager &tm, Doc *doc,
                 if (!enumError.empty()) return enumError;
                 if (!args.contains("action") || !args.at("action").is_string())
                     return Json({{"error", "action is required and must be a string"}}).dump();
-                return serialized(vcBridge->pressWidget(int(*widget),
+                return serialized(vcBridge->pressWidget(quint32(*widget),
                     QString::fromStdString(toLowerStd(args.at("action").get<std::string>()))));
             });
         }

@@ -6,6 +6,7 @@
   linking the full QML application graph.
 */
 
+#include <QByteArray>
 #include <QVariant>
 #include <QString>
 
@@ -16,6 +17,7 @@ public:
     void beginBatch(const QString &name);
     void endBatch();
     void enqueueAction(int code, unsigned int objID, QVariant oldVal, QVariant newVal);
+    QByteArray actionToByteArray(int code, unsigned int objID, QVariant data);
 };
 
 Tardis *Tardis::instance()
@@ -26,6 +28,11 @@ Tardis *Tardis::instance()
 
 void Tardis::enqueueAction(int, unsigned int, QVariant, QVariant)
 {
+}
+
+QByteArray Tardis::actionToByteArray(int, unsigned int, QVariant)
+{
+    return QByteArray();
 }
 
 void Tardis::beginBatch(const QString &)

@@ -27713,7 +27713,7 @@ void ShowCommandRecorder_Test::recordingsEditor_typedHistoryKeepsPayload()
     {
         auto *vc = qobject_cast<VirtualConsole *>(ed.rig.context("virtualConsole"));
         VCBridgeV5 bridge(ed.rig.doc, vc);
-        auto *flash = qobject_cast<VCButton *>(vc->widget(bridge.addButton(0, QRect(1300, 10, 80, 48),
+        auto *flash = qobject_cast<VCButton *>(vc->widget(bridge.addButton(int(vc->page(0)->id()), QRect(1300, 10, 80, 48),
             ed.scene->id(), QStringLiteral("History hold"), QStringLiteral("flash"))));
         QVERIFY(flash);
         on.controlId = flash->ensureRecordingId();
@@ -33463,6 +33463,7 @@ void ShowCommandRecorder_Test::timeline_divisionSwitchKeepsRuler()
     ed.settledHistory();
     ed.rig.doc->resetModified();
     const QString authored = authoredState(ed);
+    const int history = ed.tardis()->m_historyIndex;
 
     manager->setTimeDivision(Show::TimeDivision(to));
     QCoreApplication::processEvents();
@@ -33482,11 +33483,13 @@ void ShowCommandRecorder_Test::timeline_divisionSwitchKeepsRuler()
     QVERIFY2(header->property("contentX").toDouble() > 100, qPrintable(horizontalViews(ed)));
     QVERIFY2(header->property("contentX").toDouble() != landed, qPrintable(horizontalViews(ed)));
     QVERIFY2(oneHorizontalView(ed), qPrintable(horizontalViews(ed)));
-    // the division is the one authored change
+    // the division is the one authored change, and one undo step
     QCOMPARE(manager->timeDivision(), Show::TimeDivision(to));
     QVERIFY(ed.rig.doc->isModified());
     ed.settledHistory();
-    QCOMPARE(authoredState(ed).replace(QStringLiteral("modified 1"), QStringLiteral("modified 0")), authored);
+    QCOMPARE(authoredState(ed).replace(QStringLiteral("modified 1"), QStringLiteral("modified 0")),
+             QString(authored).replace(QStringLiteral("history %1 ").arg(history),
+                                       QStringLiteral("history %1 ").arg(history + 1)));
 }
 
 void ShowCommandRecorder_Test::timeline_dragTracksPointer_data()
@@ -34963,6 +34966,7 @@ void ShowCommandRecorder_Test::timeline_viewPreservedAfterUserScroll()
     ed.rig.app->resize(1728, 600);
     check("resize 1728");
     QCOMPARE(authoredState(ed), authored);
+    const int history = ed.settledHistory();
     // (a) then the ruler, through its own chooser: clicked, its popup closed, Down to VDJ Beat and BPM 4/4,
     // Up back to Time
     const qreal kept = navContainer(ed)->property("xViewOffset").toDouble();
@@ -34982,9 +34986,13 @@ void ShowCommandRecorder_Test::timeline_viewPreservedAfterUserScroll()
     QTest::keyClick(ed.rig.app.get(), Qt::Key_Up);
     QTRY_COMPARE(int(manager->timeDivision()), int(Show::Time));
     check("ruler Time");
-    // the marker choice is the Show's own setting: back to Time, only the document's modified flag may remain
+    // the marker choice is the Show's own setting: back to Time, only the document's modified flag
+    // and the undo steps of the four ruler switches may remain (quick ones merge into one)
+    const int steps = ed.settledHistory() - history;
+    QVERIFY2(steps >= 1 && steps <= 4, qPrintable(QString::number(steps)));
     QCOMPARE(authoredState(ed).replace(QLatin1String("modified 1"), QLatin1String("modified 0")),
-             QString(authored).replace(QLatin1String("modified 1"), QLatin1String("modified 0")));
+             QString(authored).replace(QLatin1String("modified 1"), QLatin1String("modified 0"))
+                 .replace(QStringLiteral("history %1 ").arg(history), QStringLiteral("history %1 ").arg(history + steps)));
 }
 
 void ShowCommandRecorder_Test::timeline_revealInsideVisibleView_data()

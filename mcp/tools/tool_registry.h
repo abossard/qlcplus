@@ -333,6 +333,13 @@ withToolResultEncoding(std::function<nlohmann::json(const nlohmann::json &)> inn
 // Object/function/group IDs: 0 .. UINT32_MAX-1 (UINT32_MAX is QLC+'s invalid ID).
 constexpr int64_t kMaxId = int64_t(std::numeric_limits<uint32_t>::max()) - 1;
 
+// VCBridge carries widget IDs in an int, -1 meaning none. Page IDs count down
+// from UINT32_MAX-1, so they arrive negative and are written back unsigned.
+inline nlohmann::json widgetIdJson(int id)
+{
+    return id == -1 ? nlohmann::json(-1) : nlohmann::json(uint32_t(id));
+}
+
 } // namespace mcp
 
 #endif // TOOL_REGISTRY_H

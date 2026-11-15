@@ -74,6 +74,8 @@ private slots:
     void authoringGeometry_preconditionRows_recorderAndPanel();
     void authoringCore_layoutFramePages_andRecordPanelConfig_persistAcrossLoad();
     void authoringCore_layoutPageOps_persistAcrossLoad();
+    void authoringCore_toolsAddressPageIdAboveInt32_data();
+    void authoringCore_toolsAddressPageIdAboveInt32();
     void authoringGeometry_applyRefusals_afterStateChange_data();
     void authoringGeometry_applyRefusals_afterStateChange();
     void authoringGeometry_interdependentGroup_swap();

@@ -398,10 +398,10 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             auto parseWidgetId = [&](const char *field) -> std::optional<quint32> {
                 if (!args.contains(field))
                     return std::nullopt;
-                const auto id = mcp::jsonInteger(args.at(field), 0, kMaxInt);
+                const auto id = mcp::jsonInteger(args.at(field), 0, mcp::kMaxId);
                 if (!id)
                 {
-                    err = mcp::integerError(field, 0, kMaxInt);
+                    err = mcp::integerError(field, 0, mcp::kMaxId);
                     return std::nullopt;
                 }
                 return quint32(*id);
@@ -825,22 +825,22 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
             {
                 const Json &item = items[i];
                 auto widgetIDValue = item.contains("widgetID")
-                    ? mcp::jsonInteger(item.at("widgetID"), 0, std::numeric_limits<int>::max()) : std::nullopt;
+                    ? mcp::jsonInteger(item.at("widgetID"), 0, mcp::kMaxId) : std::nullopt;
                 if (!widgetIDValue)
                 {
-                    results.push_back(mcp::itemError(i, mcp::integerError("widgetID", 0, std::numeric_limits<int>::max())));
+                    results.push_back(mcp::itemError(i, mcp::integerError("widgetID", 0, mcp::kMaxId)));
                     continue;
                 }
                 const int wid = int(*widgetIDValue);
                 auto itemError = [&](const std::string &msg) {
                     Json rec = mcp::itemError(i, msg);
-                    rec["widgetID"] = wid;
+                    rec["widgetID"] = *widgetIDValue;
                     results.push_back(rec);
                 };
 
                 // 1. Look up widget type
                 auto details = vcBridge->getWidgetDetails(wid);
-                if (details.id < 0) { itemError("widget not found"); continue; }
+                if (details.id == -1) { itemError("widget not found"); continue; }
 
                 int widgetType = VCType::fromString(details.machineType.toStdString());
 
@@ -1315,7 +1315,7 @@ void registerVCUpdateTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                 bool failed = false;
                 for (const auto &change : changes)
                     failed = failed || change.value("status", "") != "ok";
-                Json rec = mcp::itemOk(i, {{"widgetID", wid}, {"outcome", "updated"}, {"changes", changes}});
+                Json rec = mcp::itemOk(i, {{"widgetID", *widgetIDValue}, {"outcome", "updated"}, {"changes", changes}});
                 if (failed)
                 {
                     // Unreachable after preflight; surfaced as an error, never as a partial edit.

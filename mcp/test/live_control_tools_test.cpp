@@ -656,9 +656,11 @@ void McpLiveControlTools_Test::buttonRefusals()
     button->setVisible(reason != "hidden");
     if (reason == "bound function")
         button->setActionType(VCButton::Toggle);
-    const int id = reason == "VC button"
-        ? (QTest::currentDataTag() == QByteArray("missing-widget") ? 2147483647 : int(vc->page(0)->id()))
-        : int(button->id());
+    const quint32 id = reason == "VC button"
+        ? (QTest::currentDataTag() == QByteArray("missing-widget") ? 2147483647u : vc->page(0)->id())
+        : button->id();
+    if (QTest::currentDataTag() == QByteArray("wrong-widget-type"))
+        QVERIFY(id > quint32(std::numeric_limits<int>::max()));
     const bool blackoutBefore = doc->inputOutputMap()->blackout();
     const Json result = invoke(doc, m_vc.get(), m_workspace.get(), "press_vc_widget",
                                {{"widget", id}, {"action", "press"}});

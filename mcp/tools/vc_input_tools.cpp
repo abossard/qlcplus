@@ -628,7 +628,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                     if (!v && rangeErr.empty()) rangeErr = mcp::integerError(key, 0, hi);
                     return v.value_or(0);
                 };
-                const int wid = int(checked("widgetID", std::numeric_limits<int>::max()));
+                const quint32 wid = quint32(checked("widgetID", mcp::kMaxId));
                 const quint32 uni = quint32(checked("inputUniverse", mcp::kMaxId));
                 const quint32 ch = quint32(checked("inputChannel", mcp::kMaxId));
 
@@ -754,7 +754,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 auto mode = [&](const char *key, const char *fallback) {
                     return midiChFromMode(VCValidate::canonicalEnum(item.value(key, fallback), kModeEnums[key]["enum"]));
                 };
-                const int wid = int(checked("widgetID", std::numeric_limits<int>::max(), 0, true));
+                const quint32 wid = quint32(checked("widgetID", mcp::kMaxId, 0, true));
                 const int activeVal = int(checked("activeValue", 255, 0, true));
                 const int idleVal = int(checked("idleValue", 255, 0, false));
                 const int monitorVal = int(checked("monitorValue", 255, 0, false));
@@ -815,10 +815,10 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 auto err = validateFields(item, {"widgetID", "sourceName", "keySequence"});
                 if (!err.empty()) { results.push_back(mcp::itemErrorFromDump(i, err)); continue; }
                 auto widgetID = item.contains("widgetID")
-                    ? mcp::jsonInteger(item.at("widgetID"), 0, std::numeric_limits<int>::max()) : std::nullopt;
+                    ? mcp::jsonInteger(item.at("widgetID"), 0, mcp::kMaxId) : std::nullopt;
                 if (!widgetID)
                 {
-                    results.push_back(mcp::itemError(i, mcp::integerError("widgetID", 0, std::numeric_limits<int>::max())));
+                    results.push_back(mcp::itemError(i, mcp::integerError("widgetID", 0, mcp::kMaxId)));
                     continue;
                 }
                 if (!item.contains("keySequence") || !item.at("keySequence").is_string())
@@ -831,7 +831,7 @@ void registerVCInputTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *
                 bool ok = vcBridge->setWidgetKeySequence(int(*widgetID), sourceName, ks);
                 Json rec = ok ? mcp::itemOk(i, {{"outcome", "updated"}})
                               : mcp::itemError(i, "failed to set key sequence");
-                rec["widgetID"] = int(*widgetID);
+                rec["widgetID"] = *widgetID;
                 results.push_back(rec);
             }
             return results.dump();

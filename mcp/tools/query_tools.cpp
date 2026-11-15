@@ -693,7 +693,7 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                     for (const auto &w : page.widgets)
                     {
                         auto d = vcBridge->getWidgetDetails(w.id);
-                        if (d.id < 0)
+                        if (d.id == -1)
                             continue;
 
                         // Apply filters
@@ -821,11 +821,11 @@ void registerQueryTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vc
                 std::set<std::string> allProps;  // empty = all properties
                 for (auto &wid : args.at("widgetIDs"))
                 {
-                    int id = wid.get<int>();
-                    auto d = vcBridge->getWidgetDetails(id);
-                    if (d.id < 0)
+                    const auto id = mcp::jsonInteger(wid, 0, mcp::kMaxId);
+                    auto d = id ? vcBridge->getWidgetDetails(int(*id)) : VCBridge::WidgetDetails();
+                    if (d.id == -1)
                     {
-                        results.push_back({{"id", id}, {"error", "not found"}});
+                        results.push_back({{"id", wid}, {"error", "not found"}});
                         continue;
                     }
                     results.push_back(VCQueryPages::serializeWidget(d, allProps));

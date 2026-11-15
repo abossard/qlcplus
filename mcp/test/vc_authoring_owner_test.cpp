@@ -6826,7 +6826,6 @@ void VCAuthoringOwner_Test::authoringCore_layoutPageOps_persistAcrossLoad()
     expectedCaptionsAfterDelete[0] = renamedCaption;
     QCOMPARE(pageCaptionsAfterDelete, expectedCaptionsAfterDelete);
 
-    QList<quint32> loadedIdsInOrder;
     QStringList loadedCaptionsInOrder;
     for (int i = 0; i < vc->pagesCount(); ++i)
     {
@@ -6850,16 +6849,75 @@ void VCAuthoringOwner_Test::authoringCore_layoutPageOps_persistAcrossLoad()
         QXmlStreamReader pageReader(&pageReadBuffer);
         pageReader.readNextStartElement();
         QVERIFY2(!pageReader.atEnd(), "Invalid page XML");
+        // A page ID is assigned at runtime and is not saved
+        QVERIFY(!pageReader.attributes().hasAttribute(QStringLiteral("ID")));
         QVERIFY2(loadedPage->loadXML(pageReader), "VCPage::loadXML failed");
 
-        loadedIdsInOrder << loadedPage->id();
         loadedCaptionsInOrder << loadedPage->caption();
-        QCOMPARE(loadedPage->id(), livePage->id());
         QCOMPARE(loadedPage->caption(), livePage->caption());
     }
 
-    QCOMPARE(loadedIdsInOrder, pageIdsAfterDelete);
     QCOMPARE(loadedCaptionsInOrder, pageCaptionsAfterDelete);
+}
+
+void VCAuthoringOwner_Test::authoringCore_toolsAddressPageIdAboveInt32_data()
+{
+    QTest::addColumn<QString>("scenario");
+    QTest::newRow("query-page") << QStringLiteral("query-page");
+    QTest::newRow("query-frame-parent") << QStringLiteral("query-frame-parent");
+    QTest::newRow("prepare-page-rename") << QStringLiteral("prepare-page-rename");
+}
+
+void VCAuthoringOwner_Test::authoringCore_toolsAddressPageIdAboveInt32()
+{
+    QVERIFY2(m_app, "App not initialized");
+    QVERIFY2(m_bridge, "Bridge not initialized");
+    QFETCH(QString, scenario);
+
+    Doc *doc = m_app->doc();
+    VirtualConsole *vc = m_app->virtualConsole();
+    doc->setMode(Doc::Design);
+    vc->setEditMode(true);
+    m_app->setAccessMask(m_initialAccessMask);
+
+    VCPage *page = vc->page(0);
+    QVERIFY(page != nullptr);
+    const quint32 pageId = page->id();
+    QVERIFY(pageId > quint32(std::numeric_limits<int>::max()));
+
+    VCFrame *frame = new VCFrame(doc, vc, page);
+    vc->addWidgetToMap(frame);
+    page->addWidgetToPageMap(frame);
+    const quint32 frameId = frame->id();
+    const QString captionBefore = page->caption();
+    auto cleanup = qScopeGuard([&]() {
+        vc->deleteVCWidgets({frameId});
+        page->setCaption(captionBefore);
+    });
+
+    fastmcpp::tools::ToolManager tm;
+    registerQueryTools(tm, doc, m_bridge.get());
+    registerVCUpdateTools(tm, doc, m_bridge.get());
+
+    if (scenario == QStringLiteral("prepare-page-rename"))
+    {
+        const Json prep = parseInvoke(tm.invoke("vc_prepare_layout", Json{
+            {"operation", "pageRename"}, {"pageWidgetID", pageId}, {"name", "Above Int32"}}));
+        QVERIFY2(!prep.contains("error"), prep.dump().c_str());
+        const Json applied = parseInvoke(tm.invoke("vc_apply_preparation", Json{
+            {"preparationToken", prep.value("preparationToken", std::string())}}));
+        QVERIFY2(applied.value("applied", false), applied.dump().c_str());
+        QCOMPARE(page->caption(), QStringLiteral("Above Int32"));
+        return;
+    }
+
+    const bool queryPage = scenario == QStringLiteral("query-page");
+    const Json result = parseInvoke(tm.invoke("vc_query_widgets", Json{
+        {"widgetIDs", Json::array({queryPage ? pageId : frameId})}}));
+    QVERIFY2(result.is_array() && result.size() == 1 && !result[0].contains("error"), result.dump().c_str());
+    const Json &field = result[0].at(queryPage ? "id" : "parentID");
+    QVERIFY2(field.is_number_unsigned(), result.dump().c_str());
+    QCOMPARE(field.get<quint32>(), pageId);
 }
 
 void VCAuthoringOwner_Test::authoringGeometry_applyRefusals_afterStateChange_data()
@@ -10192,6 +10250,7 @@ void VCAuthoringOwner_Test::authoringPassB_assignmentB_writerSafeClosure()
         int targetPinCount = 0;
         int totalPinCount = 0;
         int depth = 0;
+        int pageOrdinal = -1;
 
         while (!reader.atEnd())
         {
@@ -10215,7 +10274,8 @@ void VCAuthoringOwner_Test::authoringPassB_assignmentB_writerSafeClosure()
 
                 if (elementName == QStringLiteral("Frame"))
                 {
-                    const bool isTargetFrame = attrs.value(QLatin1String("ID")).toUInt() == destinationPage->id();
+                    // Pages are the console's top-level frames, saved in order and without an ID
+                    const bool isTargetFrame = depth == 2 && ++pageOrdinal == destinationPageIndex;
                     if (isTargetFrame)
                         ++targetFrameCount;
                     frameStack.append(FrameState{isTargetFrame, depth});

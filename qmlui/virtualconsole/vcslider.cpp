@@ -1428,6 +1428,12 @@ void VCSlider::slotControlledFunctionRunning(quint32 fid)
     // When the controlled function starts (externally or otherwise), immediately
     // apply the override attribute at the current slider value so the function
     // honours the slider position from the very first tick.
+    // This signal is queued from the MasterTimer thread, so the Function may
+    // have been stopped in the meantime: then a write would restart it.
+    Function *function = m_doc->function(fid);
+    if (function == nullptr || function->stopped())
+        return;
+
     QMutexLocker locker(&m_levelValueMutex);
     m_valueGeneration++;
 }

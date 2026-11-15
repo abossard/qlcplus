@@ -605,13 +605,12 @@ void VirtualConsole::setSelectedPage(int selectedPage)
         return;
 
     m_unlockedPagePINs.remove(m_pages.at(m_selectedPage)->id());
-    resetWidgetSelection();
-    m_selectedPage = clampedPage;
-    emit selectedPageChanged(clampedPage);
+
+    /* Edits act on the selection, so it never holds widgets of a page out of sight.
+     * Widgets on the page being shown stay selected, for the outline Reveal flow */
+    QVariantList visible;
     if (m_editMode)
     {
-        /* Edits act on the selection, so it never holds widgets of a page out of sight */
-        QVariantList visible;
         for (const QVariant &id : selectedWidgetIDs())
         {
             QObject *owner = widget(id.toUInt());
@@ -620,8 +619,12 @@ void VirtualConsole::setSelectedPage(int selectedPage)
             if (owner)
                 visible.append(id);
         }
-        setSelectedWidgetIDs(visible);
     }
+    resetWidgetSelection();
+    m_selectedPage = clampedPage;
+    emit selectedPageChanged(clampedPage);
+    if (!visible.isEmpty())
+        setSelectedWidgetIDs(visible);
 }
 
 void VirtualConsole::setPageInteraction(bool enable)

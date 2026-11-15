@@ -834,9 +834,9 @@ void VCEditor_Test::framePageVisibility()
     auto *frame = qobject_cast<VCFrame *>(vc()->widget(ids.frame));
     frame->setMultiPageMode(true);
     frame->setTotalPagesNumber(3);
-    for (int subpage : {1, 2})
-        QVERIFY(vc()->createWidgetGeometry(ids.frame, "Button", QRectF(10, 60, 100, 80), subpage)
-                    .value("accepted").toBool());
+    // the shown page 2 stays empty: a frame never drops a page that still has widgets
+    QVERIFY(vc()->createWidgetGeometry(ids.frame, "Button", QRectF(10, 60, 100, 80), 1)
+                .value("accepted").toBool());
     frame->setCurrentPage(2);
 
     if (change == "fewer-pages")
