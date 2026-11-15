@@ -3626,7 +3626,7 @@ The candidate is applied to working files on `mcp-server`. The previous uncommit
 
 Incoming source: `mcallegari/qlcplus:master` at `08452e9b6776b43c155887007a2d628cc965aebe`, fetched 2026-11-10 from the `upstream` remote. `origin` is this fork, not mcallegari. Sixteen incoming commits follow the pending `6ed78ed0a` integration in section 53.
 
-The candidate is applied to working files on `mcp-server`. Sections 52 and 53 and their existing customizations are preserved. Git's index and branch history remain unchanged; this is not a recorded Git merge.
+The candidate was applied to working files on `mcp-server`, preserving sections 52 and 53 and their existing customizations. At the time of the verification below, it was not yet a recorded Git merge. It was subsequently merged in `765db3653`.
 
 Upstream's frame Disabled/AllowResize restoration, ArtNet socket serialization, HTTP/HTTPS WebSocket selection, translations, 5.4.0 version and packaging changes are included. Upstream VC suites live under `qmlui/test/upstream` with `upstream_` target names to avoid collisions with fork suites. They link the real application dependency graph rather than replacing fork behavior with upstream's minimal application stubs. The platform test runners discover both sets through CTest. The hotplug monitor's CMake target is renamed to avoid CTest's reserved `test` target; its executable name remains unchanged.
 
@@ -3691,9 +3691,9 @@ The fork's profile-based audio analyzer and audio-trigger properties remain auth
 
 ## 55. Upstream French and Russian translations (167da4814)
 
-Incoming source: `mcallegari/qlcplus:master` at `167da48141c60d820cd715f52bb535ad1cc0ecc1`, fetched 2026-11-11 from `upstream`. `origin` points to the abossard fork. Four incoming commits follow section 54's pending `08452e9b6` integration.
+Incoming source: `mcallegari/qlcplus:master` at `167da48141c60d820cd715f52bb535ad1cc0ecc1`, fetched 2026-11-11 from `upstream`. `origin` points to the abossard fork. Four incoming commits follow section 54's `08452e9b6` integration.
 
-The incremental changes are applied to working files on `mcp-server`, preserving the earlier pending integrations and fork customizations. Git's index and branch history remain unchanged; this is not a recorded Git merge. The translation catalogs, Russian catalog build registration and translation-script language list are imported without local refactoring.
+The incremental changes preserved the earlier integrations and fork customizations. The translation catalogs, Russian catalog build registration and translation-script language list were imported without local refactoring. They were recorded in merge `765db3653`; a fetch on 2026-11-12 found no newer upstream commits. The manual checks below remain pending.
 
 ### 55.1 French terminology and layout
 
@@ -3723,3 +3723,7 @@ The incremental changes are applied to working files on `mcp-server`, preserving
 - The application builds with existing dependency/deployment-target warnings. Upstream suites run offscreen with isolated settings, and both review parser suites pass, including the four pending checks in section 55. These are scoped results, not a new full-suite result. [Build](build/upstream-integration-20261111/build.log), [CTest](build/upstream-integration-20261111/ctest-upstream.log), [JUnit](build/upstream-integration-20261111/ctest-upstream.xml), [parser suites](build/upstream-integration-20261111/parser-tests.log).
 - The original review document remains an exact byte prefix. Files outside this integration remain unchanged, as do the index and `mcp-server` HEAD. The remote tip was rechecked after validation. Imported translation whitespace is retained verbatim; `git diff --check` reports upstream Russian and preexisting Polish translation whitespace.
 - The running desktop application was not restarted. Classic-UI runtime, other operating systems, translation accuracy and the human checks above remain unverified and unsigned.
+
+**Recheck (2026-11-12):** Upstream remains at `167da4814`. In the existing build, 29 of 37 CTest suites passed; seven timed out after 90 seconds, and `upstream3d_test` failed to load due to a stale library link. After rebuilding that target, `upstream3d_test` passed. The timed-out recording and upstream integration suites also reported QML assertions before timeout; the full suite was not rebuilt or verified green. The manual-review parser tests passed (72 tests).
+
+**Recheck (2026-11-13):** Fetched `upstream/master` at `167da48141c60d820cd715f52bb535ad1cc0ecc1`. It is already an ancestor of `mcp-server` at `135b585cb7899a5cefe6087be45b9f3e917d0b82`; there are no new upstream commits to integrate. The existing build's 12 upstream VC suites passed offscreen, and the two manual-review parser suites passed (64 tests). The full suite was not rerun or rebuilt, and the manual checks remain pending.
