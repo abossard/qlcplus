@@ -394,6 +394,7 @@ void App::startup()
     m_showManager->setSongDirector(m_songDirector);
     // song Shows get their blocks once analysed, and untouched blocks follow a new analysis
     m_songDirector->setAnalysisDir(m_edmAnalysis->outputDir());
+    m_showManager->setAnalysisDir(m_edmAnalysis->outputDir());
     m_songDirector->setSongShowFilter([this, factory = m_vdjBridge->showFactory()](Show *show) {
         const Audio *audio = ShowFactory::songAudio(m_doc, show);
         return audio != nullptr && factory->showIdForFilepath(audio->getSourceFileName()) == show->id();

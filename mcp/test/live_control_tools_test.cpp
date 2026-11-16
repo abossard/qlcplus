@@ -34,6 +34,7 @@
 
 #include <QtTest>
 #include <QCryptographicHash>
+#include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
@@ -55,6 +56,12 @@ Json invoke(Doc *doc, VCBridge *vc, WorkspaceBridge *workspace,
         return {{"error", std::string("tool not registered: ") + name}};
     const Json result = tm.invoke(name, args);
     return result.is_string() ? Json::parse(result.get<std::string>()) : result;
+}
+
+/** The analysis folder the app is configured with */
+QString analysisDir()
+{
+    return QSettings().value("edmanalysis/outputDir").toString();
 }
 
 Json invokeShowTool(Doc *doc, VCBridge *vc, const char *name, const Json &args)
@@ -95,6 +102,8 @@ void McpLiveControlTools_Test::initTestCase()
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, m_settings.path());
     QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, m_settings.path());
     QSettings().setValue("vdj/autoOpenInput", false);
+    // an analysis folder of its own, as a user who moved it: everything reads this one
+    QSettings().setValue("edmanalysis/outputDir", m_settings.filePath("configured-edm-analysis"));
     m_app = std::make_unique<App>();
     m_app->set3dSupported(false);
     m_app->startup();
@@ -515,7 +524,7 @@ void McpLiveControlTools_Test::songBlocks()
     auto *doc = m_app->doc();
 
     // the analysis folder the app reads, under the test's HOME: intro 0-9 s, drop 9-25 s
-    const QDir analysis(EdmAnalysisReader::defaultDir());
+    const QDir analysis(analysisDir());
     QVERIFY(analysis.mkpath("final"));
     QFile index(analysis.filePath("index.json"));
     QVERIFY(index.open(QIODevice::WriteOnly));
@@ -614,7 +623,7 @@ void McpLiveControlTools_Test::songBlockDropAndResize()
     QFETCH(int, filledBlock);
     auto *doc = m_app->doc();
 
-    const QDir analysis(EdmAnalysisReader::defaultDir());
+    const QDir analysis(analysisDir());
     QVERIFY(analysis.mkpath("final"));
     QFile index(analysis.filePath("index.json"));
     QVERIFY(index.open(QIODevice::WriteOnly));
@@ -705,7 +714,7 @@ void McpLiveControlTools_Test::songBlockMarks()
     QFETCH(QStringList, expected);
     auto *doc = m_app->doc();
 
-    const QDir analysis(EdmAnalysisReader::defaultDir());
+    const QDir analysis(analysisDir());
     QVERIFY(analysis.mkpath("final"));
     QFile index(analysis.filePath("index.json"));
     QVERIFY(index.open(QIODevice::WriteOnly));
@@ -842,29 +851,37 @@ void McpLiveControlTools_Test::songLookDefaults()
 
 namespace
 {
-/** (Re)write the current row's analysis; each write gets a newer file time, so the reader takes it */
-void rewriteAnalysis(const QByteArray &sections)
+/** Each write gets a newer file time, so a reader's cache takes it */
+QDateTime nextFileTime()
 {
     static int written = 0;
+    return QDateTime::currentDateTime().addSecs(++written);
+}
+
+/** (Re)write the current row's analysis */
+void rewriteAnalysis(const QByteArray &sections)
+{
     const QString id = QString(QCryptographicHash::hash(QTest::currentDataTag(), QCryptographicHash::Sha256).toHex()).left(16);
-    QFile final(QDir(EdmAnalysisReader::defaultDir()).filePath("final/" + id + ".json"));
+    QFile final(QDir(analysisDir()).filePath("final/" + id + ".json"));
     QVERIFY(final.open(QIODevice::WriteOnly));
     final.write(R"({"schema": "qlcplus-edm-final/3", "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0},
         "sections": )" + sections + "}");
     QVERIFY(final.flush());   // a write on close would set the time again
-    QVERIFY(final.setFileTime(QDateTime::currentDateTime().addSecs(++written), QFileDevice::FileModificationTime));
+    QVERIFY(final.setFileTime(nextFileTime(), QFileDevice::FileModificationTime));
 }
 
 /** A song Show whose first audio clip (at 2000 ms) plays a song analysed as \a sections, in the app's analysis folder */
 Show *analysedSongShow(Doc *doc, const QByteArray &sections)
 {
-    const QDir analysis(EdmAnalysisReader::defaultDir());
+    const QDir analysis(analysisDir());
     const QString id = QString(QCryptographicHash::hash(QTest::currentDataTag(), QCryptographicHash::Sha256).toHex()).left(16);
     const QString path = QStringLiteral("/music/song-%1-%2.mp3").arg(QTest::currentTestFunction(), id);
     QFile index(analysis.filePath("index.json"));
     if (analysis.mkpath("final") == false || index.open(QIODevice::WriteOnly) == false)
         return nullptr;
     index.write(QStringLiteral(R"({"%1": {"path": "%2"}})").arg(id, path).toUtf8());
+    if (index.flush() == false || index.setFileTime(nextFileTime(), QFileDevice::FileModificationTime) == false)
+        return nullptr;
     index.close();
     rewriteAnalysis(sections);
 
@@ -879,6 +896,59 @@ Show *analysedSongShow(Doc *doc, const QByteArray &sections)
     track->createShowFunction(audio->id())->setStartTime(2000);
     return show;
 }
+}
+
+void McpLiveControlTools_Test::songAnalysisFolder_data()
+{
+    QTest::addColumn<QString>("reader");   // what reads the song's analysis
+    QTest::newRow("section band") << QStringLiteral("band");
+    QTest::newRow("Create song blocks") << QStringLiteral("button");
+    QTest::newRow("create_song_blocks") << QStringLiteral("tool");
+    QTest::newRow("automatic blocks") << QStringLiteral("sync");
+}
+
+void McpLiveControlTools_Test::songAnalysisFolder()
+{
+    QFETCH(QString, reader);
+    auto *doc = m_app->doc();
+    ShowManager *manager = m_app->showManager();
+    QVERIFY(QDir(analysisDir()) != QDir(EdmAnalysisReader::defaultDir()));
+
+    // the analysis is in the configured folder only
+    Show *show = analysedSongShow(doc, R"([{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 70},
+                                           {"label": "drop", "start": 9.0, "end": 25.0, "confidence": 90}])");
+    QVERIFY(show != nullptr);
+    QVERIFY(QFileInfo::exists(EdmAnalysisReader::defaultDir() + "/index.json") == false);
+
+    if (reader == "band")
+    {
+        manager->setCurrentShowID(int(show->id()));
+        QCOMPARE(manager->analysisSections().count(), 2);
+        QCOMPARE(manager->analysisSections().at(1).toMap().value("startMs").toDouble(), 11000.0);
+        return;
+    }
+    if (reader == "button")
+    {
+        manager->setCurrentShowID(int(show->id()));
+        QVERIFY(manager->createSongBlocks());
+    }
+    else if (reader == "tool")
+    {
+        const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", show->id()}});
+        QVERIFY2(!created.contains("error"), created.dump().c_str());
+    }
+    else
+    {
+        // the user's Assign makes it the song's Show (the factory's own index is built earlier in this run)
+        auto *factory = m_app->findChild<ShowFactory *>();
+        QVERIFY(factory != nullptr);
+        factory->registerMapping(ShowFactory::songAudio(doc, show)->getSourceFileName(), show->id());
+        m_app->findChild<SongDirector *>()->sync();
+    }
+    Track *track = m_app->findChild<SongDirector *>()->track(show);
+    QVERIFY(track != nullptr);
+    QCOMPARE(track->showFunctions().count(), 2);
+    QCOMPARE(track->showFunctions().at(1)->startTime(), 11000u);
 }
 
 void McpLiveControlTools_Test::songBlocksReadOnly_data()

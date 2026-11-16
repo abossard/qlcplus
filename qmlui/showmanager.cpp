@@ -528,6 +528,12 @@ void ShowManager::setSongDirector(SongDirector *director)
     });
 }
 
+void ShowManager::setAnalysisDir(const QString &dir)
+{
+    m_analysisReader = EdmAnalysisReader(dir);
+    updateVdjGrid();
+}
+
 bool ShowManager::hasSongBlocks() const
 {
     return m_songDirector != nullptr && m_songDirector->track(m_currentShow) != nullptr;

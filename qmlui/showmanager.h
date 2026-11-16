@@ -233,6 +233,10 @@ public:
 
     /** The Song Director that creates the blocks of song Shows */
     void setSongDirector(SongDirector *director);
+
+    /** The analysis folder the section band and Create song blocks read */
+    void setAnalysisDir(const QString &dir);
+
     /** True when the current Show has its Song Director track */
     bool hasSongBlocks() const;
     /** Add the Song Director track with one block per analysed section */
