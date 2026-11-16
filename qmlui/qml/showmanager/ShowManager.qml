@@ -1427,6 +1427,8 @@ Rectangle
             width: hdrItem.width
             height: showMgrContainer.sectionRowHeight
             visible: height > 0
+            visibleX: xViewOffset
+            visibleWidth: timelineHeader.width
         }
 
         HeaderAndCursor

@@ -885,6 +885,70 @@ Show *analysedSongShow(Doc *doc, const QByteArray &sections)
 }
 }
 
+void McpLiveControlTools_Test::songDirectorItemsRefused_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QString>("target");  // "director track", "block" (its Collection or item), "scene", "audio item"
+    QTest::addColumn<bool>("refused");
+    QTest::newRow("add a Scene to the Song Director track") << "add_show_items" << "director track" << true;
+    QTest::newRow("add a block Collection to another track") << "add_show_items" << "block" << true;
+    QTest::newRow("add a Scene to another track") << "add_show_items" << "scene" << false;
+    QTest::newRow("delete a block item") << "delete_show_items" << "block" << true;
+    QTest::newRow("delete the Song Director track") << "delete_show_items" << "director track" << true;
+    QTest::newRow("delete the audio item") << "delete_show_items" << "audio item" << false;
+}
+
+void McpLiveControlTools_Test::songDirectorItemsRefused()
+{
+    QFETCH(QString, tool);
+    QFETCH(QString, target);
+    QFETCH(bool, refused);
+    auto *doc = m_app->doc();
+    Show *song = analysedSongShow(doc, R"([{"label": "intro", "start": 0.0, "end": 8.0, "confidence": 70},
+                                           {"label": "drop", "start": 8.0, "end": 24.0, "confidence": 90}])");
+    QVERIFY(song != nullptr);
+    const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", song->id()}});
+    QVERIFY2(!created.contains("error"), created.dump().c_str());
+    Track *director = m_app->findChild<SongDirector *>()->track(song);
+    QVERIFY(director != nullptr);
+    auto *scene = new Scene(doc);
+    QVERIFY(doc->addFunction(scene));
+    const auto directorState = [&]() {
+        QStringList list;
+        for (Track *t : song->tracks())
+            for (ShowFunction *sf : t->showFunctions())
+                if (t == director || doc->function(sf->functionID())->type() == Function::CollectionType)
+                    list << QString("%1:%2@%3+%4").arg(t->name()).arg(sf->functionID()).arg(sf->startTime()).arg(sf->duration());
+        return list;
+    };
+    const QStringList before = directorState();
+    const int itemsBefore = [&]() { int n = 0; for (Track *t : song->tracks()) n += t->showFunctions().count(); return n; }();
+
+    Json args{{"showID", song->id()}};
+    if (tool == "add_show_items")
+    {
+        args["trackName"] = target == "director track" ? director->name().toStdString() : std::string("Looks");
+        args["items"] = Json::array({{{"functionID", target == "block" ? director->showFunctions().first()->functionID() : scene->id()},
+                                      {"startTime", 40000}, {"duration", 1000}}});
+    }
+    else if (target == "director track")
+        args["trackNames"] = Json::array({director->name().toStdString()});
+    else
+        args["itemIDs"] = Json::array({target == "block" ? director->showFunctions().first()->id()
+                                                         : song->tracks().first()->showFunctions().first()->id()});
+    const Json result = invokeShowTool(doc, m_vc.get(), tool.toUtf8().constData(), args);
+    QVERIFY2(result.is_array() && result.size() == 1, result.dump().c_str());
+    QCOMPARE(result.at(0).contains("error"), refused);
+    if (refused)
+        QVERIFY2(QString::fromStdString(result.at(0).at("error").get<std::string>()).contains("Song Director"), result.dump().c_str());
+
+    // D16: the director track and its blocks stay as they are
+    QCOMPARE(m_app->findChild<SongDirector *>()->track(song), director);
+    QCOMPARE(directorState(), before);
+    const int itemsAfter = [&]() { int n = 0; for (Track *t : song->tracks()) n += t->showFunctions().count(); return n; }();
+    QCOMPARE(itemsAfter, refused ? itemsBefore : itemsBefore + (tool == "add_show_items" ? 1 : -1));
+}
+
 void McpLiveControlTools_Test::songAnalysisFolder_data()
 {
     QTest::addColumn<QString>("reader");   // what reads the song's analysis

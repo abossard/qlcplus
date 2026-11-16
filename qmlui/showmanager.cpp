@@ -557,15 +557,23 @@ QString ShowManager::editSongSection(const QString &action, int section, int tim
     return error;
 }
 
-int ShowManager::snapSongTime(int timeMs)
+double ShowManager::snapSongTime(double timeMs, double afterMs, double beforeMs)
 {
     const ShowFunction *clip = m_currentShow ? EdmAnalysisReader::firstAudioClip(m_doc, m_currentShow) : nullptr;
     if (clip == nullptr)
-        return timeMs;
+        return -1;
     const EdmAnalysis analysis = m_analysisReader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, m_currentShow));
-    if (analysis.valid == false)
-        return timeMs;
-    return int(qRound64(snapToBar(analysis.grid, double(timeMs) - clip->startTime()) + clip->startTime()));
+    const double bar = analysis.grid.barMs;
+    if (analysis.valid == false || bar > 0 == false)
+        return -1;
+    const double offset = clip->startTime();
+    double at = snapToBar(analysis.grid, timeMs - offset) + offset;
+    // step a bar at a time back between the bounds, as the edit's own snap would land
+    while (at <= afterMs && at + bar < beforeMs)
+        at += bar;
+    while (at >= beforeMs && at - bar > afterMs)
+        at -= bar;
+    return at > afterMs && at < beforeMs ? at : -1;
 }
 
 bool ShowManager::hasSongBlocks() const
@@ -592,6 +600,36 @@ bool ShowManager::dropOnSongBlock(int trackIdx, int startTime, const QVariantLis
     for (const QVariant &id : idsList)
         ids << id.toUInt();
     return m_songDirector->dropOnBlock(m_currentShow, m_currentShow->tracks().at(trackIdx), quint32(startTime), ids);
+}
+
+bool ShowManager::isSongDirectorTrack(const Track *track) const
+{
+    return track != nullptr && m_songDirector != nullptr && m_currentShow != nullptr
+           && m_songDirector->track(m_currentShow) == track;
+}
+
+bool ShowManager::isSongBlockItem(const ShowFunction *sf) const
+{
+    if (sf == nullptr || m_songDirector == nullptr || m_currentShow == nullptr)
+        return false;
+    const Track *track = m_songDirector->track(m_currentShow);
+    return track != nullptr && track->showFunctions().contains(const_cast<ShowFunction *>(sf));
+}
+
+bool ShowManager::isSongBlockFunction(quint32 functionId) const
+{
+    if (m_songDirector == nullptr)
+        return false;
+    for (Function *f : m_doc->functionsByType(Function::ShowType))
+        for (const SongDirectorBlock &block : m_songDirector->blocks(qobject_cast<Show *>(f)))
+            if (block.functionId == functionId)
+                return true;
+    return false;
+}
+
+bool ShowManager::isTimeFixed(const ShowFunction *sf) const
+{
+    return sf != nullptr && (sf->isLocked() || isSongBlockItem(sf));
 }
 
 QVariantMap ShowManager::songBlockMark(quint32 functionId) const
@@ -830,7 +868,7 @@ void ShowManager::deleteSelectedTrack()
         return;
 
     Track *track = m_currentShow->track(selectedTrackId());
-    if (track == nullptr)
+    if (track == nullptr || isSongDirectorTrack(track))
         return;
 
     qDebug() << "Deleting track" << track->id();
@@ -934,6 +972,8 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
         // Forbid self-containment, either direct or through other Functions
         Function *func = m_doc->function(functionID);
         if (func == nullptr || func->contains(m_currentShow->id()))
+            continue;
+        if (isSongDirectorTrack(selectedTrack) || isSongBlockFunction(functionID))
             continue;
 
         const bool showIsBeats = !timeBasedDivision();
@@ -1059,6 +1099,7 @@ void ShowManager::deleteShowItems(QVariantList data)
         return;
 
     int clipboardCount = m_clipboard.count();
+    QList<SelectedShowItem> kept;
 
     foreach (SelectedShowItem ssi, m_selectedItems)
     {
@@ -1068,6 +1109,12 @@ void ShowManager::deleteShowItems(QVariantList data)
         ShowFunction *showFunc = ssi.m_showFunc.data();
         if (showFunc == nullptr)
             continue;
+        // a Song Director block stays with its section (D16)
+        if (isSongBlockItem(showFunc))
+        {
+            kept.append(ssi);
+            continue;
+        }
 
         // drop any clipboard reference to the item being deleted to
         // avoid dangling pointers when pasting later
@@ -1096,8 +1143,8 @@ void ShowManager::deleteShowItems(QVariantList data)
             delete ssi.m_item.data();
     }
 
-    m_selectedItems.clear();
-    emit selectedItemsCountChanged(0);
+    m_selectedItems = kept;
+    emit selectedItemsCountChanged(m_selectedItems.count());
 
     if (m_clipboard.count() != clipboardCount)
         emit clipboardItemsCountChanged(m_clipboard.count());
@@ -1147,7 +1194,7 @@ bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int n
     if (m_readOnly)
         return false;
 
-    if (m_currentShow == nullptr || sf == nullptr)
+    if (m_currentShow == nullptr || sf == nullptr || isSongBlockItem(sf))
         return false;
 
     //qDebug() << Q_FUNC_INFO << "origIdx:" << originalTrackIdx << "newIdx:" << newTrackIdx << "time:" << newStartTime;
@@ -1230,7 +1277,7 @@ bool ShowManager::setShowItemStartTime(ShowFunction *sf, int startTime)
     if (m_readOnly)
         return false;
 
-    if (sf == nullptr)
+    if (sf == nullptr || isSongBlockItem(sf))
         return false;
 
     Track *track = m_currentShow->getTrackFromShowFunctionID(sf->id());
@@ -1252,7 +1299,7 @@ bool ShowManager::setShowItemDuration(ShowFunction *sf, int duration)
     if (m_readOnly)
         return false;
 
-    if (sf == nullptr)
+    if (sf == nullptr || isSongBlockItem(sf))
         return false;
 
     Track *track = m_currentShow->getTrackFromShowFunctionID(sf->id());
@@ -1298,7 +1345,7 @@ QString ShowManager::shiftSelectedItems(int direction, double milliseconds, bool
         if (!track)
             return tr("A selected item no longer belongs to this Show");
         Function *function = m_doc->function(sf->functionID());
-        if (!function || sf->isLocked())
+        if (!function || isTimeFixed(sf))
             return tr("A selected item is locked or its Function is missing");
         const bool beats = function->tempoType() == Function::Beats;
         if (beats && bpmNumber() <= 0)
@@ -1495,7 +1542,7 @@ bool ShowManager::moveAllItemsAfterCursor(int cursorTime, int delta)
     {
         foreach (ShowFunction *sf, track->showFunctions())
         {
-            if (sf == nullptr)
+            if (sf == nullptr || isSongBlockItem(sf))
                 continue;
 
             const double scale = itemUnitsPerTimelineUnit(sf);
@@ -1539,7 +1586,7 @@ bool ShowManager::insertShowItemTime(ShowFunction *sf, int length)
 
 bool ShowManager::insertShowItemTimeAt(ShowFunction *sf, int length, int cursorTime)
 {
-    if (m_currentShow == nullptr || sf == nullptr || length <= 0)
+    if (m_currentShow == nullptr || sf == nullptr || length <= 0 || isSongBlockItem(sf))
         return false;
 
     Function *func = m_doc->function(sf->functionID());
@@ -1639,7 +1686,7 @@ bool ShowManager::cutShowItemTime(ShowFunction *sf, int length)
 
 bool ShowManager::cutShowItemTimeAt(ShowFunction *sf, int length, int cursorTime)
 {
-    if (m_currentShow == nullptr || sf == nullptr || length <= 0)
+    if (m_currentShow == nullptr || sf == nullptr || length <= 0 || isSongBlockItem(sf))
         return false;
 
     Function *func = m_doc->function(sf->functionID());
@@ -1809,7 +1856,7 @@ bool ShowManager::insertTimeAtCursor(int length, int cursorTime)
     {
         foreach (ShowFunction *sf, track->showFunctions())
         {
-            if (sf == nullptr || sf->isLocked())
+            if (sf == nullptr || isTimeFixed(sf))
                 continue;
 
             const double scale = itemUnitsPerTimelineUnit(sf);
@@ -1843,7 +1890,7 @@ bool ShowManager::insertTimeAtCursor(int length, int cursorTime)
     {
         foreach (ShowFunction *sf, track->showFunctions())
         {
-            if (sf == nullptr || sf->isLocked())
+            if (sf == nullptr || isTimeFixed(sf))
                 continue;
 
             const double scale = itemUnitsPerTimelineUnit(sf);
@@ -1877,7 +1924,7 @@ bool ShowManager::cutTimeAtCursor(int length, int cursorTime)
     {
         foreach (ShowFunction *sf, track->showFunctions())
         {
-            if (sf == nullptr || sf->isLocked())
+            if (sf == nullptr || isTimeFixed(sf))
                 continue;
 
             const double scale = itemUnitsPerTimelineUnit(sf);
@@ -2257,7 +2304,7 @@ bool ShowManager::selectedItemsLocked() const
 {
     foreach (SelectedShowItem si, m_selectedItems)
     {
-        if (si.m_showFunc != nullptr && si.m_showFunc->isLocked())
+        if (isTimeFixed(si.m_showFunc))
             return true;
     }
     return false;
@@ -2504,6 +2551,8 @@ bool ShowManager::pasteFromClipboard()
             continue;
 
         Track *track = trackList.at(trackIdx);
+        if (isSongDirectorTrack(track) || isSongBlockFunction(item.m_showFunc->functionID()))
+            continue;
 
         const double scale = itemUnitsPerTimelineUnit(item.m_showFunc);
         const double cursor = timeBasedDivision() ? m_currentTime : m_currentTime * bpmNumber() / 60.0;

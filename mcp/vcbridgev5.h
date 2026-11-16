@@ -53,6 +53,8 @@ public:
     QVariantMap songBlocks(quint32 showId) const override;
     QVariantMap editSongSections(quint32 showId, const QString &action, qint64 section, quint32 timeMs, const QString &label) override;
     QVariantMap songSections(quint32 showId) const override;
+    bool isSongDirectorTrack(quint32 showId, quint32 trackId) const override;
+    bool isSongBlockFunction(quint32 functionId) const override;
     QVariantMap songLookDefaults(const QString &label, quint32 functionID, bool setFunction) override;
     QVariantMap pressWidget(quint32 widgetID, const QString &action) override;
 

@@ -734,6 +734,26 @@ QVariantMap VCBridgeV5::editSongSections(quint32 showId, const QString &action, 
     return songSections(showId);
 }
 
+bool VCBridgeV5::isSongDirectorTrack(quint32 showId, quint32 trackId) const
+{
+    const SongDirector *director = hasMatchingAuthoringContext() ? m_authoringApp->findChild<SongDirector *>() : nullptr;
+    Show *show = qobject_cast<Show *>(m_doc->function(showId));
+    const Track *track = director && show ? director->track(show) : nullptr;
+    return track != nullptr && track->id() == trackId;
+}
+
+bool VCBridgeV5::isSongBlockFunction(quint32 functionId) const
+{
+    const SongDirector *director = hasMatchingAuthoringContext() ? m_authoringApp->findChild<SongDirector *>() : nullptr;
+    if (!director)
+        return false;
+    for (Function *f : m_doc->functionsByType(Function::ShowType))
+        for (const SongDirectorBlock &block : director->blocks(qobject_cast<Show *>(f)))
+            if (block.functionId == functionId)
+                return true;
+    return false;
+}
+
 QVariantMap VCBridgeV5::songSections(quint32 showId) const
 {
     if (!hasMatchingAuthoringContext())

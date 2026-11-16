@@ -242,9 +242,10 @@ public:
      *  analysisSections, timeMs in Show time. Empty when done, else why not */
     Q_INVOKABLE QString editSongSection(const QString &action, int section, int timeMs, const QString &label);
 
-    /** \a timeMs (Show time) on the nearest bar of the current Show's song analysis,
-     *  as a section edit snaps it; unchanged without an analysed song */
-    Q_INVOKABLE int snapSongTime(int timeMs);
+    /** The bar of the current Show's song analysis nearest to \a timeMs that lies
+     *  strictly between \a afterMs and \a beforeMs (all Show time), as a section
+     *  edit snaps; -1 when no bar is in between or the Show has no analysed song */
+    Q_INVOKABLE double snapSongTime(double timeMs, double afterMs, double beforeMs);
 
     /** True when the current Show has its Song Director track */
     bool hasSongBlocks() const;
@@ -517,6 +518,14 @@ private:
      *  detected, otherwise false */
     bool checkOverlapping(Track *track, ShowFunction *sourceFunc,
                           quint32 startTime, quint32 duration) const;
+
+    /** Song Director (D16): a block item or the director track of the open Show,
+     *  a block Collection of any song Show */
+    bool isSongBlockItem(const ShowFunction *sf) const;
+    bool isSongDirectorTrack(const Track *track) const;
+    bool isSongBlockFunction(quint32 functionId) const;
+    /** Locked by the user or a Song Director block: its time does not change by hand */
+    bool isTimeFixed(const ShowFunction *sf) const;
     friend class ShowClipEditor;
 
 signals:

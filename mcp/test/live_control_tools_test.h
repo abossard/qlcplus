@@ -43,6 +43,8 @@ private slots:
     void songLookDefaults();
     void songBlockDrop_data();
     void songBlockDrop();
+    void songDirectorItemsRefused_data();
+    void songDirectorItemsRefused();
     void songBlockMarks_data();
     void songBlockMarks();
     void songAnalysisFolder_data();

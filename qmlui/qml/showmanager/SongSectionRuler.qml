@@ -37,6 +37,9 @@ Item
     property int bpmNumber: showManager.bpmNumber
     property int beatsDivision: showManager.beatsDivision
     readonly property bool editable: !showManager.readOnly
+    // the part of the row in view, where a refusal is shown
+    property real visibleX: 0
+    property real visibleWidth: width
 
     // a boundary drag in progress: the boundary after dragIndex is drawn at dragMs
     property int dragIndex: -1
@@ -48,6 +51,13 @@ Item
     readonly property var colors: ({ "drop": "#3987e5", "buildup": "#d95926", "breakdown": "#199e70",
                                      "intro": "#c98500", "outro": "#d55181", "groove": "#008300" })
     readonly property var labels: [ "intro", "buildup", "drop", "breakdown", "outro", "groove" ]
+
+    // new sections end a drag and close the menu: both point at sections by index
+    onSectionsChanged:
+    {
+        dragIndex = -1
+        sectionMenu.close()
+    }
 
     function toX(ms)
     {
@@ -203,11 +213,11 @@ Item
                         return
                     var i = boundaryItem.index
                     var x = boundaryItem.mapToItem(sectionRuler, mouse.x, 0).x
-                    var ms = showManager.snapSongTime(toMs(Math.max(0, x)))
-                    // stays between the outer edges of the two sections
-                    ms = Math.max(ms, sectionRuler.sections[i].startMs + 1)
-                    ms = Math.min(ms, sectionRuler.sections[i + 1].endMs - 1)
-                    dragMs = ms
+                    // the nearest bar that leaves both sections a length, as the edit snaps
+                    var ms = showManager.snapSongTime(toMs(Math.max(0, x)), sectionRuler.sections[i].startMs,
+                                                      sectionRuler.sections[i + 1].endMs)
+                    if (ms >= 0)
+                        dragMs = ms
                 }
                 onReleased:
                 {
@@ -223,16 +233,32 @@ Item
         }
     }
 
-    Text
+    // a refused edit says why at the left of the part in view
+    Rectangle
     {
         id: errorBox
-        anchors.right: parent.right
-        anchors.verticalCenter: parent.verticalCenter
+        objectName: "songSectionError"
+        readonly property string text: errorText
+        z: 3
+        x: visibleX + 2
+        y: 1
+        width: Math.min(errorLabel.implicitWidth + 12, Math.max(0, visibleWidth - 4))
+        height: sectionRuler.height - 2
         visible: errorText !== ""
-        color: "#ff9800"
-        font.family: UISettings.robotoFontName
-        font.pixelSize: sectionRuler.height * 0.45
-        text: errorText
+        color: UISettings.bgStronger
+        border.color: "#ff9800"
+        clip: true
+
+        Text
+        {
+            id: errorLabel
+            x: 6
+            anchors.verticalCenter: parent.verticalCenter
+            color: "#ff9800"
+            font.family: UISettings.robotoFontName
+            font.pixelSize: sectionRuler.height * 0.45
+            text: errorText
+        }
 
         Timer
         {

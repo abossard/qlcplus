@@ -251,6 +251,8 @@ private slots:
     void songSectionRuler();
     void songDirectorBlockItems_data();
     void songDirectorBlockItems();
+    void songDirectorItemsTimeFixed_data();
+    void songDirectorItemsTimeFixed();
     void timelineScrollbarPanel_data();
     void timelineScrollbarPanel();
     void previewRepeatBounds_data();
@@ -13918,6 +13920,7 @@ struct SongRulerFixture
     Show *show = nullptr;
     Audio *audio = nullptr;
     Scene *scene = nullptr;
+    Show *decoy = nullptr;
     QQuickItem container;
     std::unique_ptr<QQmlContext> context;
     std::unique_ptr<QObject> object;
@@ -14022,8 +14025,19 @@ struct SongRulerFixture
             doc->deleteFunction(audio->id());
         if (scene)
             doc->deleteFunction(scene->id());
+        if (decoy)
+            doc->deleteFunction(decoy->id());
         director()->setAnalysisDir(app->m_edmAnalysis->outputDir());
         manager()->setAnalysisDir(app->m_edmAnalysis->outputDir());
+    }
+
+    /** The user picks another Show for the song: this one stops being its song Show */
+    void addDecoy()
+    {
+        decoy = new Show(app->doc());
+        decoy->setName("Decoy");
+        app->doc()->addFunction(decoy);
+        app->m_vdjBridge->showFactory()->registerMapping(audio->getSourceFileName(), decoy->id());
     }
 
     QQuickItem *item(const char *name) const
@@ -14108,7 +14122,11 @@ void UpstreamIntegration_Test::songSectionRuler_data()
 {
     // steps: "drag:<boundary>:<ms>" drags the boundary after a section to a Show time,
     // "menu:<section>:<entry>" clicks a section and one entry of its menu,
-    // "playhead:<ms>" moves the playhead
+    // "playhead:<ms>" moves the playhead, "press:<boundary>:<ms>" drags without releasing,
+    // "release" ends it, "edit:<action>:<section>[:<label>]" edits through the Show Manager
+    // as another client would, "open:<section>" opens a section's menu, "menuclosed" checks
+    // it is closed, "decoy" makes the Show no song Show, "scroll:<ms>" scrolls the timeline,
+    // "error:<text>" checks the refusal shown in the visible part of the ruler
     QTest::addColumn<QStringList>("steps");
     QTest::addColumn<int>("actions");          // section edits the steps dispatch
     QTest::addColumn<QStringList>("expected"); // effective sections afterwards
@@ -14131,6 +14149,17 @@ void UpstreamIntegration_Test::songSectionRuler_data()
         << QStringList{"menu:1:label_groove", "menu:1:reset"} << 2 << analysis;
     QTest::newRow("reset all")
         << QStringList{"drag:0:13500", "menu:2:label_breakdown", "menu:0:reset_all"} << 3 << analysis;
+    QTest::newRow("a refused edit says why where it is seen")
+        << QStringList{"decoy", "scroll:5000", "menu:1:label_groove", "error:not the Show of its song"} << 0 << analysis;
+    QTest::newRow("drag past the section start stops at the first bar inside")
+        << QStringList{"drag:0:0"} << 1 << QStringList{"intro* 2000-4000", "drop* 4000-26000", "outro 26000-34000"};
+    QTest::newRow("drag past the next section end stops at the last bar inside")
+        << QStringList{"drag:0:40000"} << 1 << QStringList{"intro* 2000-24000", "drop* 24000-26000", "outro 26000-34000"};
+    QTest::newRow("sections change during a drag")
+        << QStringList{"press:0:13500", "edit:relabel:2:breakdown", "release"} << 1
+        << QStringList{"intro 2000-10000", "drop 10000-26000", "breakdown* 26000-34000"};
+    QTest::newRow("sections change with the menu open")
+        << QStringList{"open:2", "edit:merge:0", "menuclosed"} << 1 << QStringList{"intro* 2000-26000", "outro 26000-34000"};
 }
 
 void UpstreamIntegration_Test::songSectionRuler()
@@ -14173,12 +14202,73 @@ void UpstreamIntegration_Test::songSectionRuler()
     }
 
     QSignalSpy edits(f.director(), &SongDirector::sectionsChanged);
+    QPoint pressedAt;
     for (const QString &step : steps)
     {
         const QStringList part = step.split(':');
         if (part.at(0) == "playhead")
         {
             f.manager()->setCurrentTime(part.at(1).toInt());
+            continue;
+        }
+        if (part.at(0) == "decoy")
+        {
+            f.addDecoy();
+            continue;
+        }
+        if (part.at(0) == "scroll")
+        {
+            f.panel->setProperty("xViewOffset", f.timeX(part.at(1).toUInt()));
+            QCoreApplication::processEvents();
+            continue;
+        }
+        if (part.at(0) == "error")
+        {
+            const QList<QQuickItem *> boxes = f.visibleNamed("songSectionError", f.panel);
+            QCOMPARE(boxes.count(), 1);
+            QVERIFY2(boxes.first()->property("text").toString().contains(part.at(1)), qPrintable(boxes.first()->property("text").toString()));
+            const QRectF box = boxes.first()->mapRectToScene(QRectF(0, 0, boxes.first()->width(), boxes.first()->height()));
+            const QRectF view = timeline->mapRectToScene(QRectF(0, 0, timeline->width(), timeline->height()));
+            QVERIFY2(view.contains(box), qPrintable(QString("error at %1,%2 %3x%4 outside the visible ruler %5,%6 %7x%8")
+                     .arg(box.x()).arg(box.y()).arg(box.width()).arg(box.height())
+                     .arg(view.x()).arg(view.y()).arg(view.width()).arg(view.height())));
+            continue;
+        }
+        if (part.at(0) == "release")
+        {
+            QTest::mouseRelease(f.app, Qt::LeftButton, Qt::NoModifier, pressedAt);
+            QCoreApplication::processEvents();
+            continue;
+        }
+        if (part.at(0) == "edit")
+        {
+            QCOMPARE(f.manager()->editSongSection(part.at(1), part.at(2).toInt(), 0, part.value(3)), QString());
+            QCoreApplication::processEvents();
+            continue;
+        }
+        if (part.at(0) == "menuclosed")
+        {
+            QTRY_VERIFY(f.visibleNamed("songSectionMenu").isEmpty());
+            continue;
+        }
+        if (part.at(0) == "press")
+        {
+            QQuickItem *handle = f.boundary(part.at(1).toInt());
+            QVERIFY(handle);
+            const QPoint from = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+            pressedAt = header->mapToScene(QPointF(f.timeX(part.at(2).toUInt()), rulerHeight * 1.5)).toPoint();
+            QTest::mousePress(f.app, Qt::LeftButton, Qt::NoModifier, from);
+            for (int s = 1; s <= 5; s++)
+                QTest::mouseMove(f.app, from + (pressedAt - from) * s / 5, 10);
+            continue;
+        }
+        if (part.at(0) == "open")
+        {
+            QQuickItem *body = f.section(part.at(1).toInt());
+            QVERIFY(body);
+            QTest::mouseClick(f.app, Qt::LeftButton, Qt::NoModifier,
+                              body->mapToScene(QPointF(body->width() / 2, body->height() / 2)).toPoint());
+            QTRY_VERIFY(f.visibleNamed("songSectionMenu").isEmpty() == false);
             continue;
         }
         const int index = part.at(1).toInt();
@@ -14229,6 +14319,7 @@ void UpstreamIntegration_Test::songSectionRuler()
         QVERIFY(s);
         QCOMPARE(s->property("label").toString() + (s->property("edited").toBool() ? "*" : ""), expected.at(i).section(' ', 0, 0));
         QVERIFY(qAbs(s->mapToItem(header, QPointF(0, 0)).x() - f.timeX(expected.at(i).section(' ', 1).section('-', 0, 0).toUInt())) <= 1.5);
+        QVERIFY(qAbs(s->mapToItem(header, QPointF(s->width(), 0)).x() - f.timeX(expected.at(i).section('-', 1).toUInt())) <= 1.5);
     }
     // D16: the blocks follow the sections
     QStringList unstarred = expected;
@@ -14302,6 +14393,124 @@ void UpstreamIntegration_Test::songDirectorBlockItems()
         f.app->m_functionManager->setEditorFunction(Function::invalidId(), false, false);
         QCOMPARE(sf->startTime(), start);
     }
+}
+
+void UpstreamIntegration_Test::songDirectorItemsTimeFixed_data()
+{
+    QTest::addColumn<bool>("director");   // the operation targets a Song Director block, else the Scene item
+    QTest::addColumn<QString>("operation");
+    for (bool director : {true, false})
+        for (const QString &operation : {QString("shift"), QString("shift end"), QString("insert time"), QString("cut time"),
+                                         QString("start time"), QString("duration"), QString("delete"), QString("unlock"),
+                                         QString("delete track"), QString("paste"), QString("add the Function")})
+            QTest::newRow(qPrintable(QString("%1 %2").arg(director ? "director block" : "ordinary item", operation)))
+                << director << operation;
+}
+
+void UpstreamIntegration_Test::songDirectorItemsTimeFixed()
+{
+    QFETCH(bool, director);
+    QFETCH(QString, operation);
+    SongRulerFixture f(m_app.get());
+    QVERIFY(f.setUp());
+    ShowManager *manager = f.manager();
+    Track *directorTrack = f.director()->track(f.show);
+    Track *sceneTrack = f.show->tracks().at(1);
+    const int sceneTrackIndex = 1;
+    const int directorTrackIndex = f.show->tracks().indexOf(directorTrack);
+    ShowFunction *target = director ? directorTrack->showFunctions().first() : sceneTrack->showFunctions().first();
+    const int trackIndex = director ? directorTrackIndex : sceneTrackIndex;
+    const quint32 functionId = target->functionID();
+
+    // "track id: functionID@start+duration", every item of the Show
+    const auto state = [&f]() {
+        QStringList list;
+        for (Track *t : f.show->tracks())
+            for (ShowFunction *sf : t->showFunctions())
+                list << QString("%1: %2@%3+%4").arg(t->id()).arg(sf->functionID()).arg(sf->startTime()).arg(sf->duration());
+        return list;
+    };
+    const auto directorState = [&]() {
+        QStringList list;
+        for (const QString &item : state())
+            if (item.startsWith(QString::number(directorTrack->id()) + ":"))
+                list << item;
+        for (const SongDirectorBlock &b : f.director()->blocks(f.show))
+        {
+            int uses = 0;
+            for (Track *t : f.show->tracks())
+                for (ShowFunction *sf : t->showFunctions())
+                    uses += sf->functionID() == b.functionId;
+            list << QString("block %1 used %2").arg(b.functionId).arg(uses);
+        }
+        return list;
+    };
+    const QStringList before = state();
+    const QStringList directorBefore = directorState();
+    const auto select = [&]() {
+        manager->resetItemsSelection();
+        manager->setItemSelection(trackIndex, target, nullptr, true, 0);
+        QCOMPARE(manager->selectedItemRefs().count(), 1);
+    };
+
+    if (operation == "shift")
+    {
+        select();
+        manager->shiftSelectedItems(1, 1000, false);
+    }
+    else if (operation == "shift end")
+    {
+        select();
+        manager->shiftSelectedItems(-1, 1000, true);
+    }
+    else if (operation == "insert time")
+        manager->insertTimeAtCursor(1000, director ? 8000 : 4000);
+    else if (operation == "cut time")
+        manager->cutTimeAtCursor(1000, director ? 8000 : 4000);
+    else if (operation == "start time")
+        manager->setShowItemStartTime(target, int(target->startTime()) + 500);
+    else if (operation == "duration")
+        manager->setShowItemDuration(target, int(target->duration()) - 500);
+    else if (operation == "delete")
+    {
+        select();
+        manager->deleteShowItems(QVariantList());
+    }
+    else if (operation == "unlock")
+    {
+        select();
+        // a director block reads as locked, and the lock toggle does not free it
+        QCOMPARE(manager->selectedItemsLocked(), director);
+        manager->setSelectedItemsLock(!manager->selectedItemsLocked());
+        QCOMPARE(manager->selectedItemsLocked(), true);
+        if (director)
+        {
+            manager->setShowItemStartTime(target, int(target->startTime()) + 500);
+            QCOMPARE(directorState(), directorBefore);
+        }
+        return;
+    }
+    else if (operation == "delete track")
+    {
+        manager->setSelectedTrackId(int(director ? directorTrack->id() : sceneTrack->id()));
+        manager->deleteSelectedTrack();
+    }
+    else if (operation == "paste")
+    {
+        select();
+        manager->copyToClipboard();
+        manager->setSelectedTrackId(int(sceneTrack->id()));
+        manager->setCurrentTime(40000);
+        manager->pasteFromClipboard();
+    }
+    else
+        manager->addItems(manager->contextItem(), sceneTrackIndex, 40000, QVariantList() << functionId);
+    QCoreApplication::processEvents();
+
+    // D16: nothing moves, resizes, removes or copies a director block
+    QCOMPARE(directorState(), directorBefore);
+    if (director == false)
+        QVERIFY2(state() != before, qPrintable(operation + " did not change the ordinary item"));
 }
 
 QTEST_MAIN(UpstreamIntegration_Test)

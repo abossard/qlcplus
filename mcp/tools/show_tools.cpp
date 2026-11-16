@@ -496,6 +496,16 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                     continue;
                 }
 
+                // D16: the Song Director track holds only its blocks, a block has one item
+                if (vcBridge != nullptr && ((track != NULL && vcBridge->isSongDirectorTrack(show->id(), track->id()))
+                                            || vcBridge->isSongBlockFunction(function->id())))
+                {
+                    results.push_back({{"functionID", (int)function->id()}, {"code", "song_director"},
+                                       {"error", "the Song Director track holds only its blocks, which follow the "
+                                                 "song sections; edit the sections with edit_song_sections"}});
+                    continue;
+                }
+
                 if (!item.contains("startTime") || !item.at("startTime").is_number_integer() ||
                     item.at("startTime").get<int>() < 0)
                 { results.push_back({{"error", "startTime must be a non-negative integer"}}); continue; }
@@ -636,7 +646,8 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                      "is created if it does not exist. An item overlapping one already on the same "
                      "track is refused, with the conflicting item reported. A Show plays nested, "
                      "unless it contains this Show. inPoint starts any clip's function past its "
-                     "beginning. Batch: {\"items\": [...]}.")
+                     "beginning. Nothing is added to a Song Director track, and a Song Director block's "
+                     "Collection is not placed again. Batch: {\"items\": [...]}.")
     .set_annotations(mcp::kAnnotIdempotent));
 
     // delete_show_items — remove timeline items, or whole tracks
@@ -732,6 +743,13 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                     results.push_back({{"itemID", id}, {"code", "not_found"}, {"error", "no timeline item " + std::to_string(id)}});
                     continue;
                 }
+                if (vcBridge != nullptr && vcBridge->isSongDirectorTrack(show->id(), owner->id()))
+                {
+                    results.push_back({{"itemID", id}, {"code", "song_director"},
+                                       {"error", "a Song Director block follows its song section and is not deleted; "
+                                                 "edit the sections with edit_song_sections"}});
+                    continue;
+                }
                 owner->removeShowFunction(target);
                 doc->setModified();
                 results.push_back({{"itemID", id}, {"status", "ok"}, {"outcome", "deleted"}});
@@ -747,6 +765,12 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                 {
                     results.push_back({{"trackName", name.toStdString()}, {"code", "not_found"},
                                        {"error", "no track named " + name.toStdString()}});
+                    continue;
+                }
+                if (vcBridge != nullptr && vcBridge->isSongDirectorTrack(show->id(), track->id()))
+                {
+                    results.push_back({{"trackName", name.toStdString()}, {"code", "song_director"},
+                                       {"error", "the Song Director track is not deleted, its blocks follow the song sections"}});
                     continue;
                 }
                 if (show->removeTrack(track->id()))
@@ -767,7 +791,8 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
     .set_description("Remove items from a Show timeline by ShowFunction ID, and/or remove whole "
                      "tracks by name. The referenced Functions themselves are not deleted. The whole "
                      "request is validated before anything is removed; nothing is removed while the "
-                     "Show is running or queued. One indexed record per itemIDs entry, then per "
+                     "Show is running or queued. Song Director blocks and their track are refused (they "
+                     "follow the song sections). One indexed record per itemIDs entry, then per "
                      "trackNames entry.")
     .set_annotations(mcp::kAnnotDestructive));
 

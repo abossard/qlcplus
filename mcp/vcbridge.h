@@ -67,6 +67,9 @@ public:
      *  (action, section index, timeMs in Show time, label) */
     virtual QVariantMap editSongSections(quint32, const QString &, qint64, quint32, const QString &)
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
+    /** Song Director (D16): the Show's director track, and a block Collection of any song Show */
+    virtual bool isSongDirectorTrack(quint32, quint32) const { return false; }
+    virtual bool isSongBlockFunction(quint32) const { return false; }
     /** The song Show's effective sections and the user's section edits */
     virtual QVariantMap songSections(quint32) const
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
