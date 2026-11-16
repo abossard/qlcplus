@@ -322,6 +322,7 @@ public:
 
     /** Return the QML Virtual Console instance */
     VirtualConsole *virtualConsole() const;
+    ShowManager *showManager() const { return m_showManager; }
 
     /** Return the QML Function Manager instance */
     FunctionManager *functionManager() const;

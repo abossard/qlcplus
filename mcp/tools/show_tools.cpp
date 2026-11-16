@@ -27,6 +27,8 @@
 #include "mastertimer.h"
 #include "vcbridge.h"
 
+#include <QJsonDocument>
+
 #include <fastmcpp/tools/manager.hpp>
 #include <fastmcpp/tools/tool.hpp>
 #include <limits>
@@ -768,4 +770,51 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                      "Show is running or queued. One indexed record per itemIDs entry, then per "
                      "trackNames entry.")
     .set_annotations(mcp::kAnnotDestructive));
+
+    if (!vcBridge)
+        return;
+
+    // Song Director: the blocks of a song Show, one per analysed section
+    const auto songBlocksTool = [doc, vcBridge](const char *name, bool create) {
+        return [doc, vcBridge, name, create](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+                const auto err = validateFields(args, {"showID"});
+                if (!err.empty()) return err;
+                const auto id = args.is_object() && args.contains("showID")
+                    ? mcp::jsonInteger(args.at("showID"), 0, mcp::kMaxId) : std::nullopt;
+                if (!id)
+                    return Json({{"error", std::string(name) + ": showID is required and must be a nonnegative integer"}}).dump();
+                const QVariantMap state = create ? vcBridge->createSongBlocks(quint32(*id))
+                                                 : vcBridge->songBlocks(quint32(*id));
+                return QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact).toStdString();
+            });
+        };
+    };
+
+    tm.register_tool(Tool(
+        "create_song_blocks",
+        Json{{"type", "object"}, {"properties", {
+            {"showID", {{"type", "integer"}, {"minimum", 0}}}
+        }}, {"required", {"showID"}}},
+        Json{},
+        songBlocksTool("create_song_blocks", true)
+    ).set_description("Open the song Show in the Show Manager and press Create song blocks: adds the Song "
+                      "Director track with one empty Collection block per analysed section of the Show's "
+                      "first audio clip. Refuses a Show that has the track already, has no analysed clip, "
+                      "or while Perform makes the Show Manager read-only. Returns query_song_blocks.")
+     .set_annotations(Json{{"readOnlyHint", false}, {"destructiveHint", false},
+                           {"idempotentHint", false}, {"openWorldHint", false}}));
+
+    tm.register_tool(Tool(
+        "query_song_blocks",
+        Json{{"type", "object"}, {"properties", {
+            {"showID", {{"type", "integer"}, {"minimum", 0}}}
+        }}, {"required", {"showID"}}},
+        Json{},
+        songBlocksTool("query_song_blocks", false)
+    ).set_description("The Song Director track of a Show (trackID, null when none) and, per block, what it was "
+                      "generated as: functionID and name of its Collection, section index, label, number, "
+                      "confidence, unsure, startMs, durationMs and the Collection content. Compare with "
+                      "query_shows for the block's current values.")
+     .set_annotations(mcp::kAnnotReadOnly));
 }

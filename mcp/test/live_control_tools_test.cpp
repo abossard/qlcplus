@@ -20,6 +20,9 @@
 #include "vdjbridge.h"
 #include "showfactory.h"
 #include "showrunner.h"
+#include "audio.h"
+#include "edmanalysisreader.h"
+#include "songdirector.h"
 #include "vcbridgev5.h"
 #include "workspacebridgev5.h"
 #include "tool_registry.h"
@@ -53,6 +56,8 @@ Json invokeShowTool(Doc *doc, VCBridge *vc, const char *name, const Json &args)
 {
     fastmcpp::tools::ToolManager tm;
     registerShowTools(tm, doc, vc);
+    if (!tm.has(name))
+        return {{"error", std::string("tool not registered: ") + name}};
     const Json result = tm.invoke(name, args);
     return result.is_string() ? Json::parse(result.get<std::string>()) : result;
 }
@@ -483,6 +488,126 @@ void McpLiveControlTools_Test::aClipWaitingForThePlayingSetHoldsTheSave()
     set->stopAndWait();
     QTRY_COMPARE_WITH_TIMEOUT(set->tracks().at(1)->showFunctions().count(), 1, 2000);
     QVERIFY(m_app->saveWorkspace(dir.filePath(QStringLiteral("complete.qxw"))));
+}
+
+void McpLiveControlTools_Test::songBlocks_data()
+{
+    QTest::addColumn<QString>("target");
+    QTest::addColumn<int>("creates");
+    QTest::addColumn<QString>("error");
+    QTest::newRow("analysed song") << QStringLiteral("analysed") << 1 << QString();
+    QTest::newRow("second create") << QStringLiteral("analysed") << 2 << QStringLiteral("already has a Song Director track");
+    QTest::newRow("song not analysed") << QStringLiteral("not analysed") << 1 << QStringLiteral("no analysed audio clip");
+    QTest::newRow("not a show") << QStringLiteral("scene") << 1 << QStringLiteral("no Show with ID");
+    QTest::newRow("missing function") << QStringLiteral("missing") << 1 << QStringLiteral("no Show with ID");
+}
+
+void McpLiveControlTools_Test::songBlocks()
+{
+    QFETCH(QString, target);
+    QFETCH(int, creates);
+    QFETCH(QString, error);
+    auto *doc = m_app->doc();
+
+    // the analysis folder the app reads, under the test's HOME: intro 0-9 s, drop 9-25 s
+    const QDir analysis(EdmAnalysisReader::defaultDir());
+    QVERIFY(analysis.mkpath("final"));
+    QFile index(analysis.filePath("index.json"));
+    QVERIFY(index.open(QIODevice::WriteOnly));
+    index.write(R"({"bbbbbbbbbbbbbbbb": {"path": "/music/song-director.mp3"}})");
+    index.close();
+    QFile final(analysis.filePath("final/bbbbbbbbbbbbbbbb.json"));
+    QVERIFY(final.open(QIODevice::WriteOnly));
+    final.write(R"({"schema": "qlcplus-edm-final/3", "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0},
+        "sections": [{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 80},
+                     {"label": "drop", "start": 9.0, "end": 25.0, "confidence": 40, "unsure": true}]})");
+    final.close();
+
+    auto *show = new Show(doc);
+    show->setName("Song");
+    QVERIFY(doc->addFunction(show));
+    auto *audio = new Audio(doc);
+    QVERIFY(doc->addFunction(audio));
+    audio->setSourceFileName(target == "not analysed" ? "/music/other.mp3" : "/music/song-director.mp3");
+    auto *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    track->createShowFunction(audio->id())->setStartTime(2000);
+    auto *scene = new Scene(doc);
+    QVERIFY(doc->addFunction(scene));
+    const quint32 id = target == "scene" ? scene->id() : target == "missing" ? 99999u : show->id();
+
+    Json created;
+    for (int i = 0; i < creates; i++)
+        created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", id}});
+    const Json queried = invokeShowTool(doc, m_vc.get(), "query_song_blocks", {{"showID", id}});
+
+    if (error.isEmpty() == false)
+    {
+        QVERIFY2(created.contains("error"), created.dump().c_str());
+        QVERIFY2(QString::fromStdString(created.at("error").get<std::string>()).contains(error), created.dump().c_str());
+        if (target == "analysed")
+            QCOMPARE(show->tracks().count(), 2);
+        else if (target == "not analysed")
+        {
+            QCOMPARE(show->tracks().count(), 1);
+            QCOMPARE(queried.at("trackID"), Json(nullptr));
+            QCOMPARE(queried.at("blocks"), Json::array());
+        }
+        return;
+    }
+
+    QVERIFY2(!created.contains("error"), created.dump().c_str());
+    QCOMPARE(created, queried);
+    Track *director = m_app->findChild<SongDirector *>()->track(show);
+    QVERIFY(director != nullptr);
+    QCOMPARE(queried.at("showID"), Json(show->id()));
+    QCOMPARE(queried.at("trackID"), Json(director->id()));
+    const Json blocks = queried.at("blocks");
+    QCOMPARE(int(blocks.size()), 2);
+    QCOMPARE(blocks[0].at("label"), Json("intro"));
+    QCOMPARE(blocks[0].at("number"), Json(1));
+    QCOMPARE(blocks[0].at("section"), Json(0));
+    QCOMPARE(blocks[0].at("startMs"), Json(2000));
+    QCOMPARE(blocks[0].at("durationMs"), Json(9000));
+    QCOMPARE(blocks[0].at("confidence"), Json(80));
+    QCOMPARE(blocks[0].at("unsure"), Json(false));
+    QCOMPARE(blocks[1].at("label"), Json("drop"));
+    QCOMPARE(blocks[1].at("startMs"), Json(11000));
+    QCOMPARE(blocks[1].at("durationMs"), Json(16000));
+    QCOMPARE(blocks[1].at("unsure"), Json(true));
+    for (int i = 0; i < 2; i++)
+    {
+        const ShowFunction *sf = director->showFunctions().at(i);
+        QCOMPARE(blocks[i].at("functionID"), Json(sf->functionID()));
+        QCOMPARE(blocks[i].at("content"), Json::array());
+        QCOMPARE(QString::fromStdString(blocks[i].at("name").get<std::string>()),
+                 doc->function(sf->functionID())->name());
+    }
+}
+
+void McpLiveControlTools_Test::songBlocksArguments_data()
+{
+    QTest::addColumn<QString>("tool");
+    QTest::addColumn<QByteArray>("arguments");
+    QTest::addColumn<QString>("error");
+    for (const QString &tool : {QStringLiteral("create_song_blocks"), QStringLiteral("query_song_blocks")})
+    {
+        const QByteArray name = tool.toUtf8();
+        QTest::newRow((name + "-missing").constData()) << tool << QByteArray("{}") << QStringLiteral("showID");
+        QTest::newRow((name + "-negative").constData()) << tool << QByteArray(R"({"showID":-1})") << QStringLiteral("showID");
+        QTest::newRow((name + "-string").constData()) << tool << QByteArray(R"({"showID":"1"})") << QStringLiteral("showID");
+        QTest::newRow((name + "-unknown-field").constData()) << tool << QByteArray(R"({"showID":1,"extra":1})") << QStringLiteral("unknown fields");
+    }
+}
+
+void McpLiveControlTools_Test::songBlocksArguments()
+{
+    QFETCH(QString, tool);
+    QFETCH(QByteArray, arguments);
+    QFETCH(QString, error);
+    const Json result = invokeShowTool(m_app->doc(), m_vc.get(), tool.toUtf8().constData(), Json::parse(arguments.constData()));
+    QVERIFY2(result.contains("error"), result.dump().c_str());
+    QVERIFY2(QString::fromStdString(result.at("error").get<std::string>()).contains(error), result.dump().c_str());
 }
 
 void McpLiveControlTools_Test::drivenShows_data()

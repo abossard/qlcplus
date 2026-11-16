@@ -45,6 +45,9 @@
 #include "fixture.h"
 #include "function.h"
 #include "showcommandrecorder.h"
+#include "showmanager.h"
+#include "songdirector.h"
+#include "track.h"
 #include "showcontrolaction.h"
 #include "show.h"
 #include "showrunner.h"
@@ -572,6 +575,71 @@ bool VCBridgeV5::showRecorded(quint32 showId) const
         return false;
     const DjSetRecorder *recorder = m_authoringApp->findChild<DjSetRecorder *>();
     return recorder != nullptr && recorder->isRecording() && recorder->setShowId() == showId;
+}
+
+static QVariantMap songDirectorError(const QString &message)
+{
+    return {{QStringLiteral("error"), message}};
+}
+
+QVariantMap VCBridgeV5::createSongBlocks(quint32 showId)
+{
+    if (!hasMatchingAuthoringContext())
+        return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    SongDirector *director = m_authoringApp->findChild<SongDirector *>();
+    ShowManager *manager = m_authoringApp->showManager();
+    if (!director || !manager)
+        return songDirectorError(QStringLiteral("Song Director is unavailable"));
+    Show *show = qobject_cast<Show *>(m_doc->function(showId));
+    if (!show)
+        return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
+    if (director->track(show))
+        return songDirectorError(QStringLiteral("Show %1 already has a Song Director track").arg(showId));
+    if (manager->readOnly())
+        return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
+    // what the user does: open the Show in the Show Manager, then press Create song blocks
+    manager->setCurrentShowID(int(showId));
+    if (manager->currentShow() != show)
+        return songDirectorError(QStringLiteral("the Show Manager cannot open Show %1 now").arg(showId));
+    if (!manager->createSongBlocks())
+        return songDirectorError(QStringLiteral("Show %1 has no analysed audio clip").arg(showId));
+    return songBlocks(showId);
+}
+
+QVariantMap VCBridgeV5::songBlocks(quint32 showId) const
+{
+    if (!hasMatchingAuthoringContext())
+        return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    const SongDirector *director = m_authoringApp->findChild<SongDirector *>();
+    if (!director)
+        return songDirectorError(QStringLiteral("Song Director is unavailable"));
+    Show *show = qobject_cast<Show *>(m_doc->function(showId));
+    if (!show)
+        return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
+
+    QVariantList blocks;
+    for (const SongDirectorBlock &b : director->blocks(show))
+    {
+        const Function *function = m_doc->function(b.functionId);
+        QVariantList content;
+        for (quint32 id : b.content)
+            content.append(id);
+        blocks.append(QVariantMap{
+            {QStringLiteral("functionID"), b.functionId},
+            {QStringLiteral("name"), function ? function->name() : QString()},
+            {QStringLiteral("section"), b.generated.section},
+            {QStringLiteral("label"), b.generated.label},
+            {QStringLiteral("number"), b.generated.number},
+            {QStringLiteral("confidence"), b.generated.confidence},
+            {QStringLiteral("unsure"), b.generated.unsure},
+            {QStringLiteral("startMs"), b.generated.startMs},
+            {QStringLiteral("durationMs"), b.generated.durationMs},
+            {QStringLiteral("content"), content}});
+    }
+    const Track *track = director->track(show);
+    return {{QStringLiteral("showID"), showId},
+            {QStringLiteral("trackID"), track ? QVariant(track->id()) : QVariant()},
+            {QStringLiteral("blocks"), blocks}};
 }
 
 QVariantMap VCBridgeV5::recordingState() const

@@ -53,6 +53,12 @@ public:
     { return {{QStringLiteral("error"), QStringLiteral("Recording control is unavailable")}}; }
     /** The set Perform records into: read-only, as the Show Manager shows it */
     virtual bool showRecorded(quint32) const { return false; }
+    /** Song Director: open the Show in the Show Manager and create its blocks there */
+    virtual QVariantMap createSongBlocks(quint32)
+    { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
+    /** The Show's Song Director track and what each of its blocks was generated as */
+    virtual QVariantMap songBlocks(quint32) const
+    { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
     virtual QVariantMap pressWidget(quint32, const QString &)
     { return {{QStringLiteral("error"), QStringLiteral("Live VC input is unavailable")}}; }
 

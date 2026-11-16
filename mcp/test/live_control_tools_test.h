@@ -35,6 +35,10 @@ private slots:
     void aClipWaitingForThePlayingSetHoldsTheSave();
     void drivenShows_data();
     void drivenShows();
+    void songBlocks_data();
+    void songBlocks();
+    void songBlocksArguments_data();
+    void songBlocksArguments();
     void invalidArguments_data();
     void invalidArguments();
     void buttonRefusals_data();
