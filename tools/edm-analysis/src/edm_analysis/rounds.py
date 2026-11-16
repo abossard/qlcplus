@@ -149,6 +149,7 @@ THEORIES = {
     "intro": "Long loud intros hide a new part at Mixed In Key's energy cues",
     "labels": "Section labels are right",
     "calibration": "The confidence numbers are honest",
+    "qlc": "Where a section edit in QLC+ differs from the analysis, the edit is right",
 }
 PROMPTS = {"drop": "Does the drop start at the marker?", "buildup": "Does the buildup start at the marker?",
            "breakdown": "Does the breakdown start at the marker?", "missed": "Does a new part start at the marker?",
@@ -549,7 +550,8 @@ CONFIRMS = {"detectors": lambda r: gold_bar(r) in [b for src, b in source_bars(r
             "breakdown": _exact,
             "entry": lambda r: (r["answer"] == "yes") == (r["claim"].get("label") == "intro"), "lift": _exact,
             "intro": lambda r: r["answer"] == "yes", "labels": lambda r: r["answer"] == "yes",
-            "followup": lambda r: r["answer"] == "yes"}
+            "followup": lambda r: r["answer"] == "yes",
+            "qlc": lambda r: r.get("alternatives", {}).get(r["answer"], {}).get("source") == "qlc"}
 
 
 def source_bars(record):

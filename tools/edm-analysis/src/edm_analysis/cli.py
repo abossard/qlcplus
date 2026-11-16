@@ -242,11 +242,14 @@ def cmd_round(args):
 
     out_dir = Path(args.out)
     docs, vdj, answers, rounds = _round_inputs(out_dir)
-    if args.action == "new":
+    if args.action in ("new", "import"):
         open_probes = [p for p in (rounds[-1]["probes"] if rounds else []) if p["id"] not in answers]
         if open_probes and not args.force:
             print(f"round {rounds[-1]['round']} still has {len(open_probes)} unanswered questions (use --force)")
             return 1
+    if args.action == "import":
+        return _import_round(out_dir, docs, len(rounds) + 1, args.workspace)
+    if args.action == "new":
         rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size, candidate_drops=_candidate_drops(out_dir, docs),
                          candidate_breakdowns=_candidate_breakdowns(out_dir, docs))
         save_round(out_dir, rnd)
@@ -258,6 +261,31 @@ def cmd_round(args):
             print(f"  {bucket:<7} {theory:<12} {n}")
         return 0
     print(json.dumps(report(rounds, answers, docs), indent=1))
+    return 0
+
+
+def _import_round(out_dir, docs, number, workspace):
+    """A round of A/B Probes where the section edits in a QLC+ workspace differ from the Analysis."""
+    from .qlc_import import import_round, workspace_edits
+    from .rounds import save_round
+
+    if workspace is None:
+        print("round import needs --workspace", file=sys.stderr)
+        return 1
+    by_path = {e["path"]: tid for tid, e in json.loads((out_dir / "index.json").read_text()).items()} if (out_dir / "index.json").exists() else {}
+    edits = {}
+    for song in workspace_edits(Path(workspace).read_text()):
+        tid = by_path.get(song["path"])
+        if tid in docs:
+            edits[tid] = song["pins"]
+        else:
+            print(f"not in the Library: {song['path']}")
+    rnd = import_round(number, docs, edits)
+    if not rnd["probes"]:
+        print(f"{len(edits)} songs with edits, no difference the Analysis makes a Claim about: no round made")
+        return 0
+    save_round(out_dir, rnd)
+    print(f"round {rnd['round']}: {len(rnd['probes'])} questions from the edits of {len(edits)} songs")
     return 0
 
 
@@ -373,7 +401,8 @@ def main(argv=None):
     c.add_argument("--out", default=str(DEFAULT_OUT))
     c.set_defaults(func=cmd_confidence)
     rd = sub.add_parser("round", help="make the next review round, or report on the rounds")
-    rd.add_argument("action", choices=("new", "report"))
+    rd.add_argument("action", choices=("new", "report", "import"))
+    rd.add_argument("--workspace", help="import: a QLC+ workspace (.qxw) whose section edits are asked against the analysis")
     rd.add_argument("--out", default=str(DEFAULT_OUT))
     rd.add_argument("--size", type=int, default=40)
     rd.add_argument("--force", action="store_true", help="make a new round even if the current one is unfinished")
