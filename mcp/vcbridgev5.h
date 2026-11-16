@@ -50,7 +50,6 @@ public:
     bool showRecorded(quint32 showId) const override;
     QVariantMap createSongBlocks(quint32 showId) override;
     QVariantMap dropOnSongBlock(quint32 showId, const QList<quint32> &functionIds, quint32 timeMs) override;
-    QVariantMap resizeSongBlock(quint32 showId, quint32 functionId, quint32 durationMs) override;
     QVariantMap songBlocks(quint32 showId) const override;
     QVariantMap editSongSections(quint32 showId, const QString &action, qint64 section, quint32 timeMs, const QString &label) override;
     QVariantMap songSections(quint32 showId) const override;

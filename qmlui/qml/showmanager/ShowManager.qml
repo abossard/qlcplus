@@ -76,7 +76,10 @@ Rectangle
 
     property real timeScale: showManager.timeScale
     property real tickSize: showManager.tickSize
-    property int headerHeight: UISettings.iconSizeMedium
+    // the time ruler, and below it the song's sections when the Show has an analysed song
+    property int rulerHeight: UISettings.iconSizeMedium
+    readonly property int sectionRowHeight: showManager.analysisSections.length > 0 ? rulerHeight : 0
+    readonly property int headerHeight: rulerHeight + sectionRowHeight
     // the one horizontal view of the ruler and the lanes: commands write it, a user scroll
     // of either Flickable writes its contentX and feeds it back; both follow it only here
     property real xViewOffset: 0
@@ -1362,7 +1365,7 @@ Rectangle
                 }
             }
 
-            // song structure band on the right: turn its sections into Song Director blocks
+            // song sections on the right: turn them into Song Director blocks
             IconButton
             {
                 visible: !showManager.readOnly && !showManager.hasSongBlocks
@@ -1415,6 +1418,17 @@ Rectangle
         onMovingChanged: showMgrContainer.noteUserScroll()
         onWidthChanged: showMgrContainer.followPlayhead()
 
+        SongSectionRuler
+        {
+            id: sectionRuler
+            objectName: "sectionRuler"
+            z: 1
+            y: showMgrContainer.rulerHeight
+            width: hdrItem.width
+            height: showMgrContainer.sectionRowHeight
+            visible: height > 0
+        }
+
         HeaderAndCursor
         {
             id: hdrItem
@@ -1422,7 +1436,7 @@ Rectangle
             height: parent.height
             visibleWidth: timelineHeader.width
             visibleX: xViewOffset
-            headerHeight: showMgrContainer.headerHeight
+            headerHeight: showMgrContainer.rulerHeight
             cursorHeight: showMgrContainer.timelineBottom - topBar.height
             duration: showMgrContainer.rulerDuration
             enabled: canEdit

@@ -63,9 +63,6 @@ public:
     /** Drop Functions at timeMs on the Show's Song Director track, as the Show Manager's drop does */
     virtual QVariantMap dropOnSongBlock(quint32, const QList<quint32> &, quint32)
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
-    /** Resize a block of the Show's Song Director track, as dragging its edge does */
-    virtual QVariantMap resizeSongBlock(quint32, quint32, quint32)
-    { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
     /** A section edit on the song Show, as the Show Manager's section ruler does
      *  (action, section index, timeMs in Show time, label) */
     virtual QVariantMap editSongSections(quint32, const QString &, qint64, quint32, const QString &)

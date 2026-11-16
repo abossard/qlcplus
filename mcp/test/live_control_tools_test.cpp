@@ -599,26 +599,23 @@ void McpLiveControlTools_Test::songBlocks()
     }
 }
 
-void McpLiveControlTools_Test::songBlockDropAndResize_data()
+void McpLiveControlTools_Test::songBlockDrop_data()
 {
     QTest::addColumn<int>("dropAtMs");      // show time of the drop
-    QTest::addColumn<int>("resizeToMs");    // new length of the first block, 0 for none
     QTest::addColumn<QString>("error");     // of the drop
     QTest::addColumn<int>("filledBlock");   // block holding the scene afterwards, -1 for none
 
     // blocks: intro 2000-11000, drop 11000-27000
-    QTest::newRow("drop into the first block") << 5000 << 0 << QString() << 0;
-    QTest::newRow("drop into the second block") << 20000 << 0 << QString() << 1;
-    QTest::newRow("drop at the block start") << 11000 << 0 << QString() << 1;
-    QTest::newRow("drop before the first block") << 500 << 0 << QStringLiteral("no Song Director block") << -1;
-    QTest::newRow("drop after the last block") << 27000 << 0 << QStringLiteral("no Song Director block") << -1;
-    QTest::newRow("drop then shorten the block") << 5000 << 3000 << QString() << 0;
+    QTest::newRow("drop into the first block") << 5000 << QString() << 0;
+    QTest::newRow("drop into the second block") << 20000 << QString() << 1;
+    QTest::newRow("drop at the block start") << 11000 << QString() << 1;
+    QTest::newRow("drop before the first block") << 500 << QStringLiteral("no Song Director block") << -1;
+    QTest::newRow("drop after the last block") << 27000 << QStringLiteral("no Song Director block") << -1;
 }
 
-void McpLiveControlTools_Test::songBlockDropAndResize()
+void McpLiveControlTools_Test::songBlockDrop()
 {
     QFETCH(int, dropAtMs);
-    QFETCH(int, resizeToMs);
     QFETCH(QString, error);
     QFETCH(int, filledBlock);
     auto *doc = m_app->doc();
@@ -664,20 +661,10 @@ void McpLiveControlTools_Test::songBlockDropAndResize()
     else
         QVERIFY2(!dropped.contains("error"), dropped.dump().c_str());
 
-    if (resizeToMs > 0)
-    {
-        const quint32 first = director->showFunctions().first()->functionID();
-        const Json resized = invokeShowTool(doc, m_vc.get(), "resize_song_block",
-                                            {{"showID", show->id()}, {"functionID", first}, {"durationMs", resizeToMs}});
-        QVERIFY2(!resized.contains("error"), resized.dump().c_str());
-        QCOMPARE(director->showFunctions().first()->duration(), quint32(resizeToMs));
-        QCOMPARE(director->showFunctions().first()->startTime(), 2000u);
-    }
-
-    // a drop changes content only: the blocks keep start and length (unless resized above)
+    // a drop changes content only: the blocks keep start and length
     QCOMPARE(director->showFunctions().count(), 2);
     QCOMPARE(director->showFunctions().at(0)->startTime(), 2000u);
-    QCOMPARE(director->showFunctions().at(0)->duration(), resizeToMs > 0 ? quint32(resizeToMs) : 9000u);
+    QCOMPARE(director->showFunctions().at(0)->duration(), 9000u);
     QCOMPARE(director->showFunctions().at(1)->startTime(), 11000u);
     QCOMPARE(director->showFunctions().at(1)->duration(), 16000u);
     for (int i = 0; i < 2; i++)

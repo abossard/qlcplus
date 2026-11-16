@@ -46,6 +46,9 @@ Item
     /* Song Director block the analysis marks unsure: {unsure, confidence, label}, empty otherwise */
     property var songMark: sfRef ? showManager.songBlockMark(sfRef.functionID) : ({})
     property bool songUnsure: songMark.unsure === true
+    // a Song Director block follows its section: no own move or resize
+    property bool songBlock: songMark.label !== undefined
+    property bool timeFixed: (sfRef && sfRef.locked) || songBlock
     property bool isDragging: false
     property color globalColor: showManager.itemsColor
     property string infoText: ""
@@ -549,7 +552,7 @@ Item
 
         onPressed: (mouse) =>
         {
-            if ((sfRef && sfRef.locked) || showManager.readOnly)
+            if (timeFixed || showManager.readOnly)
                 return;
             showManager.enableFlicking(false)
             pressMouseX = mouse.x
@@ -624,7 +627,7 @@ Item
         }
         onReleased: (mouse) =>
         {
-            if ((sfRef && sfRef.locked) || showManager.readOnly)
+            if (timeFixed || showManager.readOnly)
                 return;
 
             showManager.snapGuideX = -1
@@ -832,7 +835,7 @@ Item
         width: 10
         height: itemRoot.height
         color: horLeftHdlMa.containsMouse ? "#7FFFFF00" : "transparent"
-        visible: sfRef ? (!sfRef.locked && !showManager.readOnly) : false
+        visible: sfRef ? (!timeFixed && !showManager.readOnly) : false
 
         MouseArea
         {
@@ -997,7 +1000,7 @@ Item
         width: 10
         height: itemRoot.height
         color: horRightHdlMa.containsMouse ? "#7FFFFF00" : "transparent"
-        visible: sfRef ? (!sfRef.locked && !showManager.readOnly) : false
+        visible: sfRef ? (!timeFixed && !showManager.readOnly) : false
 
         MouseArea
         {

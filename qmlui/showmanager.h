@@ -242,6 +242,10 @@ public:
      *  analysisSections, timeMs in Show time. Empty when done, else why not */
     Q_INVOKABLE QString editSongSection(const QString &action, int section, int timeMs, const QString &label);
 
+    /** \a timeMs (Show time) on the nearest bar of the current Show's song analysis,
+     *  as a section edit snaps it; unchanged without an analysed song */
+    Q_INVOKABLE int snapSongTime(int timeMs);
+
     /** True when the current Show has its Song Director track */
     bool hasSongBlocks() const;
     /** Add the Song Director track with one block per analysed section */

@@ -99,6 +99,10 @@
 #include "qlcchannel.h"
 #include "qlcpalette.h"
 #include "sequence.h"
+#include "audio.h"
+#include "collection.h"
+#include "songdirector.h"
+#include "edmanalysismanager.h"
 
 #define private public
 #include "scriptv4.h"
@@ -243,6 +247,10 @@ private slots:
     void externalFunctionRename();
     void timelineViewport_data();
     void timelineViewport();
+    void songSectionRuler_data();
+    void songSectionRuler();
+    void songDirectorBlockItems_data();
+    void songDirectorBlockItems();
     void timelineScrollbarPanel_data();
     void timelineScrollbarPanel();
     void previewRepeatBounds_data();
@@ -13897,6 +13905,403 @@ void UpstreamIntegration_Test::vcFramePresentation()
     QVERIFY(!scene->isRunning());
     QVERIFY(!m_app->doc()->masterTimer()->isStartQueued(scene));
     qInfo() << "FRAME_PRESENTATION" << mode << "geometryUnchanged" << true << "FunctionStarts" << starts.count();
+}
+
+namespace
+{
+/** A song Show (Audio clip at 2 s, analysis intro 0-8 s, drop 8-24 s, outro 24-32 s, bars of
+ *  2 s) with its Song Director blocks, open in a ShowManager.qml panel */
+struct SongRulerFixture
+{
+    App *app = nullptr;
+    QTemporaryDir analysisDir;
+    Show *show = nullptr;
+    Audio *audio = nullptr;
+    Scene *scene = nullptr;
+    QQuickItem container;
+    std::unique_ptr<QQmlContext> context;
+    std::unique_ptr<QObject> object;
+    QQuickItem *panel = nullptr;
+
+    explicit SongRulerFixture(App *a) : app(a)
+    {
+        // under the root object, where ShowManager::enableFlicking looks for the items area
+        container.setParent(app->rootObject());
+        container.setParentItem(app->contentItem());
+        // above a Show Manager an earlier test left open in the main view
+        container.setZ(1000);
+        container.setSize(QSizeF(1200, 600));
+    }
+
+    ShowManager *manager() const { return app->m_showManager; }
+    SongDirector *director() const { return app->m_songDirector; }
+
+    bool setUp()
+    {
+        Doc *doc = app->doc();
+        const QDir dir(analysisDir.path());
+        if (dir.mkpath("final") == false)
+            return false;
+        const QString path = QStringLiteral("/music/song-ruler-%1-%2.mp3").arg(QString::fromLatin1(QTest::currentTestFunction()),
+            QString(QCryptographicHash::hash(QTest::currentDataTag(), QCryptographicHash::Sha256).toHex()).left(12));
+        QFile index(dir.filePath("index.json"));
+        if (index.open(QIODevice::WriteOnly) == false)
+            return false;
+        index.write(QStringLiteral(R"({"cccccccccccccccc": {"path": "%1"}})").arg(path).toUtf8());
+        index.close();
+        QFile final(dir.filePath("final/cccccccccccccccc.json"));
+        if (final.open(QIODevice::WriteOnly) == false)
+            return false;
+        final.write(R"({"schema": "qlcplus-edm-final/3", "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0},
+            "sections": [{"label": "intro", "start": 0.0, "end": 8.0, "confidence": 70, "label_confidence": 80},
+                         {"label": "drop", "start": 8.0, "end": 24.0, "confidence": 90, "label_confidence": 90},
+                         {"label": "outro", "start": 24.0, "end": 32.0, "confidence": 80, "label_confidence": 85}]})");
+        final.close();
+        director()->setAnalysisDir(analysisDir.path());
+        manager()->setAnalysisDir(analysisDir.path());
+
+        doc->masterTimer()->stop();
+        manager()->resetContents();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::MetaCall);
+        show = new Show(doc);
+        show->setName("Song");
+        doc->addFunction(show);
+        audio = new Audio(doc);
+        doc->addFunction(audio);
+        audio->setSourceFileName(path);
+        auto *track = new Track(Function::invalidId(), show);
+        show->addTrack(track);
+        track->createShowFunction(audio->id())->setStartTime(2000);
+        // an ordinary item on its own track, for the director blocks to differ from
+        scene = new Scene(doc);
+        doc->addFunction(scene);
+        auto *sceneTrack = new Track(Function::invalidId(), show);
+        show->addTrack(sceneTrack);
+        sceneTrack->createShowFunction(scene->id())->setStartTime(2000);
+        sceneTrack->showFunctions().first()->setDuration(4000);
+        manager()->setCurrentShowID(show->id());
+        manager()->setTimeScale(5.0);
+        manager()->setCurrentTime(0);
+        if (manager()->createSongBlocks() == false)
+            return false;
+
+        context = std::make_unique<QQmlContext>(app->rootContext());
+        context->setContextProperty("mainView", app->rootObject());
+        QQmlComponent component(app->engine(), QUrl("qrc:/ShowManager.qml"));
+        object.reset(component.create(context.get()));
+        panel = qobject_cast<QQuickItem *>(object.get());
+        if (panel == nullptr)
+        {
+            qWarning() << component.errorString();
+            return false;
+        }
+        panel->setParent(&container);
+        panel->setParentItem(&container);
+        panel->setSize(container.size());
+        manager()->renderView(item("itemsArea")->property("contentItem").value<QQuickItem *>());
+        QCoreApplication::processEvents();
+        return true;
+    }
+
+    ~SongRulerFixture()
+    {
+        Doc *doc = app->doc();
+        manager()->resetContents();
+        object.reset();
+        const QList<quint32> collections = [this]() {
+            QList<quint32> ids;
+            for (const SongDirectorBlock &b : director()->blocks(show))
+                ids << b.functionId;
+            return ids;
+        }();
+        if (show)
+            doc->deleteFunction(show->id());
+        for (quint32 id : collections)
+            doc->deleteFunction(id);
+        if (audio)
+            doc->deleteFunction(audio->id());
+        if (scene)
+            doc->deleteFunction(scene->id());
+        director()->setAnalysisDir(app->m_edmAnalysis->outputDir());
+        manager()->setAnalysisDir(app->m_edmAnalysis->outputDir());
+    }
+
+    QQuickItem *item(const char *name) const
+    {
+        QQmlExpression expression(qmlContext(panel), panel, QString::fromLatin1(name));
+        return qobject_cast<QQuickItem *>(expression.evaluate().value<QObject *>());
+    }
+
+    /** Visible items named \a name under \a root, the whole window by default (menus are in its overlay) */
+    QList<QQuickItem *> visibleNamed(const QString &name, QQuickItem *root = nullptr) const
+    {
+        QList<QQuickItem *> found;
+        std::function<void(QQuickItem *)> visit = [&](QQuickItem *i) {
+            if (i->isVisible() == false)
+                return;
+            if (i->objectName() == name)
+                found << i;
+            for (QQuickItem *child : i->childItems())
+                visit(child);
+        };
+        visit(root ? root : app->contentItem());
+        return found;
+    }
+
+    QQuickItem *section(int index) const
+    {
+        for (QQuickItem *i : visibleNamed("songSection", panel))
+            if (i->property("sectionIndex").toInt() == index)
+                return i;
+        return nullptr;
+    }
+
+    QQuickItem *boundary(int index) const
+    {
+        for (QQuickItem *i : visibleNamed("songSectionBoundary", panel))
+            if (i->property("sectionIndex").toInt() == index)
+                return i;
+        return nullptr;
+    }
+
+    qreal timeX(quint32 ms) const
+    {
+        return ms * manager()->tickSize() / (1000.0 * manager()->timeScale());
+    }
+
+    /** The effective sections as "label[*] start-end", Show time */
+    QStringList sections() const
+    {
+        QStringList list;
+        for (const QVariant &v : manager()->analysisSections())
+        {
+            const QVariantMap s = v.toMap();
+            list << QStringLiteral("%1%2 %3-%4").arg(s.value("label").toString(), s.value("edited").toBool() ? "*" : "")
+                        .arg(s.value("startMs").toDouble()).arg(s.value("endMs").toDouble());
+        }
+        return list;
+    }
+
+    /** The director blocks as "label start-end", by start */
+    QStringList blocks() const
+    {
+        QList<QPair<quint32, QString>> list;
+        const Track *track = director()->track(show);
+        for (ShowFunction *sf : track->showFunctions())
+        {
+            QString label;
+            for (const SongDirectorBlock &b : director()->blocks(show))
+                if (b.functionId == sf->functionID())
+                    label = b.generated.label;
+            list << qMakePair(sf->startTime(), QStringLiteral("%1 %2-%3").arg(label).arg(sf->startTime()).arg(sf->startTime() + sf->duration()));
+        }
+        std::sort(list.begin(), list.end());
+        QStringList out;
+        for (const auto &p : list)
+            out << p.second;
+        return out;
+    }
+};
+}
+
+void UpstreamIntegration_Test::songSectionRuler_data()
+{
+    // steps: "drag:<boundary>:<ms>" drags the boundary after a section to a Show time,
+    // "menu:<section>:<entry>" clicks a section and one entry of its menu,
+    // "playhead:<ms>" moves the playhead
+    QTest::addColumn<QStringList>("steps");
+    QTest::addColumn<int>("actions");          // section edits the steps dispatch
+    QTest::addColumn<QStringList>("expected"); // effective sections afterwards
+    const QStringList analysis{"intro 2000-10000", "drop 10000-26000", "outro 26000-34000"};
+    QTest::newRow("ruler only") << QStringList() << 0 << analysis;
+    QTest::newRow("drag a boundary, snapped to a bar")
+        << QStringList{"drag:0:13500"} << 1 << QStringList{"intro* 2000-14000", "drop* 14000-26000", "outro 26000-34000"};
+    QTest::newRow("drag a boundary back")
+        << QStringList{"drag:1:23700"} << 1 << QStringList{"intro 2000-10000", "drop* 10000-24000", "outro* 24000-34000"};
+    QTest::newRow("change a label")
+        << QStringList{"menu:1:label_groove"} << 1 << QStringList{"intro 2000-10000", "groove* 10000-26000", "outro 26000-34000"};
+    QTest::newRow("split at the playhead")
+        << QStringList{"playhead:17500", "menu:1:split"} << 1
+        << QStringList{"intro 2000-10000", "drop* 10000-18000", "drop* 18000-26000", "outro 26000-34000"};
+    QTest::newRow("merge with the next")
+        << QStringList{"menu:0:merge"} << 1 << QStringList{"intro* 2000-26000", "outro 26000-34000"};
+    QTest::newRow("last section has no next to merge")
+        << QStringList{"menu:2:merge"} << 0 << analysis;
+    QTest::newRow("reset this section")
+        << QStringList{"menu:1:label_groove", "menu:1:reset"} << 2 << analysis;
+    QTest::newRow("reset all")
+        << QStringList{"drag:0:13500", "menu:2:label_breakdown", "menu:0:reset_all"} << 3 << analysis;
+}
+
+void UpstreamIntegration_Test::songSectionRuler()
+{
+    QFETCH(QStringList, steps);
+    QFETCH(int, actions);
+    QFETCH(QStringList, expected);
+    SongRulerFixture f(m_app.get());
+    QVERIFY(f.setUp());
+    auto *header = f.item("hdrItem");
+    auto *timeline = f.item("timelineHeader");
+    auto *contents = f.item("showContents");
+    auto *ruler = f.item("sectionRuler");
+    QVERIFY(header && timeline && contents);
+    QVERIFY2(ruler, "no section ruler row");
+
+    // D14: the time ruler keeps its height, the sections are a row of their own below it
+    const qreal rulerHeight = f.panel->property("rulerHeight").toReal();
+    QVERIFY(rulerHeight > 0);
+    QCOMPARE(header->property("headerHeight").toReal(), rulerHeight);
+    QVERIFY(ruler->isVisible());
+    QCOMPARE(ruler->mapToItem(timeline, QPointF(0, 0)).y(), rulerHeight);
+    QCOMPARE(ruler->height(), rulerHeight);
+    QCOMPARE(timeline->height(), 2 * rulerHeight);
+    QCOMPARE(contents->y(), timeline->y() + timeline->height());
+    // no section colour inside the time ruler: the middle of the intro is ruler black
+    {
+        QQuickItem *canvas = nullptr;
+        for (QQuickItem *child : header->childItems())
+            if (child->property("contextType").isValid())
+                canvas = child;
+        QVERIFY(canvas);
+        auto grab = canvas->grabToImage();
+        QVERIFY(grab);
+        QTRY_VERIFY(!grab->image().isNull());
+        const QImage image = grab->image();
+        const QPointF local = header->mapToItem(canvas, QPointF(f.timeX(6000), rulerHeight * 0.6));
+        const qreal scale = image.width() / canvas->width();
+        QCOMPARE(QColor(image.pixel((local * scale).toPoint())).name(), QStringLiteral("#000000"));
+    }
+
+    QSignalSpy edits(f.director(), &SongDirector::sectionsChanged);
+    for (const QString &step : steps)
+    {
+        const QStringList part = step.split(':');
+        if (part.at(0) == "playhead")
+        {
+            f.manager()->setCurrentTime(part.at(1).toInt());
+            continue;
+        }
+        const int index = part.at(1).toInt();
+        if (part.at(0) == "drag")
+        {
+            QQuickItem *handle = f.boundary(index);
+            QVERIFY2(handle, qPrintable("no boundary after section " + part.at(1)));
+            QQuickItem *left = f.section(index);
+            const qreal widthBefore = left->width();
+            const QPoint from = handle->mapToScene(QPointF(handle->width() / 2, handle->height() / 2)).toPoint();
+            const QPoint to = header->mapToScene(QPointF(f.timeX(part.at(2).toUInt()), rulerHeight * 1.5)).toPoint();
+            const int before = edits.count();
+            QTest::mousePress(f.app, Qt::LeftButton, Qt::NoModifier, from);
+            for (int s = 1; s <= 5; s++)
+                QTest::mouseMove(f.app, from + (to - from) * s / 5, 10);
+            // live preview while dragging, nothing dispatched yet
+            QCOMPARE(edits.count(), before);
+            QVERIFY2(left->width() != widthBefore, "no live preview while dragging");
+            QTest::mouseRelease(f.app, Qt::LeftButton, Qt::NoModifier, to);
+            QCOMPARE(edits.count(), before + 1);
+        }
+        else
+        {
+            QQuickItem *body = f.section(index);
+            QVERIFY2(body, qPrintable("no section " + part.at(1)));
+            QTest::mouseClick(f.app, Qt::LeftButton, Qt::NoModifier,
+                              body->mapToScene(QPointF(body->width() / 2, body->height() / 2)).toPoint());
+            QTRY_VERIFY(f.visibleNamed("songSectionMenu").isEmpty() == false);
+            const QList<QQuickItem *> entries = f.visibleNamed("songSectionMenu_" + part.at(2));
+            QCOMPARE(entries.count(), 1);
+            QTest::mouseClick(f.app, Qt::LeftButton, Qt::NoModifier,
+                              entries.first()->mapToScene(QPointF(entries.first()->width() / 2, entries.first()->height() / 2)).toPoint());
+            QCoreApplication::processEvents();
+            if (entries.first()->isEnabled() == false)
+                QTest::keyClick(f.app, Qt::Key_Escape);
+            QTRY_VERIFY(f.visibleNamed("songSectionMenu").isEmpty());
+        }
+        QCoreApplication::processEvents();
+    }
+
+    QCOMPARE(edits.count(), actions);
+    QCOMPARE(f.sections(), expected);
+    // the row shows the effective sections, edited ones marked
+    QTRY_COMPARE(f.visibleNamed("songSection", f.panel).count(), expected.count());
+    for (int i = 0; i < expected.count(); i++)
+    {
+        QQuickItem *s = f.section(i);
+        QVERIFY(s);
+        QCOMPARE(s->property("label").toString() + (s->property("edited").toBool() ? "*" : ""), expected.at(i).section(' ', 0, 0));
+        QVERIFY(qAbs(s->mapToItem(header, QPointF(0, 0)).x() - f.timeX(expected.at(i).section(' ', 1).section('-', 0, 0).toUInt())) <= 1.5);
+    }
+    // D16: the blocks follow the sections
+    QStringList unstarred = expected;
+    unstarred.replaceInStrings("*", "");
+    QCOMPARE(f.blocks(), unstarred);
+}
+
+void UpstreamIntegration_Test::songDirectorBlockItems_data()
+{
+    QTest::addColumn<bool>("director");   // a Song Director block, else the ordinary Scene item
+    QTest::addColumn<QString>("gesture");
+    for (bool director : {true, false})
+        for (const QString &gesture : {QString("handles"), QString("drag"), QString("click"), QString("double-click")})
+            QTest::newRow(qPrintable(QString("%1 %2").arg(director ? "director block" : "ordinary item", gesture)))
+                << director << gesture;
+}
+
+void UpstreamIntegration_Test::songDirectorBlockItems()
+{
+    QFETCH(bool, director);
+    QFETCH(QString, gesture);
+    SongRulerFixture f(m_app.get());
+    QVERIFY(f.setUp());
+    const quint32 functionId = director ? f.director()->track(f.show)->showFunctions().at(1)->functionID() : f.scene->id();
+    QQuickItem *showItem = nullptr;
+    QTRY_VERIFY([&]() {
+        auto *content = f.item("itemsArea")->property("contentItem").value<QQuickItem *>();
+        for (QQuickItem *child : content->childItems())
+        {
+            auto *sf = child->property("sfRef").value<ShowFunction *>();
+            if (sf && sf->functionID() == functionId)
+                showItem = child;
+        }
+        return showItem != nullptr;
+    }());
+    auto *sf = showItem->property("sfRef").value<ShowFunction *>();
+    const quint32 start = sf->startTime();
+    const quint32 duration = sf->duration();
+    auto handleVisible = [&](const char *name) {
+        QQmlExpression e(qmlContext(showItem), showItem, QString::fromLatin1(name) + ".visible");
+        return e.evaluate().toBool();
+    };
+    const QPoint centre = showItem->mapToScene(QPointF(showItem->width() / 2, showItem->height() / 2)).toPoint();
+
+    if (gesture == "handles")
+    {
+        QCOMPARE(handleVisible("horLeftHandler"), !director);
+        QCOMPARE(handleVisible("horRightHandler"), !director);
+    }
+    else if (gesture == "drag")
+    {
+        QTest::mousePress(f.app, Qt::LeftButton, Qt::NoModifier, centre);
+        for (int s = 1; s <= 5; s++)
+            QTest::mouseMove(f.app, centre + QPoint(12 * s, 0), 10);
+        QTest::mouseRelease(f.app, Qt::LeftButton, Qt::NoModifier, centre + QPoint(60, 0));
+        QCoreApplication::processEvents();
+        QCOMPARE(sf->startTime() != start, !director);
+        QCOMPARE(sf->duration(), duration);
+    }
+    else if (gesture == "click")
+    {
+        QTest::mouseClick(f.app, Qt::LeftButton, Qt::NoModifier, centre);
+        QTRY_VERIFY(showItem->property("isSelected").toBool());
+        QCOMPARE(sf->startTime(), start);
+    }
+    else
+    {
+        QTest::mouseDClick(f.app, Qt::LeftButton, Qt::NoModifier, centre);
+        QTRY_VERIFY(f.app->m_functionManager->currentEditor() != nullptr);
+        QCOMPARE(f.app->m_functionManager->currentEditor()->functionID(), functionId);
+        f.app->m_functionManager->setEditorFunction(Function::invalidId(), false, false);
+        QCOMPARE(sf->startTime(), start);
+    }
 }
 
 QTEST_MAIN(UpstreamIntegration_Test)

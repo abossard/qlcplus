@@ -29,6 +29,7 @@
 #include "showcommandrecorder.h"
 #include "showclipeditor.h"
 #include "songdirector.h"
+#include "songsections.h"
 #include "tardis.h"
 #include "chaser.h"
 #include "scene.h"
@@ -554,6 +555,17 @@ QString ShowManager::editSongSection(const QString &action, int section, int tim
     QString error;
     m_songDirector->editSections(m_currentShow, a, m_analysisReader, &error);
     return error;
+}
+
+int ShowManager::snapSongTime(int timeMs)
+{
+    const ShowFunction *clip = m_currentShow ? EdmAnalysisReader::firstAudioClip(m_doc, m_currentShow) : nullptr;
+    if (clip == nullptr)
+        return timeMs;
+    const EdmAnalysis analysis = m_analysisReader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, m_currentShow));
+    if (analysis.valid == false)
+        return timeMs;
+    return int(qRound64(snapToBar(analysis.grid, double(timeMs) - clip->startTime()) + clip->startTime()));
 }
 
 bool ShowManager::hasSongBlocks() const

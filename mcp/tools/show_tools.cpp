@@ -878,35 +878,6 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                            {"idempotentHint", true}, {"openWorldHint", false}}));
 
     tm.register_tool(Tool(
-        "resize_song_block",
-        Json{{"type", "object"}, {"properties", {
-            {"showID", {{"type", "integer"}, {"minimum", 0}}},
-            {"functionID", {{"type", "integer"}, {"minimum", 0}, {"description", "The block's Collection"}}},
-            {"durationMs", {{"type", "integer"}, {"minimum", 1}}}
-        }}, {"required", {"showID", "functionID", "durationMs"}}},
-        Json{},
-        [doc, vcBridge](const Json &args) -> Json {
-            return execOnMainThread(doc, [&]() -> Json {
-                const auto err = validateFields(args, {"showID", "functionID", "durationMs"});
-                if (!err.empty()) return err;
-                const auto show = args.is_object() && args.contains("showID")
-                    ? mcp::jsonInteger(args.at("showID"), 0, mcp::kMaxId) : std::nullopt;
-                const auto function = args.is_object() && args.contains("functionID")
-                    ? mcp::jsonInteger(args.at("functionID"), 0, mcp::kMaxId) : std::nullopt;
-                const auto duration = args.is_object() && args.contains("durationMs")
-                    ? mcp::jsonInteger(args.at("durationMs"), 1, mcp::kMaxId) : std::nullopt;
-                if (!show || !function || !duration)
-                    return Json({{"error", "resize_song_block: showID, functionID (the block's Collection) and durationMs (1 or more) are required integers"}}).dump();
-                const QVariantMap state = vcBridge->resizeSongBlock(quint32(*show), quint32(*function), quint32(*duration));
-                return QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact).toStdString();
-            });
-        }
-    ).set_description("Change the length of a Song Director block, as dragging its edge in the Show Manager does "
-                      "(the start stays). The block's content then ends with the block. Refuses a length that "
-                      "overlaps the next block. Returns query_song_blocks.")
-     .set_annotations(mcp::kAnnotIdempotent));
-
-    tm.register_tool(Tool(
         "edit_song_sections",
         Json{{"type", "object"}, {"properties", {
             {"showID", {{"type", "integer"}, {"minimum", 0}}},
