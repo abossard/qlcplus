@@ -18,6 +18,7 @@
 #ifndef SONGDIRECTOR_H
 #define SONGDIRECTOR_H
 
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QSet>
@@ -27,6 +28,7 @@
 #include <QString>
 
 #include "edmanalysisreader.h"
+#include "songsections.h"
 
 class Doc;
 class EdmStructureMapping;
@@ -57,6 +59,7 @@ struct SongBlock
 
 /** One block per section with a length, moved by the song's audio clip start */
 QList<SongBlock> songBlocks(const QList<EdmSection> &sections, quint32 clipStartMs);
+QList<SongBlock> songBlocks(const QList<SongSection> &sections, quint32 clipStartMs);
 
 /** What the director generated for one block of its track: a block whose
  *  current values still equal these is untouched */
@@ -64,8 +67,8 @@ struct SongDirectorBlock
 {
     quint32 functionId = 0;   // the block's Collection
     SongBlock generated;
-    QList<quint32> content;   // the Collection's functions when generated
-    bool orphan = false;      // the user's block whose section left the analysis: it takes no section again
+    QList<quint32> content;   // the Collection's functions when generated or last refilled
+    bool orphan = false;      // a block of an older workspace kept without a section: it takes no section again
 
     bool operator==(const SongDirectorBlock &other) const
     {
@@ -76,9 +79,12 @@ struct SongDirectorBlock
 
 /**
  * The Song Director track of each song Show: one Collection block per
- * analysed section. Which track is the director's, and what each block was
- * generated as, is fork data kept beside the Show:
+ * section, the analysis' with the user's section edits on top. Blocks always
+ * take their section's start and length; their content is the user's.
+ * Which track is the director's, what each block was generated as and the
+ * section edits are fork data kept beside the Show:
  * <SongDirector><Track Show="5" ID="2"><Block Function="12" Section="0" …/>…
+ * <Sections Show="5"><Pin Label="drop" Start="16000" End="32000"/>…
  */
 class SongDirector : public QObject
 {
@@ -103,10 +109,24 @@ public:
     void setAnalysisDir(const QString &dir);
 
     /** Every song Show with an analysis: blocks are created once, when it has
-     *  no director track and never had one; blocks still exactly as generated
-     *  follow a changed analysis (moved, resized, added, removed), the others
-     *  stay. A running Show waits until it stops */
+     *  no director track and never had one; afterwards blocks follow the
+     *  effective sections (moved, resized, renamed, added, removed). A block
+     *  keeps its content; one whose content is still as generated takes the
+     *  default of a changed label. A block without a section joins its
+     *  changed content into the block now covering its time. A running Show
+     *  waits until it stops */
     void sync(EdmAnalysisReader &reader);
+
+    /** The user's section edits of the Show's song */
+    SectionEdits sectionEdits(Show *show) const;
+
+    /** The Show's sections, analysis and edits, in Show time (moved by the
+     *  audio clip start); empty without an analysed clip */
+    QList<SongSection> sections(Show *show, EdmAnalysisReader &reader) const;
+
+    /** One section edit on the Show (action.timeMs in Show time), then its
+     *  blocks follow. False, changing nothing, when refused; error says why */
+    bool editSections(Show *show, const SectionAction &action, EdmAnalysisReader &reader, QString *error = nullptr);
 
     /** The workspace defaults that pre-fill new blocks; none leaves them empty */
     void setMapping(EdmStructureMapping *mapping) { m_mapping = mapping; }
@@ -135,12 +155,21 @@ public slots:
     /** sync() with the folder of setAnalysisDir() */
     void sync();
 
+public:
+    /** editSections() with the folder of setAnalysisDir() */
+    bool editSections(Show *show, const SectionAction &action, QString *error = nullptr);
+    /** sections() with the folder of setAnalysisDir() */
+    QList<SongSection> sections(Show *show) const;
+
 signals:
     /** sync() created or changed the Show's blocks */
     void blocksChanged(quint32 showId);
 
     /** sync() is about to remove and delete this block item of the Show */
     void blockRemoving(quint32 showId, ShowFunction *item);
+
+    /** The Show's section edits changed */
+    void sectionsChanged(quint32 showId);
 
 private:
     struct Entry
@@ -152,12 +181,16 @@ private:
     const Entry *entry(Show *show) const;
     /** One Collection block on the track, appended to \a blocks; false when the Doc is full */
     bool addBlock(Show *show, Track *track, const SongBlock &block, QList<SongDirectorBlock> &blocks);
-    /** The block's single item when its place, length and content are as generated, else null */
-    ShowFunction *untouchedItem(Track *track, const SongDirectorBlock &block) const;
-    /** Untouched blocks take the Show's current analysis; true when anything changed */
+    /** The Collection's content is still as generated (or last refilled) */
+    bool untouchedContent(const SongDirectorBlock &block) const;
+    /** The block's first item on the track, or null */
+    ShowFunction *item(Track *track, quint32 functionId) const;
+    /** Blocks take the Show's effective sections; true when anything changed */
     bool follow(Show *show, EdmAnalysisReader &reader);
-    /** The item off the track, then its Collection stopped and deleted */
-    void removeBlock(Show *show, Track *track, ShowFunction *item);
+    /** Create or follow the Show's blocks now, or once it stops running */
+    void update(Show *show, EdmAnalysisReader &reader);
+    /** The block's items off the track, then its Collection stopped and deleted */
+    void removeBlock(Show *show, Track *track, quint32 functionId);
 
     Doc *m_doc;
     EdmStructureMapping *m_mapping = nullptr;
@@ -167,6 +200,7 @@ private:
     std::unique_ptr<EdmAnalysisReader> m_reader;
     QSet<quint32> m_done;      // Shows that got their blocks once
     QSet<quint32> m_waiting;   // running Shows a sync waits for
+    QHash<quint32, SectionEdits> m_edits;   // by Show
 };
 
 #endif

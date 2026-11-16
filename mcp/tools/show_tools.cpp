@@ -907,6 +907,74 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
      .set_annotations(mcp::kAnnotIdempotent));
 
     tm.register_tool(Tool(
+        "edit_song_sections",
+        Json{{"type", "object"}, {"properties", {
+            {"showID", {{"type", "integer"}, {"minimum", 0}}},
+            {"action", {{"type", "string"},
+                        {"description", "move_boundary (the boundary after section to timeMs), relabel (section to label), "
+                                        "split (section at timeMs), merge (section with the next), reset (section back to "
+                                        "the analysis) or reset_all"}}},
+            {"section", {{"type", "integer"}, {"minimum", 0}, {"description", "Index into query_song_sections; not for reset_all"}}},
+            {"timeMs", {{"type", "integer"}, {"minimum", 0}, {"description", "Show time, for move_boundary and split; snapped to the nearest bar"}}},
+            {"label", {{"type", "string"}, {"description", "For relabel: intro, buildup, drop, breakdown, groove or outro"}}}
+        }}, {"required", {"showID", "action"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+                const auto err = validateFields(args, {"showID", "action", "section", "timeMs", "label"});
+                if (!err.empty()) return err;
+                const auto show = args.is_object() && args.contains("showID")
+                    ? mcp::jsonInteger(args.at("showID"), 0, mcp::kMaxId) : std::nullopt;
+                if (!show || !args.contains("action") || !args.at("action").is_string())
+                    return Json({{"error", "edit_song_sections: showID (nonnegative integer) and action (string) are required"}}).dump();
+                const std::string action = args.at("action").get<std::string>();
+                const bool needsSection = action != "reset_all";
+                const bool needsTime = action == "move_boundary" || action == "split";
+                const bool needsLabel = action == "relabel";
+                const auto section = args.contains("section") ? mcp::jsonInteger(args.at("section"), 0, mcp::kMaxId) : std::nullopt;
+                const auto time = args.contains("timeMs") ? mcp::jsonInteger(args.at("timeMs"), 0, mcp::kMaxId) : std::nullopt;
+                if ((needsSection && !section) || (needsTime && !time)
+                    || (needsLabel && (!args.contains("label") || !args.at("label").is_string())))
+                    return Json({{"error", "edit_song_sections: " + action + " needs"
+                                           + std::string(needsSection ? " section (nonnegative integer)" : "")
+                                           + std::string(needsTime ? " timeMs (nonnegative integer)" : "")
+                                           + std::string(needsLabel ? " label (string)" : "")}}).dump();
+                const QVariantMap state = vcBridge->editSongSections(
+                    quint32(*show), QString::fromStdString(action), section ? int(*section) : -1, time ? quint32(*time) : 0,
+                    needsLabel ? QString::fromStdString(args.at("label").get<std::string>()) : QString());
+                return QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact).toStdString();
+            });
+        }
+    ).set_description("Edit the sections of a song Show, as the Show Manager's section ruler does. New boundaries snap "
+                      "to the analysis' bar grid; each section an action changes becomes the user's and stays when the "
+                      "song is analysed again. The Song Director blocks follow their sections and keep their content. "
+                      "Refused while Perform makes the Show Manager read-only. Returns query_song_sections.")
+     .set_annotations(Json{{"readOnlyHint", false}, {"destructiveHint", false},
+                           {"idempotentHint", false}, {"openWorldHint", false}}));
+
+    tm.register_tool(Tool(
+        "query_song_sections",
+        Json{{"type", "object"}, {"properties", {
+            {"showID", {{"type", "integer"}, {"minimum", 0}}}
+        }}, {"required", {"showID"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+                const auto err = validateFields(args, {"showID"});
+                if (!err.empty()) return err;
+                const auto id = args.is_object() && args.contains("showID")
+                    ? mcp::jsonInteger(args.at("showID"), 0, mcp::kMaxId) : std::nullopt;
+                if (!id)
+                    return Json({{"error", "query_song_sections: showID is required and must be a nonnegative integer"}}).dump();
+                return QJsonDocument::fromVariant(vcBridge->songSections(quint32(*id))).toJson(QJsonDocument::Compact).toStdString();
+            });
+        }
+    ).set_description("The sections of a song Show in Show time: the analysis with the user's section edits on top "
+                      "(index, label, startMs, endMs, confidence, labelConfidence, unsure, edited), and the edits "
+                      "themselves (label, startMs, endMs). Empty sections when the Show has no analysed audio clip.")
+     .set_annotations(mcp::kAnnotReadOnly));
+
+    tm.register_tool(Tool(
         "query_song_blocks",
         Json{{"type", "object"}, {"properties", {
             {"showID", {{"type", "integer"}, {"minimum", 0}}}

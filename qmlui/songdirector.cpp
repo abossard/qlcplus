@@ -56,6 +56,17 @@ QList<SongBlock> songBlocks(const QList<EdmSection> &sections, quint32 clipStart
     return blocks;
 }
 
+QList<SongBlock> songBlocks(const QList<SongSection> &sections, quint32 clipStartMs)
+{
+    return songBlocks(QList<EdmSection>(sections.begin(), sections.end()), clipStartMs);
+}
+
+/** "drop 2" */
+static QString blockName(const SongBlock &block)
+{
+    return QString("%1 %2").arg(block.label).arg(block.number);
+}
+
 SongDirector::SongDirector(Doc *doc, QObject *parent)
     : QObject(parent)
     , m_doc(doc)
@@ -66,11 +77,13 @@ SongDirector::SongDirector(Doc *doc, QObject *parent)
             m_entries.clear();
             m_done.clear();
             m_waiting.clear();
+            m_edits.clear();
         });
         // a removed Show's id goes to the next Function
         connect(doc, &Doc::functionRemoved, this, [this](quint32 id) {
             m_done.remove(id);
             m_waiting.remove(id);
+            m_edits.remove(id);
         });
     }
 }
@@ -136,8 +149,10 @@ bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
     const ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
     if (clip == nullptr)
         return false;
-    const QList<SongBlock> generated =
-        songBlocks(reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show)).sections, clip->startTime());
+    const EdmAnalysis analysis = reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show));
+    if (analysis.valid == false)
+        return false;
+    const QList<SongBlock> generated = songBlocks(effectiveSections(analysis, m_edits.value(show->id())), clip->startTime());
     if (generated.isEmpty())
         return false;
 
@@ -184,7 +199,7 @@ static void holdBlock(QObject *context, Track *track, Collection *collection)
 bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QList<SongDirectorBlock> &blocks)
 {
     Collection *collection = new Collection(m_doc);
-    collection->setName(QString("%1 / %2 %3").arg(show->name(), block.label).arg(block.number));
+    collection->setName(blockName(block));
     collection->setPath(show->path(true));
     if (m_doc->addFunction(collection) == false)
     {
@@ -211,22 +226,72 @@ bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QL
     return true;
 }
 
-ShowFunction *SongDirector::untouchedItem(Track *track, const SongDirectorBlock &block) const
+bool SongDirector::untouchedContent(const SongDirectorBlock &block) const
 {
-    ShowFunction *item = nullptr;
-    for (ShowFunction *sf : track->showFunctions())
-    {
-        if (sf->functionID() != block.functionId)
-            continue;
-        if (item != nullptr)
-            return nullptr;   // a block copied is a block edited
-        item = sf;
-    }
     const auto *collection = qobject_cast<Collection *>(m_doc->function(block.functionId));
-    if (item == nullptr || collection == nullptr || item->startTime() != block.generated.startMs
-        || item->duration() != block.generated.durationMs || collection->functions() != block.content)
-        return nullptr;
-    return item;
+    return collection == nullptr || collection->functions() == block.content;
+}
+
+ShowFunction *SongDirector::item(Track *track, quint32 functionId) const
+{
+    for (ShowFunction *sf : track->showFunctions())
+        if (sf->functionID() == functionId)
+            return sf;
+    return nullptr;
+}
+
+static qint64 overlap(const SongBlock &a, const SongBlock &b)
+{
+    return qMin<qint64>(a.startMs + a.durationMs, b.startMs + b.durationMs) - qMax<qint64>(a.startMs, b.startMs);
+}
+
+/** Each target section takes the old block it shares time with: one of its
+ *  label first, then the one it shares the most time with. -1: a new block */
+static QList<int> matchBlocks(const QList<SongBlock> &target, const QList<SongDirectorBlock> &old)
+{
+    struct Pair { bool sameLabel; qint64 shared; int t; int o; };
+    QList<Pair> pairs;
+    for (int t = 0; t < target.count(); t++)
+        for (int o = 0; o < old.count(); o++)
+            if (old.at(o).orphan == false && overlap(target.at(t), old.at(o).generated) > 0)
+                pairs.append({ old.at(o).generated.label == target.at(t).label, overlap(target.at(t), old.at(o).generated), t, o });
+    std::stable_sort(pairs.begin(), pairs.end(), [](const Pair &a, const Pair &b) {
+        return a.sameLabel != b.sameLabel ? a.sameLabel : a.shared > b.shared;
+    });
+    QList<int> owner(target.count(), -1);
+    QList<bool> taken(old.count(), false);
+    for (const Pair &p : pairs)
+    {
+        if (owner.at(p.t) >= 0 || taken.at(p.o))
+            continue;
+        owner[p.t] = p.o;
+        taken[p.o] = true;
+    }
+    return owner;
+}
+
+/** The index of the block sharing the most time with \a block, or -1 */
+static int mostShared(const SongBlock &block, const QList<SongDirectorBlock> &blocks)
+{
+    int best = -1;
+    qint64 shared = 0;
+    for (int i = 0; i < blocks.count(); i++)
+    {
+        if (blocks.at(i).orphan || overlap(block, blocks.at(i).generated) <= shared)
+            continue;
+        shared = overlap(block, blocks.at(i).generated);
+        best = i;
+    }
+    return best;
+}
+
+/** Replace the Collection's content */
+static void setContent(Collection *collection, const QList<quint32> &content)
+{
+    for (quint32 id : collection->functions())
+        collection->removeFunction(id);
+    for (quint32 id : content)
+        collection->addFunction(id);
 }
 
 bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
@@ -240,76 +305,126 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
         return false;   // an analysis that is gone leaves the blocks as they are
     Track *track = e->track.data();
 
-    // a section takes the block of its label and number (drop 2 stays drop 2)
     const QList<SongDirectorBlock> old = e->blocks;
-    QList<bool> matched(old.count(), false);
+    const QList<SongBlock> target = songBlocks(effectiveSections(analysis, m_edits.value(show->id())), clip->startTime());
+    const QList<int> owner = matchBlocks(target, old);
+    QList<bool> kept(old.count(), false);
+    for (int o : owner)
+        if (o >= 0)
+            kept[o] = true;
+
     QList<SongDirectorBlock> blocks;
     bool changed = false;
-    for (const SongBlock &block : songBlocks(analysis.sections, clip->startTime()))
+    for (int t = 0; t < target.count(); t++)
     {
-        int i = 0;
-        while (i < old.count() && (matched.at(i) || old.at(i).orphan || old.at(i).generated.label != block.label
-                                   || old.at(i).generated.number != block.number))
-            i++;
-        if (i == old.count())
+        const SongBlock &section = target.at(t);
+        if (owner.at(t) < 0)
         {
-            changed |= addBlock(show, track, block, blocks);
+            // a new section: the content of the user's block of its label whose time it took (a split), else the default
+            const int from = mostShared(section, old);
+            const bool copy = from >= 0 && old.at(from).generated.label == section.label && untouchedContent(old.at(from)) == false;
+            changed |= addBlock(show, track, section, blocks);
+            if (copy && blocks.isEmpty() == false && blocks.last().generated == section)
+            {
+                if (auto *collection = qobject_cast<Collection *>(m_doc->function(blocks.last().functionId)))
+                    if (auto *source = qobject_cast<Collection *>(m_doc->function(old.at(from).functionId)))
+                    {
+                        setContent(collection, source->functions());
+                        blocks.last().content = collection->functions();
+                    }
+            }
             continue;
         }
-        matched[i] = true;
-        SongDirectorBlock b = old.at(i);
-        ShowFunction *sf = untouchedItem(track, b);
-        if (sf != nullptr && (b.generated == block) == false)
+        SongDirectorBlock b = old.at(owner.at(t));
+        auto *collection = qobject_cast<Collection *>(m_doc->function(b.functionId));
+        // content still as generated takes the default of a changed label
+        if (collection != nullptr && b.generated.label != section.label && untouchedContent(b))
         {
-            sf->setStartTime(block.startMs);
-            sf->setDuration(block.durationMs);
-            b.generated = block;
+            QList<quint32> content;
+            const quint32 look = m_mapping ? m_mapping->function(section.label) : Function::invalidId();
+            if (look != collection->id() && EdmStructureMapping::isLook(m_doc->function(look)))
+                content << look;
+            setContent(collection, content);
+            b.content = collection->functions();
+            changed = true;
+        }
+        if (collection != nullptr && collection->name() != blockName(section))
+        {
+            collection->setName(blockName(section));
+            changed = true;
+        }
+        if (ShowFunction *sf = item(track, b.functionId))
+        {
+            if (sf->startTime() != section.startMs || sf->duration() != section.durationMs)
+            {
+                sf->setStartTime(section.startMs);
+                sf->setDuration(section.durationMs);
+                changed = true;
+            }
+        }
+        if ((b.generated == section) == false)
+        {
+            b.generated = section;
             changed = true;
         }
         blocks.append(b);
     }
-    // a block without its section goes when untouched; one the user changed
-    // stays, and a later section with its label and number gets a new block
-    for (int i = 0; i < old.count(); i++)
+
+    // a block without a section goes; content the user changed joins the block now covering its time
+    for (int o = 0; o < old.count(); o++)
     {
-        if (matched.at(i))
+        if (kept.at(o))
             continue;
-        SongDirectorBlock b = old.at(i);
+        const SongDirectorBlock &b = old.at(o);
         if (b.orphan)
-            blocks.append(b);
-        else if (ShowFunction *sf = untouchedItem(track, b))
         {
-            removeBlock(show, track, sf);
-            changed = true;
-        }
-        else
-        {
-            b.orphan = true;
-            if (auto *collection = qobject_cast<Collection *>(m_doc->function(b.functionId)))
-                collection->setHoldUntilStopped(false);   // no kept block any more
             blocks.append(b);
-            changed = true;
+            continue;
         }
+        changed = true;
+        auto *source = qobject_cast<Collection *>(m_doc->function(b.functionId));
+        if (source != nullptr && untouchedContent(b) == false)
+        {
+            const int into = mostShared(b.generated, blocks);
+            auto *collection = into >= 0 ? qobject_cast<Collection *>(m_doc->function(blocks.at(into).functionId)) : nullptr;
+            if (collection == nullptr)
+            {
+                // no block covers its time any more: kept as it is, without a section
+                SongDirectorBlock orphan = b;
+                orphan.orphan = true;
+                source->setHoldUntilStopped(false);
+                blocks.append(orphan);
+                continue;
+            }
+            for (quint32 id : source->functions())
+                if (collection->functions().contains(id) == false && id != collection->id())
+                    collection->addFunction(id);
+        }
+        removeBlock(show, track, b.functionId);
     }
     if (changed)
         e->blocks = blocks;
     return changed;
 }
 
-void SongDirector::removeBlock(Show *show, Track *track, ShowFunction *item)
+void SongDirector::removeBlock(Show *show, Track *track, quint32 functionId)
 {
-    const quint32 id = item->functionID();
-    emit blockRemoving(show->id(), item);
-    track->removeShowFunction(item);
+    while (ShowFunction *sf = item(track, functionId))
+    {
+        emit blockRemoving(show->id(), sf);
+        track->removeShowFunction(sf);
+    }
+    if (m_doc->function(functionId) == nullptr)
+        return;
     if (m_removeFunction)
     {
-        m_removeFunction(id);
+        m_removeFunction(functionId);
         return;
     }
     // the runner of a block started by hand would run a freed Collection
-    if (Function *f = m_doc->function(id); f != nullptr && f->isRunning())
+    if (Function *f = m_doc->function(functionId); f->isRunning())
         f->stopAndWait();
-    m_doc->deleteFunction(id);
+    m_doc->deleteFunction(functionId);
 }
 
 void SongDirector::setAnalysisDir(const QString &dir)
@@ -332,25 +447,99 @@ void SongDirector::sync(EdmAnalysisReader &reader)
         Show *show = qobject_cast<Show *>(f);
         if (show == nullptr || (m_isSongShow && m_isSongShow(show) == false))
             continue;
-        // the runner holds the Show's items: a running Show is changed once it stops
-        if (show->isRunning())
-        {
-            if (m_waiting.contains(show->id()) == false)
-            {
-                m_waiting.insert(show->id());
-                connect(show, qOverload<quint32>(&Function::stopped), this, [this]() { sync(); }, Qt::QueuedConnection);
-            }
-            continue;
-        }
-        const bool changed = track(show) == nullptr
-            ? m_done.contains(show->id()) == false && createBlocks(show, reader)
-            : follow(show, reader);
-        if (changed)
-        {
-            m_doc->setModified();
-            emit blocksChanged(show->id());
-        }
+        update(show, reader);
     }
+}
+
+void SongDirector::update(Show *show, EdmAnalysisReader &reader)
+{
+    // the runner holds the Show's items: a running Show is changed once it stops
+    if (show->isRunning())
+    {
+        if (m_waiting.contains(show->id()) == false)
+        {
+            m_waiting.insert(show->id());
+            connect(show, qOverload<quint32>(&Function::stopped), this, [this]() { sync(); }, Qt::QueuedConnection);
+        }
+        return;
+    }
+    const bool changed = track(show) == nullptr
+        ? m_done.contains(show->id()) == false && createBlocks(show, reader)
+        : follow(show, reader);
+    if (changed)
+    {
+        m_doc->setModified();
+        emit blocksChanged(show->id());
+    }
+}
+
+SectionEdits SongDirector::sectionEdits(Show *show) const
+{
+    return show != nullptr ? m_edits.value(show->id()) : SectionEdits();
+}
+
+QList<SongSection> SongDirector::sections(Show *show, EdmAnalysisReader &reader) const
+{
+    const ShowFunction *clip = m_doc != nullptr ? EdmAnalysisReader::firstAudioClip(m_doc, show) : nullptr;
+    if (clip == nullptr)
+        return QList<SongSection>();
+    const EdmAnalysis analysis = reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show));
+    if (analysis.valid == false)
+        return QList<SongSection>();
+    QList<SongSection> list = effectiveSections(analysis, m_edits.value(show->id()));
+    for (SongSection &s : list)
+    {
+        s.startMs += clip->startTime();
+        s.endMs += clip->startTime();
+    }
+    return list;
+}
+
+QList<SongSection> SongDirector::sections(Show *show) const
+{
+    return m_reader ? sections(show, *m_reader) : QList<SongSection>();
+}
+
+bool SongDirector::editSections(Show *show, const SectionAction &action, EdmAnalysisReader &reader, QString *error)
+{
+    const ShowFunction *clip = m_doc != nullptr && show != nullptr ? EdmAnalysisReader::firstAudioClip(m_doc, show) : nullptr;
+    const EdmAnalysis analysis = clip ? reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show)) : EdmAnalysis();
+    if (analysis.valid == false)
+    {
+        if (error)
+            *error = QString("the Show has no analysed audio clip");
+        return false;
+    }
+    SectionAction songTime = action;
+    songTime.timeMs -= clip->startTime();
+    QString why;
+    const SectionEdits before = m_edits.value(show->id());
+    const SectionEdits after = applySectionAction(analysis, before, songTime, &why);
+    if (error)
+        *error = why;
+    if (why.isEmpty() == false)
+        return false;
+    if (after == before)
+        return true;
+    if (after.isEmpty())
+        m_edits.remove(show->id());
+    else
+        m_edits.insert(show->id(), after);
+    m_doc->setModified();
+    emit sectionsChanged(show->id());
+    update(show, reader);
+    return true;
+}
+
+bool SongDirector::editSections(Show *show, const SectionAction &action, QString *error)
+{
+    if (m_reader == nullptr)
+    {
+        if (error)
+            *error = QString("no analysis folder");
+        return false;
+    }
+    return editSections(show, action, *m_reader, error);
 }
 
 void SongDirector::saveXML(QXmlStreamWriter *doc) const
@@ -370,7 +559,12 @@ void SongDirector::saveXML(QXmlStreamWriter *doc) const
             done.append(id);
     }
     std::sort(done.begin(), done.end());
-    if (live.isEmpty() && done.isEmpty())
+    QList<quint32> edited;
+    for (auto it = m_edits.cbegin(); it != m_edits.cend(); ++it)
+        if (m_doc != nullptr && qobject_cast<Show *>(m_doc->function(it.key())) != nullptr && it.value().isEmpty() == false)
+            edited.append(it.key());
+    std::sort(edited.begin(), edited.end());
+    if (live.isEmpty() && done.isEmpty() && edited.isEmpty())
         return;
 
     doc->writeStartElement(XML_ELEMENT);
@@ -407,6 +601,20 @@ void SongDirector::saveXML(QXmlStreamWriter *doc) const
     {
         doc->writeStartElement("Done");
         doc->writeAttribute("Show", QString::number(id));
+        doc->writeEndElement();
+    }
+    for (quint32 id : edited)
+    {
+        doc->writeStartElement("Sections");
+        doc->writeAttribute("Show", QString::number(id));
+        for (const SectionPin &pin : m_edits.value(id).pins)
+        {
+            doc->writeStartElement("Pin");
+            doc->writeAttribute("Label", pin.label);
+            doc->writeAttribute("Start", QString::number(pin.startMs, 'g', 17));
+            doc->writeAttribute("End", QString::number(pin.endMs, 'g', 17));
+            doc->writeEndElement();
+        }
         doc->writeEndElement();
     }
     doc->writeEndElement();
@@ -448,8 +656,30 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
 
     m_entries.clear();
     m_done.clear();
+    m_edits.clear();
     while (doc.readNextStartElement())
     {
+        if (doc.name() == QLatin1String("Sections"))
+        {
+            bool showOk = false;
+            const quint32 showId = doc.attributes().value("Show").toUInt(&showOk);
+            SectionEdits edits;
+            while (doc.readNextStartElement())
+            {
+                bool startOk = false, endOk = false;
+                SectionPin pin;
+                pin.label = doc.attributes().value("Label").toString();
+                pin.startMs = doc.attributes().value("Start").toDouble(&startOk);
+                pin.endMs = doc.attributes().value("End").toDouble(&endOk);
+                if (doc.name() == QLatin1String("Pin") && startOk && endOk && pin.endMs > pin.startMs
+                    && (edits.pins.isEmpty() || edits.pins.last().endMs <= pin.startMs))
+                    edits.pins.append(pin);
+                doc.skipCurrentElement();
+            }
+            if (showOk && edits.isEmpty() == false && m_doc != nullptr && qobject_cast<Show *>(m_doc->function(showId)) != nullptr)
+                m_edits.insert(showId, edits);
+            continue;
+        }
         if (doc.name() == QLatin1String("Done"))
         {
             m_done.insert(doc.attributes().value("Show").toUInt());

@@ -225,8 +225,8 @@ public:
     double vdjGridAnchorMs() const;
     QVariantList vdjPois() const;
 
-    /** Sections of the song in this show from the offline audio analysis
-     *  as {label, startMs, endMs, confidence, labelConfidence} */
+    /** Sections of the song in this show, the offline audio analysis with the
+     *  user's section edits, as {label, startMs, endMs, confidence, labelConfidence, edited} */
     QVariantList analysisSections() const;
     /** Re-read the song structure band, after the analysis files changed */
     void refreshAnalysisSections();
@@ -236,6 +236,11 @@ public:
 
     /** The analysis folder the section band and Create song blocks read */
     void setAnalysisDir(const QString &dir);
+
+    /** A section edit on the current Show: action "move_boundary", "relabel",
+     *  "split", "merge", "reset" or "reset_all", section an index into
+     *  analysisSections, timeMs in Show time. Empty when done, else why not */
+    Q_INVOKABLE QString editSongSection(const QString &action, int section, int timeMs, const QString &label);
 
     /** True when the current Show has its Song Director track */
     bool hasSongBlocks() const;

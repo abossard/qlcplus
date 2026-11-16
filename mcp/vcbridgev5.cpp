@@ -731,6 +731,63 @@ QVariantMap VCBridgeV5::songBlocks(quint32 showId) const
             {QStringLiteral("blocks"), blocks}};
 }
 
+QVariantMap VCBridgeV5::editSongSections(quint32 showId, const QString &action, int section, quint32 timeMs,
+                                         const QString &label)
+{
+    if (!hasMatchingAuthoringContext())
+        return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    ShowManager *manager = m_authoringApp->showManager();
+    if (!m_authoringApp->findChild<SongDirector *>() || !manager)
+        return songDirectorError(QStringLiteral("Song Director is unavailable"));
+    Show *show = qobject_cast<Show *>(m_doc->function(showId));
+    if (!show)
+        return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
+    if (manager->readOnly())
+        return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
+    // what the user does: open the Show, act on its section ruler
+    manager->setCurrentShowID(int(showId));
+    if (manager->currentShow() != show)
+        return songDirectorError(QStringLiteral("the Show Manager cannot open Show %1 now").arg(showId));
+    const QString error = manager->editSongSection(action, section, int(timeMs), label);
+    if (!error.isEmpty())
+        return songDirectorError(error);
+    return songSections(showId);
+}
+
+QVariantMap VCBridgeV5::songSections(quint32 showId) const
+{
+    if (!hasMatchingAuthoringContext())
+        return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    const SongDirector *director = m_authoringApp->findChild<SongDirector *>();
+    if (!director)
+        return songDirectorError(QStringLiteral("Song Director is unavailable"));
+    Show *show = qobject_cast<Show *>(m_doc->function(showId));
+    if (!show)
+        return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
+
+    QVariantList sections;
+    for (const SongSection &s : director->sections(show))
+        sections.append(QVariantMap{
+            {QStringLiteral("index"), sections.count()},
+            {QStringLiteral("label"), s.label},
+            {QStringLiteral("startMs"), s.startMs},
+            {QStringLiteral("endMs"), s.endMs},
+            {QStringLiteral("confidence"), s.confidence},
+            {QStringLiteral("labelConfidence"), s.labelConfidence},
+            {QStringLiteral("unsure"), s.unsure},
+            {QStringLiteral("edited"), s.edited}});
+    const ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
+    const double offset = clip ? clip->startTime() : 0;
+    QVariantList edits;
+    for (const SectionPin &pin : director->sectionEdits(show).pins)
+        edits.append(QVariantMap{{QStringLiteral("label"), pin.label},
+                                 {QStringLiteral("startMs"), pin.startMs + offset},
+                                 {QStringLiteral("endMs"), pin.endMs + offset}});
+    return {{QStringLiteral("showID"), showId},
+            {QStringLiteral("sections"), sections},
+            {QStringLiteral("edits"), edits}};
+}
+
 QVariantMap VCBridgeV5::recordingState() const
 {
     if (!hasMatchingAuthoringContext())

@@ -7,6 +7,7 @@
 
 #include "songdirector_test.h"
 #include "songdirector.h"
+#include "songsections.h"
 
 #include "audio.h"
 #include "chaser.h"
@@ -226,11 +227,11 @@ void SongDirector_Test::createBlocks_data()
     QTest::addColumn<QStringList>("expected");
 
     QTest::newRow("clip at the show start") << 0u
-        << QStringList { "Song / intro 1 @0 +9000", "Song / buildup 1 @9000 +8000",
-                         "Song / drop 1 @17000 +16000", "Song / outro 1 @33000 +8000" };
+        << QStringList { "intro 1 @0 +9000", "buildup 1 @9000 +8000",
+                         "drop 1 @17000 +16000", "outro 1 @33000 +8000" };
     QTest::newRow("clip 30 s into the show") << 30000u
-        << QStringList { "Song / intro 1 @30000 +9000", "Song / buildup 1 @39000 +8000",
-                         "Song / drop 1 @47000 +16000", "Song / outro 1 @63000 +8000" };
+        << QStringList { "intro 1 @30000 +9000", "buildup 1 @39000 +8000",
+                         "drop 1 @47000 +16000", "outro 1 @63000 +8000" };
 }
 
 void SongDirector_Test::createBlocks()
@@ -423,7 +424,7 @@ void SongDirector_Test::holdOnlyOnSidecarBlocks_data()
     QTest::newRow("block of a second director track, dropped on load") << "second track" << false;
     QTest::newRow("director track deleted") << "track deleted" << false;
     QTest::newRow("block item deleted, track kept") << "item deleted" << false;
-    QTest::newRow("edited block orphaned by a new analysis") << "orphaned" << false;
+    QTest::newRow("filled block whose time no section covers, kept without a section") << "orphaned" << false;
     QTest::newRow("orphan block loaded") << "orphan loaded" << false;
     QTest::newRow("block loaded without its item") << "no item" << false;
 }
@@ -453,11 +454,14 @@ void SongDirector_Test::holdOnlyOnSidecarBlocks()
             QVERIFY(track->removeShowFunction(buildup, true));
         else
         {
-            // the user shortens the buildup block, then the buildup leaves the analysis
-            buildup->setDuration(4000);
-            song.analyse(finalJson({ section("intro", 0, 9000, 100), section("drop", 9000, 33000, 90), section("outro", 33000, 41000, 60) }));
+            // the user fills the buildup block, then the analysis ends before it: no block covers its time
+            Scene *extra = new Scene(&song.doc);
+            QVERIFY(song.doc.addFunction(extra));
+            collection->addFunction(extra->id());
+            song.analyse(finalJson({ section("intro", 0, 9000, 100) }));
             song.director.sync(song.reader);
-            QVERIFY(song.director.blocks(song.show).count() == 4);
+            QCOMPARE(song.director.blocks(song.show).count(), 2);
+            QVERIFY(song.director.blocks(song.show).last().orphan);
         }
     }
     else
@@ -655,8 +659,8 @@ void SongDirector_Test::followAnalysis_data()
 
     const QList<EdmSection> base { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 40, true),
                                    section("drop", 17000, 33000, 90), section("outro", 33000, 41000, 60) };
-    const QStringList baseItems { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {}",
-                                  "Song / drop 1 @17000 +16000 {}", "Song / outro 1 @33000 +8000 {}" };
+    const QStringList baseItems { "intro 1 @0 +9000 {}", "buildup 1 @9000 +8000 {}",
+                                  "drop 1 @17000 +16000 {}", "outro 1 @33000 +8000 {}" };
     const QStringList baseSidecar { "intro 1 @0 +9000 c100 u0", "buildup 1 @9000 +8000 c40 u1",
                                     "drop 1 @17000 +16000 c90 u0", "outro 1 @33000 +8000 c60 u0" };
     const QList<EdmSection> earlier { section("intro", 0, 8000, 100), section("buildup", 8000, 16000, 40, true),
@@ -668,44 +672,32 @@ void SongDirector_Test::followAnalysis_data()
 
     QTest::newRow("unchanged analysis") << "none" << base << baseItems << baseSidecar << 4 << 0;
     QTest::newRow("edges move, untouched blocks follow") << "none" << earlier
-        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
-                         "Song / drop 1 @16000 +16000 {}", "Song / outro 1 @32000 +8000 {}" }
+        << QStringList { "intro 1 @0 +8000 {}", "buildup 1 @8000 +8000 {}",
+                         "drop 1 @16000 +16000 {}", "outro 1 @32000 +8000 {}" }
         << earlierSidecar << 4 << 1;
-    QTest::newRow("moved block stays") << "move drop" << earlier
-        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
-                         "Song / drop 1 @18000 +16000 {}", "Song / outro 1 @32000 +8000 {}" }
-        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
-                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
-    QTest::newRow("resized block stays") << "shorten drop" << earlier
-        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
-                         "Song / drop 1 @17000 +10000 {}", "Song / outro 1 @32000 +8000 {}" }
-        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
-                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
-    QTest::newRow("filled block stays") << "fill drop" << earlier
-        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
-                         "Song / drop 1 @17000 +16000 {Extra}", "Song / outro 1 @32000 +8000 {}" }
-        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
-                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
+    const QStringList earlierItems { "intro 1 @0 +8000 {}", "buildup 1 @8000 +8000 {}", "drop 1 @16000 +16000 {}", "outro 1 @32000 +8000 {}" };
+    QTest::newRow("moved block snaps back to its section") << "move drop" << earlier << earlierItems << earlierSidecar << 4 << 1;
+    QTest::newRow("resized block snaps back to its section") << "shorten drop" << earlier << earlierItems << earlierSidecar << 4 << 1;
+    QTest::newRow("filled block follows its section with its content") << "fill drop" << earlier
+        << QStringList { "intro 1 @0 +8000 {}", "buildup 1 @8000 +8000 {}", "drop 1 @16000 +16000 {Extra}", "outro 1 @32000 +8000 {}" }
+        << earlierSidecar << 4 << 1;
     QTest::newRow("deleted block is not recreated") << "delete drop" << earlier
-        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}", "Song / outro 1 @32000 +8000 {}" }
-        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
-                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
+        << QStringList { "intro 1 @0 +8000 {}", "buildup 1 @8000 +8000 {}", "outro 1 @32000 +8000 {}" }
+        << earlierSidecar << 4 << 1;
     QTest::newRow("added section gets a pre-filled block")
         << "none" << QList<EdmSection> { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 40, true),
                                          section("drop", 17000, 33000, 90), section("breakdown", 33000, 37000, 70),
                                          section("outro", 37000, 45000, 60) }
-        << QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {}", "Song / drop 1 @17000 +16000 {}",
-                         "Song / breakdown 1 @33000 +4000 {Calm}", "Song / outro 1 @37000 +8000 {}" }
+        << QStringList { "intro 1 @0 +9000 {}", "buildup 1 @9000 +8000 {}", "drop 1 @17000 +16000 {}",
+                         "breakdown 1 @33000 +4000 {Calm}", "outro 1 @37000 +8000 {}" }
         << QStringList { "intro 1 @0 +9000 c100 u0", "buildup 1 @9000 +8000 c40 u1", "drop 1 @17000 +16000 c90 u0",
                          "breakdown 1 @33000 +4000 c70 u0", "outro 1 @37000 +8000 c60 u0" } << 5 << 1;
     QTest::newRow("removed section takes its untouched block") << "none" << noBuildup
-        << QStringList { "Song / intro 1 @0 +9000 {}", "Song / drop 1 @9000 +24000 {}", "Song / outro 1 @33000 +8000 {}" }
+        << QStringList { "intro 1 @0 +9000 {}", "drop 1 @9000 +24000 {}", "outro 1 @33000 +8000 {}" }
         << QStringList { "intro 1 @0 +9000 c100 u0", "drop 1 @9000 +24000 c90 u0", "outro 1 @33000 +8000 c60 u0" } << 3 << 1;
-    QTest::newRow("filled block of a removed section stays") << "fill buildup" << noBuildup
-        << QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {Extra}",
-                         "Song / drop 1 @9000 +24000 {}", "Song / outro 1 @33000 +8000 {}" }
-        << QStringList { "intro 1 @0 +9000 c100 u0", "buildup 1 @9000 +8000 c40 u1",
-                         "drop 1 @9000 +24000 c90 u0", "outro 1 @33000 +8000 c60 u0" } << 4 << 1;
+    QTest::newRow("content of a removed section joins the block now covering its time") << "fill buildup" << noBuildup
+        << QStringList { "intro 1 @0 +9000 {}", "drop 1 @9000 +24000 {Extra}", "outro 1 @33000 +8000 {}" }
+        << QStringList { "intro 1 @0 +9000 c100 u0", "drop 1 @9000 +24000 c90 u0", "outro 1 @33000 +8000 c60 u0" } << 3 << 1;
     QTest::newRow("unsure and confidence follow")
         << "none" << QList<EdmSection> { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 80),
                                          section("drop", 17000, 33000, 90), section("outro", 33000, 41000, 60) }
@@ -744,7 +736,7 @@ void SongDirector_Test::followAnalysis()
     ShowFunction *target = nullptr;
     for (ShowFunction *sf : track->showFunctions())
     {
-        if (edit.endsWith(" " + song.doc.function(sf->functionID())->name().section(' ', 2, 2)))
+        if (edit.endsWith(" " + song.doc.function(sf->functionID())->name().section(' ', 0, 0)))
             target = sf;
     }
     QVERIFY((target != nullptr) == (edit != "none"));
@@ -819,7 +811,7 @@ void SongDirector_Test::removedBlockStopsFirst()
     QCOMPARE(events, (running ? QStringList { "stopped", "removed" } : QStringList { "removed" }));
 }
 
-void SongDirector_Test::orphanBlockClaimsNoSection_data()
+void SongDirector_Test::goneSectionContentJoins_data()
 {
     QTest::addColumn<bool>("reopen");   // the workspace saved and reopened while the section was gone
 
@@ -827,7 +819,7 @@ void SongDirector_Test::orphanBlockClaimsNoSection_data()
     QTest::newRow("saved and reopened") << true;
 }
 
-void SongDirector_Test::orphanBlockClaimsNoSection()
+void SongDirector_Test::goneSectionContentJoins()
 {
     QFETCH(bool, reopen);
 
@@ -842,15 +834,15 @@ void SongDirector_Test::orphanBlockClaimsNoSection()
     Track *track = song.director.track(song.show);
     QVERIFY(track != nullptr);
 
-    // the user fills the buildup, then the buildup leaves the analysis: the filled block stays
+    // the user fills the buildup, then the buildup leaves the analysis: its content joins the drop
     for (ShowFunction *sf : track->showFunctions())
-        if (song.doc.function(sf->functionID())->name() == "Song / buildup 1")
+        if (song.doc.function(sf->functionID())->name() == "buildup 1")
             qobject_cast<Collection *>(song.doc.function(sf->functionID()))->addFunction(extra->id());
     song.analyse(finalJson({ section("intro", 0, 9000, 100), section("drop", 9000, 33000, 90), section("outro", 33000, 41000, 60) }));
     song.director.sync(song.reader);
     QCOMPARE(itemsWithContent(&song.doc, track),
-             (QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {Extra}",
-                            "Song / drop 1 @9000 +24000 {}", "Song / outro 1 @33000 +8000 {}" }));
+             (QStringList { "intro 1 @0 +9000 {}", "drop 1 @9000 +24000 {Extra}", "outro 1 @33000 +8000 {}" }));
+    QCOMPARE(collections(&song.doc), 3);
 
     Doc *doc = &song.doc;
     SongDirector *director = &song.director;
@@ -879,22 +871,380 @@ void SongDirector_Test::orphanBlockClaimsNoSection()
         QVERIFY(track != nullptr);
     }
 
-    // a buildup comes back: it gets a block of its own, the kept block stays the user's
+    // a buildup comes back: a new block with the label's default, the drop keeps the joined content
     song.analyse(finalJson(base));
     director->sync(song.reader);
     QCOMPARE(itemsWithContent(doc, track),
-             (QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {Extra}", "Song / buildup 1 @9000 +8000 {}",
-                            "Song / drop 1 @17000 +16000 {}", "Song / outro 1 @33000 +8000 {}" }));
-    QCOMPARE(collections(doc), 5);
-    QCOMPARE(director->blocks(show).count(), 5);
+             (QStringList { "intro 1 @0 +9000 {}", "buildup 1 @9000 +8000 {}", "drop 1 @17000 +16000 {Extra}", "outro 1 @33000 +8000 {}" }));
+    QCOMPARE(collections(doc), 4);
+    QCOMPARE(director->blocks(show).count(), 4);
 
-    // and it follows the next analysis while the kept block does not
+    // and all follow the next analysis
     song.analyse(finalJson({ section("intro", 0, 8000, 100), section("buildup", 8000, 16000, 40, true),
                              section("drop", 16000, 32000, 90), section("outro", 32000, 40000, 60) }));
     director->sync(song.reader);
     QCOMPARE(itemsWithContent(doc, track),
-             (QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}", "Song / buildup 1 @9000 +8000 {Extra}",
-                            "Song / drop 1 @16000 +16000 {}", "Song / outro 1 @32000 +8000 {}" }));
+             (QStringList { "intro 1 @0 +8000 {}", "buildup 1 @8000 +8000 {}", "drop 1 @16000 +16000 {Extra}",
+                            "outro 1 @32000 +8000 {}" }));
+}
+
+namespace
+{
+
+/** intro 0-8 s, buildup 8-16 s (unsure), drop 16-32 s, outro 32-40 s; bars of 2 s from 0 */
+const QList<EdmSection> kBarSections { section("intro", 0, 8000, 100), section("buildup", 8000, 16000, 40, true),
+                                       section("drop", 16000, 32000, 90), section("outro", 32000, 40000, 60) };
+
+/** "drop* 16000-24000 c100 u0": label, edited, start, end, label confidence, unsure */
+QStringList describe(const QList<SongSection> &sections)
+{
+    QStringList list;
+    for (const SongSection &s : sections)
+        list << QString("%1%2 %3-%4 c%5 u%6").arg(s.label, s.edited ? "*" : "").arg(s.startMs).arg(s.endMs)
+                    .arg(s.labelConfidence).arg(s.unsure ? 1 : 0);
+    return list;
+}
+
+/** "move 1 13100", "relabel 1 breakdown", "split 2 23500", "merge 1", "reset 1", "reset_all" */
+SectionAction action(const QString &text)
+{
+    const QStringList words = text.split(' ');
+    SectionAction a;
+    const bool known = sectionActionType(words.at(0) == "move" ? "move_boundary" : words.at(0), &a.type);
+    Q_ASSERT(known);
+    a.section = words.value(1, "-1").toInt();
+    if (a.type == SectionAction::Relabel)
+        a.label = words.value(2);
+    else
+        a.timeMs = words.value(2, "0").toDouble();
+    return a;
+}
+
+/** The edits after each action of "a; b; c", the error of the last one */
+SectionEdits edit(const EdmAnalysis &analysis, const QString &actions, QString *error)
+{
+    SectionEdits edits;
+    for (const QString &text : actions.split("; ", Qt::SkipEmptyParts))
+        edits = applySectionAction(analysis, edits, action(text), error);
+    return edits;
+}
+
+}
+
+void SongDirector_Test::sectionActions_data()
+{
+    QTest::addColumn<QString>("actions");
+    QTest::addColumn<QStringList>("expected");   // the effective sections afterwards
+    QTest::addColumn<bool>("refused");           // the last action
+
+    const QStringList base { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" };
+    QTest::newRow("no edits") << "" << base << false;
+    QTest::newRow("move boundary later, snapped to a bar, both neighbours edited") << "move 1 13100"
+        << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-14000 c100 u0", "drop* 14000-32000 c100 u0", "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("move boundary earlier") << "move 0 5900"
+        << QStringList { "intro* 0-6000 c100 u0", "buildup* 6000-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("move boundary snapped onto a section edge is refused") << "move 1 8600" << base << true;
+    QTest::newRow("move boundary past the next section is refused") << "move 1 33000" << base << true;
+    QTest::newRow("the last section has no boundary to move") << "move 3 38000" << base << true;
+    QTest::newRow("move an edited boundary again") << "move 1 12000; move 1 10000"
+        << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-10000 c100 u0", "drop* 10000-32000 c100 u0", "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("relabel") << "relabel 1 breakdown"
+        << QStringList { "intro 0-8000 c100 u0", "breakdown* 8000-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("relabel to its own label confirms it") << "relabel 1 buildup"
+        << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("relabel to an unknown label is refused") << "relabel 1 chorus" << base << true;
+    QTest::newRow("split, snapped to a bar") << "split 2 23500"
+        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop* 16000-24000 c100 u0", "drop* 24000-32000 c100 u0",
+                         "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("split snapped onto the section start is refused") << "split 2 16400" << base << true;
+    QTest::newRow("split outside the section is refused") << "split 2 35000" << base << true;
+    QTest::newRow("merge with the next, first label wins") << "merge 1"
+        << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-32000 c100 u0", "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("the last section has no next to merge") << "merge 3" << base << true;
+    QTest::newRow("split then merge back") << "split 2 24000; merge 2"
+        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop* 16000-32000 c100 u0", "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("reset one") << "relabel 1 breakdown; reset 1" << base << false;
+    QTest::newRow("reset one keeps the other edits") << "relabel 1 breakdown; relabel 3 groove; reset 1"
+        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "groove* 32000-40000 c100 u0" } << false;
+    QTest::newRow("reset one of a moved boundary brings back only its own analysis") << "move 1 12000; reset 2"
+        << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-12000 c100 u0", "buildup 12000-16000 c40 u1", "drop 16000-32000 c90 u0",
+                         "outro 32000-40000 c60 u0" } << false;
+    QTest::newRow("reset of a merged section brings back both") << "merge 1; reset 1" << base << false;
+    QTest::newRow("reset of an unedited section changes nothing") << "relabel 3 groove; reset 0"
+        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "groove* 32000-40000 c100 u0" } << false;
+    QTest::newRow("reset all") << "move 1 12000; relabel 3 groove; split 0 4000; reset_all" << base << false;
+    QTest::newRow("unknown section is refused") << "relabel 7 drop" << base << true;
+    QTest::newRow("negative section is refused") << "merge -1" << base << true;
+}
+
+void SongDirector_Test::sectionActions()
+{
+    QFETCH(QString, actions);
+    QFETCH(QStringList, expected);
+    QFETCH(bool, refused);
+
+    const EdmAnalysis analysis = parseEdmAnalysis(finalJson(kBarSections));
+    QVERIFY(analysis.valid);
+    QString error;
+    const SectionEdits edits = edit(analysis, actions, &error);
+    QCOMPARE(describe(effectiveSections(analysis, edits)), expected);
+    QCOMPARE(error.isEmpty(), refused == false);
+
+    // a refused action leaves the edits as they were
+    if (refused)
+    {
+        const QString before = actions.section("; ", 0, -2);
+        QString ignored;
+        QCOMPARE(edits, edit(analysis, before, &ignored));
+    }
+}
+
+void SongDirector_Test::editsOverReanalysis_data()
+{
+    QTest::addColumn<QString>("actions");               // on the first analysis
+    QTest::addColumn<QList<EdmSection>>("reanalysis");
+    QTest::addColumn<QStringList>("expected");
+
+    const QList<EdmSection> later { section("intro", 0, 10000, 100), section("buildup", 10000, 18000, 40, true),
+                                    section("drop", 18000, 34000, 90), section("outro", 34000, 42000, 60) };
+    QTest::newRow("no edits: the new analysis") << "" << later
+        << QStringList { "intro 0-10000 c100 u0", "buildup 10000-18000 c40 u1", "drop 18000-34000 c90 u0", "outro 34000-42000 c60 u0" };
+    QTest::newRow("an edited section stays, the analysis fills around it") << "relabel 1 breakdown" << later
+        << QStringList { "intro 0-8000 c100 u0", "breakdown* 8000-16000 c100 u0", "buildup 16000-18000 c40 u1", "drop 18000-34000 c90 u0",
+                         "outro 34000-42000 c60 u0" };
+    QTest::newRow("a moved boundary stays") << "move 1 12000" << later
+        << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-12000 c100 u0", "drop* 12000-32000 c100 u0", "drop 32000-34000 c90 u0",
+                         "outro 34000-42000 c60 u0" };
+    QTest::newRow("the edited section's counterpart is gone: the edit stays")
+        << "relabel 1 breakdown"
+        << QList<EdmSection> { section("intro", 0, 8000, 100), section("drop", 8000, 32000, 90), section("outro", 32000, 40000, 60) }
+        << QStringList { "intro 0-8000 c100 u0", "breakdown* 8000-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" };
+    QTest::newRow("a piece under half a bar joins its analysis neighbour")
+        << "relabel 1 breakdown"
+        << QList<EdmSection> { section("intro", 0, 8500, 100), section("buildup", 8500, 16500, 40, true),
+                               section("drop", 16500, 32500, 90), section("outro", 32500, 40500, 60) }
+        << QStringList { "intro 0-8000 c100 u0", "breakdown* 8000-16000 c100 u0", "drop 16000-32500 c90 u0", "outro 32500-40500 c60 u0" };
+    QTest::newRow("an edit past the new analysis end stays") << "relabel 3 groove"
+        << QList<EdmSection> { section("intro", 0, 8000, 100), section("drop", 8000, 30000, 90) }
+        << QStringList { "intro 0-8000 c100 u0", "drop 8000-30000 c90 u0", "groove* 32000-40000 c100 u0" };
+}
+
+void SongDirector_Test::editsOverReanalysis()
+{
+    QFETCH(QString, actions);
+    QFETCH(QList<EdmSection>, reanalysis);
+    QFETCH(QStringList, expected);
+
+    QString error;
+    const SectionEdits edits = edit(parseEdmAnalysis(finalJson(kBarSections)), actions, &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(describe(effectiveSections(parseEdmAnalysis(finalJson(reanalysis)), edits)), expected);
+}
+
+namespace
+{
+
+/** A song Show with the clip 30 s in, the bar sections, blocks created with
+ *  the defaults drop -> "Drop", breakdown -> "Calm" */
+struct EditedSong
+{
+    EditedSong()
+        : song(30000, kSongPath, false)
+        , mapping(&song.doc)
+    {
+        song.analyse(finalJson(kBarSections));
+        for (const char *name : {"Drop", "Calm", "Extra"})
+        {
+            Scene *scene = new Scene(&song.doc);
+            scene->setName(name);
+            song.doc.addFunction(scene);
+            scenes.insert(name, scene->id());
+        }
+        mapping.setFunctionId("drop", int(scenes.value("Drop")));
+        mapping.setFunctionId("breakdown", int(scenes.value("Calm")));
+        song.director.setMapping(&mapping);
+        song.director.sync(song.reader);
+    }
+
+    /** Each action of "a; b" in Show time; the result of the last one */
+    bool edit(const QString &actions, QString *error)
+    {
+        bool done = true;
+        for (const QString &text : actions.split("; ", Qt::SkipEmptyParts))
+            done = song.director.editSections(song.show, action(text), song.reader, error);
+        return done;
+    }
+
+    SongShow song;
+    EdmStructureMapping mapping;
+    QMap<QString, quint32> scenes;
+};
+
+}
+
+void SongDirector_Test::blocksFollowSectionEdits_data()
+{
+    QTest::addColumn<QString>("actions");               // Show time: the clip starts at 30 s
+    QTest::addColumn<bool>("fill");                     // the user adds "Extra" to the drop block first
+    QTest::addColumn<QList<EdmSection>>("reanalysis");  // afterwards, none when empty
+    QTest::addColumn<bool>("refused");
+    QTest::addColumn<QStringList>("expected");
+    QTest::addColumn<int>("expectedCollections");
+
+    const QList<EdmSection> none;
+    const QStringList base { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +16000 {Drop}",
+                             "outro 1 @62000 +8000 {}" };
+    QTest::newRow("no edits") << "" << false << none << false << base << 4;
+    QTest::newRow("move boundary: both blocks follow, snapped to a bar") << "move 1 43100" << false << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +6000 {}", "drop 1 @44000 +18000 {Drop}",
+                         "outro 1 @62000 +8000 {}" } << 4;
+    QTest::newRow("relabel: content as generated takes the new default") << "relabel 1 breakdown" << false << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "breakdown 1 @38000 +8000 {Calm}", "drop 1 @46000 +16000 {Drop}",
+                         "outro 1 @62000 +8000 {}" } << 4;
+    QTest::newRow("relabel: the user's content stays") << "relabel 2 groove" << true << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "groove 1 @46000 +16000 {Drop,Extra}",
+                         "outro 1 @62000 +8000 {}" } << 4;
+    QTest::newRow("relabel renumbers the names") << "relabel 0 drop" << false << none << false
+        << QStringList { "drop 1 @30000 +8000 {Drop}", "buildup 1 @38000 +8000 {}", "drop 2 @46000 +16000 {Drop}",
+                         "outro 1 @62000 +8000 {}" } << 4;
+    QTest::newRow("split: a new block with the default") << "split 2 53500" << false << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +8000 {Drop}",
+                         "drop 2 @54000 +8000 {Drop}", "outro 1 @62000 +8000 {}" } << 5;
+    QTest::newRow("split: the new block copies the user's content") << "split 2 53500" << true << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +8000 {Drop,Extra}",
+                         "drop 2 @54000 +8000 {Drop,Extra}", "outro 1 @62000 +8000 {}" } << 5;
+    QTest::newRow("merge: the untouched second block goes") << "merge 1" << false << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +24000 {}", "outro 1 @62000 +8000 {}" } << 3;
+    QTest::newRow("merge: the user's content of the second block joins") << "merge 1" << true << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +24000 {Drop,Extra}", "outro 1 @62000 +8000 {}" } << 3;
+    QTest::newRow("reset one") << "relabel 1 breakdown; reset 1" << false << none << false << base << 4;
+    QTest::newRow("reset all after a merge brings the second block back") << "move 0 35000; merge 1; reset_all" << false << none << false
+        << base << 4;
+    QTest::newRow("refused: nothing changes") << "merge 3" << false << none << true << base << 4;
+    QTest::newRow("re-analysis without edits: all blocks follow") << "" << false
+        << QList<EdmSection> { section("intro", 0, 10000, 100), section("buildup", 10000, 18000, 40, true),
+                               section("drop", 18000, 34000, 90), section("outro", 34000, 42000, 60) } << false
+        << QStringList { "intro 1 @30000 +10000 {}", "buildup 1 @40000 +8000 {}", "drop 1 @48000 +16000 {Drop}",
+                         "outro 1 @64000 +8000 {}" } << 4;
+    QTest::newRow("re-analysis keeps the edited section, the rest follows") << "relabel 1 breakdown" << false
+        << QList<EdmSection> { section("intro", 0, 10000, 100), section("buildup", 10000, 18000, 40, true),
+                               section("drop", 18000, 34000, 90), section("outro", 34000, 42000, 60) } << false
+        << QStringList { "intro 1 @30000 +8000 {}", "breakdown 1 @38000 +8000 {Calm}", "buildup 1 @46000 +2000 {}",
+                         "drop 1 @48000 +16000 {Drop}", "outro 1 @64000 +8000 {}" } << 5;
+}
+
+void SongDirector_Test::blocksFollowSectionEdits()
+{
+    QFETCH(QString, actions);
+    QFETCH(bool, fill);
+    QFETCH(QList<EdmSection>, reanalysis);
+    QFETCH(bool, refused);
+    QFETCH(QStringList, expected);
+    QFETCH(int, expectedCollections);
+
+    EditedSong edited;
+    SongShow &song = edited.song;
+    Track *track = song.director.track(song.show);
+    QVERIFY(track != nullptr);
+    if (fill)
+    {
+        for (const SongDirectorBlock &b : song.director.blocks(song.show))
+            if (b.generated.label == "drop")
+                qobject_cast<Collection *>(song.doc.function(b.functionId))->addFunction(edited.scenes.value("Extra"));
+    }
+    QSignalSpy sections(&song.director, &SongDirector::sectionsChanged);
+    QString error;
+    QCOMPARE(edited.edit(actions, &error), refused == false);
+    QCOMPARE(error.isEmpty(), refused == false);
+    if (refused)
+        QCOMPARE(sections.count(), 0);
+    if (reanalysis.isEmpty() == false)
+    {
+        song.analyse(finalJson(reanalysis));
+        song.director.sync(song.reader);
+    }
+    QCOMPARE(itemsWithContent(&song.doc, track), expected);
+    QCOMPARE(collections(&song.doc), expectedCollections);
+    QCOMPARE(song.director.blocks(song.show).count(), expected.count());
+
+    // the header's sections are the blocks' sections
+    QStringList headers;
+    for (const SongSection &s : song.director.sections(song.show, song.reader))
+        headers << QString("%1 @%2 +%3").arg(s.label).arg(s.startMs).arg(s.endMs - s.startMs);
+    QStringList blocks;
+    for (const QString &item : expected)
+        blocks << item.section(' ', 0, 0) + " " + item.section(' ', 2, 3);
+    QCOMPARE(headers, blocks);
+
+    // a sync of the same analysis changes nothing
+    QSignalSpy changed(&song.director, &SongDirector::blocksChanged);
+    song.director.sync(song.reader);
+    QCOMPARE(changed.count(), 0);
+}
+
+void SongDirector_Test::sectionEditsRoundTrip()
+{
+    EditedSong edited;
+    SongShow &song = edited.song;
+    QString error;
+    QVERIFY2(edited.edit("move 1 43100; relabel 3 groove; split 0 35000", &error), qPrintable(error));
+    const SectionEdits edits = song.director.sectionEdits(song.show);
+    QCOMPARE(edits.pins.count(), 5);
+    const QStringList expectedItems = itemsWithContent(&song.doc, song.director.track(song.show));
+
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartElement("Workspace");
+    QVERIFY(song.doc.saveXML(&writer));
+    song.director.saveXML(&writer);
+    writer.writeEndElement();
+
+    Doc doc(nullptr);
+    SongDirector director(&doc);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(doc.loadXML(reader));
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(director.loadXML(reader));
+
+    Show *show = qobject_cast<Show *>(doc.function(song.show->id()));
+    QVERIFY(show != nullptr);
+    QCOMPARE(director.sectionEdits(show), edits);
+    QSignalSpy changed(&director, &SongDirector::blocksChanged);
+    director.sync(song.reader);
+    QCOMPARE(changed.count(), 0);
+    QCOMPARE(itemsWithContent(&doc, director.track(show)), expectedItems);
+
+    // reset all leaves nothing to save
+    QVERIFY(director.editSections(show, action("reset_all"), song.reader, &error));
+    QString empty;
+    QXmlStreamWriter emptyWriter(&empty);
+    director.saveXML(&emptyWriter);
+    QVERIFY(empty.contains("<Sections") == false);
+}
+
+void SongDirector_Test::oldBlocksSnapBackOnLoad()
+{
+    // a workspace of the Song Director before section edits: names with the song title, a moved and a resized block
+    EditedSong edited;
+    SongShow &song = edited.song;
+    Track *track = song.director.track(song.show);
+    for (ShowFunction *sf : track->showFunctions())
+    {
+        Function *f = song.doc.function(sf->functionID());
+        f->setName("Song / " + f->name());
+        if (f->name().endsWith("drop 1"))
+            sf->setStartTime(sf->startTime() + 1000);
+        if (f->name().endsWith("outro 1"))
+            sf->setDuration(3000);
+    }
+    QSignalSpy changed(&song.director, &SongDirector::blocksChanged);
+    song.director.sync(song.reader);
+    QCOMPARE(changed.count(), 1);
+    QCOMPARE(itemsWithContent(&song.doc, track),
+             (QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +16000 {Drop}",
+                            "outro 1 @62000 +8000 {}" }));
 }
 
 QTEST_GUILESS_MAIN(SongDirector_Test)

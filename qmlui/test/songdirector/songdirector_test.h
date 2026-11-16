@@ -36,8 +36,16 @@ private slots:
     void followAnalysis();
     void removedBlockStopsFirst_data();
     void removedBlockStopsFirst();
-    void orphanBlockClaimsNoSection_data();
-    void orphanBlockClaimsNoSection();
+    void goneSectionContentJoins_data();
+    void goneSectionContentJoins();
+    void sectionActions_data();
+    void sectionActions();
+    void editsOverReanalysis_data();
+    void editsOverReanalysis();
+    void blocksFollowSectionEdits_data();
+    void blocksFollowSectionEdits();
+    void sectionEditsRoundTrip();
+    void oldBlocksSnapBackOnLoad();
 };
 
 #endif

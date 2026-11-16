@@ -1459,4 +1459,95 @@ void McpLiveControlTools_Test::latchedToggle()
     }
 }
 
+void McpLiveControlTools_Test::songSectionEdits_data()
+{
+    QTest::addColumn<QByteArray>("edits");     // edit_song_sections arguments without showID, one after the other
+    QTest::addColumn<QStringList>("expected"); // "label start-end", * when edited, in Show time (clip at 2 s)
+    QTest::addColumn<QString>("error");        // of the last edit
+
+    const QStringList base { "intro 2000-10000", "drop 10000-26000" };
+    QTest::newRow("move_boundary, snapped to a bar") << QByteArray(R"([{"action":"move_boundary","section":0,"timeMs":13100}])")
+        << QStringList { "intro* 2000-14000", "drop* 14000-26000" } << QString();
+    QTest::newRow("relabel") << QByteArray(R"([{"action":"relabel","section":1,"label":"breakdown"}])")
+        << QStringList { "intro 2000-10000", "breakdown* 10000-26000" } << QString();
+    QTest::newRow("split") << QByteArray(R"([{"action":"split","section":1,"timeMs":18300}])")
+        << QStringList { "intro 2000-10000", "drop* 10000-18000", "drop* 18000-26000" } << QString();
+    QTest::newRow("merge") << QByteArray(R"([{"action":"merge","section":0}])") << QStringList { "intro* 2000-26000" } << QString();
+    QTest::newRow("reset") << QByteArray(R"([{"action":"merge","section":0},{"action":"reset","section":0}])") << base << QString();
+    QTest::newRow("reset_all") << QByteArray(R"([{"action":"relabel","section":0,"label":"groove"},{"action":"split","section":1,"timeMs":18000},{"action":"reset_all"}])")
+        << base << QString();
+    QTest::newRow("unknown action") << QByteArray(R"([{"action":"jump","section":0}])") << base << QStringLiteral("unknown section action");
+    QTest::newRow("move_boundary without timeMs") << QByteArray(R"([{"action":"move_boundary","section":0}])") << base << QStringLiteral("timeMs");
+    QTest::newRow("relabel without label") << QByteArray(R"([{"action":"relabel","section":0}])") << base << QStringLiteral("label");
+    QTest::newRow("relabel to an unknown label") << QByteArray(R"([{"action":"relabel","section":0,"label":"chorus"}])") << base
+        << QStringLiteral("unknown label");
+    QTest::newRow("merge without section") << QByteArray(R"([{"action":"merge"}])") << base << QStringLiteral("section");
+    QTest::newRow("section out of range") << QByteArray(R"([{"action":"merge","section":5}])") << base << QStringLiteral("no section 5");
+    QTest::newRow("negative section") << QByteArray(R"([{"action":"merge","section":-1}])") << base << QStringLiteral("section");
+    QTest::newRow("boundary outside the sections") << QByteArray(R"([{"action":"move_boundary","section":0,"timeMs":40000}])") << base
+        << QStringLiteral("empty");
+    QTest::newRow("unknown field") << QByteArray(R"([{"action":"merge","section":0,"extra":1}])") << base << QStringLiteral("unknown fields");
+}
+
+void McpLiveControlTools_Test::songSectionEdits()
+{
+    QFETCH(QByteArray, edits);
+    QFETCH(QStringList, expected);
+    QFETCH(QString, error);
+    auto *doc = m_app->doc();
+    ShowManager *manager = m_app->showManager();
+
+    Show *song = analysedSongShow(doc, R"([{"label": "intro", "start": 0.0, "end": 8.0, "confidence": 70},
+                                           {"label": "drop", "start": 8.0, "end": 24.0, "confidence": 90}])");
+    QVERIFY(song != nullptr);
+    const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", song->id()}});
+    QVERIFY2(!created.contains("error"), created.dump().c_str());
+
+    Json result;
+    for (Json args : Json::parse(edits.constData()))
+    {
+        args["showID"] = song->id();
+        result = invokeShowTool(doc, m_vc.get(), "edit_song_sections", args);
+    }
+    if (error.isEmpty())
+        QVERIFY2(!result.contains("error"), result.dump().c_str());
+    else
+    {
+        QVERIFY2(result.contains("error"), result.dump().c_str());
+        QVERIFY2(QString::fromStdString(result.at("error").get<std::string>()).contains(error), result.dump().c_str());
+    }
+
+    const Json queried = invokeShowTool(doc, m_vc.get(), "query_song_sections", {{"showID", song->id()}});
+    if (error.isEmpty())
+        QCOMPARE(result, queried);
+    QStringList sections;
+    for (const Json &s : queried.at("sections"))
+        sections << QStringLiteral("%1%2 %3-%4").arg(QString::fromStdString(s.at("label").get<std::string>()),
+                                                     s.at("edited").get<bool>() ? "*" : "")
+                        .arg(s.at("startMs").get<double>()).arg(s.at("endMs").get<double>());
+    QCOMPARE(sections, expected);
+
+    // the Show Manager's section band and the blocks show the same sections
+    QCOMPARE(manager->currentShowID(), int(song->id()));
+    QStringList band;
+    for (const QVariant &v : manager->analysisSections())
+    {
+        const QVariantMap s = v.toMap();
+        band << QStringLiteral("%1%2 %3-%4").arg(s.value("label").toString(), s.value("edited").toBool() ? "*" : "")
+                    .arg(s.value("startMs").toDouble()).arg(s.value("endMs").toDouble());
+    }
+    QCOMPARE(band, expected);
+    QStringList blocks;
+    const Json songBlocks = invokeShowTool(doc, m_vc.get(), "query_song_blocks", {{"showID", song->id()}});
+    for (const Json &b : songBlocks.at("blocks"))
+        blocks << QStringLiteral("%1 %2-%3").arg(QString::fromStdString(b.at("label").get<std::string>()))
+                      .arg(b.at("startMs").get<int>()).arg(b.at("startMs").get<int>() + b.at("durationMs").get<int>());
+    std::sort(blocks.begin(), blocks.end(), [](const QString &a, const QString &b) {
+        return a.section(' ', 1).section('-', 0, 0).toInt() < b.section(' ', 1).section('-', 0, 0).toInt();
+    });
+    QStringList unstarred = expected;
+    unstarred.replaceInStrings("*", "");
+    QCOMPARE(blocks, unstarred);
+}
+
 QTEST_MAIN(McpLiveControlTools_Test)

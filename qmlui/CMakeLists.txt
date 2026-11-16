@@ -84,6 +84,7 @@ set(SRC_FILES
     edmstructure.cpp edmstructure.h
     edmstructuremapping.cpp edmstructuremapping.h
     songdirector.cpp songdirector.h
+    songsections.cpp songsections.h
     djsetrecorder.cpp djsetrecorder.h
     videoeditor.cpp videoeditor.h
     videoprovider.cpp videoprovider.h

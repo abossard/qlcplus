@@ -521,6 +521,11 @@ void ShowManager::setSongDirector(SongDirector *director)
         if (m_currentShow != nullptr && m_currentShow->id() == showId)
             refreshView();
     });
+    // section edits redraw the section band
+    connect(director, &SongDirector::sectionsChanged, this, [this](quint32 showId) {
+        if (m_currentShow != nullptr && m_currentShow->id() == showId)
+            updateVdjGrid();
+    });
     // a block the director removes leaves the selection, the clipboard and the view first
     connect(director, &SongDirector::blockRemoving, this, [this](quint32 showId, ShowFunction *item) {
         if (m_currentShow != nullptr && m_currentShow->id() == showId)
@@ -532,6 +537,23 @@ void ShowManager::setAnalysisDir(const QString &dir)
 {
     m_analysisReader = EdmAnalysisReader(dir);
     updateVdjGrid();
+}
+
+QString ShowManager::editSongSection(const QString &action, int section, int timeMs, const QString &label)
+{
+    if (m_readOnly)
+        return tr("the Show Manager is read-only");
+    if (m_songDirector == nullptr || m_currentShow == nullptr)
+        return tr("no Show open");
+    SectionAction a;
+    if (sectionActionType(action, &a.type) == false)
+        return tr("unknown section action '%1'").arg(action);
+    a.section = section;
+    a.timeMs = timeMs;
+    a.label = label;
+    QString error;
+    m_songDirector->editSections(m_currentShow, a, m_analysisReader, &error);
+    return error;
 }
 
 bool ShowManager::hasSongBlocks() const
@@ -607,7 +629,17 @@ void ShowManager::updateVdjGrid()
     }
 
     m_vdjGrid = grid;
-    m_analysisSections = m_analysisReader.showSections(m_doc, m_currentShow);
+    if (m_songDirector != nullptr)
+    {
+        m_analysisSections.clear();
+        for (const SongSection &s : m_songDirector->sections(m_currentShow, m_analysisReader))
+            m_analysisSections.append(QVariantMap{{QStringLiteral("label"), s.label}, {QStringLiteral("startMs"), s.startMs},
+                                                  {QStringLiteral("endMs"), s.endMs}, {QStringLiteral("confidence"), s.confidence},
+                                                  {QStringLiteral("labelConfidence"), s.labelConfidence},
+                                                  {QStringLiteral("edited"), s.edited}});
+    }
+    else
+        m_analysisSections = m_analysisReader.showSections(m_doc, m_currentShow);
     emit vdjGridChanged();
 }
 

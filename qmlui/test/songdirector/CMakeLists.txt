@@ -5,6 +5,8 @@ add_executable(${PROJECT_NAME}
     songdirector_test.h
     ../../songdirector.cpp
     ../../songdirector.h
+    ../../songsections.cpp
+    ../../songsections.h
     ../../edmstructuremapping.cpp
     ../../edmstructuremapping.h
     ../../edmanalysisreader.cpp

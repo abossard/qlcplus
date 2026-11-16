@@ -51,6 +51,8 @@ private slots:
     void songBlocksReadOnly();
     void songBlockRemovedCleanly_data();
     void songBlockRemovedCleanly();
+    void songSectionEdits_data();
+    void songSectionEdits();
     void invalidArguments_data();
     void invalidArguments();
     void buttonRefusals_data();
