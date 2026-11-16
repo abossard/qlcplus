@@ -952,6 +952,7 @@ void SongDirector_Test::sectionActions_data()
     QTest::newRow("relabel to its own label confirms it") << "relabel 1 buildup"
         << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" } << false;
     QTest::newRow("relabel to an unknown label is refused") << "relabel 1 chorus" << base << true;
+    QTest::newRow("relabel to groove is refused, the analysis tool's five labels only") << "relabel 1 groove" << base << true;
     QTest::newRow("split, snapped to a bar") << "split 2 23500"
         << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop* 16000-24000 c100 u0", "drop* 24000-32000 c100 u0",
                          "outro 32000-40000 c60 u0" } << false;
@@ -963,15 +964,15 @@ void SongDirector_Test::sectionActions_data()
     QTest::newRow("split then merge back") << "split 2 24000; merge 2"
         << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop* 16000-32000 c100 u0", "outro 32000-40000 c60 u0" } << false;
     QTest::newRow("reset one") << "relabel 1 breakdown; reset 1" << base << false;
-    QTest::newRow("reset one keeps the other edits") << "relabel 1 breakdown; relabel 3 groove; reset 1"
-        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "groove* 32000-40000 c100 u0" } << false;
+    QTest::newRow("reset one keeps the other edits") << "relabel 1 breakdown; relabel 3 breakdown; reset 1"
+        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "breakdown* 32000-40000 c100 u0" } << false;
     QTest::newRow("reset one of a moved boundary brings back only its own analysis") << "move 1 12000; reset 2"
         << QStringList { "intro 0-8000 c100 u0", "buildup* 8000-12000 c100 u0", "buildup 12000-16000 c40 u1", "drop 16000-32000 c90 u0",
                          "outro 32000-40000 c60 u0" } << false;
     QTest::newRow("reset of a merged section brings back both") << "merge 1; reset 1" << base << false;
-    QTest::newRow("reset of an unedited section changes nothing") << "relabel 3 groove; reset 0"
-        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "groove* 32000-40000 c100 u0" } << false;
-    QTest::newRow("reset all") << "move 1 12000; relabel 3 groove; split 0 4000; reset_all" << base << false;
+    QTest::newRow("reset of an unedited section changes nothing") << "relabel 3 breakdown; reset 0"
+        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "breakdown* 32000-40000 c100 u0" } << false;
+    QTest::newRow("reset all") << "move 1 12000; relabel 3 breakdown; split 0 4000; reset_all" << base << false;
     QTest::newRow("unknown section is refused") << "relabel 7 drop" << base << true;
     QTest::newRow("negative section is refused") << "merge -1" << base << true;
 }
@@ -1023,9 +1024,9 @@ void SongDirector_Test::editsOverReanalysis_data()
         << QList<EdmSection> { section("intro", 0, 8500, 100), section("buildup", 8500, 16500, 40, true),
                                section("drop", 16500, 32500, 90), section("outro", 32500, 40500, 60) }
         << QStringList { "intro 0-8000 c100 u0", "breakdown* 8000-16000 c100 u0", "drop 16000-32500 c90 u0", "outro 32500-40500 c60 u0" };
-    QTest::newRow("an edit past the new analysis end stays") << "relabel 3 groove"
+    QTest::newRow("an edit past the new analysis end stays") << "relabel 3 breakdown"
         << QList<EdmSection> { section("intro", 0, 8000, 100), section("drop", 8000, 30000, 90) }
-        << QStringList { "intro 0-8000 c100 u0", "drop 8000-30000 c90 u0", "groove* 32000-40000 c100 u0" };
+        << QStringList { "intro 0-8000 c100 u0", "drop 8000-30000 c90 u0", "breakdown* 32000-40000 c100 u0" };
 }
 
 void SongDirector_Test::editsOverReanalysis()
@@ -1100,8 +1101,8 @@ void SongDirector_Test::blocksFollowSectionEdits_data()
     QTest::newRow("relabel: content as generated takes the new default") << "relabel 1 breakdown" << false << none << false
         << QStringList { "intro 1 @30000 +8000 {}", "breakdown 1 @38000 +8000 {Calm}", "drop 1 @46000 +16000 {Drop}",
                          "outro 1 @62000 +8000 {}" } << 4;
-    QTest::newRow("relabel: the user's content stays") << "relabel 2 groove" << true << none << false
-        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "groove 1 @46000 +16000 {Drop,Extra}",
+    QTest::newRow("relabel: the user's content stays") << "relabel 2 breakdown" << true << none << false
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "breakdown 1 @46000 +16000 {Drop,Extra}",
                          "outro 1 @62000 +8000 {}" } << 4;
     QTest::newRow("relabel renumbers the names") << "relabel 0 drop" << false << none << false
         << QStringList { "drop 1 @30000 +8000 {Drop}", "buildup 1 @38000 +8000 {}", "drop 2 @46000 +16000 {Drop}",
@@ -1186,7 +1187,7 @@ void SongDirector_Test::sectionEditsRoundTrip()
     EditedSong edited;
     SongShow &song = edited.song;
     QString error;
-    QVERIFY2(edited.edit("move 1 43100; relabel 3 groove; split 0 35000", &error), qPrintable(error));
+    QVERIFY2(edited.edit("move 1 43100; relabel 3 breakdown; split 0 35000", &error), qPrintable(error));
     const SectionEdits edits = song.director.sectionEdits(song.show);
     QCOMPARE(edits.pins.count(), 5);
     const QStringList expectedItems = itemsWithContent(&song.doc, song.director.track(song.show));
@@ -1221,6 +1222,46 @@ void SongDirector_Test::sectionEditsRoundTrip()
     QXmlStreamWriter emptyWriter(&empty);
     director.saveXML(&emptyWriter);
     QVERIFY(empty.contains("<Sections") == false);
+}
+
+void SongDirector_Test::oldLabelPinLoads_data()
+{
+    QTest::addColumn<QString>("label");
+    // D20: groove can no longer be chosen, a workspace that has a groove edit still loads it
+    QTest::newRow("groove, from before D20") << "groove";
+    QTest::newRow("breakdown") << "breakdown";
+}
+
+void SongDirector_Test::oldLabelPinLoads()
+{
+    QFETCH(QString, label);
+    EditedSong edited;
+    SongShow &song = edited.song;
+    QString error;
+    QVERIFY2(edited.edit("relabel 3 breakdown", &error), qPrintable(error));
+
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartElement("Workspace");
+    QVERIFY(song.doc.saveXML(&writer));
+    song.director.saveXML(&writer);
+    writer.writeEndElement();
+    QCOMPARE(xml.count(QStringLiteral("<Pin Label=\"breakdown\"")), 1);
+    xml.replace(QStringLiteral("<Pin Label=\"breakdown\""), QString("<Pin Label=\"%1\"").arg(label));
+
+    Doc doc(nullptr);
+    SongDirector director(&doc);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(doc.loadXML(reader));
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(director.loadXML(reader));
+    Show *show = qobject_cast<Show *>(doc.function(song.show->id()));
+    QVERIFY(show != nullptr);
+    const QStringList sections = describe(director.sections(show, song.reader));
+    QCOMPARE(sections.count(), 4);
+    QVERIFY2(sections.at(3).startsWith(label + "* "), qPrintable(sections.join(" | ")));
 }
 
 void SongDirector_Test::oldBlocksSnapBackOnLoad()
@@ -1291,9 +1332,9 @@ void SongDirector_Test::splitCopyIsUserContent_data()
     QTest::addColumn<QStringList>("expected");
     QTest::addColumn<bool>("firstSurvives");   // the drop's Collection is the merged block's
 
-    QTest::newRow("split then relabel keeps the copy") << 53500 << false << "relabel 3 groove"
+    QTest::newRow("split then relabel keeps the copy") << 53500 << false << "relabel 3 breakdown"
         << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +8000 {Drop,Extra}",
-                         "groove 1 @54000 +8000 {Drop,Extra}", "outro 1 @62000 +8000 {}" } << true;
+                         "breakdown 1 @54000 +8000 {Drop,Extra}", "outro 1 @62000 +8000 {}" } << true;
     QTest::newRow("split then merge passes the copy on") << 53500 << true << "merge 2"
         << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +16000 {Drop,Extra}",
                          "outro 1 @62000 +8000 {}" } << true;

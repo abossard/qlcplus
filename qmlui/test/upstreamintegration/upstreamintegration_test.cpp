@@ -14139,7 +14139,9 @@ void UpstreamIntegration_Test::songSectionRuler_data()
     QTest::newRow("drag a boundary back")
         << QStringList{"drag:1:23700"} << 1 << QStringList{"intro 2000-10000", "drop* 10000-24000", "outro* 24000-34000"};
     QTest::newRow("change a label")
-        << QStringList{"menu:1:label_groove"} << 1 << QStringList{"intro 2000-10000", "groove* 10000-26000", "outro 26000-34000"};
+        << QStringList{"menu:1:label_breakdown"} << 1 << QStringList{"intro 2000-10000", "breakdown* 10000-26000", "outro 26000-34000"};
+    QTest::newRow("the menu offers the analysis tool's five labels")
+        << QStringList{"offers:1:intro,buildup,drop,breakdown,outro"} << 0 << analysis;
     QTest::newRow("split at the playhead")
         << QStringList{"playhead:17500", "menu:1:split"} << 1
         << QStringList{"intro 2000-10000", "drop* 10000-18000", "drop* 18000-26000", "outro 26000-34000"};
@@ -14148,11 +14150,11 @@ void UpstreamIntegration_Test::songSectionRuler_data()
     QTest::newRow("last section has no next to merge")
         << QStringList{"menu:2:merge"} << 0 << analysis;
     QTest::newRow("reset this section")
-        << QStringList{"menu:1:label_groove", "menu:1:reset"} << 2 << analysis;
+        << QStringList{"menu:1:label_breakdown", "menu:1:reset"} << 2 << analysis;
     QTest::newRow("reset all")
         << QStringList{"drag:0:13500", "menu:2:label_breakdown", "menu:0:reset_all"} << 3 << analysis;
     QTest::newRow("a refused edit says why where it is seen")
-        << QStringList{"decoy", "scroll:5000", "menu:1:label_groove", "error:not the Show of its song"} << 0 << analysis;
+        << QStringList{"decoy", "scroll:5000", "menu:1:label_breakdown", "error:not the Show of its song"} << 0 << analysis;
     QTest::newRow("drag past the section start stops at the first bar inside")
         << QStringList{"drag:0:0"} << 1 << QStringList{"intro* 2000-4000", "drop* 4000-26000", "outro 26000-34000"};
     QTest::newRow("drag past the next section end stops at the last bar inside")
@@ -14246,6 +14248,22 @@ void UpstreamIntegration_Test::songSectionRuler()
         {
             QCOMPARE(f.manager()->editSongSection(part.at(1), part.at(2).toInt(), 0, part.value(3)), QString());
             QCoreApplication::processEvents();
+            continue;
+        }
+        if (part.at(0) == "offers")
+        {
+            QQuickItem *body = f.section(part.at(1).toInt());
+            QVERIFY(body);
+            QTest::mouseClick(f.app, Qt::LeftButton, Qt::NoModifier,
+                              body->mapToScene(QPointF(body->width() / 2, body->height() / 2)).toPoint());
+            QTRY_VERIFY(f.visibleNamed("songSectionMenu").isEmpty() == false);
+            QStringList offered;
+            for (QQuickItem *entry : f.visibleNamed("songSectionMenu").first()->childItems())
+                if (entry->objectName().startsWith("songSectionMenu_label_"))
+                    offered << entry->objectName().mid(QStringLiteral("songSectionMenu_label_").size());
+            QCOMPARE(offered, part.at(2).split(','));
+            QTest::keyClick(f.app, Qt::Key_Escape);
+            QTRY_VERIFY(f.visibleNamed("songSectionMenu").isEmpty());
             continue;
         }
         if (part.at(0) == "menuclosed")

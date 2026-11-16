@@ -47,7 +47,8 @@ EdmStructureMapping::EdmStructureMapping(Doc *doc, QObject *parent)
 
 QStringList EdmStructureMapping::labels()
 {
-    return {"intro", "buildup", "drop", "breakdown", "groove", "outro"};
+    // the analysis tool's labels (D20); a saved groove look or section edit still loads
+    return {"intro", "buildup", "drop", "breakdown", "outro"};
 }
 
 bool EdmStructureMapping::isLook(const Function *function)

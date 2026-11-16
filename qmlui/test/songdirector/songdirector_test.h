@@ -45,6 +45,8 @@ private slots:
     void blocksFollowSectionEdits_data();
     void blocksFollowSectionEdits();
     void sectionEditsRoundTrip();
+    void oldLabelPinLoads_data();
+    void oldLabelPinLoads();
     void oldBlocksSnapBackOnLoad();
     void shortPieceBetweenPins_data();
     void shortPieceBetweenPins();

@@ -1550,12 +1550,15 @@ void McpLiveControlTools_Test::songSectionEdits_data()
         << QStringList { "intro 2000-10000", "drop* 10000-18000", "drop* 18000-26000" } << QString();
     QTest::newRow("merge") << QByteArray(R"([{"action":"merge","section":0}])") << QStringList { "intro* 2000-26000" } << QString();
     QTest::newRow("reset") << QByteArray(R"([{"action":"merge","section":0},{"action":"reset","section":0}])") << base << QString();
-    QTest::newRow("reset_all") << QByteArray(R"([{"action":"relabel","section":0,"label":"groove"},{"action":"split","section":1,"timeMs":18000},{"action":"reset_all"}])")
+    QTest::newRow("reset_all") << QByteArray(R"([{"action":"relabel","section":0,"label":"breakdown"},{"action":"split","section":1,"timeMs":18000},{"action":"reset_all"}])")
         << base << QString();
     QTest::newRow("unknown action") << QByteArray(R"([{"action":"jump","section":0}])") << base << QStringLiteral("unknown section action");
     QTest::newRow("move_boundary without timeMs") << QByteArray(R"([{"action":"move_boundary","section":0}])") << base << QStringLiteral("timeMs");
     QTest::newRow("relabel without label") << QByteArray(R"([{"action":"relabel","section":0}])") << base << QStringLiteral("label");
     QTest::newRow("relabel to an unknown label") << QByteArray(R"([{"action":"relabel","section":0,"label":"chorus"}])") << base
+        << QStringLiteral("unknown label");
+    // D20: the analysis tool's five labels only
+    QTest::newRow("relabel to groove") << QByteArray(R"([{"action":"relabel","section":0,"label":"groove"}])") << base
         << QStringLiteral("unknown label");
     QTest::newRow("merge without section") << QByteArray(R"([{"action":"merge"}])") << base << QStringLiteral("section");
     QTest::newRow("section out of range") << QByteArray(R"([{"action":"merge","section":5}])") << base << QStringLiteral("no section 5");
@@ -1587,7 +1590,7 @@ void McpLiveControlTools_Test::songSectionEditsReadOnly()
     auto writable = qScopeGuard([manager]() { manager->setReadOnly(false); });
 
     const Json result = invokeShowTool(doc, m_vc.get(), "edit_song_sections",
-                                       {{"showID", song->id()}, {"action", "relabel"}, {"section", 0}, {"label", "groove"}});
+                                       {{"showID", song->id()}, {"action", "relabel"}, {"section", 0}, {"label", "breakdown"}});
 
     QVERIFY2(result.contains("error"), result.dump().c_str());
     QVERIFY2(QString::fromStdString(result.at("error").get<std::string>()).contains("read-only"), result.dump().c_str());

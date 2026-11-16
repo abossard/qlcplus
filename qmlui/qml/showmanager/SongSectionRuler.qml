@@ -50,7 +50,8 @@ Item
 
     readonly property var colors: ({ "drop": "#3987e5", "buildup": "#d95926", "breakdown": "#199e70",
                                      "intro": "#c98500", "outro": "#d55181", "groove": "#008300" })
-    readonly property var labels: [ "intro", "buildup", "drop", "breakdown", "outro", "groove" ]
+    // the labels a section can get; an older label (groove) still shows when loaded
+    readonly property var labels: edmMapping.labels()
 
     // new sections end a drag and close the menu: both point at sections by index
     onSectionsChanged:

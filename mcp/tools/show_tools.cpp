@@ -819,7 +819,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
     tm.register_tool(Tool(
         "song_look_defaults",
         Json{{"type", "object"}, {"properties", {
-            {"label", {{"type", "string"}, {"description", "Section label: intro, buildup, drop, breakdown, groove or outro"}}},
+            {"label", {{"type", "string"}, {"description", "Section label: intro, buildup, drop, breakdown or outro"}}},
             {"functionID", {{"type", "integer"}, {"minimum", -1},
                             {"description", "The label's default look Function, -1 for none"}}}
         }}},
@@ -912,7 +912,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                                         "the analysis) or reset_all"}}},
             {"section", {{"type", "integer"}, {"minimum", 0}, {"description", "Index into query_song_sections; not for reset_all"}}},
             {"timeMs", {{"type", "integer"}, {"minimum", 0}, {"description", "Show time, for move_boundary and split; snapped to the nearest bar"}}},
-            {"label", {{"type", "string"}, {"description", "For relabel: intro, buildup, drop, breakdown, groove or outro"}}}
+            {"label", {{"type", "string"}, {"description", "For relabel: intro, buildup, drop, breakdown or outro"}}}
         }}, {"required", {"showID", "action"}}},
         Json{},
         [doc, vcBridge](const Json &args) -> Json {
