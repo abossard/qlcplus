@@ -214,6 +214,11 @@ def drop_for(doc, record):
     return next((s["start_bar"] for s in doc["sections"] if s["label"] == "drop" and s["start_bar"] > bar - (claim["kind"] in ("buildup_exists", "missed"))), None)
 
 
+def from_qlc(record):
+    """An answer to a diff/import round: asked only where a QLC+ edit disagreed, so it would bias the confidence model."""
+    return any(alt.get("source") == "qlc" for alt in record.get("alternatives", {}).values())
+
+
 def gold_rows(answers, docs):
     """(group, features, exact) for every Gold answer (a Probe and its repeats count once) whose track is still analysed.
     Buildup answers train the existence group only (a row per answer whose drop is still there, whatever was claimed); they leave the exact-bar group
@@ -223,7 +228,7 @@ def gold_rows(answers, docs):
     cache, rows = {}, []
     for record in gold_answers(answers).values():
         exact, doc, claim = _exact(record), docs.get(record["track"]), record["claim"]
-        if doc is None:
+        if doc is None or from_qlc(record):
             continue
         if claim["kind"] in ("buildup", "buildup_exists", "missed"):
             truth, drop = buildup_exists(record), drop_for(doc, record)

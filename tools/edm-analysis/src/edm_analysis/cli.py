@@ -272,20 +272,27 @@ def _import_round(out_dir, docs, number, workspace):
     if workspace is None:
         print("round import needs --workspace", file=sys.stderr)
         return 1
+    import xml.etree.ElementTree as ET
+
     by_path = {e["path"]: tid for tid, e in json.loads((out_dir / "index.json").read_text()).items()} if (out_dir / "index.json").exists() else {}
-    edits = {}
-    for song in workspace_edits(Path(workspace).read_text()):
+    try:
+        songs = workspace_edits(Path(workspace).read_text(), Path(workspace).absolute().parent)
+    except (OSError, UnicodeDecodeError, ET.ParseError, ValueError) as e:
+        print(f"cannot read the section edits of {workspace}: {e}", file=sys.stderr)
+        return 1
+    edits = []
+    for song in songs:
         tid = by_path.get(song["path"])
         if tid in docs:
-            edits[tid] = song["pins"]
+            edits.append((tid, song["pins"]))
         else:
             print(f"not in the Library: {song['path']}")
     rnd = import_round(number, docs, edits)
     if not rnd["probes"]:
-        print(f"{len(edits)} songs with edits, no difference the Analysis makes a Claim about: no round made")
+        print(f"{len(edits)} song Shows with edits, no difference the Analysis makes a Claim about: no round made")
         return 0
     save_round(out_dir, rnd)
-    print(f"round {rnd['round']}: {len(rnd['probes'])} questions from the edits of {len(edits)} songs")
+    print(f"round {rnd['round']}: {len(rnd['probes'])} questions from the edits of {len(edits)} song Shows")
     return 0
 
 

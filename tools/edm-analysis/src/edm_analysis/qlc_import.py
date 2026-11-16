@@ -7,6 +7,8 @@ the edits themselves never are. A difference is asked where the Analysis makes a
 outro have no start Claim, so their boundaries are not asked; a drop split in two is one drop with a lift.
 """
 
+import json
+import os
 import random
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -20,8 +22,16 @@ def _tag(el):
     return el.tag.rsplit("}", 1)[-1]
 
 
-def workspace_edits(xml_text):
-    """[{"path": audio file, "pins": [{label, start, end} in seconds of song time]}] per song Show with edits, in workspace order."""
+def _pin(el):
+    label, start, end = el.get("Label"), el.get("Start"), el.get("End")
+    if not label or start is None or end is None:
+        raise ValueError(f"a Pin needs Label, Start and End: {ET.tostring(el, encoding='unicode').strip()}")
+    return {"label": label, "start": float(start) / 1000, "end": float(end) / 1000}
+
+
+def workspace_edits(xml_text, folder=None):
+    """[{"path": audio file, "pins": [{label, start, end} in seconds of song time]}] per song Show with edits, in workspace order.
+    QLC+ saves a file below the workspace's folder relative to it: such a path is resolved against `folder`. ValueError on a broken Pin."""
     root = ET.fromstring(xml_text)
     functions = [el for el in root.iter() if _tag(el) == "Function"]
     audio = {el.get("ID"): next((s.text for s in el if _tag(s) == "Source"), None) for el in functions if el.get("Type") == "Audio"}
@@ -30,16 +40,17 @@ def workspace_edits(xml_text):
     out = []
     for sections in (el for el in root.iter() if _tag(el) == "Sections"):
         path = shows.get(sections.get("Show"))
-        pins = [{"label": p.get("Label"), "start": float(p.get("Start")) / 1000, "end": float(p.get("End")) / 1000}
-                for p in sections if _tag(p) == "Pin"]
+        pins = [_pin(p) for p in sections if _tag(p) == "Pin"]
+        if path and folder and not os.path.isabs(path):
+            path = os.path.normpath(os.path.join(folder, path))
         if path and pins:
             out.append({"path": path, "pins": pins})
     return out
 
 
 def _bar_of(doc, t):
-    starts = doc["bars"]["start"]
-    return min(range(len(starts)), key=lambda b: abs(starts[b] - t))
+    """The nearest bar line, the end of the last bar included (a section ending at the song's end)."""
+    return min(range(len(doc["bars"]["start"]) + 1), key=lambda b: abs(_bar_time(doc, b) - t))
 
 
 def _start_probes(tid, doc, spans, rng):
@@ -90,9 +101,17 @@ def edit_probes(tid, doc, pins, rng):
 
 
 def import_round(number, docs, edits, seed=None, created=None):
-    """Round `number` from {track id: pins}; tracks without an Analysis are left out. Pure."""
+    """Round `number` from [(track id, pins)], one entry per song Show (two Shows may play the same song); tracks without an
+    Analysis are left out, the same question from two Shows is asked once. Pure."""
     rng = random.Random(seed if seed is not None else number)
-    probes = [p for tid in sorted(edits) if tid in docs for p in edit_probes(tid, docs[tid], edits[tid], rng)]
+    probes, asked = [], set()
+    for tid, pins in edits:
+        for p in edit_probes(tid, docs[tid], pins, rng) if tid in docs else []:
+            qlc = next(alt for alt in p["alternatives"].values() if alt["source"] == "qlc")
+            key = json.dumps([tid, p["claim"], qlc], sort_keys=True)
+            if key not in asked:
+                asked.add(key)
+                probes.append(p)
     return {"round": number, "created": created or datetime.now().isoformat(timespec="seconds"),
             "theories": [{"id": "qlc", "text": THEORIES["qlc"]}] if probes else [],
             "probes": [{"id": f"r{number:02d}-p{i + 1:03d}", **p} for i, p in enumerate(probes)]}

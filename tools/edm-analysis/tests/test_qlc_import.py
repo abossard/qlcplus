@@ -1,8 +1,10 @@
+import json
+import os
 import random
 
 import pytest
 
-from edm_analysis.confidence import _exact, gold_bar
+from edm_analysis.confidence import _exact, gold_bar, gold_rows
 from edm_analysis.qlc_import import edit_probes, import_round, workspace_edits
 from edm_analysis.rounds import gold_answers, load_answers, record_answer, report, validate_answer
 
@@ -43,9 +45,10 @@ def summary(p):
     (pins(("intro", 0, 14)), []),
     (pins(("outro", 108, 128)), []),
     (pins(("drop", 30, 64), ("buildup", 64, 80)), [("drop", 16, 15), ("label", 32, 40, "breakdown", "buildup")]),
+    (pins(("breakdown", 112, 128)), [("label", 56, 64, "outro", "breakdown")]),
 ], ids=["unchanged", "drop a bar earlier", "drop snaps to its own bar", "drop 9 bars later", "breakdown later", "breakdown called drop", "relabel",
         "merge into drop", "intro called drop", "buildup start is nominal", "split drop is a lift", "split keeps the moved start",
-        "intro end has no claim", "outro start has no claim", "two edits"])
+        "intro end has no claim", "outro start has no claim", "two edits", "last section relabelled"])
 def test_only_differences_become_probes(edits, expected):
     assert [summary(p) for p in edit_probes(TID, DOC, edits, random.Random(1))] == expected
 
@@ -69,24 +72,37 @@ def test_a_difference_is_an_ab_probe_outside_fresh_accuracy(edits):
 def test_answers_are_gold_the_tool_reads(tmp_path, edits, pick, exact, bar):
     from edm_analysis.rounds import save_round
 
-    rnd = import_round(9, {TID: DOC}, {TID: edits}, seed=1, created="2026-11-16T12:00:00")
+    rnd = import_round(9, {TID: DOC}, [(TID, edits)], seed=1, created="2026-11-16T12:00:00")
     save_round(tmp_path, rnd)
     (p,) = rnd["probes"]
     answer = next(k for k, alt in p["alternatives"].items() if alt["source"] == pick)
     assert record_answer(tmp_path, p["id"], answer) == (200, None)
     (record,) = gold_answers(load_answers(tmp_path)).values()
     assert (_exact(record), gold_bar(record)) == (exact, bar)
-    assert report([rnd], load_answers(tmp_path), {TID: DOC})["rounds"][0]["fresh"] == 0
+    rep = report([rnd], load_answers(tmp_path), {TID: DOC})
+    assert rep["rounds"][0]["fresh"] == 0
+    assert [b["n"] for b in rep["calibration"]] == [0, 0, 0, 0]   # picked where the user disagreed: not calibration data
+    assert gold_rows(load_answers(tmp_path), {TID: DOC}) == []
 
 
 def test_import_round_numbers_its_probes():
     other = "cdcdcdcdcdcdcdcd"
-    rnd = import_round(9, {TID: DOC, other: DOC}, {TID: pins(("drop", 30, 64)), other: pins(("buildup", 64, 80)), "gone": pins(("drop", 0, 4))},
+    rnd = import_round(9, {TID: DOC, other: DOC}, [(TID, pins(("drop", 30, 64))), (other, pins(("buildup", 64, 80))), ("gone", pins(("drop", 0, 4)))],
                        seed=1, created="2026-11-16T12:00:00")
     assert (rnd["round"], rnd["created"]) == (9, "2026-11-16T12:00:00")
     assert [p["id"] for p in rnd["probes"]] == ["r09-p001", "r09-p002"]
     assert {p["track"] for p in rnd["probes"]} == {TID, other}
     assert [t["id"] for t in rnd["theories"]] == ["qlc"]
+
+
+@pytest.mark.parametrize("edits,expected", [
+    ([(TID, pins(("drop", 30, 64))), (TID, pins(("buildup", 64, 80)))], [("drop", 16, 15), ("label", 32, 40, "breakdown", "buildup")]),
+    ([(TID, pins(("drop", 30, 64))), (TID, pins(("drop", 28, 64)))], [("drop", 16, 15), ("drop", 16, 14)]),
+    ([(TID, pins(("drop", 30, 64))), (TID, pins(("drop", 30, 64)))], [("drop", 16, 15)]),
+], ids=["two Shows, different edits", "two Shows, same start moved apart", "two Shows, same edit asked once"])
+def test_two_shows_on_one_song_are_both_asked(edits, expected):
+    rnd = import_round(9, {TID: DOC}, edits, seed=1)
+    assert sorted(summary(p) for p in rnd["probes"]) == sorted(expected)
 
 
 AUDIO = '<Function ID="{id}" Type="Audio" Name="a"><Source>{path}</Source></Function>'
@@ -115,3 +131,61 @@ def workspace(functions, sections):
 ], ids=["song time", "clip offset does not move song time", "no edits", "no audio", "unknown show", "two songs"])
 def test_workspace_edits(xml, expected):
     assert workspace_edits(xml) == expected
+
+
+@pytest.mark.parametrize("source,folder,path", [
+    ("/m/a.mp3", "/w/x", "/m/a.mp3"),
+    ("songs/a.mp3", "/w/x", "/w/x/songs/a.mp3"),
+    ("../m/a.mp3", "/w/x", "/w/m/a.mp3"),
+    ("a.mp3", "/w/x", "/w/x/a.mp3"),
+], ids=["absolute", "below the workspace", "next to the workspace", "in the workspace folder"])
+def test_relative_audio_paths_are_the_workspace_folder_s(source, folder, path):
+    xml = workspace(AUDIO.format(id=0, path=source) + SHOW.format(id=1, audio=0, at=0), PINS.format(show=1))
+    assert [e["path"] for e in workspace_edits(xml, folder)] == [path]
+
+
+@pytest.mark.parametrize("pin", ['<Pin Label="drop" End="9"/>', '<Pin Label="drop" Start="1"/>', '<Pin Label="drop" Start="x" End="9"/>',
+                                 '<Pin Start="1" End="9"/>'], ids=["no start", "no end", "start not a number", "no label"])
+def test_a_broken_pin_is_an_error(pin):
+    xml = workspace(AUDIO.format(id=0, path="/m/a.mp3") + SHOW.format(id=1, audio=0, at=0), f'<Sections Show="1">{pin}</Sections>')
+    with pytest.raises(ValueError):
+        workspace_edits(xml)
+
+
+@pytest.fixture
+def library(tmp_path, monkeypatch):
+    from test_library import PATHS, doc
+
+    monkeypatch.setattr("edm_analysis.vdj.DEFAULT_DB", tmp_path / "no-database.xml")
+    for tid in PATHS:
+        (tmp_path / f"{tid}.json").write_text(json.dumps(doc(tid)))
+    (tmp_path / "index.json").write_text(json.dumps({tid: {"path": p} for tid, p in PATHS.items()}))
+    return tmp_path
+
+
+def test_import_finds_a_song_saved_relative_to_the_workspace(library, tmp_path_factory):
+    from edm_analysis.cli import main
+    from test_library import A, PATHS
+
+    folder = tmp_path_factory.mktemp("shows")
+    source = os.path.relpath(PATHS[A], folder)
+    (folder / "set.qxw").write_text(workspace(AUDIO.format(id=0, path=source) + SHOW.format(id=1, audio=0, at=0),
+                                              '<Sections Show="1"><Pin Label="breakdown" Start="0" End="32000"/></Sections>'))
+    assert main(["round", "import", "--out", str(library), "--workspace", str(folder / "set.qxw")]) == 0
+    probes = json.loads((library / "rounds" / "round-01.json").read_text())["probes"]
+    assert probes and {p["track"] for p in probes} == {A}
+
+
+@pytest.mark.parametrize("content", [None, "not xml <", workspace(AUDIO.format(id=0, path="/m/a.mp3") + SHOW.format(id=1, audio=0, at=0),
+                                                                  '<Sections Show="1"><Pin Label="drop" End="9"/></Sections>')],
+                         ids=["missing file", "not XML", "broken pin"])
+def test_a_bad_workspace_is_a_clean_error(library, tmp_path_factory, capsys, content):
+    from edm_analysis.cli import main
+
+    path = tmp_path_factory.mktemp("shows") / "set.qxw"
+    if content is not None:
+        path.write_text(content)
+    assert main(["round", "import", "--out", str(library), "--workspace", str(path)]) == 1
+    err = capsys.readouterr().err
+    assert str(path) in err and "Traceback" not in err
+    assert not (library / "rounds" / "round-01.json").exists()

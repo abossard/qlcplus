@@ -614,7 +614,7 @@ def report(rounds, answers, docs):
         if gold is not None:
             for source, bar in source_bars(a).items():
                 on_gold_bar.setdefault(source, []).append(bar == gold)
-    claims = [(p, e) for p, a, e in judged if group_of(p["claim"])]
+    claims = [(p, e) for p, a, e in judged if group_of(p["claim"]) and p["theory"] != "qlc"]   # qlc: picked where an edit disagreed
     bands = [{"band": f"{lo}-{min(hi, 100)}", "n": len(hits), "exact": _share(hits)}
              for lo, hi in zip(BANDS[:-1], BANDS[1:])
              for hits in [[e for p, e in claims if lo <= p["claim"]["confidence"] < hi]]]
