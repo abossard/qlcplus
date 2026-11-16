@@ -24,9 +24,10 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
 
-    // VirtualDJ telemetry on the socket -> looks on the Virtual Console -> DMX
-    void lookFollowsTelemetry_data();
-    void lookFollowsTelemetry();
+    // VirtualDJ telemetry on the socket -> Perform plays the song Show ->
+    // the Song Director block under the playhead -> DMX
+    void looksFollowSongBlocks_data();
+    void looksFollowSongBlocks();
 
 private:
     QTemporaryDir m_root;

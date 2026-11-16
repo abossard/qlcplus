@@ -9,23 +9,14 @@
 
 #include <QtTest>
 
-#include "collection.h"
 #include "contextmanager.h"
-#include "djfsm.h"
 #include "doc.h"
-#include "edmanalysisqueue.h"
-#include "edmstructure.h"
-#include "edmstructuredirector.h"
 #include "edmstructuremapping.h"
-#include "edmvclooksurface.h"
 #include "fixture.h"
 #include "fixturemanager.h"
 #include "functionmanager.h"
-#include "functionparent.h"
-#include "inputoutputmap.h"
 #include "mastertimer.h"
 #include "scene.h"
-#include "showeventlog.h"
 #include "audio.h"
 #include "show.h"
 #include "showfunction.h"
@@ -36,7 +27,6 @@
 #define private public
 #include "tardis.h"
 #undef private
-#include "vcbutton.h"
 #include "virtualconsole.h"
 
 #include <QFile>
@@ -119,29 +109,21 @@ private:
     std::unique_ptr<Tardis> m_tardis;
 };
 
-/** A Doc with one 4-channel fixture, the Virtual Console, and the director on its buttons; deck songs from a temp analysis dir */
+/** A Doc with one 4-channel fixture, the Virtual Console, and the look defaults; song analyses in a temp dir */
 struct Looks
 {
     Doc doc;
     UiFixture ui;
     QTemporaryDir root;
     QString dir;
-    DjFsm fsm;
-    EdmAnalysisQueue queue;
-    EdmStructure structure;
     EdmStructureMapping mapping;
-    EdmVcLookSurface surface;
-    EdmStructureDirector director;
     Fixture *fixture;
 
     Looks()
         : doc(nullptr, 1)
         , ui(&doc)
         , dir(root.filePath("analysis"))
-        , queue(dir)
-        , structure(&fsm, &queue, dir)
-        , surface(ui.vc())
-        , director(&structure, &mapping, &surface)
+        , mapping(&doc)
     {
         QDir().mkpath(dir + "/final");
         writeFile(dir + "/final/aaaaaaaaaaaaaaaa.json", kFinal.toUtf8());
@@ -159,35 +141,13 @@ struct Looks
         doc.masterTimer()->stop();
     }
 
-    /** An empty Scene stops itself, so each holds one channel */
-    Scene *scene(quint32 channel)
+    Scene *scene(const QString &name)
     {
         Scene *s = new Scene(&doc);
-        s->setValue(SceneValue(fixture->id(), channel, 200));
+        s->setName(name);
+        s->setValue(SceneValue(fixture->id(), 0, 200));
         doc.addFunction(s);
         return s;
-    }
-
-    void map(const QString &label, VCButton &button)
-    {
-        mapping.setAutoEnabled(true);
-        mapping.setWidget(label, button.id());
-    }
-
-    void load(int deck, const QString &path)
-    {
-        fsm.onDeckTrigger(deck, "masterdeck", "on");
-        fsm.onDeckTrigger(deck, "get_filepath", path);
-        fsm.onDeckTrigger(deck, "get_title", "t");
-        fsm.onDeckTrigger(deck, "get_artist", "a");
-        fsm.onDeckTrigger(deck, "get_bpm", 120.0);
-        fsm.onDeckTrigger(deck, "loaded", "on");
-        fsm.onTickEnded();
-    }
-    void at(int deck, double bar)
-    {
-        fsm.onDeckTrigger(deck, "get_time elapsed absolute", 1000.0 + bar * 2000.0);
-        fsm.onTickEnded();
     }
 };
 
@@ -209,118 +169,15 @@ void EdmLooks_Test::initTestCase()
     qmlRegisterUncreatableType<VCWidget>("org.qlcplus.classes", 1, 0, "VCWidget", "Console-owned");
 }
 
-void EdmLooks_Test::lookPressSkipsNonToggleButtons_data()
-{
-    QTest::addColumn<int>("action");
-
-    QTest::newRow("StopAll") << int(VCButton::StopAll);
-    QTest::newRow("Blackout") << int(VCButton::Blackout);
-}
-
-void EdmLooks_Test::lookPressSkipsNonToggleButtons()
-{
-    QFETCH(int, action);
-
-    Looks looks;
-    Scene *running = looks.scene(0);
-    VCButton button(&looks.doc);
-    button.setActionType(VCButton::ButtonAction(action));
-    looks.ui.vc()->addWidgetToMap(&button);
-    const auto unmap = qScopeGuard([&]() { looks.ui.vc()->removeWidgetFromMap(&button); });
-    looks.map("drop", button);
-
-    looks.load(1, "/m/a.mp3");
-    looks.at(1, 4.5);
-    running->start(looks.doc.masterTimer(), FunctionParent::master());
-    QTRY_VERIFY(running->isRunning());
-
-    looks.at(1, 8.5);   // the drop starts
-    QTest::qWait(300);
-
-    QVERIFY2(running->isRunning(), "the drop's \"look\" stopped every function");
-    QVERIFY2(looks.doc.inputOutputMap()->blackout() == false, "the drop's \"look\" switched blackout on");
-}
-
-void EdmLooks_Test::monitoredLookIsReleased()
-{
-    Looks looks;
-    Scene *build = looks.scene(0);
-    Scene *drop = looks.scene(1);
-    VCButton buildLook(&looks.doc), dropLook(&looks.doc);
-    buildLook.setFunctionID(build->id());
-    dropLook.setFunctionID(drop->id());
-    looks.ui.vc()->addWidgetToMap(&buildLook);
-    looks.ui.vc()->addWidgetToMap(&dropLook);
-    const auto unmap = qScopeGuard([&]() {
-        looks.ui.vc()->removeWidgetFromMap(&buildLook);
-        looks.ui.vc()->removeWidgetFromMap(&dropLook);
-    });
-    looks.map("buildup", buildLook);
-    looks.map("drop", dropLook);
-
-    looks.load(1, "/m/a.mp3");
-    looks.at(1, 1.0);   // intro: no look mapped
-    Collection *cue = new Collection(&looks.doc);
-    cue->addFunction(build->id());
-    looks.doc.addFunction(cue);
-    cue->start(looks.doc.masterTimer(), FunctionParent::master());
-    QTRY_VERIFY(build->isRunning());
-    QTRY_COMPARE(buildLook.state(), VCButton::Monitoring);
-
-    looks.at(1, 8.5);   // through the buildup into the drop
-
-    QTRY_VERIFY2(build->isRunning() == false, "the buildup look started by a Collection stays on under the drop look");
-}
-
-void EdmLooks_Test::noPressWhenBlocked_data()
-{
-    QTest::addColumn<QString>("block");
-
-    QTest::newRow("edit mode") << "edit mode";
-    QTest::newRow("disabled") << "disabled";
-}
-
-void EdmLooks_Test::noPressWhenBlocked()
-{
-    QFETCH(QString, block);
-
-    Looks looks;
-    Scene *drop = looks.scene(0);
-    VCButton dropLook(&looks.doc);
-    dropLook.setFunctionID(drop->id());
-    looks.ui.vc()->addWidgetToMap(&dropLook);
-    const auto unmap = qScopeGuard([&]() { looks.ui.vc()->removeWidgetFromMap(&dropLook); });
-    looks.map("drop", dropLook);
-    if (block == "edit mode")
-        looks.ui.vc()->setEditMode(true);
-    else
-        dropLook.setDisabled(true);
-
-    looks.load(1, "/m/a.mp3");
-    looks.at(1, 4.5);
-    looks.at(1, 8.5);   // the drop starts
-    QTest::qWait(200);
-
-    QCOMPARE(dropLook.state(), VCButton::Inactive);
-}
-
 void EdmLooks_Test::testMappingCombosFollowWorkspaceLoad()
 {
     Looks looks;
-    VCButton chill(&looks.doc), dropLook(&looks.doc);
-    chill.setCaption("Chill");
-    dropLook.setCaption("Drop");
-    looks.ui.vc()->addWidgetToMap(&chill);
-    looks.ui.vc()->addWidgetToMap(&dropLook);
-    const auto unmap = qScopeGuard([&]() {
-        looks.ui.vc()->removeWidgetFromMap(&chill);
-        looks.ui.vc()->removeWidgetFromMap(&dropLook);
-    });
-    looks.map("drop", chill);
+    Scene *chill = looks.scene("Chill");
+    Scene *drop = looks.scene("Drop");
+    looks.mapping.setFunction("drop", chill->id());
 
     QQmlContext *context = looks.ui.view()->rootContext();
     context->setContextProperty("edmMapping", &looks.mapping);
-    context->setContextProperty("edmDirector", &looks.director);
     context->setContextProperty("virtualConsole", looks.ui.vc());
     QQmlComponent component(looks.ui.view()->engine(), QUrl("qrc:/StructureMapping.qml"));
     std::unique_ptr<QObject> panel(component.create(context));
@@ -341,8 +198,8 @@ void EdmLooks_Test::testMappingCombosFollowWorkspaceLoad()
     };
     QVERIFY2(comboTexts().contains("Chill"), qPrintable(comboTexts().join(", ")));
 
-    // another workspace maps the drop to the Drop button
-    QXmlStreamReader reader(QString(R"(<SongStructure Auto="1"><Look Label="drop" Widget="%1"/></SongStructure>)").arg(dropLook.id()));
+    // another workspace maps the drop to the Drop Scene
+    QXmlStreamReader reader(QString(R"(<SongStructure><Look Label="drop" Function="%1"/></SongStructure>)").arg(drop->id()));
     QVERIFY(reader.readNextStartElement());
     QVERIFY(looks.mapping.loadXML(reader));
 
@@ -401,88 +258,6 @@ QtObject {
     QVERIFY(QMetaObject::invokeMethod(probe.get(), "run", Q_RETURN_ARG(QVariant, pos), Q_ARG(QVariant, msMode), Q_ARG(QVariant, ms)));
 
     QCOMPARE(pos.toDouble(), x);
-}
-
-void EdmLooks_Test::pressReachesALookOnAnotherFramePage()
-{
-    Looks looks;
-    Scene *drop = looks.scene(0);
-    VCButton dropLook(&looks.doc);
-    dropLook.setFunctionID(drop->id());
-    looks.ui.vc()->addWidgetToMap(&dropLook);
-    const auto unmap = qScopeGuard([&]() { looks.ui.vc()->removeWidgetFromMap(&dropLook); });
-    looks.map("drop", dropLook);
-    dropLook.setVisible(false);   // what a multipage frame does to the buttons of the pages not shown
-
-    looks.load(1, "/m/a.mp3");
-    looks.at(1, 4.5);
-    looks.at(1, 8.5);   // the drop starts
-
-    QCOMPARE(dropLook.state(), VCButton::Active);
-}
-
-void EdmLooks_Test::releaseIsAlwaysAllowed_data()
-{
-    QTest::addColumn<QString>("block");
-
-    QTest::newRow("edit mode") << "edit mode";
-    QTest::newRow("disabled") << "disabled";
-    QTest::newRow("on another frame page") << "hidden";
-}
-
-void EdmLooks_Test::releaseIsAlwaysAllowed()
-{
-    QFETCH(QString, block);
-
-    Looks looks;
-    Scene *build = looks.scene(0);
-    Scene *drop = looks.scene(1);
-    VCButton buildLook(&looks.doc), dropLook(&looks.doc);
-    buildLook.setFunctionID(build->id());
-    dropLook.setFunctionID(drop->id());
-    looks.ui.vc()->addWidgetToMap(&buildLook);
-    looks.ui.vc()->addWidgetToMap(&dropLook);
-    const auto unmap = qScopeGuard([&]() {
-        looks.ui.vc()->removeWidgetFromMap(&buildLook);
-        looks.ui.vc()->removeWidgetFromMap(&dropLook);
-    });
-    looks.map("buildup", buildLook);
-    looks.map("drop", dropLook);
-    looks.load(1, "/m/a.mp3");
-    looks.at(1, 4.5);
-    QCOMPARE(buildLook.state(), VCButton::Active);
-
-    if (block == "edit mode")
-        looks.ui.vc()->setEditMode(true);
-    else if (block == "disabled")
-        buildLook.setDisabled(true);
-    else
-        buildLook.setVisible(false);
-    looks.at(1, 8.5);   // the drop starts: the buildup look goes off
-
-    QCOMPARE(buildLook.state(), VCButton::Inactive);
-}
-
-void EdmLooks_Test::lookPressIsTraced()
-{
-    Looks looks;
-    Scene *drop = looks.scene(0);
-    VCButton dropLook(&looks.doc);
-    dropLook.setFunctionID(drop->id());
-    looks.ui.vc()->addWidgetToMap(&dropLook);
-    const auto unmap = qScopeGuard([&]() { looks.ui.vc()->removeWidgetFromMap(&dropLook); });
-    looks.map("drop", dropLook);
-    ShowEventLog::open();
-    const auto closeLog = qScopeGuard([]() { ShowEventLog::close(); });
-
-    looks.load(1, "/m/a.mp3");
-    looks.at(1, 8.5);
-    QCOMPARE(dropLook.state(), VCButton::Active);
-
-    bool traced = false;
-    for (const ShowEventLog::Entry &e : ShowEventLog::snapshot(0).entries)
-        traced = traced || (e.widgetId == dropLook.id() && e.reason.contains("direct code request"));
-    QVERIFY2(traced, "the debug panel does not see the look press");
 }
 
 QTEST_MAIN(EdmLooks_Test)

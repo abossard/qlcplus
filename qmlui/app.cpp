@@ -76,12 +76,10 @@
 #include "edmanalysismanager.h"
 #include "edmanalysisqueue.h"
 #include "edmstructure.h"
-#include "edmstructuredirector.h"
 #include "edmstructuremapping.h"
 #include "songdirector.h"
 #include "audio.h"
 #include "show.h"
-#include "edmvclooksurface.h"
 #include "djsetrecorder.h"
 #include "stagewizard.h"
 #include "consolepagecreator.h"
@@ -389,7 +387,6 @@ void App::startup()
     rootContext()->setContextProperty("edmStructure", m_edmStructure);
     connect(m_edmStructure, &EdmStructure::analysisFilesChanged, m_showManager, &ShowManager::refreshAnalysisSections);
     m_edmMapping = new EdmStructureMapping(m_doc, this);
-    m_edmDirector = new EdmStructureDirector(m_edmStructure, m_edmMapping, new EdmVcLookSurface(m_virtualConsole, this), this);
     rootContext()->setContextProperty("edmMapping", m_edmMapping);
     m_songDirector = new SongDirector(m_doc, this);
     m_songDirector->setMapping(m_edmMapping);
@@ -406,7 +403,6 @@ void App::startup()
         if (filepath.isEmpty() == false)   // the user chose a Show for a song
             m_songDirector->sync();
     });
-    rootContext()->setContextProperty("edmDirector", m_edmDirector);
 
     // register an uncreatable type just to use the enums in QML
     qmlRegisterUncreatableType<ContextManager>("org.qlcplus.classes", 1, 0, "ContextManager", "Can't create a ContextManager!");

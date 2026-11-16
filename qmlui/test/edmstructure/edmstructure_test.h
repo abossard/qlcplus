@@ -39,42 +39,22 @@ private slots:
     void queueRunsInOrderOnce();
     void blockedQueueWaits();
 
-    void lookDecision_data();
-    void lookDecision();
-    void externalChange_data();
-    void externalChange();
     void mappingXmlRoundTrip();
     void mappingLoadKeepsUnknownAndSkipsBroken();
     void mappingLoadsFunctions_data();
     void mappingLoadsFunctions();
     void newWorkspaceClearsMapping();
-    void directorPressesTheLookOfEachSection();
-    void directorHoldsAfterTheDjChangesALook();
-    void directorKeepsTheOverrideThroughLoops();
-    void directorReleasesEveryOtherLook();
-    void directorIgnoresLifts();
-    void directorIgnoresStateChangesThatKeepTheLookOn();
-    void directorFollowsOnlyTheActiveDeck();
-    void directorChangesNothingWithoutAnalysisOrAuto_data();
-    void directorChangesNothingWithoutAnalysisOrAuto();
-    void directorLeavesLightsWhenTheDeckIsEjected();
 
     // review findings
     void destroyingParentWhileRunningDoesNotCallToolAgain();
     void readyEntryWithMissingFileCanBeRetried();
     void analysisWrittenOutsideTheQueueReachesTheDeck();
     void deckCountDecreaseLosesTheFollowedDeck();
-    void directorKeepsFollowingWhenTheOldMasterIsEjectedInTheSameWrite();
-    void directorSeesReleaseOfButtonOnBeforeWatch_data();
-    void directorSeesReleaseOfButtonOnBeforeWatch();
     void nonMp3SongIsNotQueued();
     void newSongClearsLiveValues();
     void rewrittenFinalFileReachesTheDeck();
     void analysisFolderChangesAreCoalesced();
     void readyFileWinsOverAFailedEntryInTheSongList();
-    void newSongOnTheDeckTriggersItsSection();
-    void directorPressesOnlyOnForwardSectionChanges_data();
-    void directorPressesOnlyOnForwardSectionChanges();
 };
 
 #endif

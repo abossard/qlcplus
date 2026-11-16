@@ -21,7 +21,7 @@ import QtQuick.Controls
 
 import org.qlcplus.classes 1.0
 
-/** The default Function of each section label (pre-fills Song Director blocks), and the AUTO switch */
+/** The default Function of each section label: it pre-fills Song Director blocks */
 Rectangle
 {
     id: mappingPanel
@@ -40,15 +40,6 @@ Rectangle
 
     readonly property var labelColors: ({ "intro": "#5b6b82", "buildup": "#e0a030", "drop": "#e0408a",
                                           "breakdown": "#3d7fe0", "groove": "#3fae6a", "outro": "#6b6b78" })
-    readonly property string status: {
-        if (!edmMapping.autoEnabled)
-            return qsTr("off")
-        if (edmDirector.overridden)
-            return qsTr("yours until the next section")
-        if (edmDirector.followedDeck > 0)
-            return qsTr("following deck %1: %2").arg(edmDirector.followedDeck).arg(edmDirector.followedLabel.toUpperCase())
-        return qsTr("waiting for a song with a structure")
-    }
 
     // the Functions that can be a look, by name
     function loadButtons() {
@@ -87,32 +78,7 @@ Rectangle
                 onClicked: { mappingPanel.expanded = !mappingPanel.expanded; if (mappingPanel.expanded) mappingPanel.loadButtons() }
             }
         }
-        Switch
-        {
-            id: autoSwitch
-            objectName: "structureAutoSwitch"
-            text: qsTr("AUTO")
-            checked: edmMapping.autoEnabled
-            onToggled: edmMapping.autoEnabled = checked
-            contentItem: Text
-            {
-                text: autoSwitch.text
-                color: autoSwitch.checked ? "#2ecc71" : "#ccc"
-                font.pixelSize: 12
-                font.bold: autoSwitch.checked
-                verticalAlignment: Text.AlignVCenter
-                leftPadding: autoSwitch.indicator.width + 6
-            }
-        }
-        Text
-        {
-            objectName: "structureStatus"
-            Layout.fillWidth: true
-            text: mappingPanel.status
-            color: edmDirector.overridden ? "#e67e22" : "#aaa"
-            font.pixelSize: 12
-            elide: Text.ElideRight
-        }
+        Item { Layout.fillWidth: true }
     }
 
     GridLayout

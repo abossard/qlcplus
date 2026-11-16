@@ -60,7 +60,6 @@ class EdmAnalysisQueue;
 class EdmStructure;
 class EdmStructureMapping;
 class SongDirector;
-class EdmStructureDirector;
 class DjSetRecorder;
 class QLCIOPlugin;
 class QMouseEvent;
@@ -310,7 +309,6 @@ private:
     EdmStructure *m_edmStructure = nullptr;
     EdmStructureMapping *m_edmMapping = nullptr;
     SongDirector *m_songDirector = nullptr;
-    EdmStructureDirector *m_edmDirector = nullptr;
     DjSetRecorder *m_djSetRecorder = nullptr;
 
     /*********************************************************************

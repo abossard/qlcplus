@@ -17,16 +17,6 @@ class EdmLooks_Test : public QObject
 private slots:
     void initTestCase();
 
-    // review findings: the director on real Virtual Console buttons
-    void lookPressSkipsNonToggleButtons_data();
-    void lookPressSkipsNonToggleButtons();
-    void monitoredLookIsReleased();
-    void noPressWhenBlocked_data();
-    void noPressWhenBlocked();
-    void pressReachesALookOnAnotherFramePage();
-    void releaseIsAlwaysAllowed_data();
-    void releaseIsAlwaysAllowed();
-    void lookPressIsTraced();
     void testMappingCombosFollowWorkspaceLoad();
     void analysisSectionsFollowAudioStart();
     void analysisBandPosition_data();

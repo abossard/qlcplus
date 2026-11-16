@@ -34,8 +34,6 @@ EdmStructureMapping::EdmStructureMapping(Doc *doc, QObject *parent)
     if (m_doc)
     {
         connect(m_doc, &Doc::cleared, this, [this]() {
-            m_auto = false;
-            m_widgets.clear();
             m_functions.clear();
             emit changed();
         });
@@ -74,16 +72,6 @@ QVariantList EdmStructureMapping::lookFunctions() const
     return list;
 }
 
-void EdmStructureMapping::setAutoEnabled(bool enabled)
-{
-    if (enabled == m_auto)
-        return;
-    m_auto = enabled;
-    if (m_doc)
-        m_doc->setModified();
-    emit changed();
-}
-
 quint32 EdmStructureMapping::function(const QString &label) const
 {
     return m_functions.value(label, Function::invalidId());
@@ -112,46 +100,16 @@ void EdmStructureMapping::setFunctionId(const QString &label, int id)
     setFunction(label, id < 0 ? Function::invalidId() : quint32(id));
 }
 
-void EdmStructureMapping::setWidget(const QString &label, quint32 widgetId)
-{
-    if (widget(label) == widgetId)
-        return;
-    if (widgetId == kNoLookWidget)
-        m_widgets.remove(label);
-    else
-        m_widgets.insert(label, widgetId);
-    if (m_doc)
-        m_doc->setModified();
-    emit changed();
-}
-
-int EdmStructureMapping::widgetId(const QString &label) const
-{
-    return widget(label) == kNoLookWidget ? -1 : int(widget(label));
-}
-
-void EdmStructureMapping::setWidgetId(const QString &label, int id)
-{
-    setWidget(label, id < 0 ? kNoLookWidget : quint32(id));
-}
-
 void EdmStructureMapping::saveXML(QXmlStreamWriter *doc) const
 {
-    if (m_auto == false && m_widgets.isEmpty() && m_functions.isEmpty())
+    if (m_functions.isEmpty())
         return;
     doc->writeStartElement(XML_ELEMENT);
-    doc->writeAttribute("Auto", m_auto ? "1" : "0");
-    QStringList labels = m_widgets.keys() + m_functions.keys();
-    labels.removeDuplicates();
-    labels.sort();
-    for (const QString &label : labels)
+    for (auto it = m_functions.constBegin(); it != m_functions.constEnd(); ++it)
     {
         doc->writeStartElement("Look");
-        doc->writeAttribute("Label", label);
-        if (m_functions.contains(label))
-            doc->writeAttribute("Function", QString::number(m_functions.value(label)));
-        if (m_widgets.contains(label))
-            doc->writeAttribute("Widget", QString::number(m_widgets.value(label)));
+        doc->writeAttribute("Label", it.key());
+        doc->writeAttribute("Function", QString::number(it.value()));
         doc->writeEndElement();
     }
     doc->writeEndElement();
@@ -162,8 +120,6 @@ bool EdmStructureMapping::loadXML(QXmlStreamReader &doc, const WidgetFunction &w
     if (doc.name() != QLatin1String(XML_ELEMENT))
         return false;
 
-    m_auto = doc.attributes().value("Auto") == QLatin1String("1");
-    m_widgets.clear();
     m_functions.clear();
     while (doc.readNextStartElement())
     {
@@ -174,8 +130,6 @@ bool EdmStructureMapping::loadXML(QXmlStreamReader &doc, const WidgetFunction &w
             bool widgetOk = false, functionOk = false;
             const quint32 widget = attrs.value("Widget").toUInt(&widgetOk);
             const quint32 function = attrs.value("Function").toUInt(&functionOk);
-            if (widgetOk)
-                m_widgets.insert(label, widget);
             if (functionOk)
                 m_functions.insert(label, function);
             else if (widgetOk && widgetFunction)

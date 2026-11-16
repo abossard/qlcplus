@@ -5,8 +5,6 @@ add_executable(${PROJECT_NAME}
     edmstructure_test.h
     ../../edmstructure.cpp
     ../../edmstructure.h
-    ../../edmstructuredirector.cpp
-    ../../edmstructuredirector.h
     ../../edmstructuremapping.cpp
     ../../edmstructuremapping.h
     ../../edmanalysisqueue.cpp
