@@ -422,6 +422,10 @@ void SongDirector_Test::holdOnlyOnSidecarBlocks_data()
     QTest::newRow("block of a track that is gone, dropped on load") << "track gone" << false;
     QTest::newRow("block of a second director track, dropped on load") << "second track" << false;
     QTest::newRow("director track deleted") << "track deleted" << false;
+    QTest::newRow("block item deleted, track kept") << "item deleted" << false;
+    QTest::newRow("edited block orphaned by a new analysis") << "orphaned" << false;
+    QTest::newRow("orphan block loaded") << "orphan loaded" << false;
+    QTest::newRow("block loaded without its item") << "no item" << false;
 }
 
 void SongDirector_Test::holdOnlyOnSidecarBlocks()
@@ -438,6 +442,24 @@ void SongDirector_Test::holdOnlyOnSidecarBlocks()
         QVERIFY(collection->holdUntilStopped());
         QVERIFY(song.show->removeTrack(song.director.track(song.show)->id()));
     }
+    else if (setup == "item deleted" || setup == "orphaned")
+    {
+        QVERIFY(song.director.createBlocks(song.show, song.reader));
+        Track *track = song.director.track(song.show);
+        ShowFunction *buildup = track->showFunctions().at(1);
+        collection = qobject_cast<Collection *>(song.doc.function(buildup->functionID()));
+        QVERIFY(collection->holdUntilStopped());
+        if (setup == "item deleted")
+            QVERIFY(track->removeShowFunction(buildup, true));
+        else
+        {
+            // the user shortens the buildup block, then the buildup leaves the analysis
+            buildup->setDuration(4000);
+            song.analyse(finalJson({ section("intro", 0, 9000, 100), section("drop", 9000, 33000, 90), section("outro", 33000, 41000, 60) }));
+            song.director.sync(song.reader);
+            QVERIFY(song.director.blocks(song.show).count() == 4);
+        }
+    }
     else
     {
         QList<Track *> tracks;
@@ -448,9 +470,12 @@ void SongDirector_Test::holdOnlyOnSidecarBlocks()
             song.show->addTrack(tracks.last());
             blocks << new Collection(&song.doc);
             QVERIFY(song.doc.addFunction(blocks.last()));
+            if (setup != "no item")
+                tracks.last()->createShowFunction(blocks.last()->id())->setDuration(9000);
         }
         // two director tracks for one Show: the first one read wins
-        const QString block = R"(<Block Function="%1" Section="0" Label="intro" Number="1" Confidence="50" Unsure="0" Start="0" Duration="9000"/>)";
+        const QString block = QString(R"(<Block Function="%1" Section="0" Label="intro" Number="1" Confidence="50" Unsure="0" Start="0" Duration="9000"%2/>)")
+            .arg("%1", setup == "orphan loaded" ? R"( Orphan="1")" : "");
         const QString xml = QString(R"(<SongDirector><Track Show="%1" ID="%2">%3</Track><Track Show="%1" ID="%4">%5</Track></SongDirector>)")
             .arg(song.show->id()).arg(setup == "track gone" ? 4000u : tracks.at(0)->id())
             .arg(block.arg(blocks.at(0)->id())).arg(tracks.at(1)->id()).arg(block.arg(blocks.at(1)->id()));

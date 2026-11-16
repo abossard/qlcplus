@@ -439,6 +439,8 @@ void Collection::slotChildStopped(quint32 fid)
 {
     QMutexLocker locker(&m_functionListMutex);
     m_runningChildren.remove(fid);
+    // the member's stop reset its overrides: the number may go to another owner
+    m_intensityOverrideIds.remove(fid);
 }
 
 void Collection::slotChildStarted(quint32 fid)

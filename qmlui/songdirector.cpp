@@ -156,14 +156,29 @@ bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
 }
 
 /** A block runs for the length of its Show item: its Collection holds until
- *  stopped while it is a block of the director track, the track's deletion releases it */
+ *  stopped while it is the item of a kept block on the director track. The
+ *  deletion of its last item there, or of the track, releases it */
 static void holdBlock(QObject *context, Track *track, Collection *collection)
 {
-    collection->setHoldUntilStopped(true);
-    QObject::connect(track, &QObject::destroyed, context, [held = QPointer<Collection>(collection)]() {
-        if (held)
-            held->setHoldUntilStopped(false);
-    });
+    auto release = [owner = QPointer<Track>(track), held = QPointer<Collection>(collection)]() {
+        if (held == nullptr)
+            return;
+        if (owner != nullptr)
+            for (const ShowFunction *sf : owner->showFunctions())
+                if (sf->functionID() == held->id())
+                    return;
+        held->setHoldUntilStopped(false);
+    };
+    bool hasItem = false;
+    for (ShowFunction *sf : track->showFunctions())
+    {
+        if (sf->functionID() != collection->id())
+            continue;
+        hasItem = true;
+        QObject::connect(sf, &QObject::destroyed, context, release);
+    }
+    collection->setHoldUntilStopped(hasItem);
+    QObject::connect(track, &QObject::destroyed, context, release);
 }
 
 bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QList<SongDirectorBlock> &blocks)
@@ -176,7 +191,6 @@ bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QL
         delete collection;
         return false;
     }
-    holdBlock(this, track, collection);
     if (m_mapping)
     {
         const quint32 look = m_mapping->function(block.label);
@@ -187,6 +201,7 @@ bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QL
     sf->setStartTime(block.startMs);
     sf->setDuration(block.durationMs);
     sf->setColor(ShowFunction::defaultColor(Function::CollectionType));
+    holdBlock(this, track, collection);
 
     SongDirectorBlock sidecar;
     sidecar.functionId = collection->id();
@@ -270,6 +285,8 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
         else
         {
             b.orphan = true;
+            if (auto *collection = qobject_cast<Collection *>(m_doc->function(b.functionId)))
+                collection->setHoldUntilStopped(false);   // no kept block any more
             blocks.append(b);
             changed = true;
         }
@@ -463,7 +480,7 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
             m_entries.append(e);
             m_done.insert(e.showId);
             for (const SongDirectorBlock &block : e.blocks)
-                if (auto *collection = qobject_cast<Collection *>(m_doc->function(block.functionId)))
+                if (auto *collection = qobject_cast<Collection *>(m_doc->function(block.functionId)); collection && block.orphan == false)
                     holdBlock(this, e.track.data(), collection);
         }
     }

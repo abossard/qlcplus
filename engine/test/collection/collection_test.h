@@ -55,6 +55,8 @@ private slots:
     void holdRestartKeepsIntensity();
     void addMemberWhileRunning_data();
     void addMemberWhileRunning();
+    void stoppedMemberDropsOverride_data();
+    void stoppedMemberDropsOverride();
     void stopNotOwnChildren();
     void totalDurationOfParallelMembers();
 

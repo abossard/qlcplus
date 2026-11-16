@@ -706,6 +706,58 @@ void Collection_Test::addMemberWhileRunning()
     delete doc;
 }
 
+void Collection_Test::stoppedMemberDropsOverride_data()
+{
+    QTest::addColumn<bool>("hold");
+
+    QTest::newRow("held block") << true;
+    QTest::newRow("ordinary Collection") << false;
+}
+
+void Collection_Test::stoppedMemberDropsOverride()
+{
+    QFETCH(bool, hold);
+
+    Doc* doc = new Doc(this);
+    Scene* s1 = new Scene(doc);
+    doc->addFunction(s1);
+    Scene* s2 = new Scene(doc);
+    doc->addFunction(s2);
+
+    // s2 keeps an ordinary Collection running after s1 ended
+    Collection* c = new Collection(doc);
+    c->addFunction(s1->id());
+    c->addFunction(s2->id());
+    c->setHoldUntilStopped(hold);
+    doc->addFunction(c);
+    c->adjustAttribute(0.4, Function::Intensity);
+
+    QList<Universe*> ua;
+    ua.append(new Universe(0, new GrandMaster()));
+    MasterTimerStub* mts = new MasterTimerStub(doc, ua);
+
+    c->start(mts, FunctionParent::master());
+    c->write(mts, ua);
+    c->write(mts, ua);
+
+    // s1 ends on its own: its overrides are reset, and before this Collection's
+    // next tick another owner requests the Intensity override, which gets the old number
+    mts->stopFunction(s1);
+    s1->requestAttributeOverride(Function::Intensity, 0.9);
+
+    // a level change of this Collection must not drive the other owner's override
+    c->adjustAttribute(0.2, Function::Intensity);
+    QCOMPARE(s1->getAttributeValue(Function::Intensity), 0.9);
+    QCOMPARE(s2->getAttributeValue(Function::Intensity), 0.2);
+
+    c->stop(FunctionParent::master());
+    c->write(mts, ua);
+    c->postRun(mts, ua);
+
+    delete mts;
+    delete doc;
+}
+
 void Collection_Test::stopNotOwnChildren()
 {
     Doc* doc = new Doc(this);
