@@ -2,7 +2,7 @@
 
 This checklist contains ONLY items that require human judgment (visual inspection, UX assessment, timing perception, 3D rendering). Anything that can be asserted automatically lives elsewhere:
 
-- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./engine/test/showcommandtrack/showcommandtrack_test && ./engine/test/showrunner/showrunner_test && ./engine/test/showclipautomation/showclipautomation_test && (cd engine/test/mixlayer && ./mixlayer_test) && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./mcp/test/mcp_vcpage_input_mode_test && ./mcp/test/mcp_io_tools_test && ./mcp/test/mcp_delete_tools_test && ./mcp/test/mcp_workspace_tools_test && ./mcp/test/mcp_stage_tools_test && ./mcp/test/mcp_input_profile_tools_test && ./mcp/test/mcp_live_tools_test && ./mcp/test/mcp_show_tools_test && ./mcp/test/mcp_dispatch_smoke_test && ./qmlui/test/djfsm/djfsm_test && ./qmlui/test/performfsm/performfsm_test && ./qmlui/test/djmanager/djmanager_test && ./qmlui/test/djsetrecorder/djsetrecorder_test && ./qmlui/test/audiobpmtag/audiobpmtag_test && ./qmlui/test/showfactory/showfactory_test && ./qmlui/test/vdjbridge/vdjbridge_test && ./qmlui/test/vdjtelemetryclient/vdjtelemetryclient_test && ./qmlui/test/vdjdatabasereader/vdjdatabasereader_test`. `mixlayer_test` finds its fixtures from its own folder. A build with `-DMCP_AUTHORING_OWNER_TESTS=ON` also has `./mcp/test/mcp_live_control_tools_test`.
+- **Unit tests:** `cd build && ./engine/test/beatquantize/beatquantize_test && ./engine/test/function/function_test && ./engine/test/show/show_test && ./engine/test/showcommandtrack/showcommandtrack_test && ./engine/test/showrunner/showrunner_test && ./engine/test/showclipautomation/showclipautomation_test && (cd engine/test/mixlayer && ./mixlayer_test) && ./mcp/test/mcp_conversions_test && ./mcp/test/mcp_vc_query_filter_test && ./mcp/test/mcp_vc_validation_test && ./mcp/test/mcp_vcpage_input_mode_test && ./mcp/test/mcp_io_tools_test && ./mcp/test/mcp_delete_tools_test && ./mcp/test/mcp_workspace_tools_test && ./mcp/test/mcp_stage_tools_test && ./mcp/test/mcp_input_profile_tools_test && ./mcp/test/mcp_live_tools_test && ./mcp/test/mcp_show_tools_test && ./mcp/test/mcp_dispatch_smoke_test && ./qmlui/test/djfsm/djfsm_test && ./qmlui/test/performfsm/performfsm_test && ./qmlui/test/djmanager/djmanager_test && ./qmlui/test/djsetrecorder/djsetrecorder_test && ./qmlui/test/audiobpmtag/audiobpmtag_test && ./qmlui/test/showfactory/showfactory_test && ./qmlui/test/vdjbridge/vdjbridge_test && ./qmlui/test/vdjtelemetryclient/vdjtelemetryclient_test && ./qmlui/test/vdjdatabasereader/vdjdatabasereader_test && ./qmlui/test/songdirector/songdirector_test && ./qmlui/test/edmstructure/edmstructure_test`. `mixlayer_test` finds its fixtures from its own folder. A build with `-DMCP_AUTHORING_OWNER_TESTS=ON` also has `./mcp/test/mcp_live_control_tools_test`.
 - **Smoke test:** `./scripts/smoke-test.sh` — covers MCP server reachability, handshake, tool list, REST API spot checks, path-traversal protection, MIME types
 - **E2E tests:** `cd webaccess/web-dmx && npx playwright test` — covers DOM structure, filter/search behaviour, raw-channel disclosure, cross-tab sync wiring
 
@@ -3727,3 +3727,96 @@ The incremental changes preserved the earlier integrations and fork customizatio
 **Recheck (2026-11-12):** Upstream remains at `167da4814`. In the existing build, 29 of 37 CTest suites passed; seven timed out after 90 seconds, and `upstream3d_test` failed to load due to a stale library link. After rebuilding that target, `upstream3d_test` passed. The timed-out recording and upstream integration suites also reported QML assertions before timeout; the full suite was not rebuilt or verified green. The manual-review parser tests passed (72 tests).
 
 **Recheck (2026-11-13):** Fetched `upstream/master` at `167da48141c60d820cd715f52bb535ad1cc0ecc1`. It is already an ancestor of `mcp-server` at `135b585cb7899a5cefe6087be45b9f3e917d0b82`; there are no new upstream commits to integrate. The existing build's 12 upstream VC suites passed offscreen, and the two manual-review parser suites passed (64 tests). The full suite was not rerun or rebuilt, and the manual checks remain pending.
+
+---
+
+## 56. Upstream Show editing, palettes and 3D rendering (752c96285)
+
+Incoming source: `mcallegari/qlcplus:master` at `752c96285`, seven commits after `167da4814`, recorded as a Git merge on `mcp-server`. The fork's VDJ grid and existing pointer-anchored wheel and trackpad zoom remain in place.
+
+### 56.1 Show snapping and waveform
+
+- **Do:** In Time, BPM and VDJ Beat modes, move an audio clip and resize each edge near grid lines and another clip. Repeat with snapping disabled and with Ctrl held throughout the gesture and release.
+- ☐ Enabled snapping follows the visible grid or neighboring edge; disabled snapping and Ctrl allow free placement. VDJ Beat snapping respects its phase anchor.
+- ☐ The waveform and readable clip name move with the audio clip, without obscuring selection, resize handles or other clip overlays.
+
+### 56.2 Timeline zoom
+
+- **Do:** With the timeline scrolled away from its start, zoom in and out using Ctrl+wheel over the ruler and clips in Time, BPM and VDJ Beat modes. Repeat with trackpad pinch or modifier-scroll and toolbar zoom.
+- ☐ Pointer-anchored zoom keeps the same time under the pointer where bounds permit; ruler and lanes remain aligned. Trackpad and toolbar controls remain usable without duplicate zoom steps.
+
+### 56.3 Palette and Show safety [DMX]
+
+- **Do:** On a scratch workspace, use a palette in multiple scenes, delete it, create another palette and save/reload. Attempt to add a Show to itself directly and through a Collection.
+- ☐ Scenes retain the intended remaining palette effects without adopting the new palette unexpectedly. Physical output matches the visible scene state.
+- ☐ The editor refuses recursive Show references, while valid scene and nested-function clips remain usable after reload.
+
+### 56.4 On-demand 3D rendering
+
+- **Do:** Open the 3D view, change fixture output, move the camera, switch away and back, and reopen the workspace.
+- ☐ The view updates promptly after each change without stale frames or missing fixtures. Repeat on an older supported Qt version if available.
+
+**Human sign-off:** All six checks remain pending. Hardware output, visual behavior and older Qt versions require human verification.
+
+---
+
+## 57. Song Director: looks as blocks in the song Show (e44434164..a58063fe4)
+
+> A song Show with an analysis gets a **Song Director** track: one block per analysed section (intro, buildup, drop, breakdown, outro), each a Collection sized to its section. New blocks are filled from a default look per section label, set in the DJ Manager's **Song looks** panel. After that a block is ordinary Show content: the block under the playhead plays, also after a backward jump or a loop, and holds its look until the block ends. Sections the analysis is unsure about get a dashed orange border and their confidence. A changed analysis moves the blocks you did not edit and keeps the ones you did. DJ input (VC, MIDI, OSC) runs on top and is recorded as before; recorded sets replay the blocks through the nested song Shows. The earlier VC-button look director and its AUTO switch are removed; old label-to-button mappings load as label-to-Function defaults. Automated coverage: `songdirector_test` (60), `edmstructure_test` (62), `collection_test` (26), `mcp_live_control_tools_test` (119) and `edme2e_test` (11: VirtualDJ telemetry to Perform to block to DMX, forward, backward jump, loop, DJ strobe, two decks, migrated workspace, set replay). Clicks, drags and the resize handle were only driven through the MCP hooks that call the same code, never by mouse.
+
+### 57.1 Blocks appear for an analysed song [LOW RISK]
+
+- **Prerequisite:** A disposable workspace with a song Show whose audio clip has an analysis file, including at least one unsure section.
+- **Do:** Open the song Show in the Show Manager. Then delete its Song Director track and press **Create song blocks** in the Show Manager toolbar.
+- **Verify:**
+- ☐ The Song Director track has one block per section, starting at the section starts in the header band and ending at the next one
+- ☐ Each block shows its label and the default look's name; a label without a default gives an empty block
+- ☐ Unsure blocks have a dashed orange border and their confidence (for example "48% ?"); the others look normal
+- ☐ After save and reopen the blocks, their content and the unsure marks are unchanged
+
+### 57.2 Editing blocks by mouse [DMX] [MEDIUM RISK]
+
+- **Prerequisite:** The song Show from 57.1, output you can watch.
+- **Do:** Drag a Scene from the Function Manager onto a block. Shorten another block with its right resize handle. Play across both blocks, then jump back into the first one.
+- **Verify:**
+- ☐ The dropped Scene joins that block's look, and the output shows it only while the playhead is inside the block
+- ☐ The shortened block's look ends at its new end, not at the section end
+- ☐ After the backward jump the block under the playhead plays again
+- ☐ A look whose Chaser or EFX ends early restarts and holds until the block ends
+
+### 57.3 Default looks per label [LOW RISK]
+
+- **Do:** In the DJ Manager open **Song looks**, set a different default for one label, then add a new analysed song Show. Load a workspace saved before the Song Director that had VC look buttons mapped.
+- **Verify:**
+- ☐ The panel lists Functions per label (Scene, Collection, Chaser, RGB Matrix, EFX only), and the new song's blocks for that label start with the new default
+- ☐ Existing blocks you edited keep their content
+- ☐ The old workspace's button mappings appear as the buttons' Functions
+
+### 57.4 Re-analysis [MEDIUM RISK]
+
+- **Do:** Edit one block of a song, then re-run that song's analysis so its sections change.
+- **Verify:**
+- ☐ Untouched blocks move and resize to the new sections; the edited block stays where it was with its content
+- ☐ A block that was playing when its section disappeared stops cleanly, with no crash and no stale item left in the Show Manager selection
+
+### 57.5 Live set with VirtualDJ [VDJ] [DMX] [HIGH RISK]
+
+- **Prerequisite:** Perform on, two analysed songs with Song Director blocks.
+- **Do:** Play a mix: a full song through its sections, a backward cue, a 4-beat loop over a drop start, a strobe from a VC button during a drop, a crossfade to the second deck. Record the set and replay it with Perform off.
+- **Verify:**
+- ☐ Looks change at each section start of the playing deck, and the block under the playhead plays after the cue and in the loop
+- ☐ The strobe runs on top of the block's look and stops only when released
+- ☐ During the crossfade both songs' looks mix by deck level, colour and position following the master deck
+- ☐ The replay shows the same looks at the same times
+
+### 57.6 Sign-off
+
+- ☐ Record reviewer, date, build, workspace and platform/Qt version. Leave unavailable hardware unsigned.
+
+| Area | Reviewer | Date | Build / Workspace / Platform | Pass / Fail | Notes |
+|------|----------|------|------------------------------|-------------|-------|
+| Blocks appear | | | | | |
+| Editing blocks by mouse | | | | | |
+| Default looks per label | | | | | |
+| Re-analysis | | | | | |
+| Live set with VirtualDJ | | | | | |
