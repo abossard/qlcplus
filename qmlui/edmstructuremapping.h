@@ -19,8 +19,10 @@
 #define EDMSTRUCTUREMAPPING_H
 
 #include <QMap>
+#include <functional>
 #include <QObject>
 #include <QStringList>
+#include <QVariantList>
 
 class Doc;
 class QXmlStreamReader;
@@ -30,9 +32,14 @@ class QXmlStreamWriter;
 static const quint32 kNoLookWidget = 0xFFFFFFFF;
 
 /**
- * Which Virtual Console button each section label presses, and whether the
- * director acts at all. Part of the workspace: <SongStructure Auto="1"><Look Label="drop" Widget="12"/>…
- * Labels the tool may add later and widgets that are gone are kept.
+ * The workspace's default look per section label: a Function that new Song
+ * Director blocks are pre-filled with. Also whether the button director acts
+ * at all. Part of the workspace:
+ * <SongStructure Auto="1"><Look Label="drop" Function="12" Widget="5"/>…
+ * An old file has only Widget (a Virtual Console button): that button's
+ * Function becomes the default. The button stays as the legacy mapping the
+ * button director still reads until it is removed.
+ * Labels the tool may add later and Functions that are gone are kept.
  */
 class EdmStructureMapping : public QObject
 {
@@ -46,13 +53,24 @@ public:
     /** The labels the editor offers */
     Q_INVOKABLE static QStringList labels();
 
+    /** The Functions that can be a look, as {id, text} by name; the folder is added when a name repeats */
+    Q_INVOKABLE QVariantList lookFunctions() const;
+
     bool autoEnabled() const { return m_auto; }
     void setAutoEnabled(bool enabled);
 
     quint32 widget(const QString &label) const { return m_widgets.value(label, kNoLookWidget); }
     void setWidget(const QString &label, quint32 widgetId);
 
+    /** The default Function of a label, Function::invalidId() for none */
+    quint32 function(const QString &label) const;
+    void setFunction(const QString &label, quint32 functionId);
+
     /** Same for QML: -1 for none */
+    Q_INVOKABLE int functionId(const QString &label) const;
+    Q_INVOKABLE void setFunctionId(const QString &label, int functionId);
+
+    /** Legacy button mapping. Same for QML: -1 for none */
     Q_INVOKABLE int widgetId(const QString &label) const;
     Q_INVOKABLE void setWidgetId(const QString &label, int widgetId);
 
@@ -60,7 +78,10 @@ public:
     QList<quint32> widgets() const { return m_widgets.values(); }
 
     void saveXML(QXmlStreamWriter *doc) const;
-    bool loadXML(QXmlStreamReader &doc);
+
+    /** Maps a legacy Widget attribute to its button's Function, invalidId() when it has none */
+    using WidgetFunction = std::function<quint32(quint32)>;
+    bool loadXML(QXmlStreamReader &doc, const WidgetFunction &widgetFunction = WidgetFunction());
 
 signals:
     void changed();
@@ -69,6 +90,7 @@ private:
     Doc *m_doc;
     bool m_auto = false;
     QMap<QString, quint32> m_widgets;
+    QMap<QString, quint32> m_functions;
 };
 
 #endif

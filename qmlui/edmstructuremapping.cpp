@@ -17,7 +17,11 @@
 
 #include "edmstructuremapping.h"
 #include "doc.h"
+#include "function.h"
 
+#include <QHash>
+#include <algorithm>
+#include <QVariantMap>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
@@ -32,6 +36,7 @@ EdmStructureMapping::EdmStructureMapping(Doc *doc, QObject *parent)
         connect(m_doc, &Doc::cleared, this, [this]() {
             m_auto = false;
             m_widgets.clear();
+            m_functions.clear();
             emit changed();
         });
     }
@@ -42,6 +47,33 @@ QStringList EdmStructureMapping::labels()
     return {"intro", "buildup", "drop", "breakdown", "groove", "outro"};
 }
 
+QVariantList EdmStructureMapping::lookFunctions() const
+{
+    QList<Function *> looks;
+    if (m_doc)
+    {
+        for (Function::Type type : {Function::SceneType, Function::CollectionType, Function::ChaserType,
+                                    Function::RGBMatrixType, Function::EFXType})
+            looks += m_doc->functionsByType(type);
+    }
+    std::sort(looks.begin(), looks.end(), [](Function *a, Function *b) {
+        return QString::localeAwareCompare(a->name(), b->name()) < 0;
+    });
+    QHash<QString, int> seen;
+    for (Function *f : looks)
+        seen[f->name()]++;
+
+    QVariantList list;
+    for (Function *f : looks)
+    {
+        const QString text = seen.value(f->name()) > 1 && f->path(true).isEmpty() == false
+                                 ? QString("%1  (%2)").arg(f->name(), f->path(true))
+                                 : f->name();
+        list.append(QVariantMap {{"id", f->id()}, {"text", text}});
+    }
+    return list;
+}
+
 void EdmStructureMapping::setAutoEnabled(bool enabled)
 {
     if (enabled == m_auto)
@@ -50,6 +82,34 @@ void EdmStructureMapping::setAutoEnabled(bool enabled)
     if (m_doc)
         m_doc->setModified();
     emit changed();
+}
+
+quint32 EdmStructureMapping::function(const QString &label) const
+{
+    return m_functions.value(label, Function::invalidId());
+}
+
+void EdmStructureMapping::setFunction(const QString &label, quint32 functionId)
+{
+    if (function(label) == functionId)
+        return;
+    if (functionId == Function::invalidId())
+        m_functions.remove(label);
+    else
+        m_functions.insert(label, functionId);
+    if (m_doc)
+        m_doc->setModified();
+    emit changed();
+}
+
+int EdmStructureMapping::functionId(const QString &label) const
+{
+    return function(label) == Function::invalidId() ? -1 : int(function(label));
+}
+
+void EdmStructureMapping::setFunctionId(const QString &label, int id)
+{
+    setFunction(label, id < 0 ? Function::invalidId() : quint32(id));
 }
 
 void EdmStructureMapping::setWidget(const QString &label, quint32 widgetId)
@@ -77,34 +137,54 @@ void EdmStructureMapping::setWidgetId(const QString &label, int id)
 
 void EdmStructureMapping::saveXML(QXmlStreamWriter *doc) const
 {
-    if (m_auto == false && m_widgets.isEmpty())
+    if (m_auto == false && m_widgets.isEmpty() && m_functions.isEmpty())
         return;
     doc->writeStartElement(XML_ELEMENT);
     doc->writeAttribute("Auto", m_auto ? "1" : "0");
-    for (auto it = m_widgets.constBegin(); it != m_widgets.constEnd(); ++it)
+    QStringList labels = m_widgets.keys() + m_functions.keys();
+    labels.removeDuplicates();
+    labels.sort();
+    for (const QString &label : labels)
     {
         doc->writeStartElement("Look");
-        doc->writeAttribute("Label", it.key());
-        doc->writeAttribute("Widget", QString::number(it.value()));
+        doc->writeAttribute("Label", label);
+        if (m_functions.contains(label))
+            doc->writeAttribute("Function", QString::number(m_functions.value(label)));
+        if (m_widgets.contains(label))
+            doc->writeAttribute("Widget", QString::number(m_widgets.value(label)));
         doc->writeEndElement();
     }
     doc->writeEndElement();
 }
 
-bool EdmStructureMapping::loadXML(QXmlStreamReader &doc)
+bool EdmStructureMapping::loadXML(QXmlStreamReader &doc, const WidgetFunction &widgetFunction)
 {
     if (doc.name() != QLatin1String(XML_ELEMENT))
         return false;
 
     m_auto = doc.attributes().value("Auto") == QLatin1String("1");
     m_widgets.clear();
+    m_functions.clear();
     while (doc.readNextStartElement())
     {
         const QXmlStreamAttributes attrs = doc.attributes();
-        bool ok = false;
-        const quint32 id = attrs.value("Widget").toUInt(&ok);
-        if (ok && doc.name() == QLatin1String("Look") && attrs.value("Label").isEmpty() == false)
-            m_widgets.insert(attrs.value("Label").toString(), id);
+        const QString label = attrs.value("Label").toString();
+        if (doc.name() == QLatin1String("Look") && label.isEmpty() == false)
+        {
+            bool widgetOk = false, functionOk = false;
+            const quint32 widget = attrs.value("Widget").toUInt(&widgetOk);
+            const quint32 function = attrs.value("Function").toUInt(&functionOk);
+            if (widgetOk)
+                m_widgets.insert(label, widget);
+            if (functionOk)
+                m_functions.insert(label, function);
+            else if (widgetOk && widgetFunction)
+            {
+                const quint32 fromButton = widgetFunction(widget);
+                if (fromButton != Function::invalidId())
+                    m_functions.insert(label, fromButton);
+            }
+        }
         doc.skipCurrentElement();
     }
     emit changed();

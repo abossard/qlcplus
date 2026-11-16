@@ -26,6 +26,7 @@
 #include "edmanalysisreader.h"
 
 class Doc;
+class EdmStructureMapping;
 class Show;
 class Track;
 class QXmlStreamReader;
@@ -89,8 +90,11 @@ public:
     /** The generated values of the director track's blocks */
     QList<SongDirectorBlock> blocks(Show *show) const;
 
-    /** Add the Song Director track with one empty Collection block per
-     *  section of the Show's song. False, changing nothing, when the Show
+    /** The workspace defaults that pre-fill new blocks; none leaves them empty */
+    void setMapping(EdmStructureMapping *mapping) { m_mapping = mapping; }
+
+    /** Add the Song Director track with one Collection block per section of
+     *  the Show's song, holding the label's default Function when it has one. False, changing nothing, when the Show
      *  has a director track already, no audio clip or no analysis */
     bool createBlocks(Show *show, EdmAnalysisReader &reader);
 
@@ -107,6 +111,7 @@ private:
     const Entry *entry(Show *show) const;
 
     Doc *m_doc;
+    EdmStructureMapping *m_mapping = nullptr;
     QList<Entry> m_entries;
 };
 

@@ -47,6 +47,7 @@
 #include "showcommandrecorder.h"
 #include "showmanager.h"
 #include "songdirector.h"
+#include "edmstructuremapping.h"
 #include "track.h"
 #include "showcontrolaction.h"
 #include "show.h"
@@ -594,10 +595,11 @@ QVariantMap VCBridgeV5::createSongBlocks(quint32 showId)
     if (!show)
         return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
     if (director->track(show))
-        return songDirectorError(QStringLiteral("Show %1 already has a Song Director track").arg(showId));
     {
         // the Show stays open for the user to look at its blocks
         manager->setCurrentShowID(int(showId));
+        return songDirectorError(QStringLiteral("Show %1 already has a Song Director track").arg(showId));
+    }
     if (manager->readOnly())
         return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
     // what the user does: open the Show in the Show Manager, then press Create song blocks
@@ -607,6 +609,32 @@ QVariantMap VCBridgeV5::createSongBlocks(quint32 showId)
     if (!manager->createSongBlocks())
         return songDirectorError(QStringLiteral("Show %1 has no analysed audio clip").arg(showId));
     return songBlocks(showId);
+}
+
+QVariantMap VCBridgeV5::songLookDefaults(const QString &label, int functionID, bool setFunction)
+{
+    if (!hasMatchingAuthoringContext())
+        return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    EdmStructureMapping *mapping = m_authoringApp->findChild<EdmStructureMapping *>();
+    if (!mapping)
+        return songDirectorError(QStringLiteral("Song Director is unavailable"));
+    if (setFunction)
+    {
+        if (!EdmStructureMapping::labels().contains(label))
+            return songDirectorError(QStringLiteral("unknown label '%1', expected one of %2")
+                                         .arg(label, EdmStructureMapping::labels().join(QStringLiteral(", "))));
+        bool isLook = functionID < 0;
+        for (const QVariant &look : mapping->lookFunctions())
+            isLook = isLook || look.toMap().value(QStringLiteral("id")).toInt() == functionID;
+        if (!isLook)
+            return songDirectorError(QStringLiteral("Function %1 is not a look (Scene, Collection, Chaser, RGB Matrix or EFX)")
+                                         .arg(functionID));
+        mapping->setFunctionId(label, functionID);
+    }
+    QVariantMap defaults;
+    for (const QString &name : EdmStructureMapping::labels())
+        defaults.insert(name, mapping->functionId(name));
+    return {{QStringLiteral("defaults"), defaults}};
 }
 
 QVariantMap VCBridgeV5::songBlocks(quint32 showId) const

@@ -46,6 +46,7 @@
 #include <unistd.h>
 
 #include "app.h"
+#include "vcbutton.h"
 #include "uimanager.h"
 #include "simpledesk.h"
 #include "showmanager.h"
@@ -389,6 +390,7 @@ void App::startup()
     m_edmDirector = new EdmStructureDirector(m_edmStructure, m_edmMapping, new EdmVcLookSurface(m_virtualConsole, this), this);
     rootContext()->setContextProperty("edmMapping", m_edmMapping);
     m_songDirector = new SongDirector(m_doc, this);
+    m_songDirector->setMapping(m_edmMapping);
     m_showManager->setSongDirector(m_songDirector);
     rootContext()->setContextProperty("edmDirector", m_edmDirector);
 
@@ -1636,7 +1638,10 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         }
         else if (doc.name() == QStringLiteral("SongStructure"))
         {
-            m_edmMapping->loadXML(doc);
+            m_edmMapping->loadXML(doc, [this](quint32 widgetId) {
+                auto *button = qobject_cast<VCButton *>(m_virtualConsole->widget(widgetId));
+                return button ? button->functionID() : Function::invalidId();
+            });
         }
         else if (doc.name() == QStringLiteral("SongDirector"))
         {

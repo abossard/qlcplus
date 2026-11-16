@@ -45,6 +45,8 @@ private slots:
     void externalChange();
     void mappingXmlRoundTrip();
     void mappingLoadKeepsUnknownAndSkipsBroken();
+    void mappingLoadsFunctions_data();
+    void mappingLoadsFunctions();
     void newWorkspaceClearsMapping();
     void directorPressesTheLookOfEachSection();
     void directorHoldsAfterTheDjChangesALook();

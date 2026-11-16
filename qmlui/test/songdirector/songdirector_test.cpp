@@ -10,7 +10,9 @@
 
 #include "audio.h"
 #include "collection.h"
+#include "edmstructuremapping.h"
 #include "doc.h"
+#include "scene.h"
 #include "show.h"
 #include "showfunction.h"
 #include "track.h"
@@ -33,9 +35,9 @@ EdmSection section(const QString &label, double startMs, double endMs, int confi
     s.startMs = startMs;
     s.endMs = endMs;
     s.confidence = confidence;
+    s.labelConfidence = confidence;
     s.unsure = unsure;
     return s;
-    s.labelConfidence = confidence;
 }
 
 /** "drop 2 #3 @9000 +8000 c90 u0": label, number, section index, start, duration, confidence, unsure */
@@ -196,6 +198,73 @@ void SongDirector_Test::createBlocks()
     QCOMPARE(blocks.at(1).generated.confidence, 40);
     QVERIFY(blocks.at(1).generated.unsure);
     QVERIFY(blocks.at(2).generated.unsure == false);
+}
+
+void SongDirector_Test::createBlocksFromDefaults_data()
+{
+    QTest::addColumn<QStringList>("defaults");   // "label=slot": slot 0 is the first scene, 1 the second, "gone" a Function that does not exist
+    QTest::addColumn<QStringList>("expected");   // per block: the scene slot in its Collection, or "-"
+
+    QTest::newRow("no defaults") << QStringList() << QStringList { "-", "-", "-", "-" };
+    QTest::newRow("some labels") << QStringList { "drop=1", "intro=0" } << QStringList { "0", "-", "1", "-" };
+    QTest::newRow("all labels") << QStringList { "intro=0", "buildup=0", "drop=1", "outro=1" }
+                                << QStringList { "0", "0", "1", "1" };
+    QTest::newRow("unknown label unused") << QStringList { "chorus=1" } << QStringList { "-", "-", "-", "-" };
+    QTest::newRow("default function is gone") << QStringList { "drop=gone", "outro=0" }
+                                              << QStringList { "-", "-", "-", "0" };
+}
+
+void SongDirector_Test::createBlocksFromDefaults()
+{
+    QFETCH(QStringList, defaults);
+    QFETCH(QStringList, expected);
+
+    SongShow song;
+    QList<quint32> scenes;
+    for (const char *name : {"Warm wash", "Drop A"})
+    {
+        Scene *scene = new Scene(&song.doc);
+        scene->setName(name);
+        QVERIFY(song.doc.addFunction(scene));
+        scenes << scene->id();
+    }
+    EdmStructureMapping mapping(&song.doc);
+    for (const QString &d : defaults)
+    {
+        const QString slot = d.section('=', 1);
+        mapping.setFunctionId(d.section('=', 0, 0), slot == "gone" ? 4000 : int(scenes.at(slot.toInt())));
+    }
+    song.director.setMapping(&mapping);
+
+    QVERIFY(song.director.createBlocks(song.show, song.reader));
+
+    const QList<SongDirectorBlock> blocks = song.director.blocks(song.show);
+    QCOMPARE(blocks.count(), expected.count());
+    for (int i = 0; i < blocks.count(); i++)
+    {
+        auto *collection = qobject_cast<Collection *>(song.doc.function(blocks.at(i).functionId));
+        QVERIFY(collection != nullptr);
+        const QList<quint32> want = expected.at(i) == "-" ? QList<quint32>() : QList<quint32> { scenes.at(expected.at(i).toInt()) };
+        QCOMPARE(collection->functions(), want);
+        QCOMPARE(blocks.at(i).content, want);
+    }
+
+    // the sidecar keeps the generated content through a save
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    writer.writeStartElement("Workspace");
+    QVERIFY(song.doc.saveXML(&writer));
+    song.director.saveXML(&writer);
+    writer.writeEndElement();
+    Doc doc(nullptr);
+    SongDirector director(&doc);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(doc.loadXML(reader));
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(director.loadXML(reader));
+    QCOMPARE(director.blocks(qobject_cast<Show *>(doc.function(song.show->id()))), blocks);
 }
 
 void SongDirector_Test::createBlocksOncePerShow()

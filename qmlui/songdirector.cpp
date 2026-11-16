@@ -18,6 +18,7 @@
 #include "songdirector.h"
 #include "collection.h"
 #include "doc.h"
+#include "edmstructuremapping.h"
 #include "show.h"
 #include "showfunction.h"
 #include "track.h"
@@ -120,6 +121,12 @@ bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
         {
             delete collection;
             continue;
+        }
+        if (m_mapping)
+        {
+            const quint32 look = m_mapping->function(block.label);
+            if (look != Function::invalidId() && look != collection->id() && m_doc->function(look) != nullptr)
+                collection->addFunction(look);
         }
         ShowFunction *sf = track->createShowFunction(collection->id());
         sf->setStartTime(block.startMs);

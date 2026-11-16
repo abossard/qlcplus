@@ -21,7 +21,7 @@ import QtQuick.Controls
 
 import org.qlcplus.classes 1.0
 
-/** Which Virtual Console button each section label presses, and the AUTO switch */
+/** The default Function of each section label (pre-fills Song Director blocks), and the AUTO switch */
 Rectangle
 {
     id: mappingPanel
@@ -29,7 +29,7 @@ Rectangle
 
     property bool expanded: false
     property var buttons: []
-    property int mappingRevision: 0   // edmMapping.widgetId() has no notify: the rows read it again on this
+    property int mappingRevision: 0   // edmMapping.functionId() has no notify: the rows read it again on this
 
     // another workspace, a cleared one or an edit: the button list and every row follow
     Connections
@@ -50,25 +50,16 @@ Rectangle
         return qsTr("waiting for a song with a structure")
     }
 
-    // the Toggle buttons (only those are looks) by caption; page and number when a caption repeats
+    // the Functions that can be a look, by name
     function loadButtons() {
-        var list = virtualConsole.widgetsList([VCWidget.ButtonWidget]), seen = {}, out = [{ "id": -1, "text": qsTr("none") }]
-        list = list.filter(function(w) { return w.id !== undefined && w.classRef.actionType === VCButton.Toggle })
-        for (var i = 0; i < list.length; i++)
-            seen[list[i].label] = (seen[list[i].label] || 0) + 1
-        for (var j = 0; j < list.length; j++)
-        {
-            var l = list[j]
-            out.push({ "id": l.id, "text": seen[l.label] > 1 ? l.label + "  (page " + (l.classRef.page + 1) + ", #" + l.id + ")" : l.label })
-        }
-        buttons = out
+        buttons = [{ "id": -1, "text": qsTr("none") }].concat(edmMapping.lookFunctions())
     }
 
     function indexOfWidget(id) {
         for (var i = 0; i < buttons.length; i++)
             if (buttons[i].id === id)
                 return i
-        return 0
+        return id < 0 ? 0 : -1
     }
 
     Layout.fillWidth: true
@@ -158,8 +149,9 @@ Rectangle
                     Layout.preferredHeight: 26
                     model: mappingPanel.buttons
                     textRole: "text"
-                    currentIndex: mappingPanel.mappingRevision, mappingPanel.indexOfWidget(edmMapping.widgetId(modelData))
-                    onActivated: edmMapping.setWidgetId(modelData, mappingPanel.buttons[index].id)
+                    currentIndex: mappingPanel.mappingRevision, mappingPanel.indexOfWidget(edmMapping.functionId(modelData))
+                    displayText: currentIndex < 0 ? qsTr("missing function #%1").arg(edmMapping.functionId(modelData)) : currentText
+                    onActivated: edmMapping.setFunctionId(modelData, mappingPanel.buttons[index].id)
                 }
             }
         }

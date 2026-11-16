@@ -50,6 +50,7 @@ public:
     bool showRecorded(quint32 showId) const override;
     QVariantMap createSongBlocks(quint32 showId) override;
     QVariantMap songBlocks(quint32 showId) const override;
+    QVariantMap songLookDefaults(const QString &label, int functionID, bool setFunction) override;
     QVariantMap pressWidget(quint32 widgetID, const QString &action) override;
 
     int addPage(const QString &name) override;

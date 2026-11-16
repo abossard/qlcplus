@@ -20,6 +20,8 @@ private slots:
     void songBlocks();
     void createBlocks_data();
     void createBlocks();
+    void createBlocksFromDefaults_data();
+    void createBlocksFromDefaults();
     void createBlocksOncePerShow();
     void createBlocksNeedsAnalysedSong_data();
     void createBlocksNeedsAnalysedSong();

@@ -9,6 +9,7 @@
 #include "edmstructure.h"
 #include "edmstructuredirector.h"
 #include "doc.h"
+#include "function.h"
 
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
@@ -706,6 +707,66 @@ void EdmStructure_Test::mappingLoadKeepsUnknownAndSkipsBroken()
     QXmlStreamReader other("<Other/>");
     QVERIFY(other.readNextStartElement());
     QVERIFY(mapping.loadXML(other) == false);
+}
+
+void EdmStructure_Test::mappingLoadsFunctions_data()
+{
+    QTest::addColumn<QString>("xml");
+    QTest::addColumn<int>("dropFunction");   // -1 for none
+    QTest::addColumn<int>("outroFunction");
+    QTest::addColumn<int>("dropWidget");     // the legacy button, -1 for none
+
+    // the workspace's buttons: widget 12 runs Function 40, widget 13 runs Function 41, widget 14 runs nothing
+    QTest::newRow("old widget becomes its function")
+        << R"(<SongStructure Auto="1"><Look Label="drop" Widget="12"/><Look Label="outro" Widget="13"/></SongStructure>)"
+        << 40 << 41 << 12;
+    QTest::newRow("button without a function")
+        << R"(<SongStructure Auto="1"><Look Label="drop" Widget="14"/></SongStructure>)"
+        << -1 << -1 << 14;
+    QTest::newRow("button that is gone")
+        << R"(<SongStructure><Look Label="drop" Widget="99"/></SongStructure>)"
+        << -1 << -1 << 99;
+    QTest::newRow("function attribute")
+        << R"(<SongStructure><Look Label="drop" Function="7"/><Look Label="outro" Function="8"/></SongStructure>)"
+        << 7 << 8 << -1;
+    QTest::newRow("function wins over widget")
+        << R"(<SongStructure><Look Label="drop" Widget="12" Function="7"/></SongStructure>)"
+        << 7 << -1 << 12;
+    QTest::newRow("no look at all")
+        << R"(<SongStructure Auto="0"/>)" << -1 << -1 << -1;
+}
+
+void EdmStructure_Test::mappingLoadsFunctions()
+{
+    QFETCH(QString, xml);
+    QFETCH(int, dropFunction);
+    QFETCH(int, outroFunction);
+    QFETCH(int, dropWidget);
+
+    const QMap<quint32, quint32> buttons {{12, 40}, {13, 41}, {14, Function::invalidId()}};
+    EdmStructureMapping mapping;
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(mapping.loadXML(reader, [&](quint32 widget) { return buttons.value(widget, Function::invalidId()); }));
+
+    QCOMPARE(mapping.functionId("drop"), dropFunction);
+    QCOMPARE(mapping.functionId("outro"), outroFunction);
+    QCOMPARE(mapping.widgetId("drop"), dropWidget);
+
+    // saved and loaded again without any button lookup: the functions stay
+    QString saved;
+    QXmlStreamWriter writer(&saved);
+    mapping.saveXML(&writer);
+    EdmStructureMapping again;
+    QXmlStreamReader reader2(saved);
+    if (saved.isEmpty() == false)
+    {
+        QVERIFY(reader2.readNextStartElement());
+        QVERIFY(again.loadXML(reader2));
+    }
+    QCOMPARE(again.functionId("drop"), dropFunction);
+    QCOMPARE(again.functionId("outro"), outroFunction);
+    QCOMPARE(again.widgetId("drop"), dropWidget);
 }
 
 void EdmStructure_Test::newWorkspaceClearsMapping()

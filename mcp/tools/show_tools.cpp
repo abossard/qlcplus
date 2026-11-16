@@ -792,6 +792,40 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
     };
 
     tm.register_tool(Tool(
+        "song_look_defaults",
+        Json{{"type", "object"}, {"properties", {
+            {"label", {{"type", "string"}, {"description", "Section label: intro, buildup, drop, breakdown, groove or outro"}}},
+            {"functionID", {{"type", "integer"}, {"minimum", -1},
+                            {"description", "The label's default look Function, -1 for none"}}}
+        }}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+                const auto err = validateFields(args, {"label", "functionID"});
+                if (!err.empty()) return err;
+                const bool hasLabel = args.is_object() && args.contains("label");
+                const bool hasFunction = args.is_object() && args.contains("functionID");
+                if (hasLabel != hasFunction)
+                    return Json({{"error", "song_look_defaults: label and functionID go together"}}).dump();
+                int functionID = -1;
+                if (hasFunction)
+                {
+                    const auto id = mcp::jsonInteger(args.at("functionID"), -1, mcp::kMaxId);
+                    if (!id || !args.at("label").is_string())
+                        return Json({{"error", "song_look_defaults: label must be a string and functionID an integer, -1 or more"}}).dump();
+                    functionID = int(*id);
+                }
+                const QVariantMap state = vcBridge->songLookDefaults(
+                    hasLabel ? QString::fromStdString(args.at("label").get<std::string>()) : QString(), functionID, hasFunction);
+                return QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact).toStdString();
+            });
+        }
+    ).set_description("The workspace's default look per section label (a Function ID, -1 for none), which pre-fills "
+                      "new Song Director blocks. With label and functionID, sets that label's default first: the "
+                      "Function must be a Scene, Collection, Chaser, RGB Matrix or EFX. Returns all defaults.")
+     .set_annotations(mcp::kAnnotIdempotent));
+
+    tm.register_tool(Tool(
         "create_song_blocks",
         Json{{"type", "object"}, {"properties", {
             {"showID", {{"type", "integer"}, {"minimum", 0}}}

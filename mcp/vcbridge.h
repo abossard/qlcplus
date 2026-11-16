@@ -56,6 +56,10 @@ public:
     /** Song Director: open the Show in the Show Manager and create its blocks there */
     virtual QVariantMap createSongBlocks(quint32)
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
+    /** The default Function per section label. With setFunction, first sets label's default
+     *  (functionID -1 clears it, as the mapping editor's "none") */
+    virtual QVariantMap songLookDefaults(const QString &, int, bool)
+    { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
     /** The Show's Song Director track and what each of its blocks was generated as */
     virtual QVariantMap songBlocks(quint32) const
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }

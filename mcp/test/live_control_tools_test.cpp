@@ -6,6 +6,7 @@
 #include "showmanager.h"
 #include "showcommandrecorder.h"
 #include "functionparent.h"
+#include "collection.h"
 #include "scene.h"
 #include "track.h"
 #include "showfunction.h"
@@ -24,15 +25,16 @@
 #include "audio.h"
 #include "edmanalysisreader.h"
 #include "songdirector.h"
+#include "edmstructuremapping.h"
 #include "vcbridgev5.h"
 #include "workspacebridgev5.h"
 #include "tool_registry.h"
 #include "mcpserver.h"
 
 #include <QtTest>
+#include <QCryptographicHash>
 #include <QSettings>
 #include <QStandardPaths>
-#include <QCryptographicHash>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QNetworkAccessManager>
@@ -587,8 +589,6 @@ void McpLiveControlTools_Test::songBlocks()
     }
 }
 
-void McpLiveControlTools_Test::songBlocksArguments_data()
-{
 void McpLiveControlTools_Test::songBlockMarks_data()
 {
     QTest::addColumn<QByteArray>("sections");
@@ -661,6 +661,8 @@ void McpLiveControlTools_Test::songBlockMarks()
     QVERIFY(manager->songBlockMark(99999).isEmpty());
 }
 
+void McpLiveControlTools_Test::songBlocksArguments_data()
+{
     QTest::addColumn<QString>("tool");
     QTest::addColumn<QByteArray>("arguments");
     QTest::addColumn<QString>("error");
@@ -682,6 +684,56 @@ void McpLiveControlTools_Test::songBlocksArguments()
     const Json result = invokeShowTool(m_app->doc(), m_vc.get(), tool.toUtf8().constData(), Json::parse(arguments.constData()));
     QVERIFY2(result.contains("error"), result.dump().c_str());
     QVERIFY2(QString::fromStdString(result.at("error").get<std::string>()).contains(error), result.dump().c_str());
+}
+
+void McpLiveControlTools_Test::songLookDefaults_data()
+{
+    QTest::addColumn<QString>("arguments");
+    QTest::addColumn<QString>("error");
+    QTest::addColumn<int>("dropDefault");
+    QTest::newRow("query only") << QStringLiteral("{}") << QString() << -1;
+    QTest::newRow("set a scene") << QStringLiteral(R"({"label":"drop","functionID":$SCENE})") << QString() << 1;
+    QTest::newRow("set a collection") << QStringLiteral(R"({"label":"drop","functionID":$COLLECTION})") << QString() << 2;
+    QTest::newRow("clear") << QStringLiteral(R"({"label":"drop","functionID":-1})") << QString() << -1;
+    QTest::newRow("a Show is no look") << QStringLiteral(R"({"label":"drop","functionID":$SHOW})") << QStringLiteral("not a look") << -1;
+    QTest::newRow("missing function") << QStringLiteral(R"({"label":"drop","functionID":4000})") << QStringLiteral("not a look") << -1;
+    QTest::newRow("unknown label") << QStringLiteral(R"({"label":"chorus","functionID":$SCENE})") << QStringLiteral("unknown label") << -1;
+    QTest::newRow("label alone") << QStringLiteral(R"({"label":"drop"})") << QStringLiteral("go together") << -1;
+    QTest::newRow("function alone") << QStringLiteral(R"({"functionID":$SCENE})") << QStringLiteral("go together") << -1;
+    QTest::newRow("string function") << QStringLiteral(R"({"label":"drop","functionID":"1"})") << QStringLiteral("functionID") << -1;
+    QTest::newRow("unknown field") << QStringLiteral(R"({"extra":1})") << QStringLiteral("unknown fields") << -1;
+}
+
+void McpLiveControlTools_Test::songLookDefaults()
+{
+    QFETCH(QString, arguments);
+    QFETCH(QString, error);
+    QFETCH(int, dropDefault);
+    auto *doc = m_app->doc();
+
+    auto *scene = new Scene(doc);
+    QVERIFY(doc->addFunction(scene));
+    auto *collection = new Collection(doc);
+    QVERIFY(doc->addFunction(collection));
+    auto *show = new Show(doc);
+    QVERIFY(doc->addFunction(show));
+    arguments.replace("$SCENE", QString::number(scene->id()))
+        .replace("$COLLECTION", QString::number(collection->id()))
+        .replace("$SHOW", QString::number(show->id()));
+    const int expected = dropDefault == 1 ? int(scene->id()) : dropDefault == 2 ? int(collection->id()) : -1;
+
+    const Json result = invokeShowTool(doc, m_vc.get(), "song_look_defaults", Json::parse(arguments.toStdString()));
+    if (error.isEmpty() == false)
+    {
+        QVERIFY2(result.contains("error"), result.dump().c_str());
+        QVERIFY2(QString::fromStdString(result.at("error").get<std::string>()).contains(error), result.dump().c_str());
+        QCOMPARE(m_app->findChild<EdmStructureMapping *>()->functionId("drop"), -1);
+        return;
+    }
+    QVERIFY2(!result.contains("error"), result.dump().c_str());
+    QCOMPARE(result.at("defaults").at("drop"), Json(expected));
+    QCOMPARE(result.at("defaults").at("outro"), Json(-1));
+    QCOMPARE(m_app->findChild<EdmStructureMapping *>()->functionId("drop"), expected);
 }
 
 void McpLiveControlTools_Test::drivenShows_data()
