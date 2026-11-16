@@ -589,6 +589,95 @@ void McpLiveControlTools_Test::songBlocks()
     }
 }
 
+void McpLiveControlTools_Test::songBlockDropAndResize_data()
+{
+    QTest::addColumn<int>("dropAtMs");      // show time of the drop
+    QTest::addColumn<int>("resizeToMs");    // new length of the first block, 0 for none
+    QTest::addColumn<QString>("error");     // of the drop
+    QTest::addColumn<int>("filledBlock");   // block holding the scene afterwards, -1 for none
+
+    // blocks: intro 2000-11000, drop 11000-27000
+    QTest::newRow("drop into the first block") << 5000 << 0 << QString() << 0;
+    QTest::newRow("drop into the second block") << 20000 << 0 << QString() << 1;
+    QTest::newRow("drop at the block start") << 11000 << 0 << QString() << 1;
+    QTest::newRow("drop before the first block") << 500 << 0 << QStringLiteral("no Song Director block") << -1;
+    QTest::newRow("drop after the last block") << 27000 << 0 << QStringLiteral("no Song Director block") << -1;
+    QTest::newRow("drop then shorten the block") << 5000 << 3000 << QString() << 0;
+}
+
+void McpLiveControlTools_Test::songBlockDropAndResize()
+{
+    QFETCH(int, dropAtMs);
+    QFETCH(int, resizeToMs);
+    QFETCH(QString, error);
+    QFETCH(int, filledBlock);
+    auto *doc = m_app->doc();
+
+    const QDir analysis(EdmAnalysisReader::defaultDir());
+    QVERIFY(analysis.mkpath("final"));
+    QFile index(analysis.filePath("index.json"));
+    QVERIFY(index.open(QIODevice::WriteOnly));
+    const QString id = QString(QCryptographicHash::hash(QTest::currentDataTag(), QCryptographicHash::Sha256).toHex()).left(16);
+    const QString path = QStringLiteral("/music/song-drop-%1.mp3").arg(id);
+    index.write(QStringLiteral(R"({"%1": {"path": "%2"}})").arg(id, path).toUtf8());
+    index.close();
+    QFile final(analysis.filePath("final/" + id + ".json"));
+    QVERIFY(final.open(QIODevice::WriteOnly));
+    final.write(R"({"schema": "qlcplus-edm-final/3", "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0},
+        "sections": [{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 70, "label_confidence": 80},
+                     {"label": "drop", "start": 9.0, "end": 25.0, "confidence": 90, "label_confidence": 90}]})");
+    final.close();
+
+    auto *show = new Show(doc);
+    show->setName("Song");
+    QVERIFY(doc->addFunction(show));
+    auto *audio = new Audio(doc);
+    QVERIFY(doc->addFunction(audio));
+    audio->setSourceFileName(path);
+    auto *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    track->createShowFunction(audio->id())->setStartTime(2000);
+    auto *scene = new Scene(doc);
+    QVERIFY(doc->addFunction(scene));
+    const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", show->id()}});
+    QVERIFY2(!created.contains("error"), created.dump().c_str());
+    Track *director = m_app->findChild<SongDirector *>()->track(show);
+    QVERIFY(director != nullptr);
+
+    const Json dropped = invokeShowTool(doc, m_vc.get(), "drop_on_song_block",
+                                        {{"showID", show->id()}, {"functionIDs", {scene->id()}}, {"timeMs", dropAtMs}});
+    if (error.isEmpty() == false)
+    {
+        QVERIFY2(dropped.contains("error"), dropped.dump().c_str());
+        QVERIFY2(QString::fromStdString(dropped.at("error").get<std::string>()).contains(error), dropped.dump().c_str());
+    }
+    else
+        QVERIFY2(!dropped.contains("error"), dropped.dump().c_str());
+
+    if (resizeToMs > 0)
+    {
+        const quint32 first = director->showFunctions().first()->functionID();
+        const Json resized = invokeShowTool(doc, m_vc.get(), "resize_song_block",
+                                            {{"showID", show->id()}, {"functionID", first}, {"durationMs", resizeToMs}});
+        QVERIFY2(!resized.contains("error"), resized.dump().c_str());
+        QCOMPARE(director->showFunctions().first()->duration(), quint32(resizeToMs));
+        QCOMPARE(director->showFunctions().first()->startTime(), 2000u);
+    }
+
+    // a drop changes content only: the blocks keep start and length (unless resized above)
+    QCOMPARE(director->showFunctions().count(), 2);
+    QCOMPARE(director->showFunctions().at(0)->startTime(), 2000u);
+    QCOMPARE(director->showFunctions().at(0)->duration(), resizeToMs > 0 ? quint32(resizeToMs) : 9000u);
+    QCOMPARE(director->showFunctions().at(1)->startTime(), 11000u);
+    QCOMPARE(director->showFunctions().at(1)->duration(), 16000u);
+    for (int i = 0; i < 2; i++)
+    {
+        auto *collection = qobject_cast<Collection *>(doc->function(director->showFunctions().at(i)->functionID()));
+        QVERIFY(collection != nullptr);
+        QCOMPARE(collection->functions(), i == filledBlock ? QList<quint32> { scene->id() } : QList<quint32>());
+    }
+}
+
 void McpLiveControlTools_Test::songBlockMarks_data()
 {
     QTest::addColumn<QByteArray>("sections");

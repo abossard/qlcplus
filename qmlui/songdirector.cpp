@@ -93,6 +93,31 @@ QList<SongDirectorBlock> SongDirector::blocks(Show *show) const
     return e != nullptr ? e->blocks : QList<SongDirectorBlock>();
 }
 
+bool SongDirector::dropOnBlock(Show *show, Track *track, quint32 timeMs, const QList<quint32> &functionIds)
+{
+    if (m_doc == nullptr || show == nullptr || track == nullptr || track != this->track(show))
+        return false;
+
+    // a block owns its start and not its end: the shared edge belongs to the next block
+    for (ShowFunction *sf : track->showFunctions())
+    {
+        if (timeMs < sf->startTime() || timeMs >= sf->startTime() + sf->duration())
+            continue;
+        auto *collection = qobject_cast<Collection *>(m_doc->function(sf->functionID()));
+        if (collection == nullptr)
+            return false;
+        for (quint32 id : functionIds)
+        {
+            Function *f = m_doc->function(id);
+            if (f == nullptr || f->type() == Function::ShowType || f->contains(collection->id()))
+                continue;
+            collection->addFunction(id);
+        }
+        return true;
+    }
+    return false;
+}
+
 bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
 {
     if (m_doc == nullptr || show == nullptr || track(show) != nullptr)

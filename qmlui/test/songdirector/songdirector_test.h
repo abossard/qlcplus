@@ -26,6 +26,8 @@ private slots:
     void createBlocksNeedsAnalysedSong_data();
     void createBlocksNeedsAnalysedSong();
     void workspaceRoundTrip();
+    void dropOnBlock_data();
+    void dropOnBlock();
 };
 
 #endif

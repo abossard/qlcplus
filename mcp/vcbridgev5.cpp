@@ -611,6 +611,64 @@ QVariantMap VCBridgeV5::createSongBlocks(quint32 showId)
     return songBlocks(showId);
 }
 
+QVariantMap VCBridgeV5::dropOnSongBlock(quint32 showId, const QList<quint32> &functionIds, quint32 timeMs)
+{
+    if (!hasMatchingAuthoringContext())
+        return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    SongDirector *director = m_authoringApp->findChild<SongDirector *>();
+    ShowManager *manager = m_authoringApp->showManager();
+    if (!director || !manager)
+        return songDirectorError(QStringLiteral("Song Director is unavailable"));
+    Show *show = qobject_cast<Show *>(m_doc->function(showId));
+    if (!show)
+        return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
+    const Track *track = director->track(show);
+    if (!track)
+        return songDirectorError(QStringLiteral("Show %1 has no Song Director track").arg(showId));
+    if (manager->readOnly())
+        return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
+    // what the user does: open the Show, drop on the Song Director track at that time
+    manager->setCurrentShowID(int(showId));
+    if (manager->currentShow() != show)
+        return songDirectorError(QStringLiteral("the Show Manager cannot open Show %1 now").arg(showId));
+    QVariantList ids;
+    for (quint32 id : functionIds)
+        ids.append(id);
+    if (!manager->dropOnSongBlock(int(show->tracks().indexOf(const_cast<Track *>(track))), int(timeMs), ids))
+        return songDirectorError(QStringLiteral("no Song Director block at %1 ms").arg(timeMs));
+    return songBlocks(showId);
+}
+
+QVariantMap VCBridgeV5::resizeSongBlock(quint32 showId, quint32 functionId, quint32 durationMs)
+{
+    if (!hasMatchingAuthoringContext())
+        return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    SongDirector *director = m_authoringApp->findChild<SongDirector *>();
+    ShowManager *manager = m_authoringApp->showManager();
+    if (!director || !manager)
+        return songDirectorError(QStringLiteral("Song Director is unavailable"));
+    Show *show = qobject_cast<Show *>(m_doc->function(showId));
+    if (!show)
+        return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
+    const Track *track = director->track(show);
+    if (!track)
+        return songDirectorError(QStringLiteral("Show %1 has no Song Director track").arg(showId));
+    if (manager->readOnly())
+        return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
+    manager->setCurrentShowID(int(showId));
+    if (manager->currentShow() != show)
+        return songDirectorError(QStringLiteral("the Show Manager cannot open Show %1 now").arg(showId));
+    ShowFunction *block = nullptr;
+    for (ShowFunction *sf : track->showFunctions())
+        if (sf->functionID() == functionId)
+            block = sf;
+    if (!block)
+        return songDirectorError(QStringLiteral("Function %1 is no block of Show %2").arg(functionId).arg(showId));
+    if (durationMs < 1 || !manager->setShowItemDuration(block, int(durationMs)))
+        return songDirectorError(QStringLiteral("the block cannot take the duration %1 ms").arg(durationMs));
+    return songBlocks(showId);
+}
+
 QVariantMap VCBridgeV5::songLookDefaults(const QString &label, int functionID, bool setFunction)
 {
     if (!hasMatchingAuthoringContext())

@@ -334,4 +334,69 @@ void SongDirector_Test::workspaceRoundTrip()
     QCOMPARE(director.blocks(show), expectedBlocks);
 }
 
+void SongDirector_Test::dropOnBlock_data()
+{
+    QTest::addColumn<quint32>("timeMs");
+    QTest::addColumn<bool>("onDirectorTrack");
+    QTest::addColumn<QStringList>("dropped");   // "0"/"1": a scene slot, "show": the song Show itself, "gone": no such Function
+    QTest::addColumn<int>("block");             // the block that takes the drop, -1 for none
+    QTest::addColumn<QStringList>("expected");  // that block's Collection afterwards, as scene slots
+
+    // blocks: intro 0-9000, buildup 9000-17000, drop 17000-33000, outro 33000-41000
+    QTest::newRow("inside a block") << 20000u << true << QStringList { "1" } << 2 << QStringList { "1" };
+    QTest::newRow("block start") << 9000u << true << QStringList { "0" } << 1 << QStringList { "0" };
+    QTest::newRow("block end belongs to the next block") << 17000u << true << QStringList { "0" } << 2 << QStringList { "0" };
+    QTest::newRow("several functions") << 1u << true << QStringList { "0", "1" } << 0 << QStringList { "0", "1" };
+    QTest::newRow("the song Show itself is skipped") << 1u << true << QStringList { "show", "0" } << 0 << QStringList { "0" };
+    QTest::newRow("unknown function is skipped") << 1u << true << QStringList { "gone", "1" } << 0 << QStringList { "1" };
+    QTest::newRow("only invalid functions still hit the block") << 1u << true << QStringList { "show" } << 0 << QStringList();
+    QTest::newRow("after the last block") << 41000u << true << QStringList { "0" } << -1 << QStringList();
+    QTest::newRow("other track") << 20000u << false << QStringList { "0" } << -1 << QStringList();
+}
+
+void SongDirector_Test::dropOnBlock()
+{
+    QFETCH(quint32, timeMs);
+    QFETCH(bool, onDirectorTrack);
+    QFETCH(QStringList, dropped);
+    QFETCH(int, block);
+    QFETCH(QStringList, expected);
+
+    SongShow song;
+    QList<quint32> scenes;
+    for (const char *name : {"Warm wash", "Drop A"})
+    {
+        Scene *scene = new Scene(&song.doc);
+        scene->setName(name);
+        QVERIFY(song.doc.addFunction(scene));
+        scenes << scene->id();
+    }
+    QVERIFY(song.director.createBlocks(song.show, song.reader));
+    Track *director = song.director.track(song.show);
+    Track *track = onDirectorTrack ? director : song.show->tracks().first();
+    const QStringList before = items(&song.doc, director);
+    const QList<SongDirectorBlock> generated = song.director.blocks(song.show);
+
+    QList<quint32> ids;
+    for (const QString &d : dropped)
+        ids << (d == "show" ? song.show->id() : d == "gone" ? 4000u : scenes.at(d.toInt()));
+
+    QCOMPARE(song.director.dropOnBlock(song.show, track, timeMs, ids), block >= 0);
+
+    // no block changes its place or length, whatever the drop did
+    QCOMPARE(items(&song.doc, director), before);
+    for (int i = 0; i < generated.count(); i++)
+    {
+        auto *collection = qobject_cast<Collection *>(song.doc.function(generated.at(i).functionId));
+        QVERIFY(collection != nullptr);
+        QList<quint32> want;
+        if (i == block)
+            for (const QString &e : expected)
+                want << scenes.at(e.toInt());
+        QCOMPARE(collection->functions(), want);
+    }
+    // the sidecar still holds what was generated, so a filled block now counts as edited
+    QCOMPARE(song.director.blocks(song.show), generated);
+}
+
 QTEST_GUILESS_MAIN(SongDirector_Test)

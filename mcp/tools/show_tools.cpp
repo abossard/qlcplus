@@ -840,6 +840,72 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                            {"idempotentHint", false}, {"openWorldHint", false}}));
 
     tm.register_tool(Tool(
+        "drop_on_song_block",
+        Json{{"type", "object"}, {"properties", {
+            {"showID", {{"type", "integer"}, {"minimum", 0}}},
+            {"functionIDs", {{"type", "array"}, {"items", {{"type", "integer"}, {"minimum", 0}}}}},
+            {"timeMs", {{"type", "integer"}, {"minimum", 0}, {"description", "Show time of the drop, inside the block"}}}
+        }}, {"required", {"showID", "functionIDs", "timeMs"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+                const auto err = validateFields(args, {"showID", "functionIDs", "timeMs"});
+                if (!err.empty()) return err;
+                const auto show = args.is_object() && args.contains("showID")
+                    ? mcp::jsonInteger(args.at("showID"), 0, mcp::kMaxId) : std::nullopt;
+                const auto time = args.is_object() && args.contains("timeMs")
+                    ? mcp::jsonInteger(args.at("timeMs"), 0, mcp::kMaxId) : std::nullopt;
+                if (!show || !time || !args.contains("functionIDs") || !args.at("functionIDs").is_array())
+                    return Json({{"error", "drop_on_song_block: showID and timeMs are nonnegative integers, functionIDs an array of them"}}).dump();
+                QList<quint32> ids;
+                for (const auto &item : args.at("functionIDs"))
+                {
+                    const auto id = mcp::jsonInteger(item, 0, mcp::kMaxId);
+                    if (!id)
+                        return Json({{"error", "drop_on_song_block: functionIDs must be nonnegative integers"}}).dump();
+                    ids << quint32(*id);
+                }
+                const QVariantMap state = vcBridge->dropOnSongBlock(quint32(*show), ids, quint32(*time));
+                return QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact).toStdString();
+            });
+        }
+    ).set_description("Drop Functions on the Song Director track of a song Show at a time, as dragging them from "
+                      "the Function list does: they go into the Collection of the block under that time, the "
+                      "block keeps its start and length. The Show itself and Functions that would play the "
+                      "block are skipped. Refuses a time outside every block. Returns query_song_blocks.")
+     .set_annotations(Json{{"readOnlyHint", false}, {"destructiveHint", false},
+                           {"idempotentHint", true}, {"openWorldHint", false}}));
+
+    tm.register_tool(Tool(
+        "resize_song_block",
+        Json{{"type", "object"}, {"properties", {
+            {"showID", {{"type", "integer"}, {"minimum", 0}}},
+            {"functionID", {{"type", "integer"}, {"minimum", 0}, {"description", "The block's Collection"}}},
+            {"durationMs", {{"type", "integer"}, {"minimum", 1}}}
+        }}, {"required", {"showID", "functionID", "durationMs"}}},
+        Json{},
+        [doc, vcBridge](const Json &args) -> Json {
+            return execOnMainThread(doc, [&]() -> Json {
+                const auto err = validateFields(args, {"showID", "functionID", "durationMs"});
+                if (!err.empty()) return err;
+                const auto show = args.is_object() && args.contains("showID")
+                    ? mcp::jsonInteger(args.at("showID"), 0, mcp::kMaxId) : std::nullopt;
+                const auto function = args.is_object() && args.contains("functionID")
+                    ? mcp::jsonInteger(args.at("functionID"), 0, mcp::kMaxId) : std::nullopt;
+                const auto duration = args.is_object() && args.contains("durationMs")
+                    ? mcp::jsonInteger(args.at("durationMs"), 1, mcp::kMaxId) : std::nullopt;
+                if (!show || !function || !duration)
+                    return Json({{"error", "resize_song_block: showID, functionID (the block's Collection) and durationMs (1 or more) are required integers"}}).dump();
+                const QVariantMap state = vcBridge->resizeSongBlock(quint32(*show), quint32(*function), quint32(*duration));
+                return QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact).toStdString();
+            });
+        }
+    ).set_description("Change the length of a Song Director block, as dragging its edge in the Show Manager does "
+                      "(the start stays). The block's content then ends with the block. Refuses a length that "
+                      "overlaps the next block. Returns query_song_blocks.")
+     .set_annotations(mcp::kAnnotIdempotent));
+
+    tm.register_tool(Tool(
         "query_song_blocks",
         Json{{"type", "object"}, {"properties", {
             {"showID", {{"type", "integer"}, {"minimum", 0}}}

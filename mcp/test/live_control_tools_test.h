@@ -41,6 +41,8 @@ private slots:
     void songBlocksArguments();
     void songLookDefaults_data();
     void songLookDefaults();
+    void songBlockDropAndResize_data();
+    void songBlockDropAndResize();
     void songBlockMarks_data();
     void songBlockMarks();
     void invalidArguments_data();

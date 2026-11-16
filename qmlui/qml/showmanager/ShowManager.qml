@@ -1940,6 +1940,9 @@ Rectangle
                         else
                             fTime = TimeUtils.posToBeat(itemsArea.contentX + drag.x, tickSize, showManager.beatsDivision)
                         console.log("Drop on time1: " + fTime)
+                        // a Song Director block takes the Functions into its Collection
+                        if (showManager.dropOnSongBlock(trackIdx, fTime, drag.source.itemsList))
+                            return
                         showManager.addItems(itemsArea.contentItem, trackIdx, fTime, drag.source.itemsList)
                     }
 /*

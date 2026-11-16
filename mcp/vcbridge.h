@@ -60,6 +60,12 @@ public:
      *  (functionID -1 clears it, as the mapping editor's "none") */
     virtual QVariantMap songLookDefaults(const QString &, int, bool)
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
+    /** Drop Functions at timeMs on the Show's Song Director track, as the Show Manager's drop does */
+    virtual QVariantMap dropOnSongBlock(quint32, const QList<quint32> &, quint32)
+    { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
+    /** Resize a block of the Show's Song Director track, as dragging its edge does */
+    virtual QVariantMap resizeSongBlock(quint32, quint32, quint32)
+    { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
     /** The Show's Song Director track and what each of its blocks was generated as */
     virtual QVariantMap songBlocks(quint32) const
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }

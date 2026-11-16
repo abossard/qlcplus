@@ -238,6 +238,11 @@ public:
     /** Add the Song Director track with one block per analysed section */
     Q_INVOKABLE bool createSongBlocks();
 
+    /** A drop of Functions at \a startTime on track \a trackIdx: when that is
+     *  the Song Director track at a block, the Functions go into the block's
+     *  Collection and true says no item is to be added */
+    Q_INVOKABLE bool dropOnSongBlock(int trackIdx, int startTime, const QVariantList &idsList);
+
     /** {unsure, confidence, label} of the current Show's Song Director block
      *  that runs this Collection, empty for anything else */
     Q_INVOKABLE QVariantMap songBlockMark(quint32 functionId) const;

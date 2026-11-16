@@ -533,6 +533,17 @@ bool ShowManager::createSongBlocks()
     return true;
 }
 
+bool ShowManager::dropOnSongBlock(int trackIdx, int startTime, const QVariantList &idsList)
+{
+    if (m_readOnly || m_songDirector == nullptr || m_currentShow == nullptr || startTime < 0
+        || timeBasedDivision() == false || trackIdx < 0 || trackIdx >= m_currentShow->tracks().count())
+        return false;
+    QList<quint32> ids;
+    for (const QVariant &id : idsList)
+        ids << id.toUInt();
+    return m_songDirector->dropOnBlock(m_currentShow, m_currentShow->tracks().at(trackIdx), quint32(startTime), ids);
+}
+
 QVariantMap ShowManager::songBlockMark(quint32 functionId) const
 {
     if (m_songDirector == nullptr || m_currentShow == nullptr)

@@ -98,6 +98,13 @@ public:
      *  has a director track already, no audio clip or no analysis */
     bool createBlocks(Show *show, EdmAnalysisReader &reader);
 
+    /** A Function dropped on the Song Director track at \a timeMs goes into the
+     *  Collection of the block under that time, the block itself stays. Items
+     *  that are no looks here (the Show itself, a Function that would play
+     *  the block, unknown ids) are skipped. True when the drop hit a block, so
+     *  the caller adds no Show item */
+    bool dropOnBlock(Show *show, Track *track, quint32 timeMs, const QList<quint32> &functionIds);
+
     void saveXML(QXmlStreamWriter *doc) const;
     bool loadXML(QXmlStreamReader &doc);
 
