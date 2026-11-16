@@ -25,6 +25,7 @@
 #include <QVariantList>
 
 class Doc;
+class Function;
 class QXmlStreamReader;
 class QXmlStreamWriter;
 
@@ -34,7 +35,9 @@ class QXmlStreamWriter;
  * <SongStructure><Look Label="drop" Function="12"/>…
  * An old file has only Widget (a Virtual Console button): that button's
  * Function becomes the default.
- * Labels the tool may add later and Functions that are gone are kept.
+ * With a Doc, a default is a look of the Doc: other Functions are not loaded
+ * or saved, and a removed Function's default is dropped. Labels the tool may
+ * add later are kept.
  */
 class EdmStructureMapping : public QObject
 {
@@ -45,6 +48,9 @@ public:
 
     /** The labels the editor offers */
     Q_INVOKABLE static QStringList labels();
+
+    /** A Function that can be a look: Scene, Collection, Chaser, RGB Matrix or EFX */
+    static bool isLook(const Function *function);
 
     /** The Functions that can be a look, as {id, text} by name; the folder is added when a name repeats */
     Q_INVOKABLE QVariantList lookFunctions() const;

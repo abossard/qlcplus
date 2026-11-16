@@ -594,14 +594,14 @@ QVariantMap VCBridgeV5::createSongBlocks(quint32 showId)
     Show *show = qobject_cast<Show *>(m_doc->function(showId));
     if (!show)
         return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
+    if (manager->readOnly())
+        return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
     if (director->track(show))
     {
         // the Show stays open for the user to look at its blocks
         manager->setCurrentShowID(int(showId));
         return songDirectorError(QStringLiteral("Show %1 already has a Song Director track").arg(showId));
     }
-    if (manager->readOnly())
-        return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
     // what the user does: open the Show in the Show Manager, then press Create song blocks
     manager->setCurrentShowID(int(showId));
     if (manager->currentShow() != show)
@@ -669,7 +669,7 @@ QVariantMap VCBridgeV5::resizeSongBlock(quint32 showId, quint32 functionId, quin
     return songBlocks(showId);
 }
 
-QVariantMap VCBridgeV5::songLookDefaults(const QString &label, int functionID, bool setFunction)
+QVariantMap VCBridgeV5::songLookDefaults(const QString &label, quint32 functionID, bool setFunction)
 {
     if (!hasMatchingAuthoringContext())
         return songDirectorError(QStringLiteral("Song Director requires the application context"));
@@ -681,17 +681,17 @@ QVariantMap VCBridgeV5::songLookDefaults(const QString &label, int functionID, b
         if (!EdmStructureMapping::labels().contains(label))
             return songDirectorError(QStringLiteral("unknown label '%1', expected one of %2")
                                          .arg(label, EdmStructureMapping::labels().join(QStringLiteral(", "))));
-        bool isLook = functionID < 0;
-        for (const QVariant &look : mapping->lookFunctions())
-            isLook = isLook || look.toMap().value(QStringLiteral("id")).toInt() == functionID;
-        if (!isLook)
+        if (functionID != Function::invalidId() && !EdmStructureMapping::isLook(m_doc->function(functionID)))
             return songDirectorError(QStringLiteral("Function %1 is not a look (Scene, Collection, Chaser, RGB Matrix or EFX)")
                                          .arg(functionID));
-        mapping->setFunctionId(label, functionID);
+        mapping->setFunction(label, functionID);
     }
     QVariantMap defaults;
     for (const QString &name : EdmStructureMapping::labels())
-        defaults.insert(name, mapping->functionId(name));
+    {
+        const quint32 id = mapping->function(name);
+        defaults.insert(name, id == Function::invalidId() ? qint64(-1) : qint64(id));
+    }
     return {{QStringLiteral("defaults"), defaults}};
 }
 

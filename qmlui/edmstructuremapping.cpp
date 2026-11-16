@@ -37,6 +37,11 @@ EdmStructureMapping::EdmStructureMapping(Doc *doc, QObject *parent)
             m_functions.clear();
             emit changed();
         });
+        // a removed Function's id goes to the next Function: its defaults go with it
+        connect(m_doc, &Doc::functionRemoved, this, [this](quint32 id) {
+            if (m_functions.removeIf([id](const auto &it) { return it.value() == id; }) > 0)
+                emit changed();
+        });
     }
 }
 
@@ -45,14 +50,31 @@ QStringList EdmStructureMapping::labels()
     return {"intro", "buildup", "drop", "breakdown", "groove", "outro"};
 }
 
+bool EdmStructureMapping::isLook(const Function *function)
+{
+    if (function == nullptr)
+        return false;
+    switch (function->type())
+    {
+        case Function::SceneType:
+        case Function::CollectionType:
+        case Function::ChaserType:
+        case Function::RGBMatrixType:
+        case Function::EFXType:
+            return true;
+        default:
+            return false;
+    }
+}
+
 QVariantList EdmStructureMapping::lookFunctions() const
 {
     QList<Function *> looks;
     if (m_doc)
     {
-        for (Function::Type type : {Function::SceneType, Function::CollectionType, Function::ChaserType,
-                                    Function::RGBMatrixType, Function::EFXType})
-            looks += m_doc->functionsByType(type);
+        for (Function *f : m_doc->functions())
+            if (isLook(f))
+                looks.append(f);
     }
     std::sort(looks.begin(), looks.end(), [](Function *a, Function *b) {
         return QString::localeAwareCompare(a->name(), b->name()) < 0;
@@ -102,10 +124,13 @@ void EdmStructureMapping::setFunctionId(const QString &label, int id)
 
 void EdmStructureMapping::saveXML(QXmlStreamWriter *doc) const
 {
-    if (m_functions.isEmpty())
+    QMap<QString, quint32> looks = m_functions;
+    if (m_doc)
+        looks.removeIf([this](const auto &it) { return isLook(m_doc->function(it.value())) == false; });
+    if (looks.isEmpty())
         return;
     doc->writeStartElement(XML_ELEMENT);
-    for (auto it = m_functions.constBegin(); it != m_functions.constEnd(); ++it)
+    for (auto it = looks.constBegin(); it != looks.constEnd(); ++it)
     {
         doc->writeStartElement("Look");
         doc->writeAttribute("Label", it.key());
@@ -121,6 +146,9 @@ bool EdmStructureMapping::loadXML(QXmlStreamReader &doc, const WidgetFunction &w
         return false;
 
     m_functions.clear();
+    const auto accept = [this](quint32 id) {
+        return id != Function::invalidId() && (m_doc == nullptr || isLook(m_doc->function(id)));
+    };
     while (doc.readNextStartElement())
     {
         const QXmlStreamAttributes attrs = doc.attributes();
@@ -130,14 +158,10 @@ bool EdmStructureMapping::loadXML(QXmlStreamReader &doc, const WidgetFunction &w
             bool widgetOk = false, functionOk = false;
             const quint32 widget = attrs.value("Widget").toUInt(&widgetOk);
             const quint32 function = attrs.value("Function").toUInt(&functionOk);
-            if (functionOk)
-                m_functions.insert(label, function);
-            else if (widgetOk && widgetFunction)
-            {
-                const quint32 fromButton = widgetFunction(widget);
-                if (fromButton != Function::invalidId())
-                    m_functions.insert(label, fromButton);
-            }
+            const quint32 look = functionOk ? function
+                                 : widgetOk && widgetFunction ? widgetFunction(widget) : Function::invalidId();
+            if (accept(look))
+                m_functions.insert(label, look);
         }
         doc.skipCurrentElement();
     }

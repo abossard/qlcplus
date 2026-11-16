@@ -34,6 +34,10 @@ private slots:
     void syncCreatesBlocksOnce();
     void followAnalysis_data();
     void followAnalysis();
+    void removedBlockStopsFirst_data();
+    void removedBlockStopsFirst();
+    void orphanBlockClaimsNoSection_data();
+    void orphanBlockClaimsNoSection();
 };
 
 #endif

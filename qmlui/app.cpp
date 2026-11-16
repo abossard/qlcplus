@@ -390,6 +390,7 @@ void App::startup()
     rootContext()->setContextProperty("edmMapping", m_edmMapping);
     m_songDirector = new SongDirector(m_doc, this);
     m_songDirector->setMapping(m_edmMapping);
+    m_songDirector->setFunctionRemover([this](quint32 id) { m_functionManager->deleteFunction(id); });
     m_showManager->setSongDirector(m_songDirector);
     // song Shows get their blocks once analysed, and untouched blocks follow a new analysis
     m_songDirector->setAnalysisDir(m_edmAnalysis->outputDir());

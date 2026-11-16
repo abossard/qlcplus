@@ -52,7 +52,7 @@ public:
     QVariantMap dropOnSongBlock(quint32 showId, const QList<quint32> &functionIds, quint32 timeMs) override;
     QVariantMap resizeSongBlock(quint32 showId, quint32 functionId, quint32 durationMs) override;
     QVariantMap songBlocks(quint32 showId) const override;
-    QVariantMap songLookDefaults(const QString &label, int functionID, bool setFunction) override;
+    QVariantMap songLookDefaults(const QString &label, quint32 functionID, bool setFunction) override;
     QVariantMap pressWidget(quint32 widgetID, const QString &action) override;
 
     int addPage(const QString &name) override;

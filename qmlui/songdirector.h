@@ -65,10 +65,12 @@ struct SongDirectorBlock
     quint32 functionId = 0;   // the block's Collection
     SongBlock generated;
     QList<quint32> content;   // the Collection's functions when generated
+    bool orphan = false;      // the user's block whose section left the analysis: it takes no section again
 
     bool operator==(const SongDirectorBlock &other) const
     {
-        return functionId == other.functionId && generated == other.generated && content == other.content;
+        return functionId == other.functionId && generated == other.generated && content == other.content
+            && orphan == other.orphan;
     }
 };
 
@@ -109,6 +111,11 @@ public:
     /** The workspace defaults that pre-fill new blocks; none leaves them empty */
     void setMapping(EdmStructureMapping *mapping) { m_mapping = mapping; }
 
+    /** Deletes the Collection of a block that sync() removes, as the Function
+     *  Manager's delete does (editor closed, stopped). Unset: stopped and
+     *  deleted from the Doc */
+    void setFunctionRemover(std::function<void(quint32)> remover) { m_removeFunction = std::move(remover); }
+
     /** Add the Song Director track with one Collection block per section of
      *  the Show's song, holding the label's default Function when it has one. False, changing nothing, when the Show
      *  has a director track already, no audio clip or no analysis */
@@ -116,8 +123,8 @@ public:
 
     /** A Function dropped on the Song Director track at \a timeMs goes into the
      *  Collection of the block under that time, the block itself stays. Items
-     *  that are no looks here (the Show itself, a Function that would play
-     *  the block, unknown ids) are skipped. True when the drop hit a block, so
+     *  that are no looks (EdmStructureMapping::isLook), Functions that would
+     *  play the block and unknown ids are skipped. True when the drop hit a block, so
      *  the caller adds no Show item */
     bool dropOnBlock(Show *show, Track *track, quint32 timeMs, const QList<quint32> &functionIds);
 
@@ -131,6 +138,9 @@ public slots:
 signals:
     /** sync() created or changed the Show's blocks */
     void blocksChanged(quint32 showId);
+
+    /** sync() is about to remove and delete this block item of the Show */
+    void blockRemoving(quint32 showId, ShowFunction *item);
 
 private:
     struct Entry
@@ -146,11 +156,14 @@ private:
     ShowFunction *untouchedItem(Track *track, const SongDirectorBlock &block) const;
     /** Untouched blocks take the Show's current analysis; true when anything changed */
     bool follow(Show *show, EdmAnalysisReader &reader);
+    /** The item off the track, then its Collection stopped and deleted */
+    void removeBlock(Show *show, Track *track, ShowFunction *item);
 
     Doc *m_doc;
     EdmStructureMapping *m_mapping = nullptr;
     QList<Entry> m_entries;
     std::function<bool(Show *)> m_isSongShow;
+    std::function<void(quint32)> m_removeFunction;
     std::unique_ptr<EdmAnalysisReader> m_reader;
     QSet<quint32> m_done;      // Shows that got their blocks once
     QSet<quint32> m_waiting;   // running Shows a sync waits for

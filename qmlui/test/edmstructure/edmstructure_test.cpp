@@ -8,8 +8,16 @@
 #include "edmstructure_test.h"
 #include "edmstructure.h"
 #include "edmstructuremapping.h"
+#include "audio.h"
+#include "chaser.h"
+#include "collection.h"
 #include "doc.h"
+#include "efx.h"
 #include "function.h"
+#include "rgbmatrix.h"
+#include "scene.h"
+#include "script.h"
+#include "show.h"
 
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
@@ -650,6 +658,72 @@ void EdmStructure_Test::newWorkspaceClearsMapping()
     emit doc.cleared();
 
     QCOMPARE(mapping.functionId("drop"), -1);
+}
+
+void EdmStructure_Test::mappingDefaultsAreLooks_data()
+{
+    QTest::addColumn<int>("type");      // Function::Type of the default
+    QTest::addColumn<QString>("how");   // how it became the default
+    QTest::addColumn<bool>("kept");     // still the default, and saved
+
+    for (const auto &[type, look] : { std::pair { Function::SceneType, true }, std::pair { Function::CollectionType, true },
+                                      std::pair { Function::ChaserType, true }, std::pair { Function::RGBMatrixType, true },
+                                      std::pair { Function::EFXType, true }, std::pair { Function::ShowType, false },
+                                      std::pair { Function::AudioType, false }, std::pair { Function::ScriptType, false } })
+    {
+        const QByteArray name = Function::typeToString(type).toUtf8();
+        QTest::newRow(("loaded " + name).constData()) << int(type) << "load function" << look;
+        QTest::newRow(("migrated button of a " + name).constData()) << int(type) << "load widget" << look;
+    }
+    QTest::newRow("loaded function that is gone") << int(Function::SceneType) << "load missing" << false;
+    QTest::newRow("set, then the function is deleted") << int(Function::SceneType) << "set+delete" << false;
+    QTest::newRow("set, the other function is deleted") << int(Function::SceneType) << "set+delete other" << true;
+}
+
+void EdmStructure_Test::mappingDefaultsAreLooks()
+{
+    QFETCH(int, type);
+    QFETCH(QString, how);
+    QFETCH(bool, kept);
+
+    Doc doc(this);
+    Function *f = nullptr;
+    switch (Function::Type(type))
+    {
+        case Function::SceneType: f = new Scene(&doc); break;
+        case Function::CollectionType: f = new Collection(&doc); break;
+        case Function::ChaserType: f = new Chaser(&doc); break;
+        case Function::RGBMatrixType: f = new RGBMatrix(&doc); break;
+        case Function::EFXType: f = new EFX(&doc); break;
+        case Function::ShowType: f = new Show(&doc); break;
+        case Function::AudioType: f = new Audio(&doc); break;
+        default: f = new Script(&doc); break;
+    }
+    QVERIFY(doc.addFunction(f));
+    Scene *other = new Scene(&doc);
+    QVERIFY(doc.addFunction(other));
+    const quint32 id = f->id();
+
+    EdmStructureMapping mapping(&doc);
+    if (how.startsWith("load"))
+    {
+        QXmlStreamReader reader(how == "load widget" ? QString(R"(<SongStructure><Look Label="drop" Widget="12"/></SongStructure>)")
+                                                     : QString(R"(<SongStructure><Look Label="drop" Function="%1"/></SongStructure>)")
+                                                           .arg(how == "load missing" ? 4000 : id));
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(mapping.loadXML(reader, [id](quint32 widget) { return widget == 12 ? id : Function::invalidId(); }));
+    }
+    else
+    {
+        mapping.setFunction("drop", id);
+        QVERIFY(doc.deleteFunction(how == "set+delete" ? id : other->id()));
+    }
+
+    QCOMPARE(mapping.functionId("drop"), kept ? int(id) : -1);
+    QString saved;
+    QXmlStreamWriter writer(&saved);
+    mapping.saveXML(&writer);
+    QCOMPARE(saved.contains(QString(R"(Function="%1")").arg(id)), kept);
 }
 
 void EdmStructure_Test::destroyingParentWhileRunningDoesNotCallToolAgain()

@@ -120,7 +120,7 @@ bool SongDirector::dropOnBlock(Show *show, Track *track, quint32 timeMs, const Q
         for (quint32 id : functionIds)
         {
             Function *f = m_doc->function(id);
-            if (f == nullptr || f->type() == Function::ShowType || f->contains(collection->id()))
+            if (EdmStructureMapping::isLook(f) == false || f->contains(collection->id()))
                 continue;
             collection->addFunction(id);
         }
@@ -180,7 +180,7 @@ bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QL
     if (m_mapping)
     {
         const quint32 look = m_mapping->function(block.label);
-        if (look != Function::invalidId() && look != collection->id() && m_doc->function(look) != nullptr)
+        if (look != collection->id() && EdmStructureMapping::isLook(m_doc->function(look)))
             collection->addFunction(look);
     }
     ShowFunction *sf = track->createShowFunction(collection->id());
@@ -233,7 +233,7 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
     for (const SongBlock &block : songBlocks(analysis.sections, clip->startTime()))
     {
         int i = 0;
-        while (i < old.count() && (matched.at(i) || old.at(i).generated.label != block.label
+        while (i < old.count() && (matched.at(i) || old.at(i).orphan || old.at(i).generated.label != block.label
                                    || old.at(i).generated.number != block.number))
             i++;
         if (i == old.count())
@@ -253,23 +253,46 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
         }
         blocks.append(b);
     }
-    // a block without its section goes when untouched; one the user changed stays
+    // a block without its section goes when untouched; one the user changed
+    // stays, and a later section with its label and number gets a new block
     for (int i = 0; i < old.count(); i++)
     {
         if (matched.at(i))
             continue;
-        if (ShowFunction *sf = untouchedItem(track, old.at(i)))
+        SongDirectorBlock b = old.at(i);
+        if (b.orphan)
+            blocks.append(b);
+        else if (ShowFunction *sf = untouchedItem(track, b))
         {
-            track->removeShowFunction(sf);
-            m_doc->deleteFunction(old.at(i).functionId);
+            removeBlock(show, track, sf);
             changed = true;
         }
         else
-            blocks.append(old.at(i));
+        {
+            b.orphan = true;
+            blocks.append(b);
+            changed = true;
+        }
     }
     if (changed)
         e->blocks = blocks;
     return changed;
+}
+
+void SongDirector::removeBlock(Show *show, Track *track, ShowFunction *item)
+{
+    const quint32 id = item->functionID();
+    emit blockRemoving(show->id(), item);
+    track->removeShowFunction(item);
+    if (m_removeFunction)
+    {
+        m_removeFunction(id);
+        return;
+    }
+    // the runner of a block started by hand would run a freed Collection
+    if (Function *f = m_doc->function(id); f != nullptr && f->isRunning())
+        f->stopAndWait();
+    m_doc->deleteFunction(id);
 }
 
 void SongDirector::setAnalysisDir(const QString &dir)
@@ -350,6 +373,8 @@ void SongDirector::saveXML(QXmlStreamWriter *doc) const
             doc->writeAttribute("Unsure", b.generated.unsure ? "1" : "0");
             doc->writeAttribute("Start", QString::number(b.generated.startMs));
             doc->writeAttribute("Duration", QString::number(b.generated.durationMs));
+            if (b.orphan)
+                doc->writeAttribute("Orphan", "1");
             if (b.content.isEmpty() == false)
             {
                 QStringList ids;
@@ -382,6 +407,7 @@ static bool readBlock(const QXmlStreamAttributes &attrs, SongDirectorBlock *bloc
     block->generated.unsure = attrs.value("Unsure") == QLatin1String("1");
     block->generated.startMs = attrs.value("Start").toUInt(&ok[4]);
     block->generated.durationMs = attrs.value("Duration").toUInt(&ok[5]);
+    block->orphan = attrs.value("Orphan") == QLatin1String("1");
     for (bool good : ok)
     {
         if (good == false)

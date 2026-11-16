@@ -18,6 +18,7 @@
 #include "vcpage.h"
 #include "virtualconsole.h"
 #include "djmanager.h"
+#include "functionmanager.h"
 #include "djsetrecorder.h"
 #include "vdjbridge.h"
 #include "showfactory.h"
@@ -780,17 +781,24 @@ void McpLiveControlTools_Test::songLookDefaults_data()
     QTest::addColumn<QString>("arguments");
     QTest::addColumn<QString>("error");
     QTest::addColumn<int>("dropDefault");
-    QTest::newRow("query only") << QStringLiteral("{}") << QString() << -1;
-    QTest::newRow("set a scene") << QStringLiteral(R"({"label":"drop","functionID":$SCENE})") << QString() << 1;
-    QTest::newRow("set a collection") << QStringLiteral(R"({"label":"drop","functionID":$COLLECTION})") << QString() << 2;
-    QTest::newRow("clear") << QStringLiteral(R"({"label":"drop","functionID":-1})") << QString() << -1;
-    QTest::newRow("a Show is no look") << QStringLiteral(R"({"label":"drop","functionID":$SHOW})") << QStringLiteral("not a look") << -1;
-    QTest::newRow("missing function") << QStringLiteral(R"({"label":"drop","functionID":4000})") << QStringLiteral("not a look") << -1;
-    QTest::newRow("unknown label") << QStringLiteral(R"({"label":"chorus","functionID":$SCENE})") << QStringLiteral("unknown label") << -1;
-    QTest::newRow("label alone") << QStringLiteral(R"({"label":"drop"})") << QStringLiteral("go together") << -1;
-    QTest::newRow("function alone") << QStringLiteral(R"({"functionID":$SCENE})") << QStringLiteral("go together") << -1;
-    QTest::newRow("string function") << QStringLiteral(R"({"label":"drop","functionID":"1"})") << QStringLiteral("functionID") << -1;
-    QTest::newRow("unknown field") << QStringLiteral(R"({"extra":1})") << QStringLiteral("unknown fields") << -1;
+    QTest::addColumn<bool>("preset");   // drop defaults to the scene before the call
+    QTest::newRow("query only") << QStringLiteral("{}") << QString() << -1 << false;
+    QTest::newRow("set a scene") << QStringLiteral(R"({"label":"drop","functionID":$SCENE})") << QString() << 1 << false;
+    QTest::newRow("set a collection") << QStringLiteral(R"({"label":"drop","functionID":$COLLECTION})") << QString() << 2 << false;
+    QTest::newRow("clear") << QStringLiteral(R"({"label":"drop","functionID":-1})") << QString() << -1 << true;
+    QTest::newRow("a Show is no look") << QStringLiteral(R"({"label":"drop","functionID":$SHOW})") << QStringLiteral("not a look") << -1 << false;
+    QTest::newRow("missing function") << QStringLiteral(R"({"label":"drop","functionID":4000})") << QStringLiteral("not a look") << -1 << false;
+    QTest::newRow("unknown label") << QStringLiteral(R"({"label":"chorus","functionID":$SCENE})") << QStringLiteral("unknown label") << -1 << false;
+    QTest::newRow("label alone") << QStringLiteral(R"({"label":"drop"})") << QStringLiteral("go together") << -1 << false;
+    QTest::newRow("function alone") << QStringLiteral(R"({"functionID":$SCENE})") << QStringLiteral("go together") << -1 << false;
+    QTest::newRow("string function") << QStringLiteral(R"({"label":"drop","functionID":"1"})") << QStringLiteral("functionID") << -1 << false;
+    QTest::newRow("unknown field") << QStringLiteral(R"({"extra":1})") << QStringLiteral("unknown fields") << -1 << false;
+    QTest::newRow("id above int32 is no function") << QStringLiteral(R"({"label":"drop","functionID":2147483648})")
+                                                   << QStringLiteral("not a look") << 1 << true;
+    QTest::newRow("largest id is no function") << QStringLiteral(R"({"label":"drop","functionID":4294967294})")
+                                               << QStringLiteral("not a look") << 1 << true;
+    QTest::newRow("id beyond the id range") << QStringLiteral(R"({"label":"drop","functionID":4294967295})")
+                                            << QStringLiteral("functionID") << 1 << true;
 }
 
 void McpLiveControlTools_Test::songLookDefaults()
@@ -798,6 +806,7 @@ void McpLiveControlTools_Test::songLookDefaults()
     QFETCH(QString, arguments);
     QFETCH(QString, error);
     QFETCH(int, dropDefault);
+    QFETCH(bool, preset);
     auto *doc = m_app->doc();
 
     auto *scene = new Scene(doc);
@@ -810,19 +819,154 @@ void McpLiveControlTools_Test::songLookDefaults()
         .replace("$COLLECTION", QString::number(collection->id()))
         .replace("$SHOW", QString::number(show->id()));
     const int expected = dropDefault == 1 ? int(scene->id()) : dropDefault == 2 ? int(collection->id()) : -1;
+    auto *mapping = m_app->findChild<EdmStructureMapping *>();
+    mapping->setFunctionId("drop", preset ? int(scene->id()) : -1);
+    auto noDefaults = qScopeGuard([mapping]() {
+        for (const QString &label : EdmStructureMapping::labels())
+            mapping->setFunctionId(label, -1);
+    });
 
     const Json result = invokeShowTool(doc, m_vc.get(), "song_look_defaults", Json::parse(arguments.toStdString()));
     if (error.isEmpty() == false)
     {
         QVERIFY2(result.contains("error"), result.dump().c_str());
         QVERIFY2(QString::fromStdString(result.at("error").get<std::string>()).contains(error), result.dump().c_str());
-        QCOMPARE(m_app->findChild<EdmStructureMapping *>()->functionId("drop"), -1);
+        QCOMPARE(mapping->functionId("drop"), preset ? int(scene->id()) : -1);
         return;
     }
     QVERIFY2(!result.contains("error"), result.dump().c_str());
     QCOMPARE(result.at("defaults").at("drop"), Json(expected));
     QCOMPARE(result.at("defaults").at("outro"), Json(-1));
     QCOMPARE(m_app->findChild<EdmStructureMapping *>()->functionId("drop"), expected);
+}
+
+namespace
+{
+/** (Re)write the current row's analysis; each write gets a newer file time, so the reader takes it */
+void rewriteAnalysis(const QByteArray &sections)
+{
+    static int written = 0;
+    const QString id = QString(QCryptographicHash::hash(QTest::currentDataTag(), QCryptographicHash::Sha256).toHex()).left(16);
+    QFile final(QDir(EdmAnalysisReader::defaultDir()).filePath("final/" + id + ".json"));
+    QVERIFY(final.open(QIODevice::WriteOnly));
+    final.write(R"({"schema": "qlcplus-edm-final/3", "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0},
+        "sections": )" + sections + "}");
+    QVERIFY(final.flush());   // a write on close would set the time again
+    QVERIFY(final.setFileTime(QDateTime::currentDateTime().addSecs(++written), QFileDevice::FileModificationTime));
+}
+
+/** A song Show whose first audio clip (at 2000 ms) plays a song analysed as \a sections, in the app's analysis folder */
+Show *analysedSongShow(Doc *doc, const QByteArray &sections)
+{
+    const QDir analysis(EdmAnalysisReader::defaultDir());
+    const QString id = QString(QCryptographicHash::hash(QTest::currentDataTag(), QCryptographicHash::Sha256).toHex()).left(16);
+    const QString path = QStringLiteral("/music/song-%1-%2.mp3").arg(QTest::currentTestFunction(), id);
+    QFile index(analysis.filePath("index.json"));
+    if (analysis.mkpath("final") == false || index.open(QIODevice::WriteOnly) == false)
+        return nullptr;
+    index.write(QStringLiteral(R"({"%1": {"path": "%2"}})").arg(id, path).toUtf8());
+    index.close();
+    rewriteAnalysis(sections);
+
+    auto *show = new Show(doc);
+    show->setName("Song");
+    doc->addFunction(show);
+    auto *audio = new Audio(doc);
+    doc->addFunction(audio);
+    audio->setSourceFileName(path);
+    auto *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    track->createShowFunction(audio->id())->setStartTime(2000);
+    return show;
+}
+}
+
+void McpLiveControlTools_Test::songBlocksReadOnly_data()
+{
+    QTest::addColumn<bool>("hasBlocks");
+    QTest::newRow("Show with blocks") << true;
+    QTest::newRow("Show without blocks") << false;
+}
+
+void McpLiveControlTools_Test::songBlocksReadOnly()
+{
+    QFETCH(bool, hasBlocks);
+    auto *doc = m_app->doc();
+    ShowManager *manager = m_app->showManager();
+
+    Show *song = analysedSongShow(doc, R"([{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 70}])");
+    QVERIFY(song != nullptr);
+    if (hasBlocks)
+    {
+        const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", song->id()}});
+        QVERIFY2(!created.contains("error"), created.dump().c_str());
+    }
+    auto *other = new Show(doc);
+    QVERIFY(doc->addFunction(other));
+    manager->setCurrentShowID(int(other->id()));
+    manager->setReadOnly(true);
+    auto writable = qScopeGuard([manager]() { manager->setReadOnly(false); });
+
+    const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", song->id()}});
+
+    QVERIFY2(created.contains("error"), created.dump().c_str());
+    QVERIFY2(QString::fromStdString(created.at("error").get<std::string>()).contains("read-only"), created.dump().c_str());
+    QCOMPARE(manager->currentShowID(), int(other->id()));
+    QCOMPARE(m_app->findChild<SongDirector *>()->track(song) != nullptr, hasBlocks);
+}
+
+void McpLiveControlTools_Test::songBlockRemovedCleanly_data()
+{
+    QTest::addColumn<QString>("use");   // what the user did with the drop block before a re-analysis removed it
+    QTest::newRow("selected in the Show Manager") << QStringLiteral("selected");
+    QTest::newRow("copied to the clipboard") << QStringLiteral("copied");
+    QTest::newRow("open in the Function editor") << QStringLiteral("editor");
+}
+
+void McpLiveControlTools_Test::songBlockRemovedCleanly()
+{
+    QFETCH(QString, use);
+    auto *doc = m_app->doc();
+    ShowManager *manager = m_app->showManager();
+    FunctionManager *functions = m_app->functionManager();
+    auto *director = m_app->findChild<SongDirector *>();
+
+    Show *show = analysedSongShow(doc, R"([{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 70},
+                                           {"label": "drop", "start": 9.0, "end": 25.0, "confidence": 90}])");
+    QVERIFY(show != nullptr);
+    const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", show->id()}});
+    QVERIFY2(!created.contains("error"), created.dump().c_str());
+    Track *track = director->track(show);
+    QVERIFY(track != nullptr);
+    QCOMPARE(manager->currentShowID(), int(show->id()));
+    ShowFunction *drop = track->showFunctions().at(1);
+    const quint32 dropCollection = drop->functionID();
+    const int trackIdx = int(show->tracks().indexOf(track));
+    manager->resetItemsSelection();
+    manager->copyToClipboard();   // empties it
+
+    if (use == "selected" || use == "copied")
+        manager->setItemSelection(trackIdx, drop, nullptr, true, 0);
+    if (use == "copied")
+    {
+        manager->copyToClipboard();
+        manager->resetItemsSelection();
+        QCOMPARE(manager->clipboardItemsCount(), 1);
+    }
+    if (use == "editor")
+    {
+        functions->setEditorFunction(dropCollection, false, false);
+        QVERIFY(functions->currentEditor() != nullptr);
+    }
+
+    rewriteAnalysis(R"([{"label": "intro", "start": 0.0, "end": 25.0, "confidence": 70}])");
+    director->sync();
+
+    QVERIFY(doc->function(dropCollection) == nullptr);
+    QCOMPARE(track->showFunctions().count(), 1);
+    QCOMPARE(manager->selectedItemsCount(), 0);
+    QCOMPARE(manager->clipboardItemsCount(), 0);
+    QVERIFY(functions->currentEditor() == nullptr);
 }
 
 void McpLiveControlTools_Test::drivenShows_data()

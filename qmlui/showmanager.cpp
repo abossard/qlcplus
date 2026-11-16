@@ -521,6 +521,11 @@ void ShowManager::setSongDirector(SongDirector *director)
         if (m_currentShow != nullptr && m_currentShow->id() == showId)
             refreshView();
     });
+    // a block the director removes leaves the selection, the clipboard and the view first
+    connect(director, &SongDirector::blockRemoving, this, [this](quint32 showId, ShowFunction *item) {
+        if (m_currentShow != nullptr && m_currentShow->id() == showId)
+            deleteShowItem(item);
+    });
 }
 
 bool ShowManager::hasSongBlocks() const

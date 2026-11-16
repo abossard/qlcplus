@@ -9,10 +9,15 @@
 #include "songdirector.h"
 
 #include "audio.h"
+#include "chaser.h"
 #include "collection.h"
 #include "edmstructuremapping.h"
 #include "doc.h"
+#include "efx.h"
+#include "mastertimer.h"
+#include "rgbmatrix.h"
 #include "scene.h"
+#include "script.h"
 #include "show.h"
 #include "showfunction.h"
 #include "track.h"
@@ -268,7 +273,7 @@ void SongDirector_Test::createBlocks()
 
 void SongDirector_Test::createBlocksFromDefaults_data()
 {
-    QTest::addColumn<QStringList>("defaults");   // "label=slot": slot 0 is the first scene, 1 the second, "gone" a Function that does not exist
+    QTest::addColumn<QStringList>("defaults");   // "label=slot": slot 0 is the first scene, 1 the second, "gone" a Function that does not exist, "script" a Script, "show" the song Show
     QTest::addColumn<QStringList>("expected");   // per block: the scene slot in its Collection, or "-"
 
     QTest::newRow("no defaults") << QStringList() << QStringList { "-", "-", "-", "-" };
@@ -278,6 +283,8 @@ void SongDirector_Test::createBlocksFromDefaults_data()
     QTest::newRow("unknown label unused") << QStringList { "chorus=1" } << QStringList { "-", "-", "-", "-" };
     QTest::newRow("default function is gone") << QStringList { "drop=gone", "outro=0" }
                                               << QStringList { "-", "-", "-", "0" };
+    QTest::newRow("defaults that are no looks") << QStringList { "drop=script", "outro=show", "intro=0" }
+                                                << QStringList { "0", "-", "-", "-" };
 }
 
 void SongDirector_Test::createBlocksFromDefaults()
@@ -294,11 +301,14 @@ void SongDirector_Test::createBlocksFromDefaults()
         QVERIFY(song.doc.addFunction(scene));
         scenes << scene->id();
     }
+    Script *script = new Script(&song.doc);
+    QVERIFY(song.doc.addFunction(script));
     EdmStructureMapping mapping(&song.doc);
     for (const QString &d : defaults)
     {
         const QString slot = d.section('=', 1);
-        mapping.setFunctionId(d.section('=', 0, 0), slot == "gone" ? 4000 : int(scenes.at(slot.toInt())));
+        mapping.setFunctionId(d.section('=', 0, 0), slot == "gone" ? 4000 : slot == "script" ? int(script->id())
+                                                    : slot == "show" ? int(song.show->id()) : int(scenes.at(slot.toInt())));
     }
     song.director.setMapping(&mapping);
 
@@ -456,9 +466,10 @@ void SongDirector_Test::dropOnBlock_data()
 {
     QTest::addColumn<quint32>("timeMs");
     QTest::addColumn<bool>("onDirectorTrack");
-    QTest::addColumn<QStringList>("dropped");   // "0"/"1": a scene slot, "show": the song Show itself, "gone": no such Function
+    QTest::addColumn<QStringList>("dropped");   // "0"/"1": a scene slot, "show": the song Show itself, "gone": no such Function,
+                                                // "audio": the song's Audio, "script", "chaser", "efx", "matrix": one of that type
     QTest::addColumn<int>("block");             // the block that takes the drop, -1 for none
-    QTest::addColumn<QStringList>("expected");  // that block's Collection afterwards, as scene slots
+    QTest::addColumn<QStringList>("expected");  // that block's Collection afterwards, same names
 
     // blocks: intro 0-9000, buildup 9000-17000, drop 17000-33000, outro 33000-41000
     QTest::newRow("inside a block") << 20000u << true << QStringList { "1" } << 2 << QStringList { "1" };
@@ -468,6 +479,10 @@ void SongDirector_Test::dropOnBlock_data()
     QTest::newRow("the song Show itself is skipped") << 1u << true << QStringList { "show", "0" } << 0 << QStringList { "0" };
     QTest::newRow("unknown function is skipped") << 1u << true << QStringList { "gone", "1" } << 0 << QStringList { "1" };
     QTest::newRow("only invalid functions still hit the block") << 1u << true << QStringList { "show" } << 0 << QStringList();
+    QTest::newRow("the song's Audio is no look") << 1u << true << QStringList { "audio", "1" } << 0 << QStringList { "1" };
+    QTest::newRow("a Script is no look") << 1u << true << QStringList { "script" } << 0 << QStringList();
+    QTest::newRow("Chaser, EFX and RGB Matrix are looks") << 1u << true << QStringList { "chaser", "efx", "matrix" } << 0
+                                                           << QStringList { "chaser", "efx", "matrix" };
     QTest::newRow("after the last block") << 41000u << true << QStringList { "0" } << -1 << QStringList();
     QTest::newRow("other track") << 20000u << false << QStringList { "0" } << -1 << QStringList();
 }
@@ -489,6 +504,15 @@ void SongDirector_Test::dropOnBlock()
         QVERIFY(song.doc.addFunction(scene));
         scenes << scene->id();
     }
+    QMap<QString, quint32> others { { "show", song.show->id() }, { "gone", 4000u },
+                                    { "audio", song.show->tracks().first()->showFunctions().first()->functionID() } };
+    for (Function *f : QList<Function *> { new Script(&song.doc), new Chaser(&song.doc), new EFX(&song.doc), new RGBMatrix(&song.doc) })
+    {
+        QVERIFY(song.doc.addFunction(f));
+        others.insert(f->type() == Function::ScriptType ? "script" : f->type() == Function::ChaserType ? "chaser"
+                      : f->type() == Function::EFXType ? "efx" : "matrix", f->id());
+    }
+    const auto idOf = [&](const QString &name) { return others.contains(name) ? others.value(name) : scenes.at(name.toInt()); };
     QVERIFY(song.director.createBlocks(song.show, song.reader));
     Track *director = song.director.track(song.show);
     Track *track = onDirectorTrack ? director : song.show->tracks().first();
@@ -497,7 +521,7 @@ void SongDirector_Test::dropOnBlock()
 
     QList<quint32> ids;
     for (const QString &d : dropped)
-        ids << (d == "show" ? song.show->id() : d == "gone" ? 4000u : scenes.at(d.toInt()));
+        ids << idOf(d);
 
     QCOMPARE(song.director.dropOnBlock(song.show, track, timeMs, ids), block >= 0);
 
@@ -510,7 +534,7 @@ void SongDirector_Test::dropOnBlock()
         QList<quint32> want;
         if (i == block)
             for (const QString &e : expected)
-                want << scenes.at(e.toInt());
+                want << idOf(e);
         QCOMPARE(collection->functions(), want);
     }
     // the sidecar still holds what was generated, so a filled block now counts as edited
@@ -721,6 +745,131 @@ void SongDirector_Test::followAnalysis()
     song.director.sync(song.reader);
     QCOMPARE(itemsWithContent(&song.doc, track), expected);
     QCOMPARE(changed.count(), emitted);
+}
+
+void SongDirector_Test::removedBlockStopsFirst_data()
+{
+    QTest::addColumn<bool>("running");   // the block's Collection started by hand before the analysis changed
+
+    QTest::newRow("running block") << true;
+    QTest::newRow("stopped block") << false;
+}
+
+void SongDirector_Test::removedBlockStopsFirst()
+{
+    QFETCH(bool, running);
+
+    SongShow song;
+    song.director.sync(song.reader);
+    Track *track = song.director.track(song.show);
+    QVERIFY(track != nullptr);
+    quint32 buildup = Function::invalidId();
+    for (const SongDirectorBlock &b : song.director.blocks(song.show))
+        if (b.generated.label == "buildup")
+            buildup = b.functionId;
+    auto *collection = qobject_cast<Collection *>(song.doc.function(buildup));
+    QVERIFY(collection != nullptr);
+
+    // what happens to the block's Collection, in order
+    QStringList events;
+    connect(collection, qOverload<quint32>(&Function::stopped), this, [&events]() { events << "stopped"; }, Qt::DirectConnection);
+    connect(&song.doc, &Doc::functionRemoved, this, [&events, buildup](quint32 id) {
+        if (id == buildup)
+            events << "removed";
+    });
+    MasterTimer *timer = song.doc.masterTimer();
+    timer->start();
+    auto stopTimer = qScopeGuard([timer]() { timer->stop(); });
+    if (running)
+    {
+        collection->start(timer, FunctionParent::master());
+        QTRY_VERIFY(collection->isRunning());
+    }
+
+    song.analyse(finalJson({ section("intro", 0, 9000, 100), section("drop", 9000, 33000, 90), section("outro", 33000, 41000, 60) }));
+    song.director.sync(song.reader);
+
+    QVERIFY(song.doc.function(buildup) == nullptr);
+    QCOMPARE(track->showFunctions().count(), 3);
+    QCOMPARE(events, (running ? QStringList { "stopped", "removed" } : QStringList { "removed" }));
+}
+
+void SongDirector_Test::orphanBlockClaimsNoSection_data()
+{
+    QTest::addColumn<bool>("reopen");   // the workspace saved and reopened while the section was gone
+
+    QTest::newRow("same session") << false;
+    QTest::newRow("saved and reopened") << true;
+}
+
+void SongDirector_Test::orphanBlockClaimsNoSection()
+{
+    QFETCH(bool, reopen);
+
+    const QList<EdmSection> base { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 40, true),
+                                   section("drop", 17000, 33000, 90), section("outro", 33000, 41000, 60) };
+    SongShow song(0, kSongPath, false);
+    song.analyse(finalJson(base));
+    Scene *extra = new Scene(&song.doc);
+    extra->setName("Extra");
+    QVERIFY(song.doc.addFunction(extra));
+    song.director.sync(song.reader);
+    Track *track = song.director.track(song.show);
+    QVERIFY(track != nullptr);
+
+    // the user fills the buildup, then the buildup leaves the analysis: the filled block stays
+    for (ShowFunction *sf : track->showFunctions())
+        if (song.doc.function(sf->functionID())->name() == "Song / buildup 1")
+            qobject_cast<Collection *>(song.doc.function(sf->functionID()))->addFunction(extra->id());
+    song.analyse(finalJson({ section("intro", 0, 9000, 100), section("drop", 9000, 33000, 90), section("outro", 33000, 41000, 60) }));
+    song.director.sync(song.reader);
+    QCOMPARE(itemsWithContent(&song.doc, track),
+             (QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {Extra}",
+                            "Song / drop 1 @9000 +24000 {}", "Song / outro 1 @33000 +8000 {}" }));
+
+    Doc *doc = &song.doc;
+    SongDirector *director = &song.director;
+    Show *show = song.show;
+    Doc reopenedDoc(nullptr);
+    SongDirector reopened(&reopenedDoc);
+    if (reopen)
+    {
+        QString xml;
+        QXmlStreamWriter writer(&xml);
+        writer.writeStartElement("Workspace");
+        QVERIFY(doc->saveXML(&writer));
+        director->saveXML(&writer);
+        writer.writeEndElement();
+        QXmlStreamReader reader(xml);
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(reopenedDoc.loadXML(reader));
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(reopened.loadXML(reader));
+        doc = &reopenedDoc;
+        director = &reopened;
+        show = qobject_cast<Show *>(doc->function(show->id()));
+        QVERIFY(show != nullptr);
+        track = director->track(show);
+        QVERIFY(track != nullptr);
+    }
+
+    // a buildup comes back: it gets a block of its own, the kept block stays the user's
+    song.analyse(finalJson(base));
+    director->sync(song.reader);
+    QCOMPARE(itemsWithContent(doc, track),
+             (QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {Extra}", "Song / buildup 1 @9000 +8000 {}",
+                            "Song / drop 1 @17000 +16000 {}", "Song / outro 1 @33000 +8000 {}" }));
+    QCOMPARE(collections(doc), 5);
+    QCOMPARE(director->blocks(show).count(), 5);
+
+    // and it follows the next analysis while the kept block does not
+    song.analyse(finalJson({ section("intro", 0, 8000, 100), section("buildup", 8000, 16000, 40, true),
+                             section("drop", 16000, 32000, 90), section("outro", 32000, 40000, 60) }));
+    director->sync(song.reader);
+    QCOMPARE(itemsWithContent(doc, track),
+             (QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}", "Song / buildup 1 @9000 +8000 {Extra}",
+                            "Song / drop 1 @16000 +16000 {}", "Song / outro 1 @32000 +8000 {}" }));
 }
 
 QTEST_GUILESS_MAIN(SongDirector_Test)

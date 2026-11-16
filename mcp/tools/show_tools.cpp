@@ -807,13 +807,14 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                 const bool hasFunction = args.is_object() && args.contains("functionID");
                 if (hasLabel != hasFunction)
                     return Json({{"error", "song_look_defaults: label and functionID go together"}}).dump();
-                int functionID = -1;
+                quint32 functionID = Function::invalidId();
                 if (hasFunction)
                 {
                     const auto id = mcp::jsonInteger(args.at("functionID"), -1, mcp::kMaxId);
                     if (!id || !args.at("label").is_string())
                         return Json({{"error", "song_look_defaults: label must be a string and functionID an integer, -1 or more"}}).dump();
-                    functionID = int(*id);
+                    if (*id >= 0)
+                        functionID = quint32(*id);
                 }
                 const QVariantMap state = vcBridge->songLookDefaults(
                     hasLabel ? QString::fromStdString(args.at("label").get<std::string>()) : QString(), functionID, hasFunction);

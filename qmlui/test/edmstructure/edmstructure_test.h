@@ -44,6 +44,8 @@ private slots:
     void mappingLoadsFunctions_data();
     void mappingLoadsFunctions();
     void newWorkspaceClearsMapping();
+    void mappingDefaultsAreLooks_data();
+    void mappingDefaultsAreLooks();
 
     // review findings
     void destroyingParentWhileRunningDoesNotCallToolAgain();
