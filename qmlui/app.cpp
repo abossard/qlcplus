@@ -79,6 +79,8 @@
 #include "edmstructuredirector.h"
 #include "edmstructuremapping.h"
 #include "songdirector.h"
+#include "audio.h"
+#include "show.h"
 #include "edmvclooksurface.h"
 #include "djsetrecorder.h"
 #include "stagewizard.h"
@@ -392,6 +394,18 @@ void App::startup()
     m_songDirector = new SongDirector(m_doc, this);
     m_songDirector->setMapping(m_edmMapping);
     m_showManager->setSongDirector(m_songDirector);
+    // song Shows get their blocks once analysed, and untouched blocks follow a new analysis
+    m_songDirector->setAnalysisDir(m_edmAnalysis->outputDir());
+    m_songDirector->setSongShowFilter([this, factory = m_vdjBridge->showFactory()](Show *show) {
+        const Audio *audio = ShowFactory::songAudio(m_doc, show);
+        return audio != nullptr && factory->showIdForFilepath(audio->getSourceFileName()) == show->id();
+    });
+    connect(m_edmStructure, &EdmStructure::analysisFilesChanged, m_songDirector, qOverload<>(&SongDirector::sync));
+    connect(m_vdjBridge->showFactory(), &ShowFactory::showCreatedForSong, m_songDirector, qOverload<>(&SongDirector::sync));
+    connect(m_vdjBridge->showFactory(), &ShowFactory::mappingChanged, m_songDirector, [this](const QString &filepath) {
+        if (filepath.isEmpty() == false)   // the user chose a Show for a song
+            m_songDirector->sync();
+    });
     rootContext()->setContextProperty("edmDirector", m_edmDirector);
 
     // register an uncreatable type just to use the enums in QML
@@ -1410,6 +1424,8 @@ bool App::loadWorkspace(const QString &fileName)
         updateRecentFilesList(localFilename);
         setDocLoaded(true);
         m_doc->resetModified();
+        // an analysis made or changed while the workspace was closed
+        m_songDirector->sync();
         m_videoProvider = new VideoProvider(this, m_doc);
         m_contextManager->resetContexts();
 

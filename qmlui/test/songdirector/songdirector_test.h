@@ -28,6 +28,10 @@ private slots:
     void workspaceRoundTrip();
     void dropOnBlock_data();
     void dropOnBlock();
+    void syncCreatesBlocksOnce_data();
+    void syncCreatesBlocksOnce();
+    void followAnalysis_data();
+    void followAnalysis();
 };
 
 #endif

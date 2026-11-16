@@ -61,7 +61,18 @@ SongDirector::SongDirector(Doc *doc, QObject *parent)
     , m_doc(doc)
 {
     if (doc != nullptr)
-        connect(doc, &Doc::cleared, this, [this]() { m_entries.clear(); });
+    {
+        connect(doc, &Doc::cleared, this, [this]() {
+            m_entries.clear();
+            m_done.clear();
+            m_waiting.clear();
+        });
+        // a removed Show's id goes to the next Function
+        connect(doc, &Doc::functionRemoved, this, [this](quint32 id) {
+            m_done.remove(id);
+            m_waiting.remove(id);
+        });
+    }
 }
 
 QString SongDirector::trackName()
@@ -138,47 +149,177 @@ bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
     e.track = track;
     e.showId = show->id();
     for (const SongBlock &block : generated)
+        addBlock(show, track, block, e.blocks);
+    m_entries.append(e);
+    m_done.insert(show->id());
+    return true;
+}
+
+bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QList<SongDirectorBlock> &blocks)
+{
+    Collection *collection = new Collection(m_doc);
+    collection->setName(QString("%1 / %2 %3").arg(show->name(), block.label).arg(block.number));
+    collection->setPath(show->path(true));
+    collection->setHoldUntilStopped(true);   // a block runs for the length of its Show item
+    if (m_doc->addFunction(collection) == false)
     {
-        Collection *collection = new Collection(m_doc);
-        collection->setName(QString("%1 / %2 %3").arg(show->name(), block.label).arg(block.number));
-        collection->setPath(show->path(true));
-        collection->setHoldUntilStopped(true);   // a block runs for the length of its Show item
-        if (m_doc->addFunction(collection) == false)
+        delete collection;
+        return false;
+    }
+    if (m_mapping)
+    {
+        const quint32 look = m_mapping->function(block.label);
+        if (look != Function::invalidId() && look != collection->id() && m_doc->function(look) != nullptr)
+            collection->addFunction(look);
+    }
+    ShowFunction *sf = track->createShowFunction(collection->id());
+    sf->setStartTime(block.startMs);
+    sf->setDuration(block.durationMs);
+    sf->setColor(ShowFunction::defaultColor(Function::CollectionType));
+
+    SongDirectorBlock sidecar;
+    sidecar.functionId = collection->id();
+    sidecar.generated = block;
+    sidecar.content = collection->functions();
+    blocks.append(sidecar);
+    return true;
+}
+
+ShowFunction *SongDirector::untouchedItem(Track *track, const SongDirectorBlock &block) const
+{
+    ShowFunction *item = nullptr;
+    for (ShowFunction *sf : track->showFunctions())
+    {
+        if (sf->functionID() != block.functionId)
+            continue;
+        if (item != nullptr)
+            return nullptr;   // a block copied is a block edited
+        item = sf;
+    }
+    const auto *collection = qobject_cast<Collection *>(m_doc->function(block.functionId));
+    if (item == nullptr || collection == nullptr || item->startTime() != block.generated.startMs
+        || item->duration() != block.generated.durationMs || collection->functions() != block.content)
+        return nullptr;
+    return item;
+}
+
+bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
+{
+    Entry *e = const_cast<Entry *>(entry(show));
+    const ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
+    if (e == nullptr || clip == nullptr)
+        return false;
+    const EdmAnalysis analysis = reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show));
+    if (analysis.valid == false)
+        return false;   // an analysis that is gone leaves the blocks as they are
+    Track *track = e->track.data();
+
+    // a section takes the block of its label and number (drop 2 stays drop 2)
+    const QList<SongDirectorBlock> old = e->blocks;
+    QList<bool> matched(old.count(), false);
+    QList<SongDirectorBlock> blocks;
+    bool changed = false;
+    for (const SongBlock &block : songBlocks(analysis.sections, clip->startTime()))
+    {
+        int i = 0;
+        while (i < old.count() && (matched.at(i) || old.at(i).generated.label != block.label
+                                   || old.at(i).generated.number != block.number))
+            i++;
+        if (i == old.count())
         {
-            delete collection;
+            changed |= addBlock(show, track, block, blocks);
             continue;
         }
-        if (m_mapping)
+        matched[i] = true;
+        SongDirectorBlock b = old.at(i);
+        ShowFunction *sf = untouchedItem(track, b);
+        if (sf != nullptr && (b.generated == block) == false)
         {
-            const quint32 look = m_mapping->function(block.label);
-            if (look != Function::invalidId() && look != collection->id() && m_doc->function(look) != nullptr)
-                collection->addFunction(look);
+            sf->setStartTime(block.startMs);
+            sf->setDuration(block.durationMs);
+            b.generated = block;
+            changed = true;
         }
-        ShowFunction *sf = track->createShowFunction(collection->id());
-        sf->setStartTime(block.startMs);
-        sf->setDuration(block.durationMs);
-        sf->setColor(ShowFunction::defaultColor(Function::CollectionType));
-
-        SongDirectorBlock sidecar;
-        sidecar.functionId = collection->id();
-        sidecar.generated = block;
-        sidecar.content = collection->functions();
-        e.blocks.append(sidecar);
+        blocks.append(b);
     }
-    m_entries.append(e);
-    return true;
+    // a block without its section goes when untouched; one the user changed stays
+    for (int i = 0; i < old.count(); i++)
+    {
+        if (matched.at(i))
+            continue;
+        if (ShowFunction *sf = untouchedItem(track, old.at(i)))
+        {
+            track->removeShowFunction(sf);
+            m_doc->deleteFunction(old.at(i).functionId);
+            changed = true;
+        }
+        else
+            blocks.append(old.at(i));
+    }
+    if (changed)
+        e->blocks = blocks;
+    return changed;
+}
+
+void SongDirector::setAnalysisDir(const QString &dir)
+{
+    m_reader = std::make_unique<EdmAnalysisReader>(dir);
+}
+
+void SongDirector::sync()
+{
+    if (m_reader)
+        sync(*m_reader);
+}
+
+void SongDirector::sync(EdmAnalysisReader &reader)
+{
+    if (m_doc == nullptr)
+        return;
+    for (Function *f : m_doc->functionsByType(Function::ShowType))
+    {
+        Show *show = qobject_cast<Show *>(f);
+        if (show == nullptr || (m_isSongShow && m_isSongShow(show) == false))
+            continue;
+        // the runner holds the Show's items: a running Show is changed once it stops
+        if (show->isRunning())
+        {
+            if (m_waiting.contains(show->id()) == false)
+            {
+                m_waiting.insert(show->id());
+                connect(show, qOverload<quint32>(&Function::stopped), this, [this]() { sync(); }, Qt::QueuedConnection);
+            }
+            continue;
+        }
+        const bool changed = track(show) == nullptr
+            ? m_done.contains(show->id()) == false && createBlocks(show, reader)
+            : follow(show, reader);
+        if (changed)
+        {
+            m_doc->setModified();
+            emit blocksChanged(show->id());
+        }
+    }
 }
 
 void SongDirector::saveXML(QXmlStreamWriter *doc) const
 {
     QList<const Entry *> live;
+    QList<quint32> done;   // Shows that had their blocks and lost the track: not created again
     for (const Entry &e : m_entries)
     {
         Show *show = m_doc != nullptr ? qobject_cast<Show *>(m_doc->function(e.showId)) : nullptr;
         if (entry(show) == &e)
             live.append(&e);
     }
-    if (live.isEmpty())
+    for (quint32 id : m_done)
+    {
+        Show *show = m_doc != nullptr ? qobject_cast<Show *>(m_doc->function(id)) : nullptr;
+        if (show != nullptr && entry(show) == nullptr)
+            done.append(id);
+    }
+    std::sort(done.begin(), done.end());
+    if (live.isEmpty() && done.isEmpty())
         return;
 
     doc->writeStartElement(XML_ELEMENT);
@@ -207,6 +348,12 @@ void SongDirector::saveXML(QXmlStreamWriter *doc) const
             }
             doc->writeEndElement();
         }
+        doc->writeEndElement();
+    }
+    for (quint32 id : done)
+    {
+        doc->writeStartElement("Done");
+        doc->writeAttribute("Show", QString::number(id));
         doc->writeEndElement();
     }
     doc->writeEndElement();
@@ -246,8 +393,15 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
         return false;
 
     m_entries.clear();
+    m_done.clear();
     while (doc.readNextStartElement())
     {
+        if (doc.name() == QLatin1String("Done"))
+        {
+            m_done.insert(doc.attributes().value("Show").toUInt());
+            doc.skipCurrentElement();
+            continue;
+        }
         if (doc.name() != QLatin1String("Track"))
         {
             doc.skipCurrentElement();
@@ -272,7 +426,10 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
         }
         // a Show or track that is gone, or a second track for one Show, is dropped
         if (e.track != nullptr && track(show) == nullptr)
+        {
             m_entries.append(e);
+            m_done.insert(e.showId);
+        }
     }
     return true;
 }

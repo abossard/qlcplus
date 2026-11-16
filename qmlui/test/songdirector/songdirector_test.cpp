@@ -18,6 +18,7 @@
 #include "track.h"
 
 #include <QDir>
+#include <QSignalSpy>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QXmlStreamReader>
@@ -58,24 +59,17 @@ const QByteArray kFinal = R"({"schema": "qlcplus-edm-final/3", "track": {"title"
 
 const QString kSongPath = "/music/song.mp3";
 
-void writeFile(const QString &path, const QByteArray &data)
-{
-    QFile f(path);
-    QVERIFY(f.open(QIODevice::WriteOnly));
-    f.write(data);
-}
-
 /** A song Show with its Audio clip, as the Show factory makes it, and an analysis folder */
 struct SongShow
 {
-    explicit SongShow(quint32 clipStartMs = 0, const QString &audioPath = kSongPath)
+    explicit SongShow(quint32 clipStartMs = 0, const QString &audioPath = kSongPath, bool analysed = true)
         : doc(nullptr)
         , director(&doc)
         , reader(dir.path())
     {
         QDir(dir.path()).mkpath("final");
-        writeFile(dir.filePath("index.json"), QString(R"({"aaaaaaaaaaaaaaaa": {"path": "%1"}})").arg(kSongPath).toUtf8());
-        writeFile(dir.filePath("final/aaaaaaaaaaaaaaaa.json"), kFinal);
+        if (analysed)
+            analyse(kFinal);
 
         show = new Show(&doc);
         show->setName("Song");
@@ -89,6 +83,23 @@ struct SongShow
         track->setName("Audio");
         show->addTrack(track);
         track->createShowFunction(audio->id())->setStartTime(clipStartMs);
+    }
+
+    /** Write (or rewrite) the song's analysis; each write gets a newer file time, so the reader takes it */
+    void analyse(const QByteArray &json)
+    {
+        static int written = 0;
+        const QDateTime time = QDateTime::currentDateTime().addSecs(++written);
+        for (const auto &[name, data] : {std::pair { QString("index.json"),
+                                                      QString(R"({"aaaaaaaaaaaaaaaa": {"path": "%1"}})").arg(kSongPath).toUtf8() },
+                                          std::pair { QString("final/aaaaaaaaaaaaaaaa.json"), json }})
+        {
+            QFile f(dir.filePath(name));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write(data);
+            QVERIFY(f.flush());   // a write on close would set the time again
+            QVERIFY(f.setFileTime(time, QFileDevice::FileModificationTime));
+        }
     }
 
     Doc doc;
@@ -108,6 +119,60 @@ QStringList items(Doc *doc, Track *track)
         list << QString("%1 @%2 +%3").arg(f ? f->name() : "?").arg(sf->startTime()).arg(sf->duration());
     }
     return list;
+}
+
+/** A final analysis file with these sections */
+QByteArray finalJson(const QList<EdmSection> &sections)
+{
+    QStringList list;
+    for (const EdmSection &s : sections)
+        list << QString(R"({"label": "%1", "start": %2, "end": %3, "confidence": %4, "label_confidence": %5, "unsure": %6})")
+                    .arg(s.label).arg(s.startMs / 1000.0).arg(s.endMs / 1000.0).arg(s.confidence).arg(s.labelConfidence)
+                    .arg(s.unsure ? "true" : "false");
+    return QString(R"({"schema": "qlcplus-edm-final/3", "track": {"title": "t", "sha256": "aaaaaaaaaaaaaaaa00"},
+        "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0}, "sections": [%1]})")
+        .arg(list.join(",")).toUtf8();
+}
+
+/** "name @start +duration {content}" of each item on the track, by start */
+QStringList itemsWithContent(Doc *doc, Track *track)
+{
+    QStringList list;
+    for (ShowFunction *sf : track->showFunctions())
+    {
+        Function *f = doc->function(sf->functionID());
+        QStringList content;
+        if (auto *collection = qobject_cast<Collection *>(f))
+            for (quint32 id : collection->functions())
+                content << (doc->function(id) ? doc->function(id)->name() : "?");
+        list << QString("%1 @%2 +%3 {%4}").arg(f ? f->name() : "?").arg(sf->startTime()).arg(sf->duration()).arg(content.join(","));
+    }
+    std::sort(list.begin(), list.end(), [](const QString &a, const QString &b) {
+        const uint startA = a.section('@', 1).section(' ', 0, 0).toUInt(), startB = b.section('@', 1).section(' ', 0, 0).toUInt();
+        return startA != startB ? startA < startB : a < b;
+    });
+    return list;
+}
+
+/** The sidecar as "label number @start +duration cN uN", by start */
+QStringList sidecar(const QList<SongDirectorBlock> &blocks)
+{
+    QList<SongBlock> generated;
+    for (const SongDirectorBlock &b : blocks)
+        generated << b.generated;
+    std::sort(generated.begin(), generated.end(), [](const SongBlock &a, const SongBlock &b) {
+        return a.startMs != b.startMs ? a.startMs < b.startMs : a.label < b.label;
+    });
+    QStringList list;
+    for (const SongBlock &b : generated)
+        list << QString("%1 %2 @%3 +%4 c%5 u%6").arg(b.label).arg(b.number).arg(b.startMs).arg(b.durationMs)
+                    .arg(b.confidence).arg(b.unsure ? 1 : 0);
+    return list;
+}
+
+int collections(Doc *doc)
+{
+    return doc->functionsByType(Function::CollectionType).count();
 }
 
 }
@@ -401,6 +466,212 @@ void SongDirector_Test::dropOnBlock()
     }
     // the sidecar still holds what was generated, so a filled block now counts as edited
     QCOMPARE(song.director.blocks(song.show), generated);
+}
+
+void SongDirector_Test::syncCreatesBlocksOnce_data()
+{
+    QTest::addColumn<bool>("analysedAtStart");
+    QTest::addColumn<bool>("songShow");        // Perform's Show for the song
+    QTest::addColumn<QString>("afterwards");   // none, delete the director track, or delete it, save and reopen
+    QTest::addColumn<int>("blocks");           // director blocks at the end, 0: no director track
+
+    QTest::newRow("analysis there") << true << true << "none" << 4;
+    QTest::newRow("analysis arrives later") << false << true << "none" << 4;
+    QTest::newRow("not the song's Show") << true << false << "none" << 0;
+    QTest::newRow("deleted director track is not recreated") << true << true << "delete" << 0;
+    QTest::newRow("deleted track, saved and reopened, not recreated") << true << true << "delete+reopen" << 0;
+}
+
+void SongDirector_Test::syncCreatesBlocksOnce()
+{
+    QFETCH(bool, analysedAtStart);
+    QFETCH(bool, songShow);
+    QFETCH(QString, afterwards);
+    QFETCH(int, blocks);
+
+    SongShow song(0, kSongPath, analysedAtStart);
+    song.director.setSongShowFilter([songShow](Show *) { return songShow; });
+    QSignalSpy changed(&song.director, &SongDirector::blocksChanged);
+
+    song.director.sync(song.reader);
+    if (analysedAtStart == false)
+    {
+        QVERIFY(song.director.track(song.show) == nullptr);
+        QCOMPARE(changed.count(), 0);
+        song.analyse(kFinal);
+        song.director.sync(song.reader);
+    }
+    QCOMPARE(changed.count(), songShow ? 1 : 0);
+    if (songShow)
+        QCOMPARE(changed.first().first().toUInt(), song.show->id());
+
+    Doc *doc = &song.doc;
+    SongDirector *director = &song.director;
+    Show *show = song.show;
+    Doc reopenedDoc(nullptr);
+    SongDirector reopened(&reopenedDoc);
+    if (afterwards.startsWith("delete"))
+        QVERIFY(show->removeTrack(director->track(show)->id()));
+    if (afterwards == "delete+reopen")
+    {
+        QString xml;
+        QXmlStreamWriter writer(&xml);
+        writer.writeStartElement("Workspace");
+        QVERIFY(doc->saveXML(&writer));
+        director->saveXML(&writer);
+        writer.writeEndElement();
+        QXmlStreamReader reader(xml);
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(reopenedDoc.loadXML(reader));
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(reopened.loadXML(reader));
+        doc = &reopenedDoc;
+        director = &reopened;
+        show = qobject_cast<Show *>(doc->function(show->id()));
+        QVERIFY(show != nullptr);
+    }
+
+    // syncing again creates nothing more
+    const int functions = doc->functions().count();
+    const int tracks = show->tracks().count();
+    director->sync(song.reader);
+    director->sync(song.reader);
+    QCOMPARE(doc->functions().count(), functions);
+    QCOMPARE(show->tracks().count(), tracks);
+
+    QCOMPARE(director->track(show) != nullptr, blocks > 0);
+    QCOMPARE(director->blocks(show).count(), blocks);
+    if (blocks > 0)
+        QCOMPARE(director->track(show)->showFunctions().count(), blocks);
+}
+
+void SongDirector_Test::followAnalysis_data()
+{
+    QTest::addColumn<QString>("edit");               // what the user did to a block before the analysis changed
+    QTest::addColumn<QList<EdmSection>>("analysis"); // the changed analysis
+    QTest::addColumn<QStringList>("expected");       // the director track afterwards
+    QTest::addColumn<QStringList>("expectedSidecar");
+    QTest::addColumn<int>("expectedCollections");
+    QTest::addColumn<int>("emitted");
+
+    const QList<EdmSection> base { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 40, true),
+                                   section("drop", 17000, 33000, 90), section("outro", 33000, 41000, 60) };
+    const QStringList baseItems { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {}",
+                                  "Song / drop 1 @17000 +16000 {}", "Song / outro 1 @33000 +8000 {}" };
+    const QStringList baseSidecar { "intro 1 @0 +9000 c100 u0", "buildup 1 @9000 +8000 c40 u1",
+                                    "drop 1 @17000 +16000 c90 u0", "outro 1 @33000 +8000 c60 u0" };
+    const QList<EdmSection> earlier { section("intro", 0, 8000, 100), section("buildup", 8000, 16000, 40, true),
+                                      section("drop", 16000, 32000, 90), section("outro", 32000, 40000, 60) };
+    const QStringList earlierSidecar { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
+                                       "drop 1 @16000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" };
+    const QList<EdmSection> noBuildup { section("intro", 0, 9000, 100), section("drop", 9000, 33000, 90),
+                                        section("outro", 33000, 41000, 60) };
+
+    QTest::newRow("unchanged analysis") << "none" << base << baseItems << baseSidecar << 4 << 0;
+    QTest::newRow("edges move, untouched blocks follow") << "none" << earlier
+        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
+                         "Song / drop 1 @16000 +16000 {}", "Song / outro 1 @32000 +8000 {}" }
+        << earlierSidecar << 4 << 1;
+    QTest::newRow("moved block stays") << "move drop" << earlier
+        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
+                         "Song / drop 1 @18000 +16000 {}", "Song / outro 1 @32000 +8000 {}" }
+        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
+                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
+    QTest::newRow("resized block stays") << "shorten drop" << earlier
+        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
+                         "Song / drop 1 @17000 +10000 {}", "Song / outro 1 @32000 +8000 {}" }
+        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
+                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
+    QTest::newRow("filled block stays") << "fill drop" << earlier
+        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}",
+                         "Song / drop 1 @17000 +16000 {Extra}", "Song / outro 1 @32000 +8000 {}" }
+        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
+                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
+    QTest::newRow("deleted block is not recreated") << "delete drop" << earlier
+        << QStringList { "Song / intro 1 @0 +8000 {}", "Song / buildup 1 @8000 +8000 {}", "Song / outro 1 @32000 +8000 {}" }
+        << QStringList { "intro 1 @0 +8000 c100 u0", "buildup 1 @8000 +8000 c40 u1",
+                         "drop 1 @17000 +16000 c90 u0", "outro 1 @32000 +8000 c60 u0" } << 4 << 1;
+    QTest::newRow("added section gets a pre-filled block")
+        << "none" << QList<EdmSection> { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 40, true),
+                                         section("drop", 17000, 33000, 90), section("breakdown", 33000, 37000, 70),
+                                         section("outro", 37000, 45000, 60) }
+        << QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {}", "Song / drop 1 @17000 +16000 {}",
+                         "Song / breakdown 1 @33000 +4000 {Calm}", "Song / outro 1 @37000 +8000 {}" }
+        << QStringList { "intro 1 @0 +9000 c100 u0", "buildup 1 @9000 +8000 c40 u1", "drop 1 @17000 +16000 c90 u0",
+                         "breakdown 1 @33000 +4000 c70 u0", "outro 1 @37000 +8000 c60 u0" } << 5 << 1;
+    QTest::newRow("removed section takes its untouched block") << "none" << noBuildup
+        << QStringList { "Song / intro 1 @0 +9000 {}", "Song / drop 1 @9000 +24000 {}", "Song / outro 1 @33000 +8000 {}" }
+        << QStringList { "intro 1 @0 +9000 c100 u0", "drop 1 @9000 +24000 c90 u0", "outro 1 @33000 +8000 c60 u0" } << 3 << 1;
+    QTest::newRow("filled block of a removed section stays") << "fill buildup" << noBuildup
+        << QStringList { "Song / intro 1 @0 +9000 {}", "Song / buildup 1 @9000 +8000 {Extra}",
+                         "Song / drop 1 @9000 +24000 {}", "Song / outro 1 @33000 +8000 {}" }
+        << QStringList { "intro 1 @0 +9000 c100 u0", "buildup 1 @9000 +8000 c40 u1",
+                         "drop 1 @9000 +24000 c90 u0", "outro 1 @33000 +8000 c60 u0" } << 4 << 1;
+    QTest::newRow("unsure and confidence follow")
+        << "none" << QList<EdmSection> { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 80),
+                                         section("drop", 17000, 33000, 90), section("outro", 33000, 41000, 60) }
+        << baseItems
+        << QStringList { "intro 1 @0 +9000 c100 u0", "buildup 1 @9000 +8000 c80 u0",
+                         "drop 1 @17000 +16000 c90 u0", "outro 1 @33000 +8000 c60 u0" } << 4 << 1;
+}
+
+void SongDirector_Test::followAnalysis()
+{
+    QFETCH(QString, edit);
+    QFETCH(QList<EdmSection>, analysis);
+    QFETCH(QStringList, expected);
+    QFETCH(QStringList, expectedSidecar);
+    QFETCH(int, expectedCollections);
+    QFETCH(int, emitted);
+
+    SongShow song(0, kSongPath, false);
+    song.analyse(finalJson({ section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 40, true),
+                             section("drop", 17000, 33000, 90), section("outro", 33000, 41000, 60) }));
+    QMap<QString, quint32> scenes;
+    for (const char *name : {"Calm", "Extra"})
+    {
+        Scene *scene = new Scene(&song.doc);
+        scene->setName(name);
+        QVERIFY(song.doc.addFunction(scene));
+        scenes.insert(name, scene->id());
+    }
+    EdmStructureMapping mapping(&song.doc);
+    mapping.setFunctionId("breakdown", int(scenes.value("Calm")));
+    song.director.setMapping(&mapping);
+    song.director.sync(song.reader);
+    Track *track = song.director.track(song.show);
+    QVERIFY(track != nullptr);
+
+    ShowFunction *target = nullptr;
+    for (ShowFunction *sf : track->showFunctions())
+    {
+        if (edit.endsWith(" " + song.doc.function(sf->functionID())->name().section(' ', 2, 2)))
+            target = sf;
+    }
+    QVERIFY((target != nullptr) == (edit != "none"));
+    if (edit.startsWith("move"))
+        target->setStartTime(target->startTime() + 1000);
+    else if (edit.startsWith("shorten"))
+        target->setDuration(10000);
+    else if (edit.startsWith("fill"))
+        qobject_cast<Collection *>(song.doc.function(target->functionID()))->addFunction(scenes.value("Extra"));
+    else if (edit.startsWith("delete"))
+        QVERIFY(track->removeShowFunction(target));
+
+    QSignalSpy changed(&song.director, &SongDirector::blocksChanged);
+    song.analyse(finalJson(analysis));
+    song.director.sync(song.reader);
+
+    QCOMPARE(itemsWithContent(&song.doc, track), expected);
+    QCOMPARE(sidecar(song.director.blocks(song.show)), expectedSidecar);
+    QCOMPARE(collections(&song.doc), expectedCollections);
+    QCOMPARE(changed.count(), emitted);
+
+    // a second sync of the same analysis changes nothing
+    song.director.sync(song.reader);
+    QCOMPARE(itemsWithContent(&song.doc, track), expected);
+    QCOMPARE(changed.count(), emitted);
 }
 
 QTEST_GUILESS_MAIN(SongDirector_Test)

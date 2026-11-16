@@ -516,6 +516,11 @@ void ShowManager::refreshAnalysisSections()
 void ShowManager::setSongDirector(SongDirector *director)
 {
     m_songDirector = director;
+    // new, moved or re-marked blocks of the open Show are drawn again
+    connect(director, &SongDirector::blocksChanged, this, [this](quint32 showId) {
+        if (m_currentShow != nullptr && m_currentShow->id() == showId)
+            refreshView();
+    });
 }
 
 bool ShowManager::hasSongBlocks() const

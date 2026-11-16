@@ -20,6 +20,9 @@
 
 #include <QList>
 #include <QObject>
+#include <QSet>
+#include <functional>
+#include <memory>
 #include <QPointer>
 #include <QString>
 
@@ -28,6 +31,7 @@
 class Doc;
 class EdmStructureMapping;
 class Show;
+class ShowFunction;
 class Track;
 class QXmlStreamReader;
 class QXmlStreamWriter;
@@ -90,6 +94,18 @@ public:
     /** The generated values of the director track's blocks */
     QList<SongDirectorBlock> blocks(Show *show) const;
 
+    /** Which Shows sync() gives blocks: Perform's Show of the song. Unset: every Show */
+    void setSongShowFilter(std::function<bool(Show *)> isSongShow) { m_isSongShow = std::move(isSongShow); }
+
+    /** The analysis folder sync() without a reader reads */
+    void setAnalysisDir(const QString &dir);
+
+    /** Every song Show with an analysis: blocks are created once, when it has
+     *  no director track and never had one; blocks still exactly as generated
+     *  follow a changed analysis (moved, resized, added, removed), the others
+     *  stay. A running Show waits until it stops */
+    void sync(EdmAnalysisReader &reader);
+
     /** The workspace defaults that pre-fill new blocks; none leaves them empty */
     void setMapping(EdmStructureMapping *mapping) { m_mapping = mapping; }
 
@@ -108,6 +124,14 @@ public:
     void saveXML(QXmlStreamWriter *doc) const;
     bool loadXML(QXmlStreamReader &doc);
 
+public slots:
+    /** sync() with the folder of setAnalysisDir() */
+    void sync();
+
+signals:
+    /** sync() created or changed the Show's blocks */
+    void blocksChanged(quint32 showId);
+
 private:
     struct Entry
     {
@@ -116,10 +140,20 @@ private:
         QList<SongDirectorBlock> blocks;
     };
     const Entry *entry(Show *show) const;
+    /** One Collection block on the track, appended to \a blocks; false when the Doc is full */
+    bool addBlock(Show *show, Track *track, const SongBlock &block, QList<SongDirectorBlock> &blocks);
+    /** The block's single item when its place, length and content are as generated, else null */
+    ShowFunction *untouchedItem(Track *track, const SongDirectorBlock &block) const;
+    /** Untouched blocks take the Show's current analysis; true when anything changed */
+    bool follow(Show *show, EdmAnalysisReader &reader);
 
     Doc *m_doc;
     EdmStructureMapping *m_mapping = nullptr;
     QList<Entry> m_entries;
+    std::function<bool(Show *)> m_isSongShow;
+    std::unique_ptr<EdmAnalysisReader> m_reader;
+    QSet<quint32> m_done;      // Shows that got their blocks once
+    QSet<quint32> m_waiting;   // running Shows a sync waits for
 };
 
 #endif
