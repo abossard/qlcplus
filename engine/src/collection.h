@@ -22,6 +22,7 @@
 #define COLLECTION_H
 
 #include <QMutex>
+#include <QHash>
 #include <QList>
 #include <QSet>
 
@@ -105,9 +106,9 @@ public slots:
 protected:
     /** The list of Function IDs added to this Collection */
     QList <quint32> m_functions;
-    /** A list of intesity attribute override IDs populated when this Collection is
-     *  started and cleaned when it's stopped */
-    QList <int> m_intensityOverrideIds;
+    /** The intensity attribute override ID of each member this Collection
+     *  started, by member ID. Populated when started, cleaned when stopped */
+    QHash <quint32, int> m_intensityOverrideIds;
 
 #if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
     mutable QMutex m_functionListMutex;

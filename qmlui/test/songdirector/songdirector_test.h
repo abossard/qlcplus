@@ -26,6 +26,8 @@ private slots:
     void createBlocksNeedsAnalysedSong_data();
     void createBlocksNeedsAnalysedSong();
     void workspaceRoundTrip();
+    void holdOnlyOnSidecarBlocks_data();
+    void holdOnlyOnSidecarBlocks();
     void dropOnBlock_data();
     void dropOnBlock();
     void syncCreatesBlocksOnce_data();

@@ -403,6 +403,55 @@ void SongDirector_Test::workspaceRoundTrip()
         QVERIFY(qobject_cast<Collection *>(doc.function(block.functionId))->holdUntilStopped());
 }
 
+void SongDirector_Test::holdOnlyOnSidecarBlocks_data()
+{
+    QTest::addColumn<QString>("setup");
+    QTest::addColumn<bool>("held");   // the Collection under test holds until stopped
+
+    QTest::newRow("block loaded with its track") << "kept" << true;
+    QTest::newRow("block of a track that is gone, dropped on load") << "track gone" << false;
+    QTest::newRow("block of a second director track, dropped on load") << "second track" << false;
+    QTest::newRow("director track deleted") << "track deleted" << false;
+}
+
+void SongDirector_Test::holdOnlyOnSidecarBlocks()
+{
+    QFETCH(QString, setup);
+    QFETCH(bool, held);
+
+    SongShow song;
+    Collection *collection = nullptr;
+    if (setup == "track deleted")
+    {
+        QVERIFY(song.director.createBlocks(song.show, song.reader));
+        collection = qobject_cast<Collection *>(song.doc.function(song.director.blocks(song.show).first().functionId));
+        QVERIFY(collection->holdUntilStopped());
+        QVERIFY(song.show->removeTrack(song.director.track(song.show)->id()));
+    }
+    else
+    {
+        QList<Track *> tracks;
+        QList<Collection *> blocks;
+        for (int i = 0; i < 2; i++)
+        {
+            tracks << new Track(Function::invalidId(), song.show);
+            song.show->addTrack(tracks.last());
+            blocks << new Collection(&song.doc);
+            QVERIFY(song.doc.addFunction(blocks.last()));
+        }
+        // two director tracks for one Show: the first one read wins
+        const QString block = R"(<Block Function="%1" Section="0" Label="intro" Number="1" Confidence="50" Unsure="0" Start="0" Duration="9000"/>)";
+        const QString xml = QString(R"(<SongDirector><Track Show="%1" ID="%2">%3</Track><Track Show="%1" ID="%4">%5</Track></SongDirector>)")
+            .arg(song.show->id()).arg(setup == "track gone" ? 4000u : tracks.at(0)->id())
+            .arg(block.arg(blocks.at(0)->id())).arg(tracks.at(1)->id()).arg(block.arg(blocks.at(1)->id()));
+        QXmlStreamReader reader(xml);
+        QVERIFY(reader.readNextStartElement());
+        QVERIFY(song.director.loadXML(reader));
+        collection = blocks.at(setup == "second track" ? 1 : 0);
+    }
+    QCOMPARE(collection->holdUntilStopped(), held);
+}
+
 void SongDirector_Test::dropOnBlock_data()
 {
     QTest::addColumn<quint32>("timeMs");

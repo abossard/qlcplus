@@ -298,7 +298,7 @@ void Collection::preRun(MasterTimer *timer)
             Function *function = doc->function(fid);
             Q_ASSERT(function != NULL);
 
-            m_intensityOverrideIds << function->requestAttributeOverride(Function::Intensity, getAttributeValue(Function::Intensity));
+            m_intensityOverrideIds[fid] = function->requestAttributeOverride(Function::Intensity, getAttributeValue(Function::Intensity));
 
             // Append the IDs of all functions started by this collection
             // to a set so that we can track which of them are still controlled
@@ -369,7 +369,8 @@ void Collection::write(MasterTimer *timer, QList<Universe *> universes)
 
     if (m_holdUntilStopped)
     {
-        // members that ended on their own run again, until this Collection is stopped
+        // members that ended on their own, or were added while running, run
+        // until this Collection is stopped. A member's end reset its overrides
         Doc *doc = this->doc();
         QMutexLocker locker(&m_functionListMutex);
         for (quint32 fid : m_functions)
@@ -378,6 +379,9 @@ void Collection::write(MasterTimer *timer, QList<Universe *> universes)
             if (function == nullptr || function->isRunning() || m_runningChildren.contains(fid))
                 continue;
             m_runningChildren << fid;
+            m_intensityOverrideIds[fid] = function->requestAttributeOverride(Function::Intensity, getAttributeValue(Function::Intensity));
+            connect(function, SIGNAL(stopped(quint32)),
+                    this, SLOT(slotChildStopped(quint32)), Qt::UniqueConnection);
             function->start(timer, functionParent(), 0, overrideFadeInSpeed(), overrideFadeOutSpeed(), overrideDuration());
         }
         return;
@@ -454,11 +458,12 @@ int Collection::adjustAttribute(qreal fraction, int attributeId)
 
         QMutexLocker locker(&m_functionListMutex);
 
-        for (int i = 0; i < m_functions.count(); i++)
+        // members added while running hold no override until they are started
+        for (auto it = m_intensityOverrideIds.cbegin(); it != m_intensityOverrideIds.cend(); ++it)
         {
-            Function* function = document->function(m_functions.at(i));
-            Q_ASSERT(function != NULL);
-            function->adjustAttribute(getAttributeValue(Function::Intensity), m_intensityOverrideIds.at(i));
+            Function* function = document->function(it.key());
+            if (function != NULL)
+                function->adjustAttribute(getAttributeValue(Function::Intensity), it.value());
         }
     }
 

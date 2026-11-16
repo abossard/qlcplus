@@ -155,17 +155,28 @@ bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
     return true;
 }
 
+/** A block runs for the length of its Show item: its Collection holds until
+ *  stopped while it is a block of the director track, the track's deletion releases it */
+static void holdBlock(QObject *context, Track *track, Collection *collection)
+{
+    collection->setHoldUntilStopped(true);
+    QObject::connect(track, &QObject::destroyed, context, [held = QPointer<Collection>(collection)]() {
+        if (held)
+            held->setHoldUntilStopped(false);
+    });
+}
+
 bool SongDirector::addBlock(Show *show, Track *track, const SongBlock &block, QList<SongDirectorBlock> &blocks)
 {
     Collection *collection = new Collection(m_doc);
     collection->setName(QString("%1 / %2 %3").arg(show->name(), block.label).arg(block.number));
     collection->setPath(show->path(true));
-    collection->setHoldUntilStopped(true);   // a block runs for the length of its Show item
     if (m_doc->addFunction(collection) == false)
     {
         delete collection;
         return false;
     }
+    holdBlock(this, track, collection);
     if (m_mapping)
     {
         const quint32 look = m_mapping->function(block.label);
@@ -417,11 +428,7 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
         {
             SongDirectorBlock block;
             if (doc.name() == QLatin1String("Block") && readBlock(doc.attributes(), &block))
-            {
                 e.blocks.append(block);
-                if (auto *collection = qobject_cast<Collection *>(m_doc ? m_doc->function(block.functionId) : nullptr))
-                    collection->setHoldUntilStopped(true);
-            }
             doc.skipCurrentElement();
         }
         // a Show or track that is gone, or a second track for one Show, is dropped
@@ -429,6 +436,9 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
         {
             m_entries.append(e);
             m_done.insert(e.showId);
+            for (const SongDirectorBlock &block : e.blocks)
+                if (auto *collection = qobject_cast<Collection *>(m_doc->function(block.functionId)))
+                    holdBlock(this, e.track.data(), collection);
         }
     }
     return true;

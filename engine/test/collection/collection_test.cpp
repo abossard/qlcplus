@@ -588,6 +588,124 @@ void Collection_Test::holdUntilStopped()
     delete doc;
 }
 
+void Collection_Test::holdRestartKeepsIntensity_data()
+{
+    QTest::addColumn<qreal>("level");        // the Collection's intensity when started
+    QTest::addColumn<qreal>("laterLevel");   // a level change after the member restarted
+
+    QTest::newRow("block at 40%, raised to 70%") << 0.4 << 0.7;
+    QTest::newRow("block at 10%, raised to full") << 0.1 << 1.0;
+    QTest::newRow("full block, lowered to 25%") << 1.0 << 0.25;
+}
+
+void Collection_Test::holdRestartKeepsIntensity()
+{
+    QFETCH(qreal, level);
+    QFETCH(qreal, laterLevel);
+
+    Doc* doc = new Doc(this);
+    Scene* s1 = new Scene(doc);
+    doc->addFunction(s1);
+
+    Collection* c = new Collection(doc);
+    c->addFunction(s1->id());
+    c->setHoldUntilStopped(true);
+    doc->addFunction(c);
+    c->adjustAttribute(level, Function::Intensity);
+
+    QList<Universe*> ua;
+    ua.append(new Universe(0, new GrandMaster()));
+    MasterTimerStub* mts = new MasterTimerStub(doc, ua);
+
+    c->start(mts, FunctionParent::master());
+    c->write(mts, ua);
+    c->write(mts, ua);
+    QCOMPARE(s1->getAttributeValue(Function::Intensity), level);
+
+    // a single shot member ends on its own and the hold restarts it
+    mts->stopFunction(s1);
+    QCOMPARE(s1->getAttributeValue(Function::Intensity), 1.0);
+    c->write(mts, ua);
+    QVERIFY(s1->stopped() == false);
+    QCOMPARE(s1->getAttributeValue(Function::Intensity), level);
+
+    c->adjustAttribute(laterLevel, Function::Intensity);
+    QCOMPARE(s1->getAttributeValue(Function::Intensity), laterLevel);
+
+    c->stop(FunctionParent::master());
+    c->write(mts, ua);
+    c->postRun(mts, ua);
+    QVERIFY(s1->stopped() == true);
+
+    delete mts;
+    delete doc;
+}
+
+void Collection_Test::addMemberWhileRunning_data()
+{
+    QTest::addColumn<bool>("hold");
+    QTest::addColumn<bool>("newMemberRuns");
+
+    // a drop onto a playing Song Director block
+    QTest::newRow("held block starts the new member") << true << true;
+    // other Collections keep their behaviour: the new member waits for the next start
+    QTest::newRow("ordinary Collection") << false << false;
+}
+
+void Collection_Test::addMemberWhileRunning()
+{
+    QFETCH(bool, hold);
+    QFETCH(bool, newMemberRuns);
+
+    Doc* doc = new Doc(this);
+    Scene* s1 = new Scene(doc);
+    doc->addFunction(s1);
+    Scene* s2 = new Scene(doc);
+    doc->addFunction(s2);
+
+    Collection* c = new Collection(doc);
+    c->addFunction(s1->id());
+    c->setHoldUntilStopped(hold);
+    doc->addFunction(c);
+    c->adjustAttribute(0.4, Function::Intensity);
+
+    QList<Universe*> ua;
+    ua.append(new Universe(0, new GrandMaster()));
+    MasterTimerStub* mts = new MasterTimerStub(doc, ua);
+
+    c->start(mts, FunctionParent::master());
+    c->write(mts, ua);
+    c->write(mts, ua);
+
+    QVERIFY(c->addFunction(s2->id()));
+    c->write(mts, ua);
+    QCOMPARE(s2->stopped() == false, newMemberRuns);
+    QCOMPARE(s2->getAttributeValue(Function::Intensity), newMemberRuns ? 0.4 : 1.0);
+
+    // a level change reaches every member the Collection runs
+    c->adjustAttribute(0.7, Function::Intensity);
+    QCOMPARE(s1->getAttributeValue(Function::Intensity), 0.7);
+    QCOMPARE(s2->getAttributeValue(Function::Intensity), newMemberRuns ? 0.7 : 1.0);
+
+    if (newMemberRuns)
+    {
+        // the new member is held like the others
+        mts->stopFunction(s2);
+        c->write(mts, ua);
+        QVERIFY(s2->stopped() == false);
+        QCOMPARE(s2->getAttributeValue(Function::Intensity), 0.7);
+    }
+
+    c->stop(FunctionParent::master());
+    c->write(mts, ua);
+    c->postRun(mts, ua);
+    QVERIFY(s1->stopped() == true);
+    QVERIFY(s2->stopped() == true);
+
+    delete mts;
+    delete doc;
+}
+
 void Collection_Test::stopNotOwnChildren()
 {
     Doc* doc = new Doc(this);

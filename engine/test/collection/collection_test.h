@@ -51,6 +51,10 @@ private slots:
 
     void holdUntilStopped_data();
     void holdUntilStopped();
+    void holdRestartKeepsIntensity_data();
+    void holdRestartKeepsIntensity();
+    void addMemberWhileRunning_data();
+    void addMemberWhileRunning();
     void stopNotOwnChildren();
     void totalDurationOfParallelMembers();
 
