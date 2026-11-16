@@ -49,6 +49,8 @@ private slots:
 
     void write();
 
+    void holdUntilStopped_data();
+    void holdUntilStopped();
     void stopNotOwnChildren();
     void totalDurationOfParallelMembers();
 

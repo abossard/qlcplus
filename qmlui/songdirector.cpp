@@ -142,6 +142,7 @@ bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
         Collection *collection = new Collection(m_doc);
         collection->setName(QString("%1 / %2 %3").arg(show->name(), block.label).arg(block.number));
         collection->setPath(show->path(true));
+        collection->setHoldUntilStopped(true);   // a block runs for the length of its Show item
         if (m_doc->addFunction(collection) == false)
         {
             delete collection;
@@ -262,7 +263,11 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
         {
             SongDirectorBlock block;
             if (doc.name() == QLatin1String("Block") && readBlock(doc.attributes(), &block))
+            {
                 e.blocks.append(block);
+                if (auto *collection = qobject_cast<Collection *>(m_doc ? m_doc->function(block.functionId) : nullptr))
+                    collection->setHoldUntilStopped(true);
+            }
             doc.skipCurrentElement();
         }
         // a Show or track that is gone, or a second track for one Show, is dropped

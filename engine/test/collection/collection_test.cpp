@@ -528,6 +528,66 @@ void Collection_Test::write()
     delete doc;
 }
 
+void Collection_Test::holdUntilStopped_data()
+{
+    QTest::addColumn<bool>("hold");
+    QTest::addColumn<bool>("collectionRunsAfterChildEnds");
+    QTest::addColumn<bool>("childRunsAgain");
+
+    QTest::newRow("default: ends with its last child") << false << false << false;
+    QTest::newRow("hold: runs until stopped, child restarted") << true << true << true;
+}
+
+void Collection_Test::holdUntilStopped()
+{
+    QFETCH(bool, hold);
+    QFETCH(bool, collectionRunsAfterChildEnds);
+    QFETCH(bool, childRunsAgain);
+
+    Doc* doc = new Doc(this);
+    Fixture* fxi = new Fixture(doc);
+    fxi->setAddress(0);
+    fxi->setUniverse(0);
+    fxi->setChannels(4);
+    doc->addFixture(fxi);
+
+    Scene* s1 = new Scene(doc);
+    s1->setValue(fxi->id(), 0, UCHAR_MAX);
+    doc->addFunction(s1);
+
+    Collection* c = new Collection(doc);
+    c->addFunction(s1->id());
+    c->setHoldUntilStopped(hold);
+    doc->addFunction(c);
+
+    QList<Universe*> ua;
+    ua.append(new Universe(0, new GrandMaster()));
+    MasterTimerStub* mts = new MasterTimerStub(m_doc, ua);
+
+    c->start(mts, FunctionParent::master());
+    c->write(mts, ua);
+    c->write(mts, ua);
+    QVERIFY(s1->stopped() == false);
+
+    // the member ends on its own, as a single shot Chaser does
+    mts->stopFunction(s1);
+    QVERIFY(s1->stopped() == true);
+    c->write(mts, ua);
+
+    QCOMPARE(c->stopped() == false, collectionRunsAfterChildEnds);
+    QCOMPARE(s1->stopped() == false, childRunsAgain);
+
+    // stopping the Collection stops what it restarted
+    c->stop(FunctionParent::master());
+    c->write(mts, ua);
+    c->postRun(mts, ua);
+    QVERIFY(c->stopped() == true);
+    QVERIFY(s1->stopped() == true);
+
+    delete mts;
+    delete doc;
+}
+
 void Collection_Test::stopNotOwnChildren()
 {
     Doc* doc = new Doc(this);

@@ -188,6 +188,7 @@ void SongDirector_Test::createBlocks()
         Collection *collection = qobject_cast<Collection *>(song.doc.function(sf->functionID()));
         QVERIFY(collection != nullptr);
         QVERIFY(collection->functions().isEmpty());
+        QVERIFY(collection->holdUntilStopped());
         QCOMPARE(blocks.at(i).functionId, collection->id());
         QCOMPARE(blocks.at(i).generated.section, i);
         QCOMPARE(blocks.at(i).generated.startMs, sf->startTime());
@@ -332,6 +333,9 @@ void SongDirector_Test::workspaceRoundTrip()
     QCOMPARE(track->id(), song.director.track(song.show)->id());
     QCOMPARE(items(&doc, track), expectedItems);
     QCOMPARE(director.blocks(show), expectedBlocks);
+    // the hold flag is not in the Collection's XML: loading the sidecar sets it again
+    for (const SongDirectorBlock &block : expectedBlocks)
+        QVERIFY(qobject_cast<Collection *>(doc.function(block.functionId))->holdUntilStopped());
 }
 
 void SongDirector_Test::dropOnBlock_data()

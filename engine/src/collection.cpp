@@ -338,7 +338,6 @@ void Collection::setPause(bool enable)
 
 void Collection::write(MasterTimer *timer, QList<Universe *> universes)
 {
-    Q_UNUSED(timer);
     Q_UNUSED(universes);
 
     if (isPaused())
@@ -367,6 +366,22 @@ void Collection::write(MasterTimer *timer, QList<Universe *> universes)
     }
 
     incrementElapsed();
+
+    if (m_holdUntilStopped)
+    {
+        // members that ended on their own run again, until this Collection is stopped
+        Doc *doc = this->doc();
+        QMutexLocker locker(&m_functionListMutex);
+        for (quint32 fid : m_functions)
+        {
+            Function *function = doc->function(fid);
+            if (function == nullptr || function->isRunning() || m_runningChildren.contains(fid))
+                continue;
+            m_runningChildren << fid;
+            function->start(timer, functionParent(), 0, overrideFadeInSpeed(), overrideFadeOutSpeed(), overrideDuration());
+        }
+        return;
+    }
 
     {
         QMutexLocker locker(&m_functionListMutex);

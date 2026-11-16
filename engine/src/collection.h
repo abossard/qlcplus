@@ -161,10 +161,18 @@ protected slots:
     /** Called whenever one of this function's child functions stops */
     void slotChildStarted(quint32 fid);
 
+public:
+    /** When set, the Collection runs until it is stopped: members that end on
+     *  their own are started again. Not saved, owners set it (Song Director
+     *  blocks, which run for the length of their Show item) */
+    void setHoldUntilStopped(bool hold) { m_holdUntilStopped = hold; }
+    bool holdUntilStopped() const { return m_holdUntilStopped; }
+
 protected:
     /** Number of currently running children */
     QSet <quint32> m_runningChildren;
     unsigned int m_tick;
+    bool m_holdUntilStopped = false;
 
     /*************************************************************************
      * Intensity
