@@ -595,6 +595,9 @@ QVariantMap VCBridgeV5::createSongBlocks(quint32 showId)
         return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
     if (director->track(show))
         return songDirectorError(QStringLiteral("Show %1 already has a Song Director track").arg(showId));
+    {
+        // the Show stays open for the user to look at its blocks
+        manager->setCurrentShowID(int(showId));
     if (manager->readOnly())
         return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
     // what the user does: open the Show in the Show Manager, then press Create song blocks

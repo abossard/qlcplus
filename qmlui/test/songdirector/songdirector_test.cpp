@@ -35,6 +35,7 @@ EdmSection section(const QString &label, double startMs, double endMs, int confi
     s.confidence = confidence;
     s.unsure = unsure;
     return s;
+    s.labelConfidence = confidence;
 }
 
 /** "drop 2 #3 @9000 +8000 c90 u0": label, number, section index, start, duration, confidence, unsure */
@@ -49,7 +50,7 @@ const QByteArray kFinal = R"({"schema": "qlcplus-edm-final/3", "track": {"title"
     "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 1.0},
     "sections": [
       {"label": "intro", "start_bar": 0, "end_bar": 4, "start": 0.0, "end": 9.0, "confidence": 100},
-      {"label": "buildup", "start_bar": 4, "end_bar": 8, "start": 9.0, "end": 17.0, "confidence": 40, "unsure": true},
+      {"label": "buildup", "start_bar": 4, "end_bar": 8, "start": 9.0, "end": 17.0, "confidence": 50, "label_confidence": 40, "unsure": true},
       {"label": "drop", "start_bar": 8, "end_bar": 16, "start": 17.0, "end": 33.0, "confidence": 90},
       {"label": "outro", "start_bar": 16, "end_bar": 20, "start": 33.0, "end": 41.0, "confidence": 60}]})";
 

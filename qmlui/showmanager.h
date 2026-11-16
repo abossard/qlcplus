@@ -238,6 +238,10 @@ public:
     /** Add the Song Director track with one block per analysed section */
     Q_INVOKABLE bool createSongBlocks();
 
+    /** {unsure, confidence, label} of the current Show's Song Director block
+     *  that runs this Collection, empty for anything else */
+    Q_INVOKABLE QVariantMap songBlockMark(quint32 functionId) const;
+
     /** Get/Set the show's own tempo (BPM) used to draw the editor beat grid.
      *  This is the SONG tempo (beats<->time conversion for authoring), distinct
      *  from the global playback BPM (InputOutputManager::bpmNumber). */

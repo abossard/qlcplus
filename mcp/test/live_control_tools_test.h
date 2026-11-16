@@ -39,6 +39,8 @@ private slots:
     void songBlocks();
     void songBlocksArguments_data();
     void songBlocksArguments();
+    void songBlockMarks_data();
+    void songBlockMarks();
     void invalidArguments_data();
     void invalidArguments();
     void buttonRefusals_data();

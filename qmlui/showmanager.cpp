@@ -533,6 +533,21 @@ bool ShowManager::createSongBlocks()
     return true;
 }
 
+QVariantMap ShowManager::songBlockMark(quint32 functionId) const
+{
+    if (m_songDirector == nullptr || m_currentShow == nullptr)
+        return QVariantMap();
+    for (const SongDirectorBlock &block : m_songDirector->blocks(m_currentShow))
+    {
+        if (block.functionId != functionId)
+            continue;
+        return QVariantMap{{QStringLiteral("unsure"), block.generated.unsure},
+                           {QStringLiteral("confidence"), block.generated.confidence},
+                           {QStringLiteral("label"), block.generated.label}};
+    }
+    return QVariantMap();
+}
+
 void ShowManager::updateVdjGrid()
 {
     VdjDatabaseReader::SongGrid grid;

@@ -19,6 +19,7 @@
 
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Shapes
 
 import org.qlcplus.classes 1.0
 import "TimeUtils.js" as TimeUtils
@@ -42,6 +43,9 @@ Item
     property real tickSize: showManager.tickSize
     property int beatsDivision: showManager.beatsDivision
     property bool isSelected: false
+    /* Song Director block the analysis marks unsure: {unsure, confidence, label}, empty otherwise */
+    property var songMark: sfRef ? showManager.songBlockMark(sfRef.functionID) : ({})
+    property bool songUnsure: songMark.unsure === true
     property bool isDragging: false
     property color globalColor: showManager.itemsColor
     property string infoText: ""
@@ -747,6 +751,56 @@ Item
         source: "qrc:/lock.svg"
         sourceSize: Qt.size(width, height)
         visible: sfRef ? (sfRef.locked ? true : false) : false
+    }
+
+    /* Dashed warning border and the label confidence of an unsure Song Director block */
+    Shape
+    {
+        id: songUnsureMark
+        objectName: "songUnsureMark"
+        visible: songUnsure
+        x: showItemBody.x
+        y: showItemBody.y
+        z: 4
+        width: itemRoot.width
+        height: itemRoot.height
+        ShapePath
+        {
+            strokeColor: "#ff9800"
+            strokeWidth: 2
+            strokeStyle: ShapePath.DashLine
+            dashPattern: [ 3, 2 ]
+            fillColor: "transparent"
+            startX: 1
+            startY: 1
+            PathLine { x: songUnsureMark.width - 1; y: 1 }
+            PathLine { x: songUnsureMark.width - 1; y: songUnsureMark.height - 1 }
+            PathLine { x: 1; y: songUnsureMark.height - 1 }
+            PathLine { x: 1; y: 1 }
+        }
+    }
+
+    Rectangle
+    {
+        objectName: "songUnsureText"
+        visible: songUnsure
+        x: showItemBody.x + itemRoot.width - width - 4
+        y: showItemBody.y + itemRoot.height - height - 4
+        z: 4
+        width: unsureLabel.implicitWidth + 8
+        height: unsureLabel.implicitHeight + 2
+        radius: 3
+        color: "#cc202020"
+
+        Text
+        {
+            id: unsureLabel
+            anchors.centerIn: parent
+            text: songUnsure ? songMark.confidence + "% ?" : ""
+            color: "#ff9800"
+            font.pixelSize: UISettings.textSizeDefault * 0.8
+            font.bold: true
+        }
     }
 
     /* Item information tooltip, displayed at the mouse position */

@@ -45,7 +45,8 @@ QList<SongBlock> songBlocks(const QList<EdmSection> &sections, quint32 clipStart
         block.section = i;
         block.label = s.label;
         block.number = ++numbers[s.label];
-        block.confidence = s.confidence;
+        // the label's confidence: the analysis flags a section unsure with a constant section confidence of 50
+        block.confidence = s.labelConfidence;
         block.unsure = s.unsure;
         block.startMs = quint32(start);
         block.durationMs = quint32(end - start);

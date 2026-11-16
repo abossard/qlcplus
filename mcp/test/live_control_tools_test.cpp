@@ -3,6 +3,7 @@
 #include "doc.h"
 #include "mastertimer.h"
 #include "show.h"
+#include "showmanager.h"
 #include "showcommandrecorder.h"
 #include "functionparent.h"
 #include "scene.h"
@@ -31,6 +32,7 @@
 #include <QtTest>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QCryptographicHash>
 #include <QTimer>
 #include <QTemporaryDir>
 #include <QNetworkAccessManager>
@@ -519,8 +521,8 @@ void McpLiveControlTools_Test::songBlocks()
     QFile final(analysis.filePath("final/bbbbbbbbbbbbbbbb.json"));
     QVERIFY(final.open(QIODevice::WriteOnly));
     final.write(R"({"schema": "qlcplus-edm-final/3", "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0},
-        "sections": [{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 80},
-                     {"label": "drop", "start": 9.0, "end": 25.0, "confidence": 40, "unsure": true}]})");
+        "sections": [{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 70, "label_confidence": 80},
+                     {"label": "drop", "start": 9.0, "end": 25.0, "confidence": 50, "label_confidence": 40, "unsure": true}]})");
     final.close();
 
     auto *show = new Show(doc);
@@ -587,6 +589,78 @@ void McpLiveControlTools_Test::songBlocks()
 
 void McpLiveControlTools_Test::songBlocksArguments_data()
 {
+void McpLiveControlTools_Test::songBlockMarks_data()
+{
+    QTest::addColumn<QByteArray>("sections");
+    QTest::addColumn<QStringList>("expected");
+    // marks read "unsure:percent": the percent is the section's label confidence, the
+    // analysis' own "confidence" is a constant 50 on the sections it flags unsure
+    QTest::newRow("unsure shows the label confidence")
+        << QByteArray(R"([{"label": "intro", "start": 0.0, "end": 9.0, "confidence": 80, "label_confidence": 95},
+                          {"label": "buildup", "start": 9.0, "end": 25.0, "confidence": 50, "label_confidence": 9, "unsure": true}])")
+        << QStringList{"0:95", "1:9"};
+    QTest::newRow("no unsure section")
+        << QByteArray(R"([{"label": "drop", "start": 0.0, "end": 9.0, "confidence": 90, "label_confidence": 38},
+                          {"label": "outro", "start": 9.0, "end": 25.0, "confidence": 50, "label_confidence": 52}])")
+        << QStringList{"0:38", "0:52"};
+    QTest::newRow("every section unsure")
+        << QByteArray(R"([{"label": "buildup", "start": 0.0, "end": 9.0, "confidence": 50, "label_confidence": 23, "unsure": true},
+                          {"label": "buildup", "start": 9.0, "end": 25.0, "confidence": 50, "label_confidence": 18, "unsure": true}])")
+        << QStringList{"1:23", "1:18"};
+}
+
+void McpLiveControlTools_Test::songBlockMarks()
+{
+    QFETCH(QByteArray, sections);
+    QFETCH(QStringList, expected);
+    auto *doc = m_app->doc();
+
+    const QDir analysis(EdmAnalysisReader::defaultDir());
+    QVERIFY(analysis.mkpath("final"));
+    QFile index(analysis.filePath("index.json"));
+    QVERIFY(index.open(QIODevice::WriteOnly));
+    // one file per row: the reader caches an analysis by its file's modification time
+    const QString id = QString(QCryptographicHash::hash(QTest::currentDataTag(), QCryptographicHash::Sha256).toHex()).left(16);
+    const QString path = QStringLiteral("/music/song-marks-%1.mp3").arg(id);
+    index.write(QStringLiteral(R"({"%1": {"path": "%2"}})").arg(id, path).toUtf8());
+    index.close();
+    QFile final(analysis.filePath("final/" + id + ".json"));
+    QVERIFY(final.open(QIODevice::WriteOnly));
+    final.write(R"({"schema": "qlcplus-edm-final/3", "grid": {"bpm": 120.0, "period": 0.5, "beats_per_bar": 4, "first_downbeat": 0.0},
+        "sections": )" + sections + "}");
+    final.close();
+
+    auto *show = new Show(doc);
+    show->setName("Marks");
+    QVERIFY(doc->addFunction(show));
+    auto *audio = new Audio(doc);
+    QVERIFY(doc->addFunction(audio));
+    audio->setSourceFileName(path);
+    auto *track = new Track(Function::invalidId(), show);
+    show->addTrack(track);
+    track->createShowFunction(audio->id());
+
+    const Json created = invokeShowTool(doc, m_vc.get(), "create_song_blocks", {{"showID", show->id()}});
+    QVERIFY2(!created.contains("error"), created.dump().c_str());
+    Track *director = m_app->findChild<SongDirector *>()->track(show);
+    QVERIFY(director != nullptr);
+
+    // what the Show Manager QML asks for each block it draws
+    ShowManager *manager = m_app->showManager();
+    QCOMPARE(director->showFunctions().count(), expected.count());
+    QStringList marks;
+    for (const ShowFunction *sf : director->showFunctions())
+    {
+        const QVariantMap mark = manager->songBlockMark(sf->functionID());
+        marks.append(QStringLiteral("%1:%2").arg(mark.value("unsure").toBool() ? 1 : 0).arg(mark.value("confidence").toInt()));
+    }
+    QCOMPARE(marks, expected);
+
+    // a Function that is not a block has no mark, and neither has the audio clip
+    QVERIFY(manager->songBlockMark(audio->id()).isEmpty());
+    QVERIFY(manager->songBlockMark(99999).isEmpty());
+}
+
     QTest::addColumn<QString>("tool");
     QTest::addColumn<QByteArray>("arguments");
     QTest::addColumn<QString>("error");
