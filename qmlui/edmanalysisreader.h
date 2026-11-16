@@ -27,6 +27,7 @@
 
 class Doc;
 class Show;
+class ShowFunction;
 
 /** Confidence of an event the file gives none for (vocal_in, vocal_out) */
 static const int kEdmNoConfidence = -1;
@@ -88,6 +89,9 @@ public:
 
     /** The folder the tool and the Audio Analysis page write to */
     static QString defaultDir();
+
+    /** The first Audio clip on the show's timeline, or null */
+    static ShowFunction *firstAudioClip(Doc *doc, Show *show);
 
     /** Path of the first Audio function on the show's timeline, or empty */
     static QString firstAudioFile(Doc *doc, Show *show);

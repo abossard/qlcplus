@@ -35,6 +35,7 @@ class Function;
 class Chaser;
 class ShowFunction;
 class WaveformImageProvider;
+class SongDirector;
 
 typedef struct
 {
@@ -72,6 +73,7 @@ class ShowManager final : public PreviewContext
     Q_PROPERTY(double vdjGridAnchorMs READ vdjGridAnchorMs NOTIFY vdjGridChanged)
     Q_PROPERTY(QVariantList vdjPois READ vdjPois NOTIFY vdjGridChanged)
     Q_PROPERTY(QVariantList analysisSections READ analysisSections NOTIFY vdjGridChanged)
+    Q_PROPERTY(bool hasSongBlocks READ hasSongBlocks NOTIFY tracksChanged)
     Q_PROPERTY(int bpmNumber READ bpmNumber WRITE setBpmNumber NOTIFY bpmNumberChanged)
     Q_PROPERTY(float timeScale READ timeScale WRITE setTimeScale NOTIFY timeScaleChanged)
     Q_PROPERTY(float tickSize READ tickSize NOTIFY tickSizeChanged)
@@ -229,6 +231,13 @@ public:
     /** Re-read the song structure band, after the analysis files changed */
     void refreshAnalysisSections();
 
+    /** The Song Director that creates the blocks of song Shows */
+    void setSongDirector(SongDirector *director);
+    /** True when the current Show has its Song Director track */
+    bool hasSongBlocks() const;
+    /** Add the Song Director track with one block per analysed section */
+    Q_INVOKABLE bool createSongBlocks();
+
     /** Get/Set the show's own tempo (BPM) used to draw the editor beat grid.
      *  This is the SONG tempo (beats<->time conversion for authoring), distinct
      *  from the global playback BPM (InputOutputManager::bpmNumber). */
@@ -273,6 +282,7 @@ private:
     VdjDatabaseReader m_vdjReader;
     EdmAnalysisReader m_analysisReader;
     QVariantList m_analysisSections;
+    SongDirector *m_songDirector = nullptr;
 
     /** Grid + markers of the current show's audio file ('valid' false
      *  when not in VDJBeat mode or the song is not in the database) */

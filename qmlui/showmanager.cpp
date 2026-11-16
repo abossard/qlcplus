@@ -28,6 +28,7 @@
 #include "sequence.h"
 #include "showcommandrecorder.h"
 #include "showclipeditor.h"
+#include "songdirector.h"
 #include "tardis.h"
 #include "chaser.h"
 #include "scene.h"
@@ -510,6 +511,26 @@ QVariantList ShowManager::analysisSections() const
 void ShowManager::refreshAnalysisSections()
 {
     updateVdjGrid();
+}
+
+void ShowManager::setSongDirector(SongDirector *director)
+{
+    m_songDirector = director;
+}
+
+bool ShowManager::hasSongBlocks() const
+{
+    return m_songDirector != nullptr && m_songDirector->track(m_currentShow) != nullptr;
+}
+
+bool ShowManager::createSongBlocks()
+{
+    if (m_readOnly || m_songDirector == nullptr || m_currentShow == nullptr)
+        return false;
+    if (m_songDirector->createBlocks(m_currentShow, m_analysisReader) == false)
+        return false;
+    refreshView();
+    return true;
 }
 
 void ShowManager::updateVdjGrid()

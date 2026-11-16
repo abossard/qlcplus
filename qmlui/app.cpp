@@ -77,6 +77,7 @@
 #include "edmstructure.h"
 #include "edmstructuredirector.h"
 #include "edmstructuremapping.h"
+#include "songdirector.h"
 #include "edmvclooksurface.h"
 #include "djsetrecorder.h"
 #include "stagewizard.h"
@@ -387,6 +388,8 @@ void App::startup()
     m_edmMapping = new EdmStructureMapping(m_doc, this);
     m_edmDirector = new EdmStructureDirector(m_edmStructure, m_edmMapping, new EdmVcLookSurface(m_virtualConsole, this), this);
     rootContext()->setContextProperty("edmMapping", m_edmMapping);
+    m_songDirector = new SongDirector(m_doc, this);
+    m_showManager->setSongDirector(m_songDirector);
     rootContext()->setContextProperty("edmDirector", m_edmDirector);
 
     // register an uncreatable type just to use the enums in QML
@@ -1635,6 +1638,10 @@ bool App::loadXML(QXmlStreamReader &doc, bool goToConsole, bool fromMemory)
         {
             m_edmMapping->loadXML(doc);
         }
+        else if (doc.name() == QStringLiteral("SongDirector"))
+        {
+            m_songDirector->loadXML(doc);
+        }
 #if 0
         else if (doc.name() == KXMLQLCSimpleDesk)
         {
@@ -1755,6 +1762,9 @@ QFile::FileError App::saveXML(const QString& fileName, SaveOrigin origin)
 
     /* Write the song structure looks to the XML document */
     m_edmMapping->saveXML(&doc);
+
+    /* Write the song Shows' Song Director tracks to the XML document */
+    m_songDirector->saveXML(&doc);
 
     /* Write Simple Desk to the XML document */
     //SimpleDesk::instance()->saveXML(&doc);

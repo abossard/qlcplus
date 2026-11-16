@@ -1362,6 +1362,20 @@ Rectangle
                 }
             }
 
+            // song structure band on the right: turn its sections into Song Director blocks
+            IconButton
+            {
+                visible: !showManager.readOnly && !showManager.hasSongBlocks
+                         && showManager.analysisSections.length > 0
+                height: parent.height - 2
+                width: height
+                faSource: FontAwesome.fa_layer_group
+                faColor: UISettings.fgMain
+                tooltip: qsTr("Create song blocks")
+                Accessible.id: "createSongBlocks"
+                onClicked: showManager.createSongBlocks()
+            }
+
             // layout filler
             Rectangle
             {

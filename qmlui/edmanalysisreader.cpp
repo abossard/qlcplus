@@ -43,8 +43,7 @@ QString EdmAnalysisReader::defaultDir()
         .absoluteFilePath("edm-analysis");
 }
 
-/** The first Audio clip on the show's timeline, or null */
-static ShowFunction *firstAudioClip(Doc *doc, Show *show)
+ShowFunction *EdmAnalysisReader::firstAudioClip(Doc *doc, Show *show)
 {
     if (doc == nullptr || show == nullptr)
         return nullptr;
