@@ -100,15 +100,22 @@ def edit_probes(tid, doc, pins, rng):
     return [{**p, "fresh": False, "bucket": "qlc"} for p in sorted(probes, key=lambda p: p["claim"]["bar"])]
 
 
-def import_round(number, docs, edits, seed=None, created=None):
+def _question(p):
+    """What a Probe asks, whatever its A/B order and the Claim's confidence: the same question has the same key."""
+    claim = {k: v for k, v in p["claim"].items() if k != "confidence"}
+    return json.dumps([p["track"], claim, sorted(json.dumps(alt, sort_keys=True) for alt in p["alternatives"].values())], sort_keys=True)
+
+
+def import_round(number, docs, edits, seed=None, created=None, previous=(), answers=None):
     """Round `number` from [(track id, pins)], one entry per song Show (two Shows may play the same song); tracks without an
-    Analysis are left out, the same question from two Shows is asked once. Pure."""
+    Analysis are left out, the same question from two Shows is asked once, and a question an earlier round asked and got an
+    answer for is not asked again (a changed edit is a new question). Pure."""
     rng = random.Random(seed if seed is not None else number)
-    probes, asked = [], set()
+    probes = []
+    asked = {_question(p) for r in previous for p in r["probes"] if p["id"] in (answers or {}) and "alternatives" in p}
     for tid, pins in edits:
         for p in edit_probes(tid, docs[tid], pins, rng) if tid in docs else []:
-            qlc = next(alt for alt in p["alternatives"].values() if alt["source"] == "qlc")
-            key = json.dumps([tid, p["claim"], qlc], sort_keys=True)
+            key = _question(p)
             if key not in asked:
                 asked.add(key)
                 probes.append(p)

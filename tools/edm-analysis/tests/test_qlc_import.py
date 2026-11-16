@@ -105,6 +105,23 @@ def test_two_shows_on_one_song_are_both_asked(edits, expected):
     assert sorted(summary(p) for p in rnd["probes"]) == sorted(expected)
 
 
+BOTH = pins(("drop", 30, 64), ("buildup", 64, 80))
+
+
+@pytest.mark.parametrize("again,answered,expected", [
+    (BOTH, True, []),
+    (BOTH, False, [("drop", 16, 15), ("label", 32, 40, "breakdown", "buildup")]),
+    (pins(("drop", 28, 64), ("buildup", 64, 80)), True, [("drop", 16, 14)]),
+    (pins(("drop", 30, 64), ("drop", 64, 80)), True, [("label", 32, 40, "breakdown", "drop")]),
+], ids=["nothing changed", "earlier round not answered", "start moved since", "label changed since"])
+def test_an_answered_question_is_not_asked_again(again, answered, expected):
+    first = import_round(9, {TID: DOC}, [(TID, BOTH)], seed=1)
+    answers = {p["id"]: {"answer": "a"} for p in first["probes"]} if answered else {}
+    refit = {**DOC, "sections": [{**s, "confidence": 99, "label_confidence": 99} for s in DOC["sections"]]}   # a new model's confidence
+    rnd = import_round(10, {TID: refit}, [(TID, again)], seed=2, previous=[first], answers=answers)
+    assert sorted(summary(p) for p in rnd["probes"]) == sorted(expected)
+
+
 AUDIO = '<Function ID="{id}" Type="Audio" Name="a"><Source>{path}</Source></Function>'
 SHOW = '<Function ID="{id}" Type="Show" Name="s"><Track ID="0" Name="Audio"><ShowFunction ID="{audio}" StartTime="{at}" Duration="9"/></Track>' \
        '<Track ID="1" Name="Song Director"><ShowFunction ID="7" StartTime="0" Duration="9"/></Track></Function>'
@@ -174,6 +191,23 @@ def test_import_finds_a_song_saved_relative_to_the_workspace(library, tmp_path_f
     assert main(["round", "import", "--out", str(library), "--workspace", str(folder / "set.qxw")]) == 0
     probes = json.loads((library / "rounds" / "round-01.json").read_text())["probes"]
     assert probes and {p["track"] for p in probes} == {A}
+
+
+def test_importing_the_same_edits_again_makes_no_round(library, tmp_path_factory, capsys):
+    from edm_analysis.cli import main
+    from edm_analysis.rounds import record_answer
+    from test_library import A, PATHS
+
+    path = tmp_path_factory.mktemp("shows") / "set.qxw"
+    path.write_text(workspace(AUDIO.format(id=0, path=PATHS[A]) + SHOW.format(id=1, audio=0, at=0),
+                              '<Sections Show="1"><Pin Label="breakdown" Start="0" End="32000"/></Sections>'))
+    assert main(["round", "import", "--out", str(library), "--workspace", str(path)]) == 0
+    for p in json.loads((library / "rounds" / "round-01.json").read_text())["probes"]:
+        assert record_answer(library, p["id"], "a") == (200, None)
+    capsys.readouterr()
+    assert main(["round", "import", "--out", str(library), "--workspace", str(path)]) == 0
+    assert "no round made" in capsys.readouterr().out
+    assert not (library / "rounds" / "round-02.json").exists()
 
 
 @pytest.mark.parametrize("content", [None, "not xml <", workspace(AUDIO.format(id=0, path="/m/a.mp3") + SHOW.format(id=1, audio=0, at=0),

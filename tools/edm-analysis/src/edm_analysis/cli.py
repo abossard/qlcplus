@@ -248,7 +248,7 @@ def cmd_round(args):
             print(f"round {rounds[-1]['round']} still has {len(open_probes)} unanswered questions (use --force)")
             return 1
     if args.action == "import":
-        return _import_round(out_dir, docs, len(rounds) + 1, args.workspace)
+        return _import_round(out_dir, docs, rounds, answers, args.workspace)
     if args.action == "new":
         rnd = make_round(len(rounds) + 1, docs, vdj, answers, rounds, size=args.size, candidate_drops=_candidate_drops(out_dir, docs),
                          candidate_breakdowns=_candidate_breakdowns(out_dir, docs))
@@ -264,7 +264,7 @@ def cmd_round(args):
     return 0
 
 
-def _import_round(out_dir, docs, number, workspace):
+def _import_round(out_dir, docs, rounds, answers, workspace):
     """A round of A/B Probes where the section edits in a QLC+ workspace differ from the Analysis."""
     from .qlc_import import import_round, workspace_edits
     from .rounds import save_round
@@ -287,9 +287,9 @@ def _import_round(out_dir, docs, number, workspace):
             edits.append((tid, song["pins"]))
         else:
             print(f"not in the Library: {song['path']}")
-    rnd = import_round(number, docs, edits)
+    rnd = import_round(len(rounds) + 1, docs, edits, previous=rounds, answers=answers)
     if not rnd["probes"]:
-        print(f"{len(edits)} song Shows with edits, no difference the Analysis makes a Claim about: no round made")
+        print(f"{len(edits)} song Shows with edits, no difference the Analysis makes a Claim about that no round asked yet: no round made")
         return 0
     save_round(out_dir, rnd)
     print(f"round {rnd['round']}: {len(rnd['probes'])} questions from the edits of {len(edits)} song Shows")
