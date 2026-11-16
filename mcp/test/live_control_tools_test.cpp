@@ -890,12 +890,16 @@ void McpLiveControlTools_Test::songDirectorItemsRefused_data()
     QTest::addColumn<QString>("tool");
     QTest::addColumn<QString>("target");  // "director track", "block" (its Collection or item), "scene", "audio item"
     QTest::addColumn<bool>("refused");
-    QTest::newRow("add a Scene to the Song Director track") << "add_show_items" << "director track" << true;
-    QTest::newRow("add a block Collection to another track") << "add_show_items" << "block" << true;
-    QTest::newRow("add a Scene to another track") << "add_show_items" << "scene" << false;
-    QTest::newRow("delete a block item") << "delete_show_items" << "block" << true;
-    QTest::newRow("delete the Song Director track") << "delete_show_items" << "director track" << true;
-    QTest::newRow("delete the audio item") << "delete_show_items" << "audio item" << false;
+    QTest::addColumn<bool>("gone");       // the song's analysis is gone: blocks and track are ordinary content
+    QTest::newRow("add a Scene to the Song Director track") << "add_show_items" << "director track" << true << false;
+    QTest::newRow("add a block Collection to another track") << "add_show_items" << "block" << true << false;
+    QTest::newRow("add a Scene to another track") << "add_show_items" << "scene" << false << false;
+    QTest::newRow("delete a block item") << "delete_show_items" << "block" << true << false;
+    QTest::newRow("delete the Song Director track") << "delete_show_items" << "director track" << true << false;
+    QTest::newRow("delete the audio item") << "delete_show_items" << "audio item" << false << false;
+    QTest::newRow("delete a block item once the analysis is gone") << "delete_show_items" << "block" << false << true;
+    QTest::newRow("delete the Song Director track once the analysis is gone")
+        << "delete_show_items" << "director track" << false << true;
 }
 
 void McpLiveControlTools_Test::songDirectorItemsRefused()
@@ -903,6 +907,7 @@ void McpLiveControlTools_Test::songDirectorItemsRefused()
     QFETCH(QString, tool);
     QFETCH(QString, target);
     QFETCH(bool, refused);
+    QFETCH(bool, gone);
     auto *doc = m_app->doc();
     Show *song = analysedSongShow(doc, R"([{"label": "intro", "start": 0.0, "end": 8.0, "confidence": 70},
                                            {"label": "drop", "start": 8.0, "end": 24.0, "confidence": 90}])");
@@ -921,6 +926,18 @@ void McpLiveControlTools_Test::songDirectorItemsRefused()
                     list << QString("%1:%2@%3+%4").arg(t->name()).arg(sf->functionID()).arg(sf->startTime()).arg(sf->duration());
         return list;
     };
+    QTemporaryDir empty;
+    SongDirector *songDirector = m_app->findChild<SongDirector *>();
+    const auto restore = qScopeGuard([&]() {
+        songDirector->setAnalysisDir(analysisDir());
+        m_app->showManager()->setAnalysisDir(analysisDir());
+    });
+    if (gone)
+    {
+        songDirector->setAnalysisDir(empty.path());
+        m_app->showManager()->setAnalysisDir(empty.path());
+        QVERIFY(songDirector->sections(song).isEmpty());
+    }
     const QStringList before = directorState();
     const int itemsBefore = [&]() { int n = 0; for (Track *t : song->tracks()) n += t->showFunctions().count(); return n; }();
 
@@ -942,6 +959,14 @@ void McpLiveControlTools_Test::songDirectorItemsRefused()
     if (refused)
         QVERIFY2(QString::fromStdString(result.at(0).at("error").get<std::string>()).contains("Song Director"), result.dump().c_str());
 
+    if (gone)
+    {
+        if (target == "director track")
+            QVERIFY(!song->tracks().contains(director));
+        else
+            QCOMPARE(director->showFunctions().count(), 1);
+        return;
+    }
     // D16: the director track and its blocks stay as they are
     QCOMPARE(m_app->findChild<SongDirector *>()->track(song), director);
     QCOMPARE(directorState(), before);

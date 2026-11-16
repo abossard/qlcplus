@@ -253,6 +253,8 @@ private slots:
     void songDirectorBlockItems();
     void songDirectorItemsTimeFixed_data();
     void songDirectorItemsTimeFixed();
+    void songDirectorItemsMixed_data();
+    void songDirectorItemsMixed();
     void timelineScrollbarPanel_data();
     void timelineScrollbarPanel();
     void previewRepeatBounds_data();
@@ -14401,7 +14403,7 @@ void UpstreamIntegration_Test::songDirectorItemsTimeFixed_data()
     QTest::addColumn<QString>("operation");
     for (bool director : {true, false})
         for (const QString &operation : {QString("shift"), QString("shift end"), QString("insert time"), QString("cut time"),
-                                         QString("start time"), QString("duration"), QString("delete"), QString("unlock"),
+                                         QString("start time"), QString("duration"), QString("delete"), QString("lock toggle"),
                                          QString("delete track"), QString("paste"), QString("add the Function")})
             QTest::newRow(qPrintable(QString("%1 %2").arg(director ? "director block" : "ordinary item", operation)))
                 << director << operation;
@@ -14476,13 +14478,14 @@ void UpstreamIntegration_Test::songDirectorItemsTimeFixed()
         select();
         manager->deleteShowItems(QVariantList());
     }
-    else if (operation == "unlock")
+    else if (operation == "lock toggle")
     {
         select();
-        // a director block reads as locked, and the lock toggle does not free it
-        QCOMPARE(manager->selectedItemsLocked(), director);
-        manager->setSelectedItemsLock(!manager->selectedItemsLocked());
-        QCOMPARE(manager->selectedItemsLocked(), true);
+        // the lock state ignores director blocks: they keep their time locked or not
+        QCOMPARE(manager->selectedItemsLocked(), false);
+        manager->setSelectedItemsLock(true);
+        QCOMPARE(manager->selectedItemsLocked(), !director);
+        QCOMPARE(target->isLocked(), !director);
         if (director)
         {
             manager->setShowItemStartTime(target, int(target->startTime()) + 500);
@@ -14511,6 +14514,93 @@ void UpstreamIntegration_Test::songDirectorItemsTimeFixed()
     QCOMPARE(directorState(), directorBefore);
     if (director == false)
         QVERIFY2(state() != before, qPrintable(operation + " did not change the ordinary item"));
+}
+
+void UpstreamIntegration_Test::songDirectorItemsMixed_data()
+{
+    QTest::addColumn<QString>("operation");
+    QTest::newRow("lock a block together with an ordinary item") << "lock";
+    QTest::newRow("paste a block together with an ordinary item") << "paste";
+    QTest::newRow("drop a block Collection where a new track would go") << "new track";
+    QTest::newRow("delete the director track once the analysis is gone") << "gone track";
+    QTest::newRow("delete a block once the analysis is gone") << "gone block";
+}
+
+void UpstreamIntegration_Test::songDirectorItemsMixed()
+{
+    QFETCH(QString, operation);
+    SongRulerFixture f(m_app.get());
+    QVERIFY(f.setUp());
+    ShowManager *manager = f.manager();
+    Track *directorTrack = f.director()->track(f.show);
+    Track *sceneTrack = f.show->tracks().at(1);
+    ShowFunction *block = directorTrack->showFunctions().first();   // intro, 2000-10000
+    ShowFunction *sceneItem = sceneTrack->showFunctions().first();
+    const int directorIndex = f.show->tracks().indexOf(directorTrack);
+    const auto selectBoth = [&]() {
+        manager->resetItemsSelection();
+        manager->setItemSelection(directorIndex, block, nullptr, true, 0);
+        manager->setItemSelection(1, sceneItem, nullptr, true, Qt::ControlModifier);
+        QCOMPARE(manager->selectedItemRefs().count(), 2);
+    };
+
+    if (operation == "lock")
+    {
+        selectBoth();
+        QCOMPARE(manager->selectedItemsLocked(), false);
+        manager->setSelectedItemsLock(true);
+        QVERIFY(sceneItem->isLocked());
+        QVERIFY(!block->isLocked());
+        QCOMPARE(manager->selectedItemsLocked(), true);
+        manager->setSelectedItemsLock(false);
+        QVERIFY(!sceneItem->isLocked());
+    }
+    else if (operation == "paste")
+    {
+        // the ordinary item lands at the playhead, wherever the skipped block was
+        sceneItem->setStartTime(12000);
+        selectBoth();
+        manager->copyToClipboard();
+        manager->resetItemsSelection();
+        manager->setSelectedTrackId(int(sceneTrack->id()));
+        manager->setCurrentTime(40000);
+        QVERIFY(manager->pasteFromClipboard());
+        QStringList items;
+        for (ShowFunction *sf : sceneTrack->showFunctions())
+            items << QString("%1@%2").arg(sf->functionID()).arg(sf->startTime());
+        QCOMPARE(items, QStringList({QString("%1@12000").arg(f.scene->id()), QString("%1@40000").arg(f.scene->id())}));
+        QCOMPARE(directorTrack->showFunctions().count(), 3);
+    }
+    else if (operation == "new track")
+    {
+        const int tracks = f.show->tracks().count();
+        manager->addItems(manager->contextItem(), -1, 40000, QVariantList() << block->functionID());
+        QCOMPARE(f.show->tracks().count(), tracks);
+    }
+    else
+    {
+        // a song whose analysis is gone: its blocks and track are ordinary content again
+        QTemporaryDir empty;
+        f.director()->setAnalysisDir(empty.path());
+        manager->setAnalysisDir(empty.path());
+        QCOMPARE(manager->analysisSections().count(), 0);
+        if (operation == "gone track")
+        {
+            manager->setSelectedTrackId(int(directorTrack->id()));
+            manager->deleteSelectedTrack();
+            QVERIFY(!f.show->tracks().contains(directorTrack));
+        }
+        else
+        {
+            const quint32 functionId = block->functionID();
+            manager->resetItemsSelection();
+            manager->setItemSelection(directorIndex, block, nullptr, true, 0);
+            manager->deleteShowItems(QVariantList());
+            for (ShowFunction *sf : directorTrack->showFunctions())
+                QVERIFY(sf->functionID() != functionId);
+            QCOMPARE(directorTrack->showFunctions().count(), 2);
+        }
+    }
 }
 
 QTEST_MAIN(UpstreamIntegration_Test)

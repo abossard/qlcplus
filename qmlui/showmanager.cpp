@@ -602,15 +602,16 @@ bool ShowManager::dropOnSongBlock(int trackIdx, int startTime, const QVariantLis
     return m_songDirector->dropOnBlock(m_currentShow, m_currentShow->tracks().at(trackIdx), quint32(startTime), ids);
 }
 
+// a song whose analysis is gone has no sections: its track and blocks are ordinary content
 bool ShowManager::isSongDirectorTrack(const Track *track) const
 {
     return track != nullptr && m_songDirector != nullptr && m_currentShow != nullptr
-           && m_songDirector->track(m_currentShow) == track;
+           && m_analysisSections.isEmpty() == false && m_songDirector->track(m_currentShow) == track;
 }
 
 bool ShowManager::isSongBlockItem(const ShowFunction *sf) const
 {
-    if (sf == nullptr || m_songDirector == nullptr || m_currentShow == nullptr)
+    if (sf == nullptr || m_songDirector == nullptr || m_currentShow == nullptr || m_analysisSections.isEmpty())
         return false;
     const Track *track = m_songDirector->track(m_currentShow);
     return track != nullptr && track->showFunctions().contains(const_cast<ShowFunction *>(sf));
@@ -621,9 +622,12 @@ bool ShowManager::isSongBlockFunction(quint32 functionId) const
     if (m_songDirector == nullptr)
         return false;
     for (Function *f : m_doc->functionsByType(Function::ShowType))
-        for (const SongDirectorBlock &block : m_songDirector->blocks(qobject_cast<Show *>(f)))
+    {
+        Show *show = qobject_cast<Show *>(f);
+        for (const SongDirectorBlock &block : m_songDirector->blocks(show))
             if (block.functionId == functionId)
-                return true;
+                return m_songDirector->sections(show).isEmpty() == false;
+    }
     return false;
 }
 
@@ -905,6 +909,11 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
     if (m_readOnly)
         return;
 
+    // a Song Director block's Collection is placed once, by the director (D16)
+    for (int i = idsList.count() - 1; i >= 0; i--)
+        if (isSongBlockFunction(idsList.at(i).toUInt()))
+            idsList.removeAt(i);
+
     if (idsList.count() == 0)
         return;
 
@@ -973,7 +982,7 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
         Function *func = m_doc->function(functionID);
         if (func == nullptr || func->contains(m_currentShow->id()))
             continue;
-        if (isSongDirectorTrack(selectedTrack) || isSongBlockFunction(functionID))
+        if (isSongDirectorTrack(selectedTrack))
             continue;
 
         const bool showIsBeats = !timeBasedDivision();
@@ -2304,7 +2313,8 @@ bool ShowManager::selectedItemsLocked() const
 {
     foreach (SelectedShowItem si, m_selectedItems)
     {
-        if (isTimeFixed(si.m_showFunc))
+        // a director block keeps its time locked or not: it does not count
+        if (si.m_showFunc != nullptr && si.m_showFunc->isLocked() && isSongBlockItem(si.m_showFunc) == false)
             return true;
     }
     return false;
@@ -2317,7 +2327,7 @@ void ShowManager::setSelectedItemsLock(bool lock)
 
     foreach (SelectedShowItem si, m_selectedItems)
     {
-        if (si.m_showFunc != nullptr && si.m_showFunc->isLocked() != lock)
+        if (si.m_showFunc != nullptr && si.m_showFunc->isLocked() != lock && isSongBlockItem(si.m_showFunc) == false)
         {
             Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetLock, si.m_showFunc->id(),
                                               si.m_showFunc->isLocked(), lock);
@@ -2513,7 +2523,8 @@ bool ShowManager::pasteFromClipboard()
     // lowest start time and the topmost track
     for (SelectedShowItem item : m_clipboard)
     {
-        if (item.m_showFunc == nullptr)
+        // Song Director blocks are not pasted, so they do not anchor the paste either
+        if (item.m_showFunc == nullptr || isSongBlockFunction(item.m_showFunc->functionID()))
             continue;
 
         const double scale = itemUnitsPerTimelineUnit(item.m_showFunc);

@@ -47,7 +47,8 @@ Item
     property var songMark: sfRef ? showManager.songBlockMark(sfRef.functionID) : ({})
     property bool songUnsure: songMark.unsure === true
     // a Song Director block follows its section: no own move or resize
-    property bool songBlock: songMark.label !== undefined
+    // (while the song has sections; without its analysis it is ordinary content)
+    property bool songBlock: songMark.label !== undefined && showManager.analysisSections.length > 0
     property bool timeFixed: (sfRef && sfRef.locked) || songBlock
     property bool isDragging: false
     property color globalColor: showManager.itemsColor

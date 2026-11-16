@@ -739,7 +739,8 @@ bool VCBridgeV5::isSongDirectorTrack(quint32 showId, quint32 trackId) const
     const SongDirector *director = hasMatchingAuthoringContext() ? m_authoringApp->findChild<SongDirector *>() : nullptr;
     Show *show = qobject_cast<Show *>(m_doc->function(showId));
     const Track *track = director && show ? director->track(show) : nullptr;
-    return track != nullptr && track->id() == trackId;
+    // a song whose analysis is gone has no sections: its track is ordinary content
+    return track != nullptr && track->id() == trackId && director->sections(show).isEmpty() == false;
 }
 
 bool VCBridgeV5::isSongBlockFunction(quint32 functionId) const
@@ -748,9 +749,12 @@ bool VCBridgeV5::isSongBlockFunction(quint32 functionId) const
     if (!director)
         return false;
     for (Function *f : m_doc->functionsByType(Function::ShowType))
-        for (const SongDirectorBlock &block : director->blocks(qobject_cast<Show *>(f)))
+    {
+        Show *show = qobject_cast<Show *>(f);
+        for (const SongDirectorBlock &block : director->blocks(show))
             if (block.functionId == functionId)
-                return true;
+                return director->sections(show).isEmpty() == false;
+    }
     return false;
 }
 
