@@ -45,7 +45,7 @@ ShowManager::ShowManager(QQuickView *view, Doc *doc, QObject *parent)
     , m_isPaused(false)
     , m_currentShow(nullptr)
     , m_stretchFunctions(false)
-    , m_gridEnabled(false)
+    , m_gridEnabled(true)
     , m_snapGuideX(-1.0)
     , m_timeScale(5.0)
     , m_timeScaleTime(5.0)
@@ -885,19 +885,11 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
     for (QVariant &vID : idsList) // C++11
     {
         quint32 functionID = vID.toUInt();
-        if (functionID == m_currentShow->id())
-        {
-            /* TODO: a popup displaying the user stupidity would be nice here... */
-            continue;
-        }
 
-        // and now create the actual ShowFunction and the QML item
+        // and now create the actual ShowFunction and the QML item.
+        // Forbid self-containment, either direct or through other Functions
         Function *func = m_doc->function(functionID);
-        if (func == nullptr)
-            continue;
-
-        // a Function that plays this Show would play it inside itself
-        if (func->contains(m_currentShow->id()))
+        if (func == nullptr || func->contains(m_currentShow->id()))
             continue;
 
         const bool showIsBeats = !timeBasedDivision();

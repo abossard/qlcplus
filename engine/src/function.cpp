@@ -1150,6 +1150,9 @@ bool Function::loader(QXmlStreamReader &root, Doc* doc)
     function->setBlendMode(blendMode);
     function->setLastPlayed(lastPlayed);
     function->setLastEdited(lastEdited);
+    /* Set the ID before loading, so that a Function can detect
+       references to itself (e.g. a Show containing itself) */
+    function->setID(id);
     if (function->loadXML(root) == true)
     {
         // A matrix whose stored algorithm is unavailable to its type loads
