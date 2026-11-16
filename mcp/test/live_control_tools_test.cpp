@@ -1487,6 +1487,36 @@ void McpLiveControlTools_Test::songSectionEdits_data()
     QTest::newRow("boundary outside the sections") << QByteArray(R"([{"action":"move_boundary","section":0,"timeMs":40000}])") << base
         << QStringLiteral("empty");
     QTest::newRow("unknown field") << QByteArray(R"([{"action":"merge","section":0,"extra":1}])") << base << QStringLiteral("unknown fields");
+    QTest::newRow("section past the int range") << QByteArray(R"([{"action":"merge","section":2147483648}])") << base
+        << QStringLiteral("no section 2147483648");
+    QTest::newRow("label on split") << QByteArray(R"([{"action":"split","section":1,"timeMs":18000,"label":"drop"}])") << base
+        << QStringLiteral("split takes no label");
+    QTest::newRow("timeMs on merge") << QByteArray(R"([{"action":"merge","section":0,"timeMs":1000}])") << base
+        << QStringLiteral("merge takes no timeMs");
+    QTest::newRow("section on reset_all") << QByteArray(R"([{"action":"reset_all","section":0}])") << base
+        << QStringLiteral("reset_all takes no section");
+}
+
+void McpLiveControlTools_Test::songSectionEditsReadOnly()
+{
+    auto *doc = m_app->doc();
+    ShowManager *manager = m_app->showManager();
+    Show *song = analysedSongShow(doc, R"([{"label": "intro", "start": 0.0, "end": 8.0, "confidence": 70},
+                                           {"label": "drop", "start": 8.0, "end": 24.0, "confidence": 90}])");
+    QVERIFY(song != nullptr);
+    auto *other = new Show(doc);
+    QVERIFY(doc->addFunction(other));
+    manager->setCurrentShowID(int(other->id()));
+    manager->setReadOnly(true);
+    auto writable = qScopeGuard([manager]() { manager->setReadOnly(false); });
+
+    const Json result = invokeShowTool(doc, m_vc.get(), "edit_song_sections",
+                                       {{"showID", song->id()}, {"action", "relabel"}, {"section", 0}, {"label", "groove"}});
+
+    QVERIFY2(result.contains("error"), result.dump().c_str());
+    QVERIFY2(QString::fromStdString(result.at("error").get<std::string>()).contains("read-only"), result.dump().c_str());
+    QCOMPARE(manager->currentShowID(), int(other->id()));
+    QVERIFY(m_app->findChild<SongDirector *>()->sectionEdits(song).isEmpty());
 }
 
 void McpLiveControlTools_Test::songSectionEdits()

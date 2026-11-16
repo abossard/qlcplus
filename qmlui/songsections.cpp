@@ -96,34 +96,6 @@ QList<SongSection> effectiveSections(const EdmAnalysis &analysis, const SectionE
         }
     }
 
-    // a piece under half a bar is noise of a shifted analysis: it joins the analysis piece next to it
-    const double shortMs = grid.barMs > 0 ? grid.barMs / 2 : 0;
-    for (int i = 0; i < pieces.count();)
-    {
-        const SongSection &p = pieces.at(i);
-        if (p.endMs - p.startMs >= shortMs)
-        {
-            i++;
-            continue;
-        }
-        if (i + 1 < pieces.count() && pieces.at(i + 1).startMs == p.endMs)
-        {
-            pieces[i + 1].startMs = p.startMs;
-            pieces[i + 1].startBar = p.startBar;
-        }
-        else if (i > 0 && pieces.at(i - 1).endMs == p.startMs)
-        {
-            pieces[i - 1].endMs = p.endMs;
-            pieces[i - 1].endBar = p.endBar;
-        }
-        else
-        {
-            i++;
-            continue;
-        }
-        pieces.removeAt(i);
-    }
-
     for (const SectionPin &pin : edits.pins)
     {
         SongSection s;
@@ -139,6 +111,46 @@ QList<SongSection> effectiveSections(const EdmAnalysis &analysis, const SectionE
     }
     std::stable_sort(pieces.begin(), pieces.end(),
                      [](const SongSection &a, const SongSection &b) { return a.startMs < b.startMs; });
+
+    // an analysis piece under half a bar is noise of a shifted analysis: it joins
+    // the analysis piece next to it, else the edited section next to it
+    const double shortMs = grid.barMs > 0 ? grid.barMs / 2 : 0;
+    for (int i = 0; i < pieces.count();)
+    {
+        const SongSection &p = pieces.at(i);
+        if (p.edited || p.endMs - p.startMs >= shortMs)
+        {
+            i++;
+            continue;
+        }
+        const bool nextTouches = i + 1 < pieces.count() && pieces.at(i + 1).startMs == p.endMs;
+        const bool previousTouches = i > 0 && pieces.at(i - 1).endMs == p.startMs;
+        int into = -1;
+        if (nextTouches && pieces.at(i + 1).edited == false)
+            into = i + 1;
+        else if (previousTouches && pieces.at(i - 1).edited == false)
+            into = i - 1;
+        else if (previousTouches)
+            into = i - 1;
+        else if (nextTouches)
+            into = i + 1;
+        if (into < 0)
+        {
+            i++;
+            continue;
+        }
+        if (into > i)
+        {
+            pieces[into].startMs = p.startMs;
+            pieces[into].startBar = p.startBar;
+        }
+        else
+        {
+            pieces[into].endMs = p.endMs;
+            pieces[into].endBar = p.endBar;
+        }
+        pieces.removeAt(i);
+    }
     return pieces;
 }
 
@@ -213,10 +225,11 @@ SectionEdits applySectionAction(const EdmAnalysis &analysis, const SectionEdits 
             return pinned(edits, { { s.label, s.startMs, sections.at(i + 1).endMs } });
         case SectionAction::Reset:
         {
+            // the section's pin; an edited section may have taken a short analysis piece beside it
             SectionEdits result;
             for (const SectionPin &pin : edits.pins)
             {
-                if (s.edited == false || pin.startMs != s.startMs || pin.endMs != s.endMs)
+                if (s.edited == false || pin.startMs < s.startMs || pin.endMs > s.endMs)
                     result.pins.append(pin);
             }
             return result;

@@ -931,6 +931,10 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                 const bool needsSection = action != "reset_all";
                 const bool needsTime = action == "move_boundary" || action == "split";
                 const bool needsLabel = action == "relabel";
+                for (const auto &[field, used] : {std::pair{"section", needsSection}, std::pair{"timeMs", needsTime},
+                                                  std::pair{"label", needsLabel}})
+                    if (args.contains(field) && !used)
+                        return Json({{"error", "edit_song_sections: " + action + " takes no " + field}}).dump();
                 const auto section = args.contains("section") ? mcp::jsonInteger(args.at("section"), 0, mcp::kMaxId) : std::nullopt;
                 const auto time = args.contains("timeMs") ? mcp::jsonInteger(args.at("timeMs"), 0, mcp::kMaxId) : std::nullopt;
                 if ((needsSection && !section) || (needsTime && !time)
@@ -940,7 +944,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                                            + std::string(needsTime ? " timeMs (nonnegative integer)" : "")
                                            + std::string(needsLabel ? " label (string)" : "")}}).dump();
                 const QVariantMap state = vcBridge->editSongSections(
-                    quint32(*show), QString::fromStdString(action), section ? int(*section) : -1, time ? quint32(*time) : 0,
+                    quint32(*show), QString::fromStdString(action), section ? qint64(*section) : -1, time ? quint32(*time) : 0,
                     needsLabel ? QString::fromStdString(args.at("label").get<std::string>()) : QString());
                 return QJsonDocument::fromVariant(state).toJson(QJsonDocument::Compact).toStdString();
             });

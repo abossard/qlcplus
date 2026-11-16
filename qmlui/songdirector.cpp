@@ -246,17 +246,24 @@ static qint64 overlap(const SongBlock &a, const SongBlock &b)
 }
 
 /** Each target section takes the old block it shares time with: one of its
- *  label first, then the one it shares the most time with. -1: a new block */
+ *  label first, then one with its start (a split or merge keeps the first
+ *  block), then the one it shares the most time with. -1: a new block */
 static QList<int> matchBlocks(const QList<SongBlock> &target, const QList<SongDirectorBlock> &old)
 {
-    struct Pair { bool sameLabel; qint64 shared; int t; int o; };
+    struct Pair { bool sameLabel; bool sameStart; qint64 shared; int t; int o; };
     QList<Pair> pairs;
     for (int t = 0; t < target.count(); t++)
         for (int o = 0; o < old.count(); o++)
             if (old.at(o).orphan == false && overlap(target.at(t), old.at(o).generated) > 0)
-                pairs.append({ old.at(o).generated.label == target.at(t).label, overlap(target.at(t), old.at(o).generated), t, o });
+                pairs.append({ old.at(o).generated.label == target.at(t).label,
+                               old.at(o).generated.startMs == target.at(t).startMs,
+                               overlap(target.at(t), old.at(o).generated), t, o });
     std::stable_sort(pairs.begin(), pairs.end(), [](const Pair &a, const Pair &b) {
-        return a.sameLabel != b.sameLabel ? a.sameLabel : a.shared > b.shared;
+        if (a.sameLabel != b.sameLabel)
+            return a.sameLabel;
+        if (a.sameStart != b.sameStart)
+            return a.sameStart;
+        return a.shared > b.shared;
     });
     QList<int> owner(target.count(), -1);
     QList<bool> taken(old.count(), false);
@@ -328,10 +335,7 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
             {
                 if (auto *collection = qobject_cast<Collection *>(m_doc->function(blocks.last().functionId)))
                     if (auto *source = qobject_cast<Collection *>(m_doc->function(old.at(from).functionId)))
-                    {
-                        setContent(collection, source->functions());
-                        blocks.last().content = collection->functions();
-                    }
+                        setContent(collection, source->functions());   // the user's content: generated stays the default
             }
             continue;
         }
@@ -361,6 +365,16 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
                 sf->setDuration(section.durationMs);
                 changed = true;
             }
+        }
+        else if (collection != nullptr)
+        {
+            // a block always has its item: one the user deleted comes back at its section
+            ShowFunction *sf = track->createShowFunction(collection->id());
+            sf->setStartTime(section.startMs);
+            sf->setDuration(section.durationMs);
+            sf->setColor(ShowFunction::defaultColor(Function::CollectionType));
+            holdBlock(this, track, collection);
+            changed = true;
         }
         if ((b.generated == section) == false)
         {
@@ -508,6 +522,12 @@ bool SongDirector::editSections(Show *show, const SectionAction &action, EdmAnal
     {
         if (error)
             *error = QString("the Show has no analysed audio clip");
+        return false;
+    }
+    if (m_isSongShow && m_isSongShow(show) == false)
+    {
+        if (error)
+            *error = QString("the Show is not the Show of its song");
         return false;
     }
     SectionAction songTime = action;

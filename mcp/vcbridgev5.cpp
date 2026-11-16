@@ -731,25 +731,35 @@ QVariantMap VCBridgeV5::songBlocks(quint32 showId) const
             {QStringLiteral("blocks"), blocks}};
 }
 
-QVariantMap VCBridgeV5::editSongSections(quint32 showId, const QString &action, int section, quint32 timeMs,
+QVariantMap VCBridgeV5::editSongSections(quint32 showId, const QString &action, qint64 section, quint32 timeMs,
                                          const QString &label)
 {
     if (!hasMatchingAuthoringContext())
         return songDirectorError(QStringLiteral("Song Director requires the application context"));
+    SongDirector *director = m_authoringApp->findChild<SongDirector *>();
     ShowManager *manager = m_authoringApp->showManager();
-    if (!m_authoringApp->findChild<SongDirector *>() || !manager)
+    if (!director || !manager)
         return songDirectorError(QStringLiteral("Song Director is unavailable"));
     Show *show = qobject_cast<Show *>(m_doc->function(showId));
     if (!show)
         return songDirectorError(QStringLiteral("no Show with ID %1").arg(showId));
     if (manager->readOnly())
         return songDirectorError(QStringLiteral("the Show Manager is read-only during Perform"));
+    SectionAction a;
+    if (!sectionActionType(action, &a.type))
+        return songDirectorError(QStringLiteral("unknown section action '%1'").arg(action));
+    const int sections = director->sections(show).count();
+    if (a.type != SectionAction::ResetAll && (section < 0 || section >= sections))
+        return songDirectorError(QStringLiteral("no section %1, the song has %2").arg(section).arg(sections));
+    a.section = int(section);
+    a.timeMs = timeMs;
+    a.label = label;
     // what the user does: open the Show, act on its section ruler
     manager->setCurrentShowID(int(showId));
     if (manager->currentShow() != show)
         return songDirectorError(QStringLiteral("the Show Manager cannot open Show %1 now").arg(showId));
-    const QString error = manager->editSongSection(action, section, int(timeMs), label);
-    if (!error.isEmpty())
+    QString error;
+    if (!director->editSections(show, a, &error))
         return songDirectorError(error);
     return songSections(showId);
 }

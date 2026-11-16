@@ -68,7 +68,7 @@ public:
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
     /** A section edit on the song Show, as the Show Manager's section ruler does
      *  (action, section index, timeMs in Show time, label) */
-    virtual QVariantMap editSongSections(quint32, const QString &, int, quint32, const QString &)
+    virtual QVariantMap editSongSections(quint32, const QString &, qint64, quint32, const QString &)
     { return {{QStringLiteral("error"), QStringLiteral("Song Director is unavailable")}}; }
     /** The song Show's effective sections and the user's section edits */
     virtual QVariantMap songSections(quint32) const

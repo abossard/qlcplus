@@ -46,6 +46,13 @@ private slots:
     void blocksFollowSectionEdits();
     void sectionEditsRoundTrip();
     void oldBlocksSnapBackOnLoad();
+    void shortPieceBetweenPins_data();
+    void shortPieceBetweenPins();
+    void splitCopyIsUserContent_data();
+    void splitCopyIsUserContent();
+    void editsOnlyOnSongShows_data();
+    void editsOnlyOnSongShows();
+    void editWhileShowRuns();
 };
 
 #endif

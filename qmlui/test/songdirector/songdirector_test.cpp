@@ -681,8 +681,7 @@ void SongDirector_Test::followAnalysis_data()
     QTest::newRow("filled block follows its section with its content") << "fill drop" << earlier
         << QStringList { "intro 1 @0 +8000 {}", "buildup 1 @8000 +8000 {}", "drop 1 @16000 +16000 {Extra}", "outro 1 @32000 +8000 {}" }
         << earlierSidecar << 4 << 1;
-    QTest::newRow("deleted block is not recreated") << "delete drop" << earlier
-        << QStringList { "intro 1 @0 +8000 {}", "buildup 1 @8000 +8000 {}", "outro 1 @32000 +8000 {}" }
+    QTest::newRow("deleted block item comes back at its section") << "delete drop" << earlier << earlierItems
         << earlierSidecar << 4 << 1;
     QTest::newRow("added section gets a pre-filled block")
         << "none" << QList<EdmSection> { section("intro", 0, 9000, 100), section("buildup", 9000, 17000, 40, true),
@@ -1245,6 +1244,144 @@ void SongDirector_Test::oldBlocksSnapBackOnLoad()
     QCOMPARE(itemsWithContent(&song.doc, track),
              (QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +16000 {Drop}",
                             "outro 1 @62000 +8000 {}" }));
+}
+
+void SongDirector_Test::shortPieceBetweenPins_data()
+{
+    QTest::addColumn<QStringList>("pins");       // "label start end", song time
+    QTest::addColumn<QStringList>("expected");
+    QTest::addColumn<QStringList>("afterReset"); // after a reset of section 0
+
+    QTest::newRow("a piece under half a bar between two pins joins the previous pin")
+        << QStringList { "groove 0 8000", "breakdown 8500 16000" }
+        << QStringList { "groove* 0-8500 c100 u0", "breakdown* 8500-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" }
+        << QStringList { "intro 0-8500 c100 u0", "breakdown* 8500-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" };
+    QTest::newRow("a piece under half a bar before the first pin joins it")
+        << QStringList { "groove 500 16000" }
+        << QStringList { "groove* 0-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" }
+        << QStringList { "intro 0-8000 c100 u0", "buildup 8000-16000 c40 u1", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" };
+    QTest::newRow("a piece under half a bar next to the analysis joins the analysis")
+        << QStringList { "breakdown 8500 16000" }
+        << QStringList { "intro 0-8500 c100 u0", "breakdown* 8500-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" }
+        << QStringList { "intro 0-8500 c100 u0", "breakdown* 8500-16000 c100 u0", "drop 16000-32000 c90 u0", "outro 32000-40000 c60 u0" };
+}
+
+void SongDirector_Test::shortPieceBetweenPins()
+{
+    QFETCH(QStringList, pins);
+    QFETCH(QStringList, expected);
+    QFETCH(QStringList, afterReset);
+
+    const EdmAnalysis analysis = parseEdmAnalysis(finalJson(kBarSections));
+    SectionEdits edits;
+    for (const QString &pin : pins)
+        edits.pins.append({ pin.section(' ', 0, 0), pin.section(' ', 1, 1).toDouble(), pin.section(' ', 2, 2).toDouble() });
+    QCOMPARE(describe(effectiveSections(analysis, edits)), expected);
+    QString error;
+    const SectionEdits reset = applySectionAction(analysis, edits, action("reset 0"), &error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(describe(effectiveSections(analysis, reset)), afterReset);
+}
+
+void SongDirector_Test::splitCopyIsUserContent_data()
+{
+    QTest::addColumn<int>("splitAt");          // Show time; the user filled the drop with "Extra" before
+    QTest::addColumn<bool>("clearFirst");      // the user empties the first half after the split
+    QTest::addColumn<QString>("then");
+    QTest::addColumn<QStringList>("expected");
+    QTest::addColumn<bool>("firstSurvives");   // the drop's Collection is the merged block's
+
+    QTest::newRow("split then relabel keeps the copy") << 53500 << false << "relabel 3 groove"
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +8000 {Drop,Extra}",
+                         "groove 1 @54000 +8000 {Drop,Extra}", "outro 1 @62000 +8000 {}" } << true;
+    QTest::newRow("split then merge passes the copy on") << 53500 << true << "merge 2"
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +16000 {Drop,Extra}",
+                         "outro 1 @62000 +8000 {}" } << true;
+    QTest::newRow("merge keeps the first block, also when it is the shorter") << 51000 << false << "merge 2"
+        << QStringList { "intro 1 @30000 +8000 {}", "buildup 1 @38000 +8000 {}", "drop 1 @46000 +16000 {Drop,Extra}",
+                         "outro 1 @62000 +8000 {}" } << true;
+}
+
+void SongDirector_Test::splitCopyIsUserContent()
+{
+    QFETCH(int, splitAt);
+    QFETCH(bool, clearFirst);
+    QFETCH(QString, then);
+    QFETCH(QStringList, expected);
+    QFETCH(bool, firstSurvives);
+
+    EditedSong edited;
+    SongShow &song = edited.song;
+    quint32 drop = Function::invalidId();
+    for (const SongDirectorBlock &b : song.director.blocks(song.show))
+        if (b.generated.label == "drop")
+            drop = b.functionId;
+    auto *first = qobject_cast<Collection *>(song.doc.function(drop));
+    first->addFunction(edited.scenes.value("Extra"));
+    QString error;
+    QVERIFY2(edited.edit(QString("split 2 %1").arg(splitAt), &error), qPrintable(error));
+    // the first half keeps the block, the second is the copy
+    bool firstHalf = false;
+    for (const SongDirectorBlock &b : song.director.blocks(song.show))
+        firstHalf |= b.functionId == drop && b.generated.startMs == 46000;
+    QVERIFY(firstHalf);
+    if (clearFirst)
+        for (quint32 id : first->functions())
+            first->removeFunction(id);
+    QVERIFY2(edited.edit(then, &error), qPrintable(error));
+
+    QCOMPARE(itemsWithContent(&song.doc, song.director.track(song.show)), expected);
+    bool survived = false;
+    for (const SongDirectorBlock &b : song.director.blocks(song.show))
+        survived |= b.functionId == drop && b.generated.startMs == 46000;
+    QCOMPARE(survived, firstSurvives);
+}
+
+void SongDirector_Test::editsOnlyOnSongShows_data()
+{
+    QTest::addColumn<bool>("songShow");   // the Show is Perform's Show of its song
+    QTest::newRow("the song's Show") << true;
+    QTest::newRow("another Show with the analysed song") << false;
+}
+
+void SongDirector_Test::editsOnlyOnSongShows()
+{
+    QFETCH(bool, songShow);
+
+    SongShow song;
+    song.director.setSongShowFilter([songShow](Show *) { return songShow; });
+    QString error;
+    QCOMPARE(song.director.editSections(song.show, action("relabel 1 breakdown"), song.reader, &error), songShow);
+    QCOMPARE(error.isEmpty(), songShow);
+    QCOMPARE(song.director.sectionEdits(song.show).isEmpty(), songShow == false);
+    QCOMPARE(song.director.track(song.show) != nullptr, songShow);
+}
+
+void SongDirector_Test::editWhileShowRuns()
+{
+    EditedSong edited;
+    SongShow &song = edited.song;
+    song.director.setAnalysisDir(song.dir.path());
+    const QStringList before = itemsWithContent(&song.doc, song.director.track(song.show));
+
+    MasterTimer *timer = song.doc.masterTimer();
+    timer->start();
+    auto stopTimer = qScopeGuard([timer]() { timer->stop(); });
+    song.show->start(timer, FunctionParent::master());
+    QTRY_VERIFY(song.show->isRunning());
+
+    // the section band changes at once, the blocks wait for the stop
+    QSignalSpy sections(&song.director, &SongDirector::sectionsChanged);
+    QString error;
+    QVERIFY2(edited.edit("relabel 1 breakdown", &error), qPrintable(error));
+    QCOMPARE(sections.count(), 1);
+    QCOMPARE(song.director.sections(song.show, song.reader).at(1).label, QString("breakdown"));
+    QCOMPARE(itemsWithContent(&song.doc, song.director.track(song.show)), before);
+
+    song.show->stopAndWait();
+    QTRY_COMPARE(itemsWithContent(&song.doc, song.director.track(song.show)),
+                 (QStringList { "intro 1 @30000 +8000 {}", "breakdown 1 @38000 +8000 {Calm}", "drop 1 @46000 +16000 {Drop}",
+                                "outro 1 @62000 +8000 {}" }));
 }
 
 QTEST_GUILESS_MAIN(SongDirector_Test)
