@@ -29,6 +29,17 @@ class Doc;
 class Show;
 class ShowFunction;
 
+/** Part of the source file played by a timeline Audio item, in milliseconds. */
+struct EdmAudioClip
+{
+    EdmAudioClip(const Doc *doc, const ShowFunction *clip);
+    qint64 offset;   // add to source time to get Show time
+    qint64 sourceStart;
+    qint64 sourceEnd;
+
+    bool intersect(double &start, double &end) const;
+};
+
 /** Confidence of an event the file gives none for (vocal_in, vocal_out) */
 static const int kEdmNoConfidence = -1;
 
@@ -96,7 +107,7 @@ public:
     /** Path of the first Audio function on the show's timeline, or empty */
     static QString firstAudioFile(Doc *doc, Show *show);
 
-    /** sections() of the show's first Audio clip, in Show time: moved by the clip's start */
+    /** Audible sections of the Show's first Audio clip, in Show time */
     QVariantList showSections(Doc *doc, Show *show);
 
     /** Sections as {label, startMs, endMs, confidence, labelConfidence}, the

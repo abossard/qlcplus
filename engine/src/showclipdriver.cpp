@@ -143,7 +143,7 @@ ShowClipDriver::Drive &ShowClipDriver::adopt(const ShowFunction *clip, Function 
         // while this Show was the one playing it
         for (const Clip &before : ended->clips)
         {
-            if (ended->owned && before.clip->startTime() + before.clip->duration(m_doc) == clip->startTime())
+            if (ended->owned && before.clip->endTime(m_doc, m_show->timeDivisionBPM()) == clip->startTime())
                 drive.command = ended->command;
         }
     }
@@ -155,32 +155,12 @@ ShowClipDriver::Drive &ShowClipDriver::adopt(const ShowFunction *clip, Function 
     }
 
     if (drive.nested != nullptr)
-    {
-        if (ended != m_drives.constEnd() && ended->nested != nullptr)
-        {
-            drive.saved = ended->saved;
-            drive.audioSuppressed = ended->audioSuppressed;
-        }
-        else
-        {
-            drive.saved.syncSource = drive.nested->syncSource();
-            drive.saved.audioSuppressed = drive.nested->performAudioSuppressed();
-            drive.saved.masterIntensity = drive.nested->masterIntensity();
-            drive.saved.dominant = drive.nested->isDominant();
-        }
-        drive.nested->setSyncSource(ShowRunner::External);
-        // a set whose songs VirtualDJ plays, or a Show Perform plays itself
-        if (m_show->nestedAudioSuppressed() || m_show->performAudioSuppressed())
-        {
-            drive.audioSuppressed = true;
-            drive.nested->setPerformAudioSuppressed(true);
-        }
-    }
+        drive.nested->acquireClipDriver(this, m_show->nestedAudioSuppressed() || m_show->performAudioSuppressed());
 
     return m_drives.insert(f->id(), drive).value();
 }
 
-void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at,
+void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at, int bpm,
                            const QMap<quint32, qreal> &trackIntensities)
 {
     // the timer restarts it at the end of this tick: the level survives that
@@ -195,7 +175,46 @@ void ShowClipDriver::start(const ShowFunction *clip, Function *f, quint32 at,
     const ShowClipAutomation &automation = drive.clips.first().automation;
     // the clock follows in drive(), after every clip of this tick joined: the
     // first sample after the start is where the nested traversal begins
-    f->start(m_doc->masterTimer(), parent(), nested ? automation.songPositionAt(at) : automation.inPoint() + at);
+    const quint32 position = nested ? automation.songPositionAt(at, Show::songUnitsPerClipUnit(f, bpm))
+                                    : automation.inPoint() + at;
+    f->start(m_doc->masterTimer(), parent(), position);
+}
+
+void ShowClipDriver::startFromCommand(Function *f)
+{
+    const auto drive = m_drives.constFind(f->id());
+    Show *child = drive != m_drives.cend() ? drive->nested : nullptr;
+    if (child && child->stopped() && !performed(child))
+    {
+        const quint32 position = child->externalElapsedTime();
+        child->start(m_doc->masterTimer(), parent(), position);
+        child->setExternalElapsedTime(position);
+    }
+    else
+        f->start(m_doc->masterTimer(), parent());
+}
+
+bool ShowClipDriver::awaitingFinalCommands(Function *f, quint32 clipEnd, int bpm) const
+{
+    const auto drive = m_drives.constFind(f->id());
+    Show *child = drive != m_drives.cend() ? drive->nested : nullptr;
+    if (!child || child->stopped() || child->isPaused() || child->syncSource() != ShowRunner::External ||
+        performed(child) || !child->hasSource(parent()) || child->m_clipDrivers.size() != 1)
+        return false;
+
+    const Clip &clip = drive->clips.at(drive->driving);
+    if (clipEnd != clip.clip->endTime(m_doc, m_show->timeDivisionBPM()))
+        return false;
+    const quint32 duration = clipEnd - clip.clip->startTime();
+    const quint32 finalPosition = clip.automation.songPositionAt(duration, Show::songUnitsPerClipUnit(child, bpm));
+    const ShowCommandTrack commands = child->commandTrack();
+    if (commands.commands().isEmpty() || finalPosition < qMax(commands.extent(), commands.lastCommandTime()))
+        return false;
+
+    // commandPosition() reports the supplied external clock. Here the parent
+    // needs the position the child's runner actually processed on its own tick.
+    return child->m_commandPosition.load(std::memory_order_relaxed) < commands.lastCommandTime() ||
+           child->commandWorkPending();
 }
 
 void ShowClipDriver::join(const ShowFunction *clip, Function *f)
@@ -217,7 +236,7 @@ void ShowClipDriver::join(const ShowFunction *clip, Function *f)
     it->clips.append(clipOf(clip));
 }
 
-void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap<quint32, qreal> &trackIntensities,
+void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, int bpm, const QMap<quint32, qreal> &trackIntensities,
                            const QList<QPair<Function *, quint32>> &running)
 {
     QSet<const Function *> queued;
@@ -230,7 +249,7 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
         // with what they set on it, paused by no clip
         if (drive.nested != nullptr && performed(drive.nested))
         {
-            drive.nested->setClipPaused(false);
+            drive.nested->releaseClipDriver(this);
             it = m_drives.erase(it);
             continue;
         }
@@ -252,7 +271,7 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
         for (int i = 0; i < drive.clips.count(); i++)
         {
             const ShowFunction *clip = drive.clips.at(i).clip;
-            if (clip->startTime() <= clock && clock < clip->startTime() + clip->duration(m_doc) &&
+            if (clip->startTime() <= clock && clock < clip->endTime(m_doc, m_show->timeDivisionBPM()) &&
                 (latest < 0 || clip->startTime() >= drive.clips.at(latest).clip->startTime()))
                 latest = i;
         }
@@ -264,7 +283,9 @@ void ShowClipDriver::drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap
 
         if (drive.nested != nullptr)
         {
-            const quint32 position = driving.automation.songPositionAt(drive.at);
+            if (latest < 0)
+                drive.at = qMin(drive.at, driving.clip->duration(m_doc, m_show->timeDivisionBPM()));
+            const quint32 position = driving.automation.songPositionAt(drive.at, Show::songUnitsPerClipUnit(drive.nested, bpm));
             // a move below its end plays it again from there, as live Perform does
             if (ended && position < *ended)
                 drive.nested->start(m_doc->masterTimer(), parent(), position);
@@ -354,17 +375,7 @@ void ShowClipDriver::release(const Drive &drive)
             drive.function->requestAttributeOverride(Function::Intensity, back->second);
         return;
     }
-    // the pause is the clip's, whoever plays it on
-    drive.nested->setClipPaused(false);
-    // Perform took it meanwhile, with its own settings
-    if (performed(drive.nested))
-        return;
-
-    drive.nested->setSyncSource(drive.saved.syncSource);
-    if (drive.audioSuppressed)
-        drive.nested->setPerformAudioSuppressed(drive.saved.audioSuppressed);
-    drive.nested->setMasterIntensity(drive.saved.masterIntensity);
-    drive.nested->setDominant(drive.saved.dominant);
+    drive.nested->releaseClipDriver(this);
 }
 
 void ShowClipDriver::releaseAll()

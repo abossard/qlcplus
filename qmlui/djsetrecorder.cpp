@@ -107,12 +107,11 @@ void DjSetRecorder::setClock(const Clock &clock)
 
 bool DjSetRecorder::hasWaitingClips() const
 {
-    // a closed clip stays only while it waits; an open one is in the set at once otherwise
     if (m_closed.isEmpty() == false)
         return true;
     for (const std::optional<DeckClip> &clip : m_clips)
     {
-        if (clip && clip->uid == std::nullopt)
+        if (clip && (!clip->uid || clip->waiting))
             return true;
     }
     return false;
@@ -358,6 +357,11 @@ DjSetRecorder::Written DjSetRecorder::writeClip(quint32 setId, int deck, DeckCli
     // the set left the Doc, or the clip the set: nothing to write
     if (set == nullptr)
         return Written::Gone;
+    MasterTimer *timer = m_doc->masterTimer();
+    MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(set));
+    clip.waiting = !admission;
+    if (clip.waiting)
+        return Written::Waiting;
     ShowFunction *sf = clip.uid ? set->showFunction(*clip.uid) : nullptr;
     if (clip.uid && sf == nullptr)
         return Written::Gone;
@@ -365,11 +369,6 @@ DjSetRecorder::Written DjSetRecorder::writeClip(quint32 setId, int deck, DeckCli
     Written written = Written::Updated;
     if (sf == nullptr)
     {
-        // a running set's clips are its runner's: a new one waits for the stop
-        MasterTimer *timer = m_doc->masterTimer();
-        MasterTimer::EditAdmission admission(timer, timer->beginFunctionEdit(set));
-        if (!admission)
-            return Written::Waiting;
         // the song went, or came to hold the set, while its clip waited
         const Show *song = qobject_cast<Show *>(m_doc->function(clip.showId));
         if (song == nullptr || song->contains(setId))

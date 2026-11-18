@@ -51,6 +51,8 @@ QList<SongBlock> songBlocks(const QList<EdmSection> &sections, quint32 clipStart
         block.unsure = s.unsure;
         block.startMs = quint32(start);
         block.durationMs = quint32(end - start);
+        block.sourceStartMs = quint32(qRound64(s.startMs));
+        block.sourceDurationMs = block.durationMs;
         blocks.append(block);
     }
     return blocks;
@@ -59,6 +61,23 @@ QList<SongBlock> songBlocks(const QList<EdmSection> &sections, quint32 clipStart
 QList<SongBlock> songBlocks(const QList<SongSection> &sections, quint32 clipStartMs)
 {
     return songBlocks(QList<EdmSection>(sections.begin(), sections.end()), clipStartMs);
+}
+
+static QList<SongBlock> clipBlocks(const QList<SongSection> &sections, const EdmAudioClip &timing)
+{
+    QList<SongBlock> visible;
+    for (SongBlock block : songBlocks(sections, 0))
+    {
+        double start = block.startMs, end = start + block.durationMs;
+        if (timing.intersect(start, end))
+        {
+            block.startMs = quint32(start + timing.offset);
+            block.durationMs = quint32(end - start);
+            block.section = visible.count();
+            visible.append(block);
+        }
+    }
+    return visible;
 }
 
 /** "drop 2" */
@@ -84,6 +103,13 @@ SongDirector::SongDirector(Doc *doc, QObject *parent)
             m_done.remove(id);
             m_waiting.remove(id);
             m_edits.remove(id);
+            for (Entry &e : m_entries)
+            {
+                e.blocks.erase(std::remove_if(e.blocks.begin(), e.blocks.end(),
+                               [id](const SongDirectorBlock &b) { return b.functionId == id; }), e.blocks.end());
+                for (SongDirectorBlock &b : e.blocks)
+                    b.content.removeAll(id);
+            }
         });
     }
 }
@@ -114,7 +140,26 @@ Track *SongDirector::track(Show *show) const
 QList<SongDirectorBlock> SongDirector::blocks(Show *show) const
 {
     const Entry *e = entry(show);
-    return e != nullptr ? e->blocks : QList<SongDirectorBlock>();
+    QList<SongDirectorBlock> visible = e != nullptr ? e->blocks : QList<SongDirectorBlock>();
+    visible.erase(std::remove_if(visible.begin(), visible.end(),
+                  [](const SongDirectorBlock &block) { return block.clipped; }), visible.end());
+    return visible;
+}
+
+void SongDirector::watchClip(Show *show, ShowFunction *clip)
+{
+    if (m_watchedClips.contains(clip))
+        return;
+    m_watchedClips.insert(clip);
+    connect(clip, &QObject::destroyed, this, [this, clip]() { m_watchedClips.remove(clip); });
+    // One trim sets the item's start, duration and in-point in the same GUI event.
+    const auto changed = [this, owner = QPointer<Show>(show)]() {
+        if (owner && m_reader && (!m_isSongShow || m_isSongShow(owner)))
+            update(owner, *m_reader);
+    };
+    connect(clip, &ShowFunction::startTimeChanged, this, changed, Qt::QueuedConnection);
+    connect(clip, &ShowFunction::durationChanged, this, changed, Qt::QueuedConnection);
+    connect(clip, &ShowFunction::clipAutomationChanged, this, changed, Qt::QueuedConnection);
 }
 
 bool SongDirector::dropOnBlock(Show *show, Track *track, quint32 timeMs, const QList<quint32> &functionIds)
@@ -146,13 +191,14 @@ bool SongDirector::createBlocks(Show *show, EdmAnalysisReader &reader)
 {
     if (m_doc == nullptr || show == nullptr || track(show) != nullptr)
         return false;
-    const ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
+    ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
     if (clip == nullptr)
         return false;
     const EdmAnalysis analysis = reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show));
     if (analysis.valid == false)
         return false;
-    const QList<SongBlock> generated = songBlocks(effectiveSections(analysis, m_edits.value(show->id())), clip->startTime());
+    watchClip(show, clip);
+    const QList<SongBlock> generated = clipBlocks(effectiveSections(analysis, m_edits.value(show->id())), EdmAudioClip(m_doc, clip));
     if (generated.isEmpty())
         return false;
 
@@ -242,7 +288,8 @@ ShowFunction *SongDirector::item(Track *track, quint32 functionId) const
 
 static qint64 overlap(const SongBlock &a, const SongBlock &b)
 {
-    return qMin<qint64>(a.startMs + a.durationMs, b.startMs + b.durationMs) - qMax<qint64>(a.startMs, b.startMs);
+    return qMin(qint64(a.sourceStartMs) + a.sourceDurationMs, qint64(b.sourceStartMs) + b.sourceDurationMs)
+        - qMax(a.sourceStartMs, b.sourceStartMs);
 }
 
 /** Each target section takes the old block it shares time with: one of its
@@ -256,7 +303,7 @@ static QList<int> matchBlocks(const QList<SongBlock> &target, const QList<SongDi
         for (int o = 0; o < old.count(); o++)
             if (old.at(o).orphan == false && overlap(target.at(t), old.at(o).generated) > 0)
                 pairs.append({ old.at(o).generated.label == target.at(t).label,
-                               old.at(o).generated.startMs == target.at(t).startMs,
+                               old.at(o).generated.sourceStartMs == target.at(t).sourceStartMs,
                                overlap(target.at(t), old.at(o).generated), t, o });
     std::stable_sort(pairs.begin(), pairs.end(), [](const Pair &a, const Pair &b) {
         if (a.sameLabel != b.sameLabel)
@@ -304,7 +351,7 @@ static void setContent(Collection *collection, const QList<quint32> &content)
 bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
 {
     Entry *e = const_cast<Entry *>(entry(show));
-    const ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
+    ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
     if (e == nullptr || clip == nullptr)
         return false;
     const EdmAnalysis analysis = reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show));
@@ -313,7 +360,9 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
     Track *track = e->track.data();
 
     const QList<SongDirectorBlock> old = e->blocks;
-    const QList<SongBlock> target = songBlocks(effectiveSections(analysis, m_edits.value(show->id())), clip->startTime());
+    watchClip(show, clip);
+    const EdmAudioClip timing(m_doc, clip);
+    const QList<SongBlock> target = clipBlocks(effectiveSections(analysis, m_edits.value(show->id())), timing);
     const QList<int> owner = matchBlocks(target, old);
     QList<bool> kept(old.count(), false);
     for (int o : owner)
@@ -340,6 +389,7 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
             continue;
         }
         SongDirectorBlock b = old.at(owner.at(t));
+        b.clipped = false;
         auto *collection = qobject_cast<Collection *>(m_doc->function(b.functionId));
         // content still as generated takes the default of a changed label
         if (collection != nullptr && b.generated.label != section.label && untouchedContent(b))
@@ -390,6 +440,22 @@ bool SongDirector::follow(Show *show, EdmAnalysisReader &reader)
         if (kept.at(o))
             continue;
         const SongDirectorBlock &b = old.at(o);
+        double start = b.generated.sourceStartMs, end = start + b.generated.sourceDurationMs;
+        if (!timing.intersect(start, end) && !untouchedContent(b))
+        {
+            // Preserve an authored look so extending the clip can reveal it again.
+            SongDirectorBlock hidden = b;
+            hidden.clipped = true;
+            blocks.append(hidden);
+            changed |= !b.clipped;
+            while (ShowFunction *sf = item(track, b.functionId))
+            {
+                emit blockRemoving(show->id(), sf);
+                track->removeShowFunction(sf);
+                changed = true;
+            }
+            continue;
+        }
         if (b.orphan)
         {
             blocks.append(b);
@@ -492,6 +558,24 @@ SectionEdits SongDirector::sectionEdits(Show *show) const
     return show != nullptr ? m_edits.value(show->id()) : SectionEdits();
 }
 
+static QList<SongSection> audibleSections(const EdmAnalysis &analysis, const SectionEdits &edits, const EdmAudioClip &timing)
+{
+    QList<SongSection> audible;
+    for (SongSection section : effectiveSections(analysis, edits))
+    {
+        const double start = section.startMs, end = section.endMs;
+        if (timing.intersect(section.startMs, section.endMs))
+        {
+            if (section.startMs != start)
+                section.startBar = (section.startMs - analysis.grid.firstDownbeatMs) / analysis.grid.barMs;
+            if (section.endMs != end)
+                section.endBar = (section.endMs - analysis.grid.firstDownbeatMs) / analysis.grid.barMs;
+            audible.append(section);
+        }
+    }
+    return audible;
+}
+
 QList<SongSection> SongDirector::sections(Show *show, EdmAnalysisReader &reader) const
 {
     const ShowFunction *clip = m_doc != nullptr ? EdmAnalysisReader::firstAudioClip(m_doc, show) : nullptr;
@@ -500,11 +584,12 @@ QList<SongSection> SongDirector::sections(Show *show, EdmAnalysisReader &reader)
     const EdmAnalysis analysis = reader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, show));
     if (analysis.valid == false)
         return QList<SongSection>();
-    QList<SongSection> list = effectiveSections(analysis, m_edits.value(show->id()));
+    const EdmAudioClip timing(m_doc, clip);
+    QList<SongSection> list = audibleSections(analysis, m_edits.value(show->id()), timing);
     for (SongSection &s : list)
     {
-        s.startMs += clip->startTime();
-        s.endMs += clip->startTime();
+        s.startMs += timing.offset;
+        s.endMs += timing.offset;
     }
     return list;
 }
@@ -531,10 +616,11 @@ bool SongDirector::editSections(Show *show, const SectionAction &action, EdmAnal
         return false;
     }
     SectionAction songTime = action;
-    songTime.timeMs -= clip->startTime();
+    const EdmAudioClip timing(m_doc, clip);
+    songTime.timeMs -= timing.offset;
     QString why;
     const SectionEdits before = m_edits.value(show->id());
-    const SectionEdits after = applySectionAction(analysis, before, songTime, &why);
+    const SectionEdits after = applySectionAction(analysis, before, songTime, &why, audibleSections(analysis, before, timing));
     if (error)
         *error = why;
     if (why.isEmpty() == false)
@@ -604,8 +690,12 @@ void SongDirector::saveXML(QXmlStreamWriter *doc) const
             doc->writeAttribute("Unsure", b.generated.unsure ? "1" : "0");
             doc->writeAttribute("Start", QString::number(b.generated.startMs));
             doc->writeAttribute("Duration", QString::number(b.generated.durationMs));
+            doc->writeAttribute("SourceStart", QString::number(b.generated.sourceStartMs));
+            doc->writeAttribute("SourceDuration", QString::number(b.generated.sourceDurationMs));
             if (b.orphan)
                 doc->writeAttribute("Orphan", "1");
+            if (b.clipped)
+                doc->writeAttribute("Clipped", "1");
             if (b.content.isEmpty() == false)
             {
                 QStringList ids;
@@ -641,7 +731,7 @@ void SongDirector::saveXML(QXmlStreamWriter *doc) const
 }
 
 /** One <Block>; false when a number is unreadable */
-static bool readBlock(const QXmlStreamAttributes &attrs, SongDirectorBlock *block)
+static bool readBlock(const QXmlStreamAttributes &attrs, SongDirectorBlock *block, quint32 legacyClipStart)
 {
     bool ok[6];
     block->functionId = attrs.value("Function").toUInt(&ok[0]);
@@ -652,7 +742,15 @@ static bool readBlock(const QXmlStreamAttributes &attrs, SongDirectorBlock *bloc
     block->generated.unsure = attrs.value("Unsure") == QLatin1String("1");
     block->generated.startMs = attrs.value("Start").toUInt(&ok[4]);
     block->generated.durationMs = attrs.value("Duration").toUInt(&ok[5]);
+    bool sourceStartOk = true, sourceDurationOk = true;
+    block->generated.sourceStartMs = attrs.hasAttribute("SourceStart") ? attrs.value("SourceStart").toUInt(&sourceStartOk)
+        : quint32(qMax<qint64>(0, qint64(block->generated.startMs) - legacyClipStart));
+    block->generated.sourceDurationMs = attrs.hasAttribute("SourceDuration") ? attrs.value("SourceDuration").toUInt(&sourceDurationOk)
+                                                                            : block->generated.durationMs;
+    if (!sourceStartOk || !sourceDurationOk)
+        return false;
     block->orphan = attrs.value("Orphan") == QLatin1String("1");
+    block->clipped = attrs.value("Clipped") == QLatin1String("1");
     for (bool good : ok)
     {
         if (good == false)
@@ -717,20 +815,24 @@ bool SongDirector::loadXML(QXmlStreamReader &doc)
         bool ok = false;
         const quint32 trackId = doc.attributes().value("ID").toUInt(&ok);
         e.track = show != nullptr && ok ? show->track(trackId) : nullptr;
+        ShowFunction *audio = EdmAnalysisReader::firstAudioClip(m_doc, show);
         while (doc.readNextStartElement())
         {
             SongDirectorBlock block;
-            if (doc.name() == QLatin1String("Block") && readBlock(doc.attributes(), &block))
+            if (doc.name() == QLatin1String("Block") && readBlock(doc.attributes(), &block, audio ? audio->startTime() : 0)
+                && m_doc && qobject_cast<Collection *>(m_doc->function(block.functionId)))
                 e.blocks.append(block);
             doc.skipCurrentElement();
         }
         // a Show or track that is gone, or a second track for one Show, is dropped
         if (e.track != nullptr && track(show) == nullptr)
         {
+            if (audio)
+                watchClip(show, audio);
             m_entries.append(e);
             m_done.insert(e.showId);
             for (const SongDirectorBlock &block : e.blocks)
-                if (auto *collection = qobject_cast<Collection *>(m_doc->function(block.functionId)); collection && block.orphan == false)
+                if (auto *collection = qobject_cast<Collection *>(m_doc->function(block.functionId)); collection && !block.orphan && !block.clipped)
                     holdBlock(this, e.track.data(), collection);
         }
     }

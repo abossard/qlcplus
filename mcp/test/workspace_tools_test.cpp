@@ -84,9 +84,19 @@ public:
             QFile in(path);
             if (!in.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
             QXmlStreamReader reader(&in);
-            reader.readNextStartElement();
+            if (!reader.readNextStartElement() || reader.name() != QStringLiteral("Workspace"))
+                return false;
             doc->clearContents();
-            if (!doc->loadXML(reader)) return false;
+            while (reader.readNextStartElement())
+            {
+                if (reader.name() == QStringLiteral("Engine"))
+                {
+                    if (!doc->loadXML(reader)) return false;
+                }
+                else
+                    reader.skipCurrentElement();
+            }
+            if (reader.hasError()) return false;
             doc->resetModified();
         }
         fileName = path;
@@ -108,7 +118,9 @@ public:
             QXmlStreamWriter writer(&out);
             writer.writeStartDocument();
             writer.writeDTD(QStringLiteral("<!DOCTYPE Workspace>"));
+            writer.writeStartElement(QStringLiteral("Workspace"));
             if (!doc->saveXML(&writer)) return false;
+            writer.writeEndElement();
             writer.writeEndDocument();
             out.close();
             doc->resetModified();
@@ -440,14 +452,25 @@ void McpWorkspaceTools_Test::saveThenLoad_roundTripsThroughDisk()
     QCOMPARE(m_doc->functions().first()->name(), QString("Wash"));
 }
 
+void McpWorkspaceTools_Test::loadWorkspace_notAWorkspaceFile_refusedBeforeClearing_data()
+{
+    QTest::addColumn<QByteArray>("contents");
+    QTest::newRow("plain text") << QByteArray("just some text, definitely not a project");
+    QTest::newRow("truncated after DTD") << QByteArray("<!DOCTYPE Workspace>");
+    QTest::newRow("wrong root") << QByteArray("<!DOCTYPE Workspace><Fixture/>");
+    QTest::newRow("truncated body") << QByteArray("<!DOCTYPE Workspace><Workspace><Engine/>");
+    QTest::newRow("trailing element") << QByteArray("<!DOCTYPE Workspace><Workspace/><Extra/>");
+}
+
 void McpWorkspaceTools_Test::loadWorkspace_notAWorkspaceFile_refusedBeforeClearing()
 {
+    QFETCH(QByteArray, contents);
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString path = dir.filePath("notes.txt");
     QFile file(path);
     QVERIFY(file.open(QIODevice::WriteOnly));
-    file.write("just some text, definitely not a project");
+    file.write(contents);
     file.close();
 
     FakeWorkspaceBridge bridge;

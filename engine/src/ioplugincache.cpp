@@ -18,6 +18,7 @@
 */
 
 #include <QCoreApplication>
+#include <QJsonObject>
 #include <QPluginLoader>
 #include <QSettings>
 #include <QDebug>
@@ -52,10 +53,12 @@ void IOPluginCache::load(const QDir& dir)
 #if defined(Q_OS_IOS)
     /* Plugins are statically linked into the application */
     Q_UNUSED(dir)
-    const QObjectList instances = QPluginLoader::staticInstances();
-    for (QObject *instance : instances)
+    const auto staticPlugins = QPluginLoader::staticPlugins();
+    for (const QStaticPlugin &candidate : staticPlugins)
     {
-        QLCIOPlugin* ptr = qobject_cast<QLCIOPlugin*> (instance);
+        if (candidate.metaData().value(QStringLiteral("IID")).toString() != QLatin1String(QLCIOPlugin_iid))
+            continue;
+        QLCIOPlugin* ptr = qobject_cast<QLCIOPlugin*> (candidate.instance());
         if (ptr == NULL || plugin(ptr->name()) != NULL)
             continue;
 
@@ -87,6 +90,13 @@ void IOPluginCache::load(const QDir& dir)
                 continue;
 #endif
         QPluginLoader loader(path, this);
+        const QString iid = loader.metaData().value(QStringLiteral("IID")).toString();
+        if (iid != QLatin1String(QLCIOPlugin_iid))
+        {
+            if (iid.startsWith(QLatin1String("org.qlcplus.QLCIOPlugin")))
+                qWarning() << "Skipping incompatible I/O plugin" << path << "with IID" << iid;
+            continue;
+        }
         QLCIOPlugin* ptr = qobject_cast<QLCIOPlugin*> (loader.instance());
         if (ptr != NULL)
         {

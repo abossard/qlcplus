@@ -27,6 +27,7 @@ private slots:
     void clipsReachTheSetAtABoundedRate();
     void aClipWaitsForARunningSetToStop_data();
     void aClipWaitsForARunningSetToStop();
+    void existingClipUpdatesWaitForPlayback();
     void aWaitingClipChecksItsSongAgain_data();
     void aWaitingClipChecksItsSongAgain();
     void growthAfterASaveMarksTheWorkspaceModified_data();

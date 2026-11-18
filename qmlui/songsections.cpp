@@ -182,12 +182,17 @@ static SectionEdits refuse(const SectionEdits &edits, QString *error, const QStr
 SectionEdits applySectionAction(const EdmAnalysis &analysis, const SectionEdits &edits,
                                 const SectionAction &action, QString *error)
 {
+    return applySectionAction(analysis, edits, action, error, effectiveSections(analysis, edits));
+}
+
+SectionEdits applySectionAction(const EdmAnalysis &analysis, const SectionEdits &edits,
+                                const SectionAction &action, QString *error, const QList<SongSection> &sections)
+{
     if (error)
         error->clear();
     if (action.type == SectionAction::ResetAll)
         return SectionEdits();
 
-    const QList<SongSection> sections = effectiveSections(analysis, edits);
     const int i = action.section;
     if (i < 0 || i >= sections.count())
         return refuse(edits, error, QString("no section %1, the song has %2").arg(i).arg(sections.count()));
@@ -229,8 +234,15 @@ SectionEdits applySectionAction(const EdmAnalysis &analysis, const SectionEdits 
             SectionEdits result;
             for (const SectionPin &pin : edits.pins)
             {
-                if (s.edited == false || pin.startMs < s.startMs || pin.endMs > s.endMs)
+                if (!s.edited || pin.endMs <= s.startMs || pin.startMs >= s.endMs)
                     result.pins.append(pin);
+                else
+                {
+                    if (pin.startMs < s.startMs)
+                        result.pins.append({pin.label, pin.startMs, s.startMs});
+                    if (pin.endMs > s.endMs)
+                        result.pins.append({pin.label, s.endMs, pin.endMs});
+                }
             }
             return result;
         }

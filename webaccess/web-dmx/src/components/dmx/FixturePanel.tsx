@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useState } from 'react';
 import type { FixtureInfo, ControlPlan, ChannelInfo } from '../../lib/dmx-types';
 import { useDmxStore } from '../../store/dmx-store';
+import { fetchPresetValues } from '../../lib/dmx-api';
 import {
   deletePreset,
   getPresets,
@@ -148,7 +149,7 @@ function coveredChannelIndices(plans: ControlPlan[]): Set<number> {
 function FixturePanelImpl({ fixture }: Props) {
   const plans = useDmxStore(s => s.plans.get(fixture.id) ?? []);
   const resetFixture = useDmxStore(s => s.resetFixture);
-  const liveValues = useDmxStore(s => s.liveValues.get(fixture.id));
+  const [captureError, setCaptureError] = useState('');
 
   const [presets, setPresets] = useState<PresetEntry[]>([]);
 
@@ -162,12 +163,21 @@ function FixturePanelImpl({ fixture }: Props) {
     setPresets(getPresets(fixture));
   }, [fixture]);
 
-  const onSavePreset = useCallback(() => {
+  const onSavePreset = useCallback(async () => {
+    const revision = useDmxStore.getState().revision;
+    if (!revision) return;
     const name = window.prompt('Preset name?');
-    if (!name || !liveValues) return;
-    savePreset(fixture, name, liveValues);
-    setPresets(getPresets(fixture));
-  }, [fixture, liveValues]);
+    if (!name) return;
+    setCaptureError('');
+    try {
+      const values = await fetchPresetValues(fixture, revision);
+      if (useDmxStore.getState().revision !== revision) return;
+      savePreset(fixture, name, values);
+      setPresets(getPresets(fixture));
+    } catch {
+      setCaptureError('Could not capture fixture values. Try again.');
+    }
+  }, [fixture]);
 
   const onRecall = useCallback((id: string) => {
     const values = recallPreset(id);
@@ -215,6 +225,7 @@ function FixturePanelImpl({ fixture }: Props) {
 
       <div className="fp-presets">
         <button type="button" className="fp-preset-save" onClick={onSavePreset}>＋ Save</button>
+        {captureError && <span role="alert">{captureError}</span>}
         {presets.map(p => (
           <span key={p.id} className="fp-preset">
             <button

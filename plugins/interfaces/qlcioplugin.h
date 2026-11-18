@@ -505,7 +505,9 @@ signals:
     void rdmTimeout(quint32 universe, quint32 line, int type);
 };
 
-#define QLCIOPlugin_iid "org.qlcplus.QLCIOPlugin"
+// The unversioned interface predates the diagnostics virtuals and storage.
+// Change the IID whenever the plugin's binary layout changes.
+#define QLCIOPlugin_iid "org.qlcplus.QLCIOPlugin/2.0"
 
 Q_DECLARE_INTERFACE(QLCIOPlugin, QLCIOPlugin_iid)
 

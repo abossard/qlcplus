@@ -781,12 +781,19 @@ QVariantMap VCBridgeV5::songSections(quint32 showId) const
             {QStringLiteral("unsure"), s.unsure},
             {QStringLiteral("edited"), s.edited}});
     const ShowFunction *clip = EdmAnalysisReader::firstAudioClip(m_doc, show);
-    const double offset = clip ? clip->startTime() : 0;
     QVariantList edits;
-    for (const SectionPin &pin : director->sectionEdits(show).pins)
-        edits.append(QVariantMap{{QStringLiteral("label"), pin.label},
-                                 {QStringLiteral("startMs"), pin.startMs + offset},
-                                 {QStringLiteral("endMs"), pin.endMs + offset}});
+    if (clip)
+    {
+        const EdmAudioClip timing(m_doc, clip);
+        for (const SectionPin &pin : director->sectionEdits(show).pins)
+        {
+            double start = pin.startMs, end = pin.endMs;
+            if (timing.intersect(start, end))
+                edits.append(QVariantMap{{QStringLiteral("label"), pin.label},
+                                         {QStringLiteral("startMs"), start + timing.offset},
+                                         {QStringLiteral("endMs"), end + timing.offset}});
+        }
+    }
     return {{QStringLiteral("showID"), showId},
             {QStringLiteral("sections"), sections},
             {QStringLiteral("edits"), edits}};

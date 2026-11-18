@@ -48,12 +48,15 @@ struct SongBlock
     bool unsure = false;
     quint32 startMs = 0;
     quint32 durationMs = 0;
+    quint32 sourceStartMs = 0;       // section in the source file before the timeline trim
+    quint32 sourceDurationMs = 0;
 
     bool operator==(const SongBlock &other) const
     {
         return section == other.section && label == other.label && number == other.number
             && confidence == other.confidence && unsure == other.unsure
-            && startMs == other.startMs && durationMs == other.durationMs;
+            && startMs == other.startMs && durationMs == other.durationMs
+            && sourceStartMs == other.sourceStartMs && sourceDurationMs == other.sourceDurationMs;
     }
 };
 
@@ -69,11 +72,12 @@ struct SongDirectorBlock
     SongBlock generated;
     QList<quint32> content;   // the Collection's functions when generated or last refilled
     bool orphan = false;      // a block of an older workspace kept without a section: it takes no section again
+    bool clipped = false;     // user content outside the audio trim, held without a timeline item
 
     bool operator==(const SongDirectorBlock &other) const
     {
         return functionId == other.functionId && generated == other.generated && content == other.content
-            && orphan == other.orphan;
+            && orphan == other.orphan && clipped == other.clipped;
     }
 };
 
@@ -120,8 +124,7 @@ public:
     /** The user's section edits of the Show's song */
     SectionEdits sectionEdits(Show *show) const;
 
-    /** The Show's sections, analysis and edits, in Show time (moved by the
-     *  audio clip start); empty without an analysed clip */
+    /** The audible sections after edits, clipped and translated to Show time */
     QList<SongSection> sections(Show *show, EdmAnalysisReader &reader) const;
 
     /** One section edit on the Show (action.timeMs in Show time), then its
@@ -179,6 +182,7 @@ private:
         QList<SongDirectorBlock> blocks;
     };
     const Entry *entry(Show *show) const;
+    void watchClip(Show *show, ShowFunction *clip);
     /** One Collection block on the track, appended to \a blocks; false when the Doc is full */
     bool addBlock(Show *show, Track *track, const SongBlock &block, QList<SongDirectorBlock> &blocks);
     /** The Collection's content is still as generated (or last refilled) */
@@ -200,6 +204,7 @@ private:
     std::unique_ptr<EdmAnalysisReader> m_reader;
     QSet<quint32> m_done;      // Shows that got their blocks once
     QSet<quint32> m_waiting;   // running Shows a sync waits for
+    QSet<ShowFunction *> m_watchedClips;
     QHash<quint32, SectionEdits> m_edits;   // by Show
 };
 

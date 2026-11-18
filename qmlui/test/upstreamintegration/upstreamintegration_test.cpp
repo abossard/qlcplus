@@ -14540,6 +14540,7 @@ void UpstreamIntegration_Test::songDirectorItemsMixed_data()
     QTest::newRow("lock a block together with an ordinary item") << "lock";
     QTest::newRow("paste a block together with an ordinary item") << "paste";
     QTest::newRow("drop a block Collection where a new track would go") << "new track";
+    QTest::newRow("move a scene to empty space on the director track") << "director destination";
     QTest::newRow("delete the director track once the analysis is gone") << "gone track";
     QTest::newRow("delete a block once the analysis is gone") << "gone block";
 }
@@ -14594,6 +14595,15 @@ void UpstreamIntegration_Test::songDirectorItemsMixed()
         const int tracks = f.show->tracks().count();
         manager->addItems(manager->contextItem(), -1, 40000, QVariantList() << block->functionID());
         QCOMPARE(f.show->tracks().count(), tracks);
+    }
+    else if (operation == "director destination")
+    {
+        const quint32 start = sceneItem->startTime();
+        QVERIFY(!manager->checkAndMoveItem(sceneItem, 1, directorIndex, 40000));
+        QVERIFY(!manager->moveShowItemToTrack(sceneItem, directorIndex));
+        QCOMPARE(sceneItem->startTime(), start);
+        QVERIFY(sceneTrack->showFunctions().contains(sceneItem));
+        QVERIFY(!directorTrack->showFunctions().contains(sceneItem));
     }
     else
     {

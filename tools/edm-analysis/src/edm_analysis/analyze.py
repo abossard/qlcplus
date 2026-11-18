@@ -107,15 +107,22 @@ def _extract_features(path, sha, on_stage):
 
 def analyze_track(path, out_dir, force=False, on_stage=lambda stage: None):
     """Returns (document, what was reused: "all", "features" or None)."""
-    path = Path(path)
+    path = Path(path).resolve()
     out_dir = Path(out_dir)
     on_stage("hash")
     sha = track_id(path)
     out = out_dir / f"{sha[:16]}.json"
     doc = json.loads(out.read_text()) if out.exists() and not force else None
+    moved = doc and doc["track"]["path"] != str(path)
+    if moved:
+        bpm, key = filename_tags(path)
+        doc["track"].update(path=str(path), title=path.stem, filename_bpm=bpm, filename_key=key)
     if doc and doc["analyzer"].get("features") == FEATURES_VERSION and doc["analyzer"].get("structure") == STRUCTURE_VERSION:
-        if not (out_dir / "final" / out.name).exists():
+        if moved or not (out_dir / "final" / out.name).exists():
             write_final(out_dir, doc)
+        if moved:
+            preserve_analysis(out, out_dir)
+            write_atomic(out, json.dumps(doc, separators=(",", ":")))
         return doc, "all"
     reused = "features" if doc and doc["analyzer"].get("features") == FEATURES_VERSION else None
     if not reused:

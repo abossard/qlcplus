@@ -77,7 +77,8 @@ int ShowClipEditor::startExtensionLimit(ShowFunction *sf) const
     if (trimsInPoint(sf) == false)
         return -1;
 
-    const quint32 limit = played(sf).startExtensionLimit();
+    const double scale = Show::songUnitsPerClipUnit(m_doc->function(sf->functionID()), m_manager->bpmNumber());
+    const quint32 limit = played(sf).startExtensionLimit(scale);
     return limit > quint32(INT_MAX) ? -1 : int(limit);
 }
 
@@ -94,9 +95,10 @@ bool ShowClipEditor::trimStart(ShowFunction *sf, int startTime)
     const qint64 oldStart = sf->startTime();
     const qint64 end = oldStart + sf->duration();
     const ShowClipAutomation before = played(sf);
+    const double scale = Show::songUnitsPerClipUnit(m_doc->function(sf->functionID()), m_manager->bpmNumber());
     qint64 start = qMax(qint64(0), qint64(startTime));
     if (rebases)
-        start = qMax(start, oldStart - qint64(before.startExtensionLimit()));
+        start = qMax(start, oldStart - qint64(before.startExtensionLimit(scale)));
     if (start >= end)
         return false;
     if (start == oldStart)
@@ -109,7 +111,7 @@ bool ShowClipEditor::trimStart(ShowFunction *sf, int startTime)
     sf->setStartTime(quint32(start));
     sf->setDuration(quint32(end - start));
     if (rebases)
-        sf->setClipAutomation(before.withStartMoved(start - oldStart));
+        sf->setClipAutomation(before.withStartMoved(start - oldStart, scale));
     Tardis::instance()->enqueueAction(Tardis::ShowManagerItemSetClip, sf->id(), undo, clipXml(show->id(), sf));
 
     return true;

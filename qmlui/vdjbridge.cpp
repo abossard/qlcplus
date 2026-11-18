@@ -224,10 +224,10 @@ void VdjBridge::onTelemetryClientDisconnected()
 {
     qDebug() << "[VdjBridge] Telemetry client disconnected";
     InputOutputMap *iom = m_doc ? m_doc->inputOutputMap() : nullptr;
-    if (iom && iom->beatGeneratorType() == InputOutputMap::Plugin)
+    if (iom)
     {
         // the last song tempo outlives the lock, the paused crawl does not
-        if (m_lastSongBpm > 0)
+        if (iom->beatGeneratorType() == InputOutputMap::Plugin && m_lastSongBpm > 0)
             iom->setExternalBpm(m_lastSongBpm);
         iom->clearExternalBpm();
     }

@@ -175,6 +175,11 @@ private slots:
     // follows the clip's clock, level and dominance
     void nestedShowFollowsThePositionMap_data();
     void nestedShowFollowsThePositionMap();
+    void externalClipsWaitForTheFirstSample();
+    void beatClipDrivesNestedShowInMilliseconds();
+    void defaultNestedDurationPlaysLateCommands();
+    void sharedNestedShowRestoresAfterLastParent_data();
+    void sharedNestedShowRestoresAfterLastParent();
     void nestedShowGetsItsSettingsBack_data();
     void nestedShowGetsItsSettingsBack();
     void parentSeekOnlyMovesTheNestedClock_data();

@@ -104,6 +104,7 @@ private:
         quint32 startMs = 0;                    //!< on the set's timeline
         quint32 endMs = 0;                      //!< clip time of the last view
         bool playing = true;
+        bool waiting = false;                   //!< the runner still owns the published clip
         QVector<ShowClipSegment> segments;      //!< closed play runs and pauses
         QVector<ShowClipPositionSample> run;    //!< the play run under way
         QVector<ShowClipLevelSample> levels;

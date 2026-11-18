@@ -68,17 +68,23 @@ public:
 
     /** Start f, not running for this Show yet, for clip at its clip time at,
      *  in the clock units of f */
-    void start(const ShowFunction *clip, Function *f, quint32 at, const QMap<quint32, qreal> &trackIntensities);
+    void start(const ShowFunction *clip, Function *f, quint32 at, int bpm, const QMap<quint32, qreal> &trackIntensities);
 
     /** clip, also active, plays f too; one this Show plays without a clip
      *  driving it is taken over */
     void join(const ShowFunction *clip, Function *f);
 
+    /** A command restarting a Show this clip just stopped takes over its last position. */
+    void startFromCommand(Function *f);
+
+    /** The child still needs its clip's final sample or a command acknowledgement. */
+    bool awaitingFinalCommands(Function *f, quint32 clipEnd, int bpm) const;
+
     /** Each tick: what is still running takes the clock, level and dominance
      *  of its driving clip at the Show's clocks; a nested Show somebody else
      *  stopped gets its settings back, one that ended itself keeps them to
      *  its clip's end */
-    void drive(quint32 elapsedTime, quint32 elapsedBeats, const QMap<quint32, qreal> &trackIntensities,
+    void drive(quint32 elapsedTime, quint32 elapsedBeats, int bpm, const QMap<quint32, qreal> &trackIntensities,
                const QList<QPair<Function *, quint32>> &running);
 
     /** A track intensity changed: the levels follow at once, paused too */
@@ -112,15 +118,6 @@ private:
         quint32 trackId = 0;
     };
 
-    /** What a nested Show had before its clip took it */
-    struct Settings
-    {
-        int syncSource = 0;
-        bool audioSuppressed = false;
-        qreal masterIntensity = 1.0;
-        bool dominant = true;
-    };
-
     struct Drive
     {
         Function *function = nullptr;
@@ -136,9 +133,6 @@ private:
         /** The last tick found this Show playing it */
         bool owned = true;
         Show *nested = nullptr;
-        Settings saved;
-        /** The clip suppressed the nested Show's Audio */
-        bool audioSuppressed = false;
     };
 
     FunctionParent parent() const;

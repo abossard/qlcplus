@@ -38,11 +38,13 @@
 #if defined(Q_OS_IOS)
 #include <QtPlugin>
 Q_IMPORT_PLUGIN(ArtNetPlugin)
+Q_IMPORT_PLUGIN(DDPPlugin)
 Q_IMPORT_PLUGIN(E131Plugin)
 Q_IMPORT_PLUGIN(Loopback)
 Q_IMPORT_PLUGIN(MidiPlugin)
 Q_IMPORT_PLUGIN(OSCPlugin)
 Q_IMPORT_PLUGIN(OS2LPlugin)
+Q_IMPORT_PLUGIN(VdjBridgePlugin)
 #endif
 
 QFile logFile;

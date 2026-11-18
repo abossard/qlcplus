@@ -70,12 +70,16 @@ std::optional<std::string> workspaceFileGuard(const QString &localPath)
                      {"path", localPath.toStdString()}}).dump();
     }
 
-    while (!reader->atEnd())
+    bool workspaceDtd = false;
+    while (!reader->atEnd() && !reader->isStartElement())
     {
         if (reader->readNext() == QXmlStreamReader::DTD)
-            break;
+            workspaceDtd = reader->dtdName() == kWorkspaceDtd;
     }
-    const bool isWorkspace = !reader->hasError() && reader->dtdName() == kWorkspaceDtd;
+    const bool workspaceRoot = reader->isStartElement() && reader->name() == kWorkspaceDtd;
+    while (workspaceDtd && workspaceRoot && !reader->atEnd())
+        reader->readNext();
+    const bool isWorkspace = workspaceDtd && workspaceRoot && !reader->hasError();
     QLCFile::releaseXMLReader(reader);
 
     if (!isWorkspace)

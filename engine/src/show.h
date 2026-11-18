@@ -34,6 +34,7 @@
 
 class QXmlStreamReader;
 class ShowRunner;
+class ShowClipDriver;
 
 /** @addtogroup engine_functions Functions
  * @{
@@ -81,6 +82,12 @@ public:
 
     /** @reimp */
     quint32 totalDuration() override;
+
+    /** Duration in clip units when placed on a parent timeline at this BPM. */
+    quint32 durationAtBpm(int parentBpm) const;
+
+    /** A nested Show's position is in milliseconds, even on a beat clip. */
+    static double songUnitsPerClipUnit(const Function *function, int bpm);
 
     /*********************************************************************
      * Copying
@@ -219,6 +226,17 @@ public:
 private:
     /** Timer thread: its runner ends it at ms */
     void setFinishedAt(quint32 ms);
+
+    friend class ShowClipDriver;
+    /** Only the master timer's clip drivers acquire and release these settings. */
+    void acquireClipDriver(const ShowClipDriver *driver, bool suppressAudio);
+    void releaseClipDriver(const ShowClipDriver *driver);
+    QSet<const ShowClipDriver *> m_clipDrivers;
+    QSet<const ShowClipDriver *> m_audioSuppressingDrivers;
+    int m_syncBeforeClips = 0;
+    bool m_audioSuppressedBeforeClips = false;
+    qreal m_intensityBeforeClips = 1.0;
+    bool m_dominantBeforeClips = true;
 
     std::atomic_bool m_performDriven{false};
     std::atomic_bool m_clipPaused{false};

@@ -5,6 +5,8 @@ add_executable(${module_name} WIN32
     ${module_name}.cpp ${module_name}.h
     ../iopluginstub/iopluginstub.cpp
 )
+add_dependencies(${module_name} loopback)
+target_compile_definitions(${module_name} PRIVATE TEST_LOOPBACK_PLUGIN="$<TARGET_FILE:loopback>")
 target_include_directories(${module_name} PRIVATE
     ../../../plugins/interfaces
     ../../src

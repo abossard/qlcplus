@@ -108,14 +108,12 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
             if (f->tempoType() == Function::Time)
             {
                 m_timeFunctions.append(sfunc);
-                if (sfunc->startTime() + sfunc->duration(m_doc) > m_totalRunTime)
-                    m_totalRunTime = sfunc->startTime() + sfunc->duration(m_doc);
+                m_totalRunTime = qMax(m_totalRunTime, sfunc->endTime(m_doc, m_show->timeDivisionBPM()));
             }
             else
             {
                 m_beatFunctions.append(sfunc);
-                if (sfunc->startTime() + sfunc->duration(m_doc) > m_totalRunBeats)
-                    m_totalRunBeats = sfunc->startTime() + sfunc->duration(m_doc);
+                m_totalRunBeats = qMax(m_totalRunBeats, sfunc->endTime(m_doc, m_show->timeDivisionBPM()));
             }
         }
 
@@ -129,11 +127,11 @@ ShowRunner::ShowRunner(const Doc* doc, quint32 showID, quint32 startTime)
 #if 1
     qDebug() << "Ordered list of ShowFunctions (time):";
     foreach (ShowFunction *sfunc, m_timeFunctions)
-        qDebug() << "[Show] Function ID:" << sfunc->functionID() << "start time:" << sfunc->startTime() << "duration:" << sfunc->duration(m_doc);
+        qDebug() << "[Show] Function ID:" << sfunc->functionID() << "start time:" << sfunc->startTime() << "duration:" << sfunc->duration(m_doc, m_show->timeDivisionBPM());
 
     qDebug() << "Ordered list of ShowFunctions (beats):";
     foreach (ShowFunction *sfunc, m_beatFunctions)
-        qDebug() << "[Show] Function ID:" << sfunc->functionID() << "start time:" << sfunc->startTime() << "duration:" << sfunc->duration(m_doc);
+        qDebug() << "[Show] Function ID:" << sfunc->functionID() << "start time:" << sfunc->startTime() << "duration:" << sfunc->duration(m_doc, m_show->timeDivisionBPM());
 #endif
     m_runningQueue.clear();
 
@@ -217,7 +215,7 @@ const ShowFunction *ShowRunner::activeClip(const Function *f, quint32 at) const
 {
     const ShowFunction *active = nullptr;
     for (const ShowFunction *sf : f->tempoType() == Function::Time ? m_timeFunctions : m_beatFunctions)
-        if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->startTime() + sf->duration(m_doc))
+        if (sf->functionID() == f->id() && sf->startTime() <= at && at < sf->endTime(m_doc, m_show->timeDivisionBPM()))
             active = sf;
     return active;
 }
@@ -246,13 +244,13 @@ void ShowRunner::startShowFunction(ShowFunction *sf, Function *f, quint32 startT
     // and it will be stopped when the last of its items ends
     if (isQueued(f) == false)
     {
-        m_clips.start(sf, f, startTime, m_intensityMap);
+        m_clips.start(sf, f, startTime, beatsBpm(), m_intensityMap);
         noteEngineStart(f);
     }
     else
         m_clips.join(sf, f);
 
-    m_runningQueue.append(QPair<Function *, quint32>(f, sf->startTime() + sf->duration(m_doc)));
+    m_runningQueue.append(QPair<Function *, quint32>(f, sf->endTime(m_doc, m_show->timeDivisionBPM())));
 }
 
 void ShowRunner::write(MasterTimer *timer)
@@ -283,6 +281,8 @@ void ShowRunner::write(MasterTimer *timer)
     {
         // the anchor first: the value read after it is at least that new
         const quint64 anchor = m_externalAnchor.load(std::memory_order_acquire);
+        if (m_externalBaselinePending && anchor == NoSample)
+            return;
         quint32 newTime = m_externalElapsedTime.load(std::memory_order_relaxed);
 
         // Backward seek detection: if external time moved backward,
@@ -297,7 +297,7 @@ void ShowRunner::write(MasterTimer *timer)
         beatSynced = true;
 
         // the earliest sample since Play, or where the clock went back to since
-        if (m_externalBaselinePending && anchor != NoSample)
+        if (m_externalBaselinePending)
             beginTraversal(qMin(quint32(anchor), newTime));
     }
 
@@ -363,6 +363,7 @@ void ShowRunner::write(MasterTimer *timer)
     // It is done in reverse order for two reasons:
     // 1- m_runningQueue is not ordered by stop time
     // 2- to avoid messing up with indices when an entry is removed
+    bool waitingForNestedCommands = false;
     for (int i = m_runningQueue.count() - 1; i >= 0; i--)
     {
         Function *func = m_runningQueue.at(i).first;
@@ -381,8 +382,14 @@ void ShowRunner::write(MasterTimer *timer)
                 const ShowFunction *next = ShowClipDriver::keepsThroughSeek(func) ? activeClip(func, currTime) : nullptr;
                 if (next != nullptr && func->hasSource(functionParent()))
                 {
-                    m_runningQueue.append(QPair<Function *, quint32>(func, next->startTime() + next->duration(m_doc)));
+                    m_runningQueue.append(QPair<Function *, quint32>(func, next->endTime(m_doc, m_show->timeDivisionBPM())));
                     m_clips.join(next, func);
+                    continue;
+                }
+                if (m_clips.awaitingFinalCommands(func, stopTime, beatsBpm()))
+                {
+                    m_runningQueue.append(qMakePair(func, stopTime));
+                    waitingForNestedCommands = true;
                     continue;
                 }
                 func->stop(functionParent());
@@ -419,7 +426,7 @@ void ShowRunner::write(MasterTimer *timer)
         quint32 funcStartTime = sf->startTime();
         quint32 functionTimeOffset = 0;
         Function *f = m_doc->function(sf->functionID());
-        const quint32 functionStopTime = sf->startTime() + sf->duration(m_doc);
+        const quint32 functionStopTime = sf->endTime(m_doc, m_show->timeDivisionBPM());
         if (f == nullptr || functionStopTime <= m_elapsedTime)
         {
             m_deferredTimeAudioFunctionIds.remove(sf->id());
@@ -473,7 +480,7 @@ void ShowRunner::write(MasterTimer *timer)
         quint32 funcStartTime = sf->startTime();
         quint32 functionTimeOffset = 0;
         Function *f = m_doc->function(sf->functionID());
-        const quint32 functionStopTime = sf->startTime() + sf->duration(m_doc);
+        const quint32 functionStopTime = sf->endTime(m_doc, m_show->timeDivisionBPM());
         if (f == nullptr || functionStopTime <= m_elapsedBeats)
         {
             m_deferredBeatAudioFunctionIds.remove(sf->id());
@@ -513,7 +520,7 @@ void ShowRunner::write(MasterTimer *timer)
     }
 
     m_seekRestartPending = seekRestartPending;
-    m_clips.drive(m_elapsedTime, m_elapsedBeats, m_intensityMap, m_runningQueue);
+    m_clips.drive(m_elapsedTime, m_elapsedBeats, beatsBpm(), m_intensityMap, m_runningQueue);
 
     // Phase 3. Apply the commands this position is due for. They run after the
     // clip phases, so for the same millisecond a command is the newer intent.
@@ -531,8 +538,7 @@ void ShowRunner::write(MasterTimer *timer)
     // An authored command extent and an armed recorder extend that end.
     // crossed commands still owed, a VC batch still being applied, or a
     // jump's Start/Stop still settling hold the end
-    // an external clock ends nothing before this Play's first sample, as processCommands waits for it
-    bool timeDone = !m_externalBaselinePending && m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent() &&
+    bool timeDone = !waitingForNestedCommands && m_elapsedTime >= m_totalRunTime && m_elapsedTime >= commandExtent() &&
                     m_commandRemainder.isEmpty() && m_heldControlBatch == 0 &&
                     m_settlingFunction == ShowCommand::InvalidId;
     bool beatsDone = m_beatFunctions.isEmpty() ||
@@ -640,7 +646,7 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
         if (active != nullptr && (f->type() == Function::SceneType || ShowClipDriver::keepsThroughSeek(f)) &&
             f->hasSource(functionParent()))
         {
-            m_runningQueue[i].second = active->startTime() + active->duration(m_doc);
+            m_runningQueue[i].second = active->endTime(m_doc, m_show->timeDivisionBPM());
             m_clips.join(active, f);
             continue;
         }
@@ -662,7 +668,7 @@ void ShowRunner::seekTo(quint32 newTime, bool forward)
     while (m_currentTimeFunctionIndex < m_timeFunctions.count())
     {
         ShowFunction *sf = m_timeFunctions.at(m_currentTimeFunctionIndex);
-        if (sf->startTime() + sf->duration(m_doc) <= newTime)
+        if (sf->endTime(m_doc, m_show->timeDivisionBPM()) <= newTime)
             m_currentTimeFunctionIndex++;
         else
             break;
@@ -967,7 +973,7 @@ void ShowRunner::applyCommandEffect(const ShowCommand &cmd)
             if (commandTargetActive(f) == false)
                 prepareCommandStart(f);
 
-            f->start(m_doc->masterTimer(), functionParent());
+            m_clips.startFromCommand(f);
             noteEngineStart(f);
             m_commandOwnedFunctions.insert(cmd.functionId);
             m_commandStartedThisTick.insert(cmd.functionId);
@@ -1210,7 +1216,7 @@ void ShowRunner::rollBackLegacyEffects(quint32 time)
             if (start)
             {
                 prepareCommandStart(f);
-                f->start(m_doc->masterTimer(), functionParent());
+                m_clips.startFromCommand(f);
                 noteEngineStart(f);
                 m_commandOwnedFunctions.insert(effect.functionId);
                 m_commandStartedThisTick.insert(effect.functionId);
@@ -1248,7 +1254,7 @@ void ShowRunner::stopCommandOwnedFunctions()
 
 quint32 ShowRunner::commandExtent() const
 {
-    return m_commandTrack.extent();
+    return qMax(m_commandTrack.extent(), m_commandTrack.lastCommandTime());
 }
 
 void ShowRunner::syncPerformAudioSuppression()
@@ -1296,7 +1302,7 @@ void ShowRunner::markRunningAudioFunctionsDeferred(const QList<ShowFunction *> &
             continue;
 
         const quint32 startTime = sf->startTime();
-        const quint32 stopTime = startTime + sf->duration(m_doc);
+        const quint32 stopTime = sf->endTime(m_doc, m_show->timeDivisionBPM());
         if (elapsed < startTime || elapsed >= stopTime)
             continue;
 
@@ -1321,7 +1327,7 @@ void ShowRunner::startDeferredAudioFunctions(const QList<ShowFunction *> &functi
             continue;
 
         const quint32 startTime = sf->startTime();
-        const quint32 stopTime = startTime + sf->duration(m_doc);
+        const quint32 stopTime = sf->endTime(m_doc, m_show->timeDivisionBPM());
         if (stopTime <= elapsed)
         {
             deferred.remove(sf->id());

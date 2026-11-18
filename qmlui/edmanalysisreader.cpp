@@ -31,6 +31,22 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <limits>
+
+EdmAudioClip::EdmAudioClip(const Doc *doc, const ShowFunction *clip)
+{
+    sourceStart = clip->clipAutomation().inPoint();
+    offset = qint64(clip->startTime()) - sourceStart;
+    const quint32 duration = clip->duration(doc);
+    sourceEnd = duration ? sourceStart + duration : std::numeric_limits<quint32>::max();
+}
+
+bool EdmAudioClip::intersect(double &start, double &end) const
+{
+    start = qMax(start, double(sourceStart));
+    end = qMin(end, double(sourceEnd));
+    return start < end;
+}
 
 EdmAnalysisReader::EdmAnalysisReader(const QString &analysisDir)
     : m_dir(analysisDir)
@@ -71,13 +87,18 @@ QVariantList EdmAnalysisReader::showSections(Doc *doc, Show *show)
     if (clip == nullptr)
         return QVariantList();
 
-    QVariantList list = sections(firstAudioFile(doc, show));
-    for (QVariant &value : list)
+    const EdmAudioClip timing(doc, clip);
+    QVariantList list;
+    for (const QVariant &value : sections(firstAudioFile(doc, show)))
     {
         QVariantMap map = value.toMap();
-        map["startMs"] = map.value("startMs").toDouble() + clip->startTime();
-        map["endMs"] = map.value("endMs").toDouble() + clip->startTime();
-        value = map;
+        double start = map.value("startMs").toDouble(), end = map.value("endMs").toDouble();
+        if (timing.intersect(start, end))
+        {
+            map["startMs"] = start + timing.offset;
+            map["endMs"] = end + timing.offset;
+            list.append(map);
+        }
     }
     return list;
 }

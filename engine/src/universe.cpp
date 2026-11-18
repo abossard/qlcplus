@@ -581,6 +581,12 @@ const QByteArray Universe::preGMValues() const
     return *m_preGMValues;
 }
 
+QByteArray Universe::publishedPreGMValues()
+{
+    QMutexLocker locker(&m_outputMutex);
+    return m_lastPublishedSource.preGM;
+}
+
 uchar Universe::preGMValue(int address) const
 {
     if (address < 0 || address >= m_preGMValues->size())

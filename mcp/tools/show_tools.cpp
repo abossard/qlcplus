@@ -514,7 +514,7 @@ void registerShowTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge *vcB
                 const double scale = millisecondsPerUnit(function, show);
                 if (scale == 0)
                 { results.push_back({{"error", "beat items require a positive show BPM"}}); continue; }
-                quint32 duration = qRound64(function->totalDuration() * scale);
+                quint32 duration = qRound64(ShowFunction::defaultDuration(function, show->timeDivisionBPM()) * scale);
                 if (item.contains("duration"))
                 {
                     if (!item.at("duration").is_number_integer() || item.at("duration").get<int>() < 1)

@@ -48,6 +48,7 @@ export default function DmxView() {
   const loading = useDmxStore(s => s.loading);
   const error = useDmxStore(s => s.error);
   const loadFixtures = useDmxStore(s => s.loadFixtures);
+  const clearFixtures = useDmxStore(s => s.clearFixtures);
   const attachWS = useDmxStore(s => s.attachWS);
   const subscribeFixtures = useDmxStore(s => s.subscribeFixtures);
   const unsubscribeFixtures = useDmxStore(s => s.unsubscribeFixtures);
@@ -57,14 +58,14 @@ export default function DmxView() {
   const [collapsedUniverses, setCollapsedUniverses] = useState<Set<number>>(() => loadCollapsed());
 
   useEffect(() => {
-    void loadFixtures();
-  }, [loadFixtures]);
-
-  useEffect(() => {
     if (!connected) return;
     const detach = attachWS();
-    return () => detach();
-  }, [attachWS, connected]);
+    void loadFixtures();
+    return () => {
+      detach();
+      clearFixtures();
+    };
+  }, [attachWS, clearFixtures, connected, loadFixtures]);
 
   useEffect(() => {
     const ids = Array.from(fixtures.keys());
@@ -115,6 +116,7 @@ export default function DmxView() {
       });
   }, [fixtures, filter, modelFilter]);
 
+  if (!connected) return <div className="dmx-view dmx-view-empty">Waiting for connection…</div>;
   if (loading && sorted.length === 0) {
     return <div className="dmx-view dmx-view-empty">Loading fixtures…</div>;
   }

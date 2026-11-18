@@ -48,6 +48,7 @@ private slots:
     void startMovedKeepsShowTimes();
     void startExtensionLimit_data();
     void startExtensionLimit();
+    void beatClipTrimPreservesSongPositions();
     void startMovedStaysValid_data();
     void startMovedStaysValid();
 

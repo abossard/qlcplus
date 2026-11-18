@@ -763,6 +763,87 @@ void SongDirector_Test::followAnalysis()
     QCOMPARE(changed.count(), emitted);
 }
 
+void SongDirector_Test::movedAudioKeepsAuthoredLooks()
+{
+    SongShow song;
+    song.director.setAnalysisDir(song.dir.path());
+    song.director.sync(song.reader);
+    Track *track = song.director.track(song.show);
+    const quint32 drop = track->showFunctions().at(2)->functionID();
+    auto *collection = qobject_cast<Collection *>(song.doc.function(drop));
+    auto *look = new Scene(&song.doc);
+    QVERIFY(song.doc.addFunction(look));
+    collection->addFunction(look->id());
+    EdmAnalysisReader::firstAudioClip(&song.doc, song.show)->setStartTime(90000);
+    QTRY_COMPARE(track->showFunctions().at(2)->startTime(), 107000u);
+    QCOMPARE(track->showFunctions().count(), 4);
+    QCOMPARE(track->showFunctions().at(2)->functionID(), drop);
+    QCOMPARE(collection->functions(), QList<quint32>{look->id()});
+}
+
+void SongDirector_Test::trimmedAudioUsesVisibleSourceSections()
+{
+    SongShow song(30000);
+    ShowFunction *clip = EdmAnalysisReader::firstAudioClip(&song.doc, song.show);
+    clip->setClipAutomation(ShowClipAutomation().withStartMoved(17000));
+    clip->setDuration(16000);
+    QVERIFY(song.director.createBlocks(song.show, song.reader));
+    Track *track = song.director.track(song.show);
+    QCOMPARE(items(&song.doc, track), QStringList{"drop 1 @30000 +16000"});
+    QCOMPARE(song.reader.showSections(&song.doc, song.show).first().toMap().value("startMs").toDouble(), 30000.0);
+    SectionAction split;
+    split.type = SectionAction::Split;
+    split.section = 0;
+    split.timeMs = 38000;
+    QString error;
+    QVERIFY2(song.director.editSections(song.show, split, song.reader, &error), qPrintable(error));
+    QCOMPARE(items(&song.doc, track), (QStringList{"drop 1 @30000 +8000", "drop 2 @38000 +8000"}));
+    QCOMPARE(song.director.sectionEdits(song.show).pins.first().startMs, 17000.0);
+    QCOMPARE(song.director.sectionEdits(song.show).pins.first().endMs, 25000.0);
+}
+
+void SongDirector_Test::reusedCollectionIdIsIndependent()
+{
+    SongShow song;
+    song.director.sync(song.reader);
+    const quint32 id = song.director.blocks(song.show).at(1).functionId;
+    QVERIFY(song.doc.deleteFunction(id));
+    auto *replacement = new Scene(&song.doc);
+    QVERIFY(song.doc.addFunction(replacement, id));
+    song.analyse(finalJson({section("intro", 0, 9000), section("drop", 9000, 41000)}));
+    song.director.sync(song.reader);
+    QCOMPARE(song.doc.function(id), replacement);
+    QCOMPARE(song.director.blocks(song.show).count(), 2);
+}
+
+void SongDirector_Test::extendingTrimRestoresAuthoredLooks()
+{
+    SongShow song;
+    song.director.sync(song.reader);
+    Track *track = song.director.track(song.show);
+    const quint32 drop = track->showFunctions().at(2)->functionID();
+    auto *look = new Scene(&song.doc);
+    QVERIFY(song.doc.addFunction(look));
+    qobject_cast<Collection *>(song.doc.function(drop))->addFunction(look->id());
+    auto *audio = EdmAnalysisReader::firstAudioClip(&song.doc, song.show);
+    audio->setDuration(10000);
+    song.director.sync(song.reader);
+    QCOMPARE(items(&song.doc, track), (QStringList{"intro 1 @0 +9000", "buildup 1 @9000 +1000"}));
+    QCOMPARE(song.director.blocks(song.show).count(), 2);
+
+    QString xml;
+    QXmlStreamWriter writer(&xml);
+    song.director.saveXML(&writer);
+    QXmlStreamReader reader(xml);
+    QVERIFY(reader.readNextStartElement());
+    QVERIFY(song.director.loadXML(reader));
+    audio->setDuration(41000);
+    song.director.sync(song.reader);
+    QCOMPARE(song.director.blocks(song.show).at(2).functionId, drop);
+    QCOMPARE(qobject_cast<Collection *>(song.doc.function(drop))->functions(), QList<quint32>{look->id()});
+    QCOMPARE(track->showFunctions().count(), 4);
+}
+
 void SongDirector_Test::removedBlockStopsFirst_data()
 {
     QTest::addColumn<bool>("running");   // the block's Collection started by hand before the analysis changed

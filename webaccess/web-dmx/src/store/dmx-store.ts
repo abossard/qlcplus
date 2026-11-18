@@ -25,14 +25,16 @@ interface DmxStore {
   plans: Map<number, ControlPlan[]>;
   loading: boolean;
   error: string | null;
+  revision: string | null;
 
   liveValues: Map<number, Uint8Array>;
 
-  pendingWrites: Map<string, number>; // "uni:addr" → 0..255
+  pendingWrites: Map<string, { fixtureID: number; channel: number; value: number }>;
   activeChannel: ActiveChannel | null;
   heldChannels: Set<string>; // "uni:addr"
 
   loadFixtures: () => Promise<void>;
+  clearFixtures: () => void;
   setChannel: (fxId: number, chIndex: number, value: number) => void;
   setChannels: (fxId: number, values: [number, number][]) => void;
   resetChannel: (fxId: number, chIndex: number) => void;
@@ -83,6 +85,7 @@ function setLiveByte(
 }
 
 let rafHandle: number | null = null;
+let loadGeneration = 0;
 
 function scheduleFlush(get: () => DmxStore) {
   if (rafHandle != null) return;
@@ -97,6 +100,7 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
   plans: new Map(),
   loading: false,
   error: null,
+  revision: null,
 
   liveValues: new Map(),
 
@@ -104,10 +108,21 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
   activeChannel: null,
   heldChannels: new Set(),
 
+  clearFixtures() {
+    ++loadGeneration;
+    set({
+      fixtures: new Map(), plans: new Map(), liveValues: new Map(), revision: null,
+      pendingWrites: new Map(), heldChannels: new Set(), activeChannel: null, loading: false, error: null,
+    });
+  },
+
   async loadFixtures() {
-    set({ loading: true, error: null });
+    get().clearFixtures();
+    const generation = loadGeneration;
+    set({ loading: true });
     try {
-      const fixtures = await fetchFixturesWithChannels();
+      const { fixtures, revision } = await fetchFixturesWithChannels();
+      if (generation !== loadGeneration) return;
       const fxMap = new Map<number, FixtureInfo>();
       const planMap = new Map<number, ControlPlan[]>();
       const liveMap = new Map<number, Uint8Array>();
@@ -117,6 +132,7 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
         liveMap.set(fx.id, new Uint8Array(fx.channels));
       }
       set({
+        revision,
         fixtures: fxMap,
         plans: planMap,
         liveValues: liveMap,
@@ -124,6 +140,7 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
         error: null,
       });
     } catch (err) {
+      if (generation !== loadGeneration) return;
       set({
         loading: false,
         error: err instanceof Error ? err.message : String(err),
@@ -132,36 +149,23 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
   },
 
   setChannel(fxId, chIndex, value) {
-    const state = get();
-    const fx = state.fixtures.get(fxId);
-    if (!fx) return;
-    const v = clamp255(value);
-    const absAddr = fx.address + chIndex;
-    const key = addrKey(fx.universe, absAddr);
-
-    const liveValues = setLiveByte(state.liveValues, fxId, chIndex, v, fx.channels);
-    const pendingWrites = new Map(state.pendingWrites);
-    pendingWrites.set(key, v);
-    const heldChannels = new Set(state.heldChannels);
-    heldChannels.add(key);
-
-    set({ liveValues, pendingWrites, heldChannels });
-    scheduleFlush(get);
+    get().setChannels(fxId, [[chIndex, value]]);
   },
 
   setChannels(fxId, values) {
     const state = get();
     const fx = state.fixtures.get(fxId);
-    if (!fx) return;
+    if (!fx || !state.revision || !useVCStore.getState().connected) return;
     let liveValues = state.liveValues;
     const pendingWrites = new Map(state.pendingWrites);
     const heldChannels = new Set(state.heldChannels);
     for (const [chIndex, raw] of values) {
+      if (!Number.isInteger(chIndex) || chIndex < 0 || chIndex >= fx.channels) continue;
       const v = clamp255(raw);
       const absAddr = fx.address + chIndex;
       const key = addrKey(fx.universe, absAddr);
       liveValues = setLiveByte(liveValues, fxId, chIndex, v, fx.channels);
-      pendingWrites.set(key, v);
+      pendingWrites.set(key, { fixtureID: fxId, channel: chIndex, value: v });
       heldChannels.add(key);
     }
     set({ liveValues, pendingWrites, heldChannels });
@@ -171,12 +175,11 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
   resetChannel(fxId, chIndex) {
     const state = get();
     const fx = state.fixtures.get(fxId);
-    if (!fx) return;
+    if (!fx || !state.revision || !useVCStore.getState().connected) return;
     const absAddr = fx.address + chIndex;
     const key = addrKey(fx.universe, absAddr);
     const ws = useVCStore.getState().wsClient;
-    // QLC+ sdResetChannel uses 1-based addresses.
-    ws?.send(`QLC+API|sdResetChannel|${fx.universe * 512 + absAddr + 1}`);
+    ws?.send(JSON.stringify({ cmd: 'DMX_RESET', revision: state.revision, fixtureID: fxId, channel: chIndex }));
     const heldChannels = new Set(state.heldChannels);
     heldChannels.delete(key);
     const pendingWrites = new Map(state.pendingWrites);
@@ -263,16 +266,10 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
   flush() {
     const state = get();
     if (state.pendingWrites.size === 0) return;
-    const ws = useVCStore.getState().wsClient;
-    for (const [key, value] of state.pendingWrites) {
-      const colon = key.indexOf(':');
-      if (colon < 0) continue;
-      const universe = parseInt(key.slice(0, colon), 10);
-      const addr = parseInt(key.slice(colon + 1), 10);
-      if (!Number.isFinite(universe) || !Number.isFinite(addr)) continue;
-      // QLC+ Simple Desk CH| protocol uses 1-based addresses.
-      ws?.send(`CH|${universe * 512 + addr + 1}|${value}`);
-    }
+    const { wsClient, connected } = useVCStore.getState();
+    if (connected && state.revision)
+      for (const write of state.pendingWrites.values())
+        wsClient?.send(JSON.stringify({ cmd: 'DMX_SET', revision: state.revision, ...write }));
     set({ pendingWrites: new Map() });
   },
 
@@ -280,6 +277,9 @@ export const useDmxStore = create<DmxStore>((set, get) => ({
     const ws = useVCStore.getState().wsClient;
     if (!ws) return () => {};
     return setupDmxWS(ws, {
+      onPatchChanged: revision => {
+        if (get().revision !== revision) void get().loadFixtures();
+      },
       onDmxState: (universe, fixtureID, address, values) =>
         get().applyDmxState(universe, fixtureID, address, values),
       onDmxDelta: (universe, changes) => get().applyDmxDelta(universe, changes),

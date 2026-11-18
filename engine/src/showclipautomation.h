@@ -111,10 +111,10 @@ public:
     /** Refused whole unless clipMs rises strictly */
     bool setDominance(const QVector<ShowClipDominance> &steps);
 
-    /** The song position at clip time t: songMs + (t - clipMs) x rate of the
-     *  last segment with clipMs <= t, the first one before it, never below 0.
-     *  t without segments. */
-    quint32 songPositionAt(quint32 clipMs) const;
+    /** Position on the song clock. Segment boundaries stay in clip units.
+     *  Scale elapsed clip units to song units before applying the segment rate
+     *  (a beat-based nested Show has beat boundaries and millisecond positions). */
+    quint32 songPositionAt(quint32 clipMs, double songUnitsPerClipUnit = 1.0) const;
 
     /** The segment playing at clip time t, as songPositionAt() finds it, is a deck pause */
     bool pausedAt(quint32 clipMs) const;
@@ -134,11 +134,11 @@ public:
      *  stay at their Show times. An extension continues the state at the
      *  old start, the song held at 0 until the first segment's line reaches
      *  it. A moved result with segments has its first one at 0. */
-    ShowClipAutomation withStartMoved(qint64 deltaMs) const;
+    ShowClipAutomation withStartMoved(qint64 deltaMs, double songUnitsPerClipUnit = 1.0) const;
 
     /** How far the clip start can move earlier before its song would start
      *  below 0: UINT_MAX while the start is paused, 0 without segments */
-    quint32 startExtensionLimit() const;
+    quint32 startExtensionLimit(double songUnitsPerClipUnit = 1.0) const;
 
     /**
      * Recorder compression. Each builder takes samples in rising clip time

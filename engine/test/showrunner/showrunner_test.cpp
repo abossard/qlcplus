@@ -5052,6 +5052,110 @@ void ShowRunner_Test::nestedShowFollowsThePositionMap()
     stopAndSettle(doc, n.set);
 }
 
+void ShowRunner_Test::externalClipsWaitForTheFirstSample()
+{
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    addClip(n.set, n.track, n.scene->id(), 0, 500);
+    Scene *later = makeScene(doc, makeFixture(doc, 1)->id(), 0, 100);
+    addClip(n.set, n.track, later->id(), 1000, 500);
+    n.set->setSyncSource(ShowRunner::External);
+    n.set->start(doc.masterTimer(), FunctionParent::master());
+    doc.masterTimer()->timerTick();
+    doc.masterTimer()->timerTick();
+    QVERIFY(n.set->isRunning());
+    QVERIFY(!n.scene->isRunning());
+    playExternal(doc, n.set, {1100});
+    QVERIFY(later->isRunning());
+    QVERIFY(!n.scene->isRunning());
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::beatClipDrivesNestedShowInMilliseconds()
+{
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    n.set->setTimeDivisionBPM(120);
+    n.song->setTempoType(Function::Beats);
+    n.song->setTimeDivisionBPM(90);
+    addClip(n.set, n.track, n.song->id(), 1000, 1000);
+    addClip(n.set, n.track, n.song->id(), 2000, 2000,
+            clipAutomation({clipSegment(0, 10000, 1.0), clipSegment(500, 20000, 1.5)}));
+    playExternal(doc, n.set, {750});
+    QCOMPARE(n.song->externalElapsedTime(), 250u);
+    playExternal(doc, n.set, {1125});
+    QCOMPARE(n.song->externalElapsedTime(), 10125u);
+    playExternal(doc, n.set, {1500});
+    QCOMPARE(n.song->externalElapsedTime(), 20375u);
+    stopAndSettle(doc, n.set);
+}
+
+void ShowRunner_Test::defaultNestedDurationPlaysLateCommands()
+{
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    auto *commandsOnly = new Show(&doc);
+    doc.addFunction(commandsOnly);
+    commandsOnly->setTempoType(Function::Beats);
+    commandsOnly->setTimeDivisionBPM(90);
+    n.set->setTimeDivisionBPM(120);
+    ShowCommandTrack commands;
+    QVERIFY(commands.insert(ShowCommand::start(1, 45000, n.scene->id())));
+    QVERIFY(commands.insert(ShowCommand::setButtonState(2, 60000, QUuid::createUuid(), true)));
+    QVERIFY(commandsOnly->setCommandTrack(commands));
+    commandsOnly->attachControlExecutor(true);
+    addClip(n.set, n.track, commandsOnly->id(), 0, 0);
+
+    playExternal(doc, n.set, {1000, 46000});
+    QVERIFY(n.set->isRunning());
+    QVERIFY(commandsOnly->isRunning());
+    QCOMPARE(commandsOnly->externalElapsedTime(), 46000u);
+    QVERIFY(n.scene->isRunning());
+
+    playExternal(doc, n.set, {60100});
+    const auto batches = commandsOnly->takeControlBatches();
+    QCOMPARE(batches.size(), 1);
+    QCOMPARE(batches.first().commands.last().id, 2u);
+    commandsOnly->acknowledgeControlBatch(batches.first().traversal, batches.first().seq);
+    for (int i = 0; i < 4; ++i)
+        doc.masterTimer()->timerTick();
+    QVERIFY(!n.set->isRunning());
+}
+
+void ShowRunner_Test::sharedNestedShowRestoresAfterLastParent_data()
+{
+    QTest::addColumn<bool>("firstLeaves");
+    QTest::newRow("first parent leaves first") << true;
+    QTest::newRow("second parent leaves first") << false;
+}
+
+void ShowRunner_Test::sharedNestedShowRestoresAfterLastParent()
+{
+    QFETCH(bool, firstLeaves);
+    Doc doc(nullptr);
+    NestedSet n = makeNestedSet(doc);
+    n.song->setMasterIntensity(0.8);
+    n.set->setNestedAudioSuppressed(true);
+    addClip(n.set, n.track, n.song->id(), 0, 10000);
+    auto *other = new Show(&doc);
+    doc.addFunction(other);
+    Track *track = new Track(Function::invalidId());
+    other->addTrack(track);
+    addClip(other, track, n.song->id(), 0, 10000);
+    playExternal(doc, n.set, {100});
+    playExternal(doc, other, {200});
+    stopAndSettle(doc, firstLeaves ? n.set : other);
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::External));
+    QCOMPARE(n.song->performAudioSuppressed(), !firstLeaves);
+    Show *remaining = firstLeaves ? other : n.set;
+    playExternal(doc, remaining, {800});
+    QCOMPARE(n.song->externalElapsedTime(), 800u);
+    stopAndSettle(doc, remaining);
+    QCOMPARE(n.song->syncSource(), int(ShowRunner::Autonomous));
+    QCOMPARE(n.song->masterIntensity(), 0.8);
+    QVERIFY(!n.song->performAudioSuppressed());
+}
+
 void ShowRunner_Test::nestedShowGetsItsSettingsBack_data()
 {
     QTest::addColumn<QString>("ending");

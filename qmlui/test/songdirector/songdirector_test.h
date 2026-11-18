@@ -34,6 +34,10 @@ private slots:
     void syncCreatesBlocksOnce();
     void followAnalysis_data();
     void followAnalysis();
+    void movedAudioKeepsAuthoredLooks();
+    void trimmedAudioUsesVisibleSourceSections();
+    void extendingTrimRestoresAuthoredLooks();
+    void reusedCollectionIdIsIndependent();
     void removedBlockStopsFirst_data();
     void removedBlockStopsFirst();
     void goneSectionContentJoins_data();

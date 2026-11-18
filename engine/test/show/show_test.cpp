@@ -226,6 +226,14 @@ void Show_Test::duration()
 
     QVERIFY(show.totalDuration() == 3000);
 
+    ShowCommandTrack commands;
+    QVERIFY(commands.setExtent(60000));
+    QVERIFY(show.setCommandTrack(commands));
+    QCOMPARE(show.totalDuration(), 60000u);
+    show.setTempoType(Function::Beats);
+    show.setTimeDivisionBPM(90);
+    QCOMPARE(show.totalDuration(), 90000u);
+    QCOMPARE(ShowFunction::defaultDuration(&show, 120), 120000u);
 }
 
 void Show_Test::load()

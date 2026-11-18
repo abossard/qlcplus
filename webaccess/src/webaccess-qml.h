@@ -143,11 +143,14 @@ protected:
     };
 
     void handleDmxJson(QHttpConnection *conn, const QJsonObject &msg);
+    void invalidateFixturePatch();
     void rebuildSubscribedAddrs(QHttpConnection *conn);
     void sendDmxSnapshot(QHttpConnection *conn, quint32 fixtureID);
     void cleanupDmxSubscription(QHttpConnection *conn);
 
     QHash<QHttpConnection *, DmxSubscription> m_dmxSubs;
+    QString m_patchRevision;
+    bool m_patchNotificationPending = false;
 };
 
 #endif // WEBACCESS_QML_H

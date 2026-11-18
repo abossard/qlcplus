@@ -57,6 +57,7 @@ private slots:
     void profileDirectories();
     void claimReleaseDumpReset();
     void blackout();
+    void blackoutWithLoopbackPassthrough();
     void freezeHoldsLastSubmittedLook();
     void freezeMomentaryHoldsAndReleases();
     void freezeMomentaryReleaseKeepsLatch();

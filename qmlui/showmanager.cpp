@@ -520,7 +520,10 @@ void ShowManager::setSongDirector(SongDirector *director)
     // new, moved or re-marked blocks of the open Show are drawn again
     connect(director, &SongDirector::blocksChanged, this, [this](quint32 showId) {
         if (m_currentShow != nullptr && m_currentShow->id() == showId)
+        {
+            updateVdjGrid();
             refreshView();
+        }
     });
     // section edits redraw the section band
     connect(director, &SongDirector::sectionsChanged, this, [this](quint32 showId) {
@@ -566,7 +569,7 @@ double ShowManager::snapSongTime(double timeMs, double afterMs, double beforeMs)
     const double bar = analysis.grid.barMs;
     if (analysis.valid == false || bar > 0 == false)
         return -1;
-    const double offset = clip->startTime();
+    const double offset = EdmAudioClip(m_doc, clip).offset;
     double at = snapToBar(analysis.grid, timeMs - offset) + offset;
     // step a bar at a time back between the bounds, as the edit's own snap would land
     while (at <= afterMs && at + bar < beforeMs)
@@ -996,16 +999,10 @@ void ShowManager::addItems(QQuickItem *parent, int trackIdx, int startTime, QVar
            of its own timeline division, so dropping a Function here must
            not silently override a tempo type the user already chose for
            it in its own editor */
-        if (func->tempoType() == Function::Time)
-        {
-            showFunc->setDuration(func->totalDuration() ? func->totalDuration() : 5000);
-        }
-        else
-        {
-            if (func->type() == Function::AudioType || func->type() == Function::VideoType)
-                func->setTotalDuration(func->duration());
-            showFunc->setDuration(func->totalDuration() ? func->totalDuration() : 4000);
-        }
+        if (funcIsBeats && (func->type() == Function::AudioType || func->type() == Function::VideoType))
+            func->setTotalDuration(func->duration());
+        const quint32 duration = ShowFunction::defaultDuration(func, bpmNumber());
+        showFunc->setDuration(duration ? duration : (funcIsBeats ? 4000 : 5000));
 
         /* startTime is the drop position translated by the caller using
            the Show's own ruler (Time or BPM), i.e. it is only guaranteed
@@ -1203,7 +1200,7 @@ bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int n
     if (m_readOnly)
         return false;
 
-    if (m_currentShow == nullptr || sf == nullptr || isSongBlockItem(sf))
+    if (m_currentShow == nullptr || sf == nullptr || isSongBlockItem(sf) || newTrackIdx < 0)
         return false;
 
     //qDebug() << Q_FUNC_INFO << "origIdx:" << originalTrackIdx << "newIdx:" << newTrackIdx << "time:" << newStartTime;
@@ -1229,6 +1226,8 @@ bool ShowManager::checkAndMoveItem(ShowFunction *sf, int originalTrackIdx, int n
     else
     {
         dstTrack = m_currentShow->tracks().at(newTrackIdx);
+        if (isSongDirectorTrack(dstTrack))
+            return false;
 
         bool overlapping = checkOverlapping(dstTrack, sf, newStartTime, sf->duration());
         if (overlapping == true)
@@ -1265,7 +1264,7 @@ bool ShowManager::moveShowItemToTrack(ShowFunction *sf, int trackIdx)
     Track *dstTrack = m_currentShow->tracks().at(trackIdx);
     Track *srcTrack = m_currentShow->getTrackFromShowFunctionID(sf->id());
 
-    if (dstTrack == nullptr || srcTrack == dstTrack)
+    if (dstTrack == nullptr || srcTrack == dstTrack || isSongDirectorTrack(dstTrack) || isSongBlockItem(sf))
         return false;
 
     if (srcTrack != nullptr)

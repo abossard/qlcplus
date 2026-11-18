@@ -69,6 +69,9 @@ public:
     void setDuration(quint32 duration);
     quint32 duration() const;
     quint32 duration(const Doc *doc) const;
+    quint32 duration(const Doc *doc, int parentBpm) const;
+    quint32 endTime(const Doc *doc, int parentBpm) const;
+    static quint32 defaultDuration(Function *function, int parentBpm);
 
     /** Get/Set the color of the item when rendered in the Show Manager */
     void setColor(QColor color);

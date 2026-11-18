@@ -734,6 +734,23 @@ void DjSetRecorder_Test::aWaitingClipChecksItsSongAgain_data()
     QTest::newRow("B's Show removed") << "remove-song=B";
 }
 
+void DjSetRecorder_Test::existingClipUpdatesWaitForPlayback()
+{
+    Rig rig;
+    rig.run("perform=on;d1.load=A;d1.play;+1000;wait");
+    ShowFunction *clip = rig.clip(1, 0);
+    QCOMPARE(clip->duration(), 1000u);
+    Show *set = rig.sets().first();
+    playExternal(rig.doc, set, 0);
+    rig.run("+500;wait");
+    QCOMPARE(clip->duration(), 1000u);
+    QVERIFY(rig.recorder.hasWaitingClips());
+    rig.run("perform=off");
+    stopAndSettle(rig.doc, set);
+    QTRY_COMPARE(clip->duration(), 1500u);
+    QVERIFY(!rig.recorder.hasWaitingClips());
+}
+
 void DjSetRecorder_Test::aWaitingClipChecksItsSongAgain()
 {
     QFETCH(QString, meanwhile);

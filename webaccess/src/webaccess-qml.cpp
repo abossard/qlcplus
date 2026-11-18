@@ -28,6 +28,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QTimer>
+#include <QUrlQuery>
+#include <QUuid>
 #include <qmath.h>
 
 #include "webaccess-qml.h"
@@ -439,6 +441,12 @@ WebAccessQml::WebAccessQml(Doc *doc, VirtualConsole *vcInstance, SimpleDesk *sdI
 {
     connect(m_doc, SIGNAL(loaded()),
             this, SLOT(slotDocLoaded()));
+    m_patchRevision = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    connect(m_doc, &Doc::clearing, this, &WebAccessQml::invalidateFixturePatch);
+    connect(m_doc, &Doc::loaded, this, &WebAccessQml::invalidateFixturePatch);
+    connect(m_doc, &Doc::fixtureAdded, this, &WebAccessQml::invalidateFixturePatch);
+    connect(m_doc, &Doc::fixtureRemoved, this, &WebAccessQml::invalidateFixturePatch);
+    connect(m_doc, &Doc::fixtureChanged, this, &WebAccessQml::invalidateFixturePatch);
 
     connect(m_doc->inputOutputMap(), SIGNAL(grandMasterValueChanged(uchar)),
             this, SLOT(slotGrandMasterValueChanged(uchar)));
@@ -499,6 +507,8 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
     else if (reqUrl == "/api/fixtures")
     {
         QByteArray json = buildFixturesJson();
+        resp->setHeader("X-QLC-Patch-Revision", m_patchRevision);
+        resp->setHeader("Cache-Control", "no-store");
         resp->setHeader("Content-Type", "application/json");
         resp->setHeader("Content-Length", QString::number(json.size()));
         resp->writeHead(200);
@@ -525,6 +535,53 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
             }
         }
         QByteArray json = buildChannelsJson(ids);
+        resp->setHeader("X-QLC-Patch-Revision", m_patchRevision);
+        resp->setHeader("Cache-Control", "no-store");
+        resp->setHeader("Content-Type", "application/json");
+        resp->setHeader("Content-Length", QString::number(json.size()));
+        resp->writeHead(200);
+        resp->end(json);
+        return;
+    }
+    else if (reqUrl == "/api/preset-values")
+    {
+        if (!requireAuthLevel(resp, user, SIMPLE_DESK_AND_VC_LEVEL))
+            return;
+        const QUrlQuery query(req->url());
+        if (query.queryItemValue("revision") != m_patchRevision)
+        {
+            resp->writeHead(409);
+            resp->end();
+            return;
+        }
+        bool ok = false;
+        const quint32 id = query.queryItemValue("fixtureID").toUInt(&ok);
+        const Fixture *fixture = ok ? m_doc->fixture(id) : nullptr;
+        if (!fixture)
+        {
+            sendNotFound(resp);
+            return;
+        }
+
+        QJsonArray values;
+        QHash<quint32, QByteArray> frames;
+        InputOutputMap *io = m_doc->inputOutputMap();
+        const QList<Universe *> universes = io->claimUniverses();
+        for (quint32 ch = 0; ch < fixture->channels(); ++ch)
+        {
+            const quint32 absolute = fixture->channelAddress(ch);
+            const quint32 uni = absolute >> 9;
+            if (uni >= quint32(universes.size()))
+                break;
+            if (!frames.contains(uni))
+                frames.insert(uni, universes.at(uni)->publishedPreGMValues());
+            const QByteArray &frame = frames.constFind(uni).value();
+            const int address = int(absolute & 511);
+            values.append(address < frame.size() ? int(uchar(frame.at(address))) : 0);
+        }
+        io->releaseUniverses(false);
+        const QByteArray json = QJsonDocument(values).toJson(QJsonDocument::Compact);
+        resp->setHeader("Cache-Control", "no-store");
         resp->setHeader("Content-Type", "application/json");
         resp->setHeader("Content-Length", QString::number(json.size()));
         resp->writeHead(200);
@@ -2369,11 +2426,47 @@ QByteArray WebAccessQml::buildChannelsJson(const QList<quint32> &fixtureIDs)
 
 // ─── DMX subscription / push implementation ────────────────────────────
 
+void WebAccessQml::invalidateFixturePatch()
+{
+    m_patchRevision = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    if (m_patchNotificationPending) return;
+    m_patchNotificationPending = true;
+    QTimer::singleShot(0, this, [this]() {
+        m_patchNotificationPending = false;
+        sendWebSocketMessage("DMX_PATCH_CHANGED|" + m_patchRevision);
+    });
+}
+
 void WebAccessQml::handleDmxJson(QHttpConnection *conn, const QJsonObject &msg)
 {
     QString cmd = msg["cmd"].toString();
 
-    if (cmd == "DMX_SUB")
+    if (cmd == "DMX_SET" || cmd == "DMX_RESET")
+    {
+        const auto *user = static_cast<WebAccessUser *>(conn->userData);
+        if (m_auth && (!user || user->level < SIMPLE_DESK_AND_VC_LEVEL))
+            return;
+        if (msg["revision"].toString() != m_patchRevision)
+        {
+            conn->webSocketWrite("DMX_PATCH_CHANGED|" + m_patchRevision);
+            return;
+        }
+        const int fixtureId = msg["fixtureID"].toInt(-1);
+        const int channel = msg["channel"].toInt(-1);
+        Fixture *fx = fixtureId >= 0 ? m_doc->fixture(quint32(fixtureId)) : nullptr;
+        if (!fx || channel < 0 || quint32(channel) >= fx->channels())
+            return;
+        const quint32 absolute = fx->channelAddress(quint32(channel));
+        if (cmd == "DMX_RESET")
+            m_sd->resetAbsoluteChannel(absolute);
+        else
+        {
+            const int value = msg["value"].toInt(-1);
+            if (value >= 0 && value <= 255)
+                m_sd->setAbsoluteChannelValue(absolute, uchar(value));
+        }
+    }
+    else if (cmd == "DMX_SUB")
     {
         QJsonArray ids = msg["fixtureIDs"].toArray();
         DmxSubscription &sub = m_dmxSubs[conn];

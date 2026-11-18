@@ -171,18 +171,33 @@ QIcon Show::getIcon() const
 
 quint32 Show::totalDuration()
 {
-    quint32 totalDuration = 0;
+    return durationAtBpm(timeDivisionBPM());
+}
 
-    foreach (Track *track, m_tracks)
+quint32 Show::durationAtBpm(int parentBpm) const
+{
+    const int bpm = timeDivisionBPM() > 0 ? timeDivisionBPM() : 120;
+    const Doc *document = doc();
+    const ShowCommandTrack commands = commandTrack();
+    double endMs = qMax(commands.extent(), commands.lastCommandTime());
+    for (const Track *track : m_tracks)
     {
-        foreach (ShowFunction *sf, track->showFunctions())
+        for (const ShowFunction *sf : track->showFunctions())
         {
-            if (sf->startTime() + sf->duration(doc()) > totalDuration)
-                totalDuration = sf->startTime() + sf->duration(doc());
+            const Function *f = document ? document->function(sf->functionID()) : nullptr;
+            const quint32 end = sf->endTime(document, bpm);
+            const double msPerUnit = f && f->tempoType() == Beats ? 60.0 / bpm : 1.0;
+            endMs = qMax(endMs, end * msPerUnit);
         }
     }
+    const double unitsPerMs = tempoType() == Beats ? (parentBpm > 0 ? parentBpm : bpm) / 60.0 : 1.0;
+    return quint32(qRound64(qMin(endMs * unitsPerMs, double(std::numeric_limits<quint32>::max()))));
+}
 
-    return totalDuration;
+double Show::songUnitsPerClipUnit(const Function *function, int bpm)
+{
+    return function && function->type() == ShowType && function->tempoType() == Beats && bpm > 0
+            ? 60.0 / bpm : 1.0;
 }
 
 /*****************************************************************************
@@ -365,6 +380,47 @@ Show::TimeDivision Show::stringToTempo(const QString& tempo)
 /*****************************************************************************
  * External sync
  *****************************************************************************/
+
+void Show::acquireClipDriver(const ShowClipDriver *driver, bool suppressAudio)
+{
+    if (m_clipDrivers.isEmpty())
+    {
+        m_syncBeforeClips = syncSource();
+        m_intensityBeforeClips = masterIntensity();
+        m_dominantBeforeClips = isDominant();
+    }
+    m_clipDrivers.insert(driver);
+    setSyncSource(ShowRunner::External);
+    if (suppressAudio)
+    {
+        if (m_audioSuppressingDrivers.isEmpty())
+            m_audioSuppressedBeforeClips = performAudioSuppressed();
+        m_audioSuppressingDrivers.insert(driver);
+        setPerformAudioSuppressed(true);
+    }
+}
+
+void Show::releaseClipDriver(const ShowClipDriver *driver)
+{
+    if (!m_clipDrivers.remove(driver))
+        return;
+    const bool suppressed = m_audioSuppressingDrivers.remove(driver);
+    if (isPerformDriven())
+    {
+        // Perform has supplied its own clock and mix since the clips started.
+        setClipPaused(false);
+        return;
+    }
+    if (suppressed && m_audioSuppressingDrivers.isEmpty())
+        setPerformAudioSuppressed(m_audioSuppressedBeforeClips);
+    if (m_clipDrivers.isEmpty())
+    {
+        setClipPaused(false);
+        setSyncSource(m_syncBeforeClips);
+        setMasterIntensity(m_intensityBeforeClips);
+        setDominant(m_dominantBeforeClips);
+    }
+}
 
 void Show::setSyncSource(int source)
 {

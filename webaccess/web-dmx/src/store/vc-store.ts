@@ -311,6 +311,7 @@ export const useVCStore = create<VCStore>((set, get) => {
     },
 
     cleanup() {
+      if (wsClient) wsClient.onStatusChange = null;
       wsClient?.disconnect();
       wsClient = null;
       set({ wsClient: null, connected: false, projectLoaded: false });

@@ -16,6 +16,7 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 */
+#include <QPluginLoader>
 #include <QSignalSpy>
 #include <QXmlStreamReader>
 #include <QtTest>
@@ -1127,6 +1128,31 @@ static void dumpUniverse(Universe *universe, bool dataChanged = true)
 {
     const QByteArray postGM = universe->postGMValues()->mid(0, universe->usedChannels());
     universe->dumpOutput(postGM, dataChanged);
+}
+
+void InputOutputMap_Test::blackoutWithLoopbackPassthrough()
+{
+    QPluginLoader loader(QString::fromUtf8(TEST_LOOPBACK_PLUGIN));
+    auto *loopback = qobject_cast<QLCIOPlugin *>(loader.instance());
+    QVERIFY2(loopback, qPrintable(loader.errorString()));
+    loopback->init();
+    GrandMaster gm;
+    Universe universe(0, &gm);
+    QVERIFY(universe.setInputPatch(loopback, 0));
+    QVERIFY(universe.setOutputPatch(loopback, 0));
+    universe.setPassthrough(true);
+    universe.setChannelCapability(0, QLCChannel::Intensity);
+    universe.write(0, 200);
+    dumpUniverse(&universe);
+    universe.flushInput();
+    QCOMPARE(uchar(universe.m_passthroughValues->at(0)), uchar(200));
+
+    // The next edge delivers the buffered zero before writeUniverse returns.
+    universe.setBlackout(true);
+    universe.setBlackout(false);
+    QCOMPARE(uchar(universe.m_passthroughValues->at(0)), uchar(0));
+    universe.flushInput();
+    QCOMPARE(uchar(universe.m_passthroughValues->at(0)), uchar(200));
 }
 
 /** Patch two universes to two stub output lines and give them a nonuniform

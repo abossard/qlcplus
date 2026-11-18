@@ -1,8 +1,6 @@
 set(module_name "ddp")
 
-add_library(${module_name}
-    SHARED
-)
+add_library(${module_name} ${QLC_PLUGIN_TYPE})
 
 target_sources(${module_name} PRIVATE
     ../interfaces/qlcioplugin.cpp ../interfaces/qlcioplugin.h

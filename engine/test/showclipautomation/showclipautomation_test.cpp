@@ -506,6 +506,19 @@ void ShowClipAutomation_Test::startExtensionLimit_data()
     QTest::newRow("a first segment after the start") << Segments{segment(1000, 3000, 1.0)} << 2000u;
 }
 
+void ShowClipAutomation_Test::beatClipTrimPreservesSongPositions()
+{
+    ShowClipAutomation automation;
+    QVERIFY(automation.setSegments({segment(0, 500, 1.0), segment(1000, 4000, 1.5)}));
+    const double msPerUnit = 0.5; // 120 BPM
+    QCOMPARE(automation.startExtensionLimit(msPerUnit), 1000u);
+    const ShowClipAutomation trimmed = automation.withStartMoved(500, msPerUnit);
+    QCOMPARE(trimmed.inPoint(), 750u);
+    QCOMPARE(trimmed.segments().last().clipMs, 500u);
+    QCOMPARE(trimmed.songPositionAt(750, msPerUnit), automation.songPositionAt(1250, msPerUnit));
+    QCOMPARE(automation.withStartMoved(-1000, msPerUnit).inPoint(), 0u);
+}
+
 void ShowClipAutomation_Test::startExtensionLimit()
 {
     QFETCH(Segments, segments);

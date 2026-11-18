@@ -22,6 +22,7 @@
 #include <QDebug>
 
 #include "showfunction.h"
+#include "show.h"
 #include "function.h"
 #include "doc.h"
 
@@ -92,17 +93,28 @@ quint32 ShowFunction::duration() const
 
 quint32 ShowFunction::duration(const Doc *doc) const
 {
+    return duration(doc, 0);
+}
+
+quint32 ShowFunction::duration(const Doc *doc, int parentBpm) const
+{
     if (m_duration)
         return m_duration;
 
-    if (doc == NULL)
-        return 0;
+    return defaultDuration(doc ? doc->function(m_functionId) : nullptr, parentBpm);
+}
 
-    Function *f = doc->function(m_functionId);
-    if (f == NULL)
-        return 0;
+quint32 ShowFunction::endTime(const Doc *doc, int parentBpm) const
+{
+    return quint32(qMin<quint64>(quint64(m_startTime) + duration(doc, parentBpm),
+                                 std::numeric_limits<quint32>::max()));
+}
 
-    return f->totalDuration();
+quint32 ShowFunction::defaultDuration(Function *function, int parentBpm)
+{
+    if (const auto *show = qobject_cast<const Show *>(function))
+        return show->durationAtBpm(parentBpm);
+    return function ? function->totalDuration() : 0;
 }
 
 void ShowFunction::setColor(QColor color)

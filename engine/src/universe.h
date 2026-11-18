@@ -233,8 +233,14 @@ protected:
      *  and thaw edges, where the effective bytes change even though the live
      *  values may not have. */
     std::atomic<bool> m_forceDumpChanged;
-    /** Serializes publication against freeze changes and patch replacement */
-    QMutex m_outputMutex;
+    /** Serializes publication against freeze changes and patch replacement.
+     * A Loopback output can synchronously deliver passthrough input to this
+     * universe while its immutable frame is being published. */
+#if QT_VERSION < QT_VERSION_CHECK(5, 14, 0)
+    QMutex m_outputMutex{QMutex::Recursive};
+#else
+    QRecursiveMutex m_outputMutex;
+#endif
     /** The source and bytes of the last live composition this universe
      *  published. Control-edge republications reuse them instead of sampling
      *  arrays that a worker may be part way through writing. */
@@ -522,6 +528,9 @@ public:
      * @return The current values
      */
     const QByteArray preGMValues() const;
+
+    /** Pre-master values from the last complete live output frame. */
+    QByteArray publishedPreGMValues();
 
     /**
      * Get the current pre-Grand-Master value (used by functions and everyone

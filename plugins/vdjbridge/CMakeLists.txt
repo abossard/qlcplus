@@ -1,6 +1,6 @@
 set(module_name "vdjbridge")
 
-add_library(${module_name} SHARED)
+add_library(${module_name} ${QLC_PLUGIN_TYPE})
 
 target_sources(${module_name} PRIVATE
     ../interfaces/qlcioplugin.cpp ../interfaces/qlcioplugin.h
@@ -23,7 +23,7 @@ target_link_libraries(${module_name} PRIVATE
 )
 
 # macOS: CoreServices provides dns_sd APIs used by VdjBonjour.
-if(APPLE)
+if(APPLE AND NOT IOS)
     target_link_libraries(${module_name} PRIVATE "-framework CoreServices")
 endif()
 

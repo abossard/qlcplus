@@ -1,4 +1,5 @@
 set(module_name "qlcplus5")
+set(mobile_io_plugins artnet ddp e131 loopback osc os2l vdjbridge)
 
 set(TS_FILES
     qlcplus_ca_ES.ts
@@ -145,11 +146,10 @@ if(ANDROID)
     file(COPY "${PROJECT_SOURCE_DIR}/platforms/android/" DESTINATION "${ANDROID_PACKAGE_STAGING_DIR}")
 
     qt_policy(SET QTP0002 NEW)
-    set_property(TARGET ${module_name} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS "$<TARGET_FILE:artnet>")
-    set_property(TARGET ${module_name} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS "$<TARGET_FILE:e131>")
-    set_property(TARGET ${module_name} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS "$<TARGET_FILE:loopback>")
-    set_property(TARGET ${module_name} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS "$<TARGET_FILE:osc>")
-    set_property(TARGET ${module_name} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS "$<TARGET_FILE:os2l>")
+    add_dependencies(${module_name} ${mobile_io_plugins})
+    foreach(plugin IN LISTS mobile_io_plugins)
+        set_property(TARGET ${module_name} APPEND PROPERTY QT_ANDROID_EXTRA_LIBS "$<TARGET_FILE:${plugin}>")
+    endforeach()
 
     # Copy the generated translations into the package assets
     add_custom_command(TARGET ${module_name} POST_BUILD
@@ -309,14 +309,7 @@ endif()
 
 if(IOS)
     # I/O plugins are static on iOS. See Q_IMPORT_PLUGIN in main.cpp
-    target_link_libraries(${module_name} PRIVATE
-        artnet
-        e131
-        loopback
-        midiplugin
-        osc
-        os2l
-    )
+    target_link_libraries(${module_name} PRIVATE ${mobile_io_plugins} midiplugin)
 
     # Qt Multimedia FFmpeg backend is static on iOS and needs the FFmpeg frameworks
     if(COMMAND qt_add_ios_ffmpeg_libraries)

@@ -5,6 +5,7 @@
 import type { WSClient } from './ws-client';
 
 export interface DmxWSHandler {
+  onPatchChanged: (revision: string) => void;
   onDmxState?: (universe: number, fixtureID: number, address: number, values: number[]) => void;
   onDmxDelta?: (universe: number, changes: [number, number][]) => void;
 }
@@ -16,6 +17,10 @@ export function setupDmxWS(client: WSClient, handler: DmxWSHandler): () => void 
 
   const wrapped = (parts: string[]) => {
     const first = parts[0];
+    if (first === 'DMX_PATCH_CHANGED') {
+      handler.onPatchChanged(parts[1]);
+      return;
+    }
     if (typeof first === 'string' && first.startsWith('{')) {
       try {
         const msg = JSON.parse(first);

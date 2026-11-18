@@ -1158,10 +1158,13 @@ void VdjBridge_Test::pauseBeforeTheFirstTickCancelsTheStart()
     rig.tick(1);
     QVERIFY(!show->isRunning());
 
-    // play again: a fresh start
+    // The new Play starts the Show. Its clip waits for this song's first position.
     rig.play(0, true);
     rig.tick();
     QVERIFY(show->isRunning() && !show->isPaused());
+    QCOMPARE(clipRan.count(), 0);
+    rig.elapsed(0, 500);
+    rig.tick();
     QCOMPARE(clipRan.count(), 1);
 }
 
@@ -2176,13 +2179,16 @@ void VdjBridge_Test::docTeardownWhileDecksPlay()
 void VdjBridge_Test::engineBpmLockReleasedOnDisconnect_data()
 {
     QTest::addColumn<bool>("playing");
-    QTest::newRow("playing") << true;
-    QTest::newRow("paused: the crawl does not outlive the connection") << false;
+    QTest::addColumn<bool>("switchSource");
+    QTest::newRow("playing") << true << false;
+    QTest::newRow("paused: the crawl does not outlive the connection") << false << false;
+    QTest::newRow("disconnect while using the internal metronome") << true << true;
 }
 
 void VdjBridge_Test::engineBpmLockReleasedOnDisconnect()
 {
     QFETCH(bool, playing);
+    QFETCH(bool, switchSource);
 
     Doc doc(nullptr, 4);
     doc.inputOutputMap()->setBeatGeneratorType(InputOutputMap::Plugin);
@@ -2221,15 +2227,21 @@ void VdjBridge_Test::engineBpmLockReleasedOnDisconnect()
 
     // Disconnecting VDJ releases the lock and leaves the song's tempo, so
     // OS2L/timing beats resume from a sane value.
+    if (switchSource)
+        doc.inputOutputMap()->setBeatGeneratorType(InputOutputMap::Internal);
+    const int before = doc.inputOutputMap()->bpmNumber();
     QMetaObject::invokeMethod(&bridge, "onTelemetryClientDisconnected");
     QVERIFY(doc.inputOutputMap()->m_externalBpmLock == false);
-    QCOMPARE(doc.inputOutputMap()->bpmNumber(), 128);
+    QCOMPARE(doc.inputOutputMap()->bpmNumber(), switchSource ? before : 128);
+    if (switchSource)
+        doc.inputOutputMap()->setBeatGeneratorType(InputOutputMap::Plugin);
     QCOMPARE(bridge.djFsm()->activeDeck(), 0);
 
     // With the lock released, an inter-beat-timed pulse derives the BPM from
     // arrival timing again, moving it away from the locked 128.
     QTest::qWait(100);   // ~600 bpm if derived from timing
     pulse();
+    QVERIFY(doc.inputOutputMap()->bpmNumber() > 0);
     QVERIFY(doc.inputOutputMap()->bpmNumber() != 128);
 }
 

@@ -55,6 +55,7 @@ private slots:
     void loadWorkspace_dirtyDocWithoutFlag_refused();
     void loadWorkspace_dirtyDocWithFlag_loads();
     void loadWorkspace_cleanDoc_loads();
+    void loadWorkspace_notAWorkspaceFile_refusedBeforeClearing_data();
     void loadWorkspace_notAWorkspaceFile_refusedBeforeClearing();
     void loadWorkspace_directory_refused();
     void loadWorkspace_fileUrl_normalisedForBridge();

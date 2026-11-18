@@ -158,6 +158,10 @@ void Universe_Test::grandMasterIntensityReduce()
     QCOMPARE(int(m_uni->postGMValues()->at(3)), int(40));
     QCOMPARE(int(m_uni->postGMValues()->at(4)), int(12));
     QCOMPARE(m_uni->usedChannels(), ushort(5));
+
+    m_uni->dumpOutput(*m_uni->postGMValues(), true);
+    m_uni->write(0, 255);
+    QCOMPARE(uchar(m_uni->publishedPreGMValues().at(0)), uchar(10));
 }
 
 void Universe_Test::grandMasterIntensityLimit()

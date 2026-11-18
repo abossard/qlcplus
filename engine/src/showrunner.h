@@ -106,8 +106,7 @@ private:
     /** Externally-provided elapsed time (thread-safe via atomic) */
     std::atomic<quint32> m_externalElapsedTime{0};
     std::atomic<quint64> m_externalAnchor{NoSample};
-    /** Under External: no command is due before the first sample set since
-     *  Play, which is the position the traversal begins at */
+    /** External playback starts its clips and commands at the first sample since Play. */
     bool m_externalBaselinePending = false;
 
     static constexpr quint64 NoSeekRequested = std::numeric_limits<quint64>::max();

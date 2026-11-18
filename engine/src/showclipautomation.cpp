@@ -132,15 +132,20 @@ static int governing(const QVector<T> &items, quint32 clipMs)
     return qMax(0, int(after - items.cbegin()) - 1);
 }
 
-quint32 ShowClipAutomation::songPositionAt(quint32 clipMs) const
+static quint32 roundedMs(double ms)
+{
+    return quint32(qBound(0.0, std::round(ms), double(std::numeric_limits<quint32>::max())));
+}
+
+quint32 ShowClipAutomation::songPositionAt(quint32 clipMs, double songUnitsPerClipUnit) const
 {
     if (m_segments.isEmpty())
-        return clipMs;
+        return roundedMs(clipMs * songUnitsPerClipUnit);
 
     const ShowClipSegment &segment = m_segments.at(governing(m_segments, clipMs));
     const double position = double(segment.songMs) +
-                            (double(clipMs) - double(segment.clipMs)) * segment.rate;
-    return quint32(qBound(0.0, std::round(position), double(std::numeric_limits<quint32>::max())));
+                            (double(clipMs) - double(segment.clipMs)) * songUnitsPerClipUnit * segment.rate;
+    return roundedMs(position);
 }
 
 bool ShowClipAutomation::pausedAt(quint32 clipMs) const
@@ -186,11 +191,6 @@ static quint32 movedClipTime(quint32 clipMs, qint64 deltaMs)
     return quint32(qBound(qint64(0), qint64(clipMs) - deltaMs, qint64(std::numeric_limits<quint32>::max())));
 }
 
-static quint32 roundedMs(double ms)
-{
-    return quint32(qBound(0.0, std::round(ms), double(std::numeric_limits<quint32>::max())));
-}
-
 /** Appended unless the end of the clock range squeezed it onto the one before */
 template <typename T>
 static void appendRising(QVector<T> &items, const T &item)
@@ -199,7 +199,7 @@ static void appendRising(QVector<T> &items, const T &item)
         items.append(item);
 }
 
-ShowClipAutomation ShowClipAutomation::withStartMoved(qint64 deltaMs) const
+ShowClipAutomation ShowClipAutomation::withStartMoved(qint64 deltaMs, double songUnitsPerClipUnit) const
 {
     if (deltaMs == 0)
         return *this;
@@ -214,7 +214,8 @@ ShowClipAutomation ShowClipAutomation::withStartMoved(qint64 deltaMs) const
     const QVector<ShowClipSegment> source = m_segments.isEmpty() ? QVector<ShowClipSegment>(1) : m_segments;
     const int from = deltaMs > 0 ? governing(source, quint32(deltaMs)) : 0;
     const ShowClipSegment &playing = source.at(from);
-    const double position = double(playing.songMs) + (double(deltaMs) - double(playing.clipMs)) * playing.rate;
+    const double slope = playing.rate * songUnitsPerClipUnit;
+    const double position = double(playing.songMs) + (double(deltaMs) - double(playing.clipMs)) * slope;
     ShowClipSegment head;
     head.rate = playing.rate;
     head.paused = playing.paused;
@@ -226,7 +227,7 @@ ShowClipAutomation ShowClipAutomation::withStartMoved(qint64 deltaMs) const
     else
     {
         // only a running segment reaches back before the song start
-        head.clipMs = roundedMs(-position / playing.rate);
+        head.clipMs = roundedMs(-position / slope);
         if (head.clipMs > 0)
         {
             ShowClipSegment held;
@@ -285,7 +286,7 @@ ShowClipAutomation ShowClipAutomation::withStartMoved(qint64 deltaMs) const
     return moved;
 }
 
-quint32 ShowClipAutomation::startExtensionLimit() const
+quint32 ShowClipAutomation::startExtensionLimit(double songUnitsPerClipUnit) const
 {
     if (m_segments.isEmpty())
         return 0;
@@ -294,8 +295,9 @@ quint32 ShowClipAutomation::startExtensionLimit() const
     if (first.rate == 0.0)
         return std::numeric_limits<quint32>::max();
 
-    const double position = double(first.songMs) - double(first.clipMs) * first.rate;
-    return quint32(qBound(0.0, std::floor(position / first.rate), double(std::numeric_limits<quint32>::max())));
+    const double slope = first.rate * songUnitsPerClipUnit;
+    const double position = double(first.songMs) - double(first.clipMs) * slope;
+    return quint32(qBound(0.0, std::floor(position / slope), double(std::numeric_limits<quint32>::max())));
 }
 
 /*********************************************************************

@@ -716,7 +716,11 @@ test.describe('DMX Panel — Reset', () => {
       await fixture.locator('.fp-reset').click();
       await expect.poll(
         () => page.evaluate(() =>
-          (window as any).__qlcSentMessages.includes('QLC+API|sdResetChannel|513')),
+          (window as any).__qlcSentMessages.some((message: string) => {
+            if (!message.startsWith('{')) return false;
+            const command = JSON.parse(message);
+            return command.cmd === 'DMX_RESET' && command.fixtureID === 3 && command.channel === 0;
+          })),
         { timeout: 2_000, intervals: [10, 25, 50] },
       ).toBeTruthy();
       await expect.poll(

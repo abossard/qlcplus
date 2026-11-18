@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Bossilighty Plan Map</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#f5f3ee, #101215);
+  --surface: light-dark(#ffffff, #191c21);
+  --surface2: light-dark(#ebe8e1, #22262d);
+  --text: light-dark(#1b1d20, #ebe8e2);
+  --muted: light-dark(#5a5f67, #9ba1aa);
+  --line: light-dark(#d6d2c9, #353a44);
+  --must: light-dark(#b93a08, #ff8f52);
+  --on-must: light-dark(#ffffff, #1d0d03);
+  --should: light-dark(#0b6f67, #45d1c2);
+  --later: light-dark(#6a7079, #838a94);
+  --warn: light-dark(#8a5a00, #ffcf66);
+  --focus: light-dark(#1d4ed8, #8ab4ff);
+  --radius: 8px;
+  font-family: ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+  accent-color: var(--must);
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.45; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+header { padding: 16px 16px 8px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); }
+.spacer { flex: 1; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 6px 10px; }
+.btn:hover { background: var(--surface2); }
+.btn.primary { background: var(--must); color: var(--on-must); border-color: transparent; }
+.progress { font-size: 13px; color: var(--muted); }
+.progress b { color: var(--text); }
+nav { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav button { border: 0; background: none; padding: 10px 12px; border-bottom: 3px solid transparent; white-space: nowrap; color: var(--muted); }
+nav button[aria-selected="true"] { border-bottom-color: var(--must); color: var(--text); font-weight: 600; }
+.filters { padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; font-size: 13px; }
+.filters input[type=search] { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 5px 8px; min-width: 160px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chips > span { color: var(--muted); margin-right: 2px; }
+.chip { border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 2px 9px; font-size: 12px; }
+.chip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+main { padding: 4px 16px 48px; }
+.hint { color: var(--muted); font-size: 13px; margin: 4px 0 10px; max-width: 80ch; }
+
+/* map */
+.mapwrap { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: auto; max-height: 76vh; }
+.canvas { position: relative; }
+.canvas svg { position: absolute; inset: 0; pointer-events: none; }
+.lane { position: absolute; left: 0; right: 0; border-top: 1px solid var(--line); }
+.lane:nth-child(odd) { background: color-mix(in oklab, var(--surface2) 45%, transparent); }
+.lane span { position: sticky; left: 0; display: inline-block; width: 118px; padding: 6px 8px; font-size: 12px; font-weight: 600; border-left: 4px solid var(--c); }
+.edge { fill: none; stroke: var(--line); stroke-width: 1.3; }
+.edge.hot { stroke: var(--must); stroke-width: 2.2; }
+.node { position: absolute; width: 200px; height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border-radius: 7px; border: 1.5px solid var(--line); background: var(--surface); text-align: left; font-size: 12.5px; }
+.node .k { font-size: 10px; font-weight: 700; opacity: .75; width: 10px; }
+.node .t { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.node .s { font-size: 11px; opacity: .8; }
+.p-must { background: var(--must); color: var(--on-must); border-color: transparent; font-weight: 600; }
+.p-should { background: color-mix(in oklab, var(--should) 20%, var(--surface)); border-color: var(--should); }
+.p-later { color: var(--muted); }
+.p-no { color: var(--muted); border-style: dashed; background: transparent; text-decoration: line-through; opacity: .65; }
+.k-requirement { border-radius: 2px; }
+.k-task { border-radius: 17px; }
+.canvas.dim .node:not(.hot) { opacity: .25; }
+.node.hot { box-shadow: 0 0 0 2px var(--focus); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin: 8px 0; align-items: center; }
+.legend i { display: inline-block; width: 26px; height: 14px; vertical-align: -2px; margin-right: 4px; position: static; }
+
+/* board */
+.board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: start; }
+@media (max-width: 900px) { .board { grid-template-columns: 1fr; } }
+.col { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; }
+.col h2 { font-size: 14px; margin: 2px 4px 8px; display: flex; justify-content: space-between; }
+.col h2 span { color: var(--muted); font-weight: 400; }
+.col.c-must { border-top: 4px solid var(--must); }
+.col.c-should { border-top: 4px solid var(--should); }
+.col.c-later { border-top: 4px solid var(--later); }
+.col.c-no { border-top: 4px dashed var(--later); }
+.card { border: 1px solid var(--line); border-radius: 7px; padding: 7px 8px; margin-bottom: 6px; background: var(--bg); }
+.card .title { background: none; border: 0; padding: 0; text-align: left; font-weight: 600; font-size: 13.5px; }
+.card .title:hover { text-decoration: underline; }
+.meta { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; color: var(--muted); margin: 3px 0 5px; }
+.tag { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.tag.sug { border-style: dashed; }
+.row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; padding: 2px 8px; font-size: 12px; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"][data-p="must"] { background: var(--must); color: var(--on-must); }
+.seg button[aria-pressed="true"][data-p="should"] { background: var(--should); color: var(--bg); }
+.seg button[aria-pressed="true"][data-p="later"], .seg button[aria-pressed="true"][data-p="no"] { background: var(--later); color: var(--bg); }
+.mini { border: 1px solid var(--line); background: transparent; border-radius: 6px; padding: 1px 7px; font-size: 12px; }
+.mini:disabled { opacity: .3; cursor: default; }
+.warnbox { border: 1px solid var(--warn); border-radius: var(--radius); padding: 8px 10px; margin-bottom: 10px; font-size: 13px; }
+.warnbox h2 { font-size: 14px; margin: 0 0 4px; color: var(--warn); }
+.warnbox li { margin: 3px 0; }
+.warnbox ul { margin: 0; padding-left: 18px; }
+
+/* roadmap */
+.wave { border-left: 4px solid var(--must); padding: 2px 0 2px 12px; margin: 0 0 16px; }
+.wave h2 { font-size: 15px; margin: 0 0 6px; }
+.wave h2 span { color: var(--muted); font-weight: 400; font-size: 13px; }
+.wavegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; }
+
+/* fit */
+.tablewrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); max-height: 76vh; }
+table { border-collapse: collapse; font-size: 13px; width: 100%; }
+th, td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; position: sticky; left: 0; background: var(--surface); white-space: normal; min-width: 180px; }
+thead th { position: sticky; top: 0; background: var(--surface2); z-index: 2; vertical-align: bottom; }
+thead th:first-child { z-index: 3; background: var(--surface2); }
+tr.area td { background: var(--surface2); font-weight: 600; text-align: left; }
+.bar { height: 6px; background: var(--line); border-radius: 3px; margin-top: 4px; min-width: 60px; }
+.bar i { display: block; height: 100%; background: var(--must); border-radius: 3px; }
+.s2 { color: var(--should); font-weight: 700; } .s1 { color: var(--warn); } .s0 { color: var(--later); opacity: .6; }
+td button.title { background: none; border: 0; padding: 0; text-align: left; }
+
+/* decisions */
+.decision { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; max-width: 980px; }
+.decision h2 { font-size: 16px; margin: 0 0 2px; }
+.decision p { margin: 2px 0 8px; color: var(--muted); }
+.opt { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; margin-bottom: 6px; }
+.opt:has(input:checked) { border-color: var(--must); background: color-mix(in oklab, var(--must) 8%, var(--surface)); }
+.opt b small { font-weight: 400; color: var(--should); margin-left: 6px; }
+.opt div { grid-column: 2; font-size: 13px; color: var(--muted); }
+textarea { width: 100%; min-height: 52px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); padding: 6px 8px; }
+
+/* dialog */
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); width: min(640px, calc(100vw - 32px)); padding: 16px; }
+dialog:modal { overscroll-behavior: contain; }
+dialog::backdrop { background: rgb(0 0 0 / .5); overflow: hidden; overscroll-behavior: contain; }
+dialog h2 { margin: 0 0 4px; font-size: 18px; }
+dialog h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 12px 0 4px; }
+dialog p { margin: 4px 0; }
+dialog .links { display: flex; flex-wrap: wrap; gap: 4px; }
+dialog .foot { display: flex; justify-content: flex-end; margin-top: 12px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bossilighty Plan Map<small>Shape the product: set priorities, see what depends on what.</small></h1>
+  <span class="progress" id="progress"></span>
+  <span class="spacer"></span>
+  <button class="btn primary" data-act="export" data-fk="export">Export priorities</button>
+  <button class="btn" data-act="copy" data-fk="copy">Copy as JSON</button>
+  <button class="btn" data-act="import" data-fk="import">Import</button>
+  <button class="btn" data-act="reset" data-fk="reset">Reset</button>
+  <input type="file" id="file" accept="application/json" hidden>
+</header>
+<nav role="tablist" aria-label="Views" id="tabs"></nav>
+<div class="filters" id="filters"></div>
+<main id="main"></main>
+<dialog id="detail" closedby="any" aria-labelledby="d-title"></dialog>
+<div class="sr" aria-live="polite" id="live"></div>
+
+<script src="plan-data.js"></script>
+<script>
+const P = window.PLAN;
+const KEY = 'bossilighty-plan-v1';
+const PRIOS = [['must', 'Must'], ['should', 'Should'], ['later', 'Later'], ['no', 'Not now']];
+const PNAME = Object.fromEntries(PRIOS);
+const WEIGHT = { must: 3, should: 2, later: 1, no: 0 };
+const EFFORT = { S: 1, M: 3, L: 8, XL: 20 };
+const KINDS = { feature: 'Feature', requirement: 'Requirement', task: 'Task' };
+const ORIGINS = { qlc: 'QLC+ v5 parity', fork: 'Built in the fork', new: 'New' };
+const VIEWS = [['map', 'Map'], ['board', 'Prioritize'], ['roadmap', 'Roadmap'], ['fit', 'Tool fit'], ['decisions', 'Decisions']];
+
+const blank = () => ({ prio: {}, rank: [], notes: {}, picks: {}, dnotes: {}, view: 'map', withShould: false, zoom: 1 });
+function readState(data) {
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (!object(data)) throw new Error('Invalid priorities');
+  if ('format' in data || 'version' in data || 'state' in data) {
+    if (data.format !== 'bossilighty-priorities' || data.version !== 1) throw new Error('Unknown priorities format');
+    data = data.state;
+  }
+  const strings = map => object(map) && Object.values(map).every(value => typeof value === 'string');
+  if (!object(data) || !strings(data.prio) || !Object.values(data.prio).every(p => Object.hasOwn(PNAME, p))
+      || !Array.isArray(data.rank) || !data.rank.every(id => typeof id === 'string')
+      || !strings(data.notes) || !strings(data.picks) || !strings(data.dnotes)) throw new Error('Invalid priorities state');
+  const { prio, rank, notes, picks, dnotes, view = 'map', withShould = false, zoom = 1 } = data;
+  if (!VIEWS.some(([id]) => id === view) || typeof withShould !== 'boolean'
+      || !Number.isFinite(zoom) || zoom < 0.3 || zoom > 1.6) throw new Error('Invalid planner view');
+  return { prio, rank, notes, picks, dnotes, view, withShould, zoom };
+}
+function load() { try { return readState(JSON.parse(localStorage.getItem(KEY))); } catch { return blank(); } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* storage unavailable */ } }
+let S = load();
+const F = { q: '', kind: new Set(), area: new Set(), origin: new Set(), prio: new Set() };
+
+const byId = new Map(P.nodes.map(n => [n.id, n]));
+const areaById = new Map(P.areas.map(a => [a.id, a]));
+const kids = new Map();
+for (const n of P.nodes) for (const d of n.deps || []) {
+  if (!byId.has(d)) { console.warn('unknown dependency', d, 'on', n.id); continue; }
+  if (!kids.has(d)) kids.set(d, []);
+  kids.get(d).push(n.id);
+}
+const deps = n => (n.deps || []).filter(d => byId.has(d));
+const prio = n => S.prio[n.id] || n.suggest || 'later';
+const isSet = n => n.id in S.prio;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const depthMemo = new Map();
+function depth(id, seen = new Set()) {
+  if (depthMemo.has(id)) return depthMemo.get(id);
+  if (seen.has(id)) return 0;
+  seen.add(id);
+  const d = deps(byId.get(id)).reduce((m, x) => Math.max(m, depth(x, seen) + 1), 0);
+  depthMemo.set(id, d);
+  return d;
+}
+function visible(n) {
+  if (F.kind.size && !F.kind.has(n.kind)) return false;
+  if (F.area.size && !F.area.has(n.area)) return false;
+  if (F.origin.size && !F.origin.has(n.origin)) return false;
+  if (F.prio.size && !F.prio.has(prio(n))) return false;
+  if (F.q && !(n.title + ' ' + (n.desc || '')).toLowerCase().includes(F.q)) return false;
+  return true;
+}
+function ordered(list) {
+  const idx = n => { const i = S.rank.indexOf(n.id); return i < 0 ? 1e6 + P.nodes.indexOf(n) : i; };
+  return [...list].sort((a, b) => idx(a) - idx(b));
+}
+function related(id) {
+  const out = new Set([id]);
+  const walk = (x, next) => { for (const y of next(x)) if (!out.has(y)) { out.add(y); walk(y, next); } };
+  walk(id, x => deps(byId.get(x)));
+  walk(id, x => kids.get(x) || []);
+  return out;
+}
+function conflicts() {
+  const out = [];
+  for (const n of P.nodes) {
+    const w = WEIGHT[prio(n)];
+    if (w < 2) continue;
+    for (const d of deps(n)) if (WEIGHT[prio(byId.get(d))] < w) out.push([n, byId.get(d)]);
+  }
+  return out;
+}
+
+/* ---------- shared pieces ---------- */
+function seg(n, where) {
+  return `<span class="seg" role="group" aria-label="Priority for ${esc(n.title)}">` + PRIOS.map(([p, label]) =>
+    `<button data-act="setprio" data-id="${n.id}" data-p="${p}" data-fk="${where}:${n.id}:${p}" aria-pressed="${prio(n) === p}">${label}</button>`).join('') + '</span>';
+}
+function meta(n) {
+  return `<div class="meta"><span class="tag">${KINDS[n.kind]}</span><span class="tag">${esc(areaById.get(n.area)?.name)}</span>` +
+    `<span class="tag">${esc(ORIGINS[n.origin] || n.origin)}</span>${n.effort ? `<span class="tag">Effort ${n.effort}</span>` : ''}` +
+    `${n.risk ? `<span class="tag">Risk ${n.risk}</span>` : ''}${isSet(n) ? '' : '<span class="tag sug">suggested</span>'}</div>`;
+}
+function card(n, where, extra = '') {
+  return `<div class="card"><button class="title" data-act="open" data-id="${n.id}" data-fk="${where}:open:${n.id}">${esc(n.title)}</button>${meta(n)}<div class="row">${seg(n, where)}${extra}</div></div>`;
+}
+
+/* ---------- views ---------- */
+function viewMap() {
+  const nodes = P.nodes.filter(visible);
+  const NW = 200, NH = 34, CW = 250, RH = 42, PADL = 136;
+  let y = 0;
+  const pos = new Map(), lanes = [];
+  for (const a of P.areas) {
+    const ns = nodes.filter(n => n.area === a.id);
+    if (!ns.length) continue;
+    const cols = new Map();
+    for (const n of ns) { const d = depth(n.id); if (!cols.has(d)) cols.set(d, []); cols.get(d).push(n); }
+    let rows = 0;
+    for (const [d, list] of cols) { list.forEach((n, i) => pos.set(n.id, { x: PADL + d * CW, y: y + 8 + i * RH })); rows = Math.max(rows, list.length); }
+    const h = rows * RH + 12;
+    lanes.push({ a, y, h });
+    y += h;
+  }
+  const maxD = Math.max(0, ...nodes.map(n => depth(n.id)));
+  const W = PADL + (maxD + 1) * CW, H = Math.max(y, 60);
+  let edges = '';
+  for (const n of nodes) for (const d of deps(n)) {
+    const p = pos.get(d), q = pos.get(n.id);
+    if (!p) continue;
+    const x1 = p.x + NW, y1 = p.y + NH / 2, x2 = q.x, y2 = q.y + NH / 2, bend = Math.max(30, (x2 - x1) / 2);
+    edges += `<path class="edge" data-from="${d}" data-to="${n.id}" d="M${x1} ${y1} C${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}"/>`;
+  }
+  const laneHtml = lanes.map(l => `<div class="lane" style="top:${l.y}px;height:${l.h}px;--c:${l.a.color}"><span>${esc(l.a.name)}</span></div>`).join('');
+  const nodeHtml = nodes.map(n => { const p = pos.get(n.id); return `<button class="node p-${prio(n)} k-${n.kind}" style="left:${p.x}px;top:${p.y}px" data-act="open" data-id="${n.id}" data-fk="map:${n.id}" title="${esc(n.title)}"><span class="k" aria-hidden="true">${n.kind[0].toUpperCase()}</span><span class="t">${esc(n.title)}</span><span class="s" aria-hidden="true">${isSet(n) ? '✓' : ''}</span></button>`; }).join('');
+  return `<p class="hint">Left to right is build order: a box needs everything wired into it from the left. Hover or focus a box to light up its chain. Click it to read why and set its priority.</p>
+<div class="legend"><span><i class="node p-must"></i>Must</span><span><i class="node p-should"></i>Should</span><span><i class="node p-later"></i>Later</span><span><i class="node p-no"></i>Not now</span>
+<span>F feature (rounded) · R requirement (square) · T task (pill) · ✓ set by you</span>
+<span class="spacer"></span><span class="row"><button class="mini" data-act="fit" data-fk="fit">Fit width</button><button class="mini" data-act="zoom" data-d="-0.15" data-fk="zoom-" aria-label="Zoom out">−</button><button class="mini" data-act="zoom" data-d="0.15" data-fk="zoom+" aria-label="Zoom in">+</button></span></div>
+<div class="mapwrap"><div class="canvas" id="canvas" style="width:${W}px;height:${H}px;zoom:${S.zoom}">${laneHtml}<svg width="${W}" height="${H}" aria-hidden="true">${edges}</svg>${nodeHtml}</div></div>`;
+}
+
+function viewBoard() {
+  const cf = conflicts();
+  const warn = cf.length ? `<div class="warnbox"><h2>Wiring conflicts (${cf.length})</h2><ul>` + cf.map(([n, d]) =>
+    `<li><b>${esc(n.title)}</b> is ${PNAME[prio(n)]} but needs <b>${esc(d.title)}</b> (${PNAME[prio(d)]}). <button class="mini" data-act="raise" data-id="${d.id}" data-p="${prio(n)}" data-fk="raise:${n.id}:${d.id}">Raise to ${PNAME[prio(n)]}</button></li>`).join('') + '</ul></div>' : '';
+  const cols = PRIOS.map(([p, label]) => {
+    const list = ordered(P.nodes.filter(n => prio(n) === p && visible(n)));
+    return `<section class="col c-${p}"><h2>${label}<span>${list.length}</span></h2>` + list.map((n, i) =>
+      card(n, 'board', `<button class="mini" data-act="move" data-id="${n.id}" data-d="-1" data-fk="up:${n.id}" aria-label="Move ${esc(n.title)} up" ${i === 0 ? 'disabled' : ''}>↑</button><button class="mini" data-act="move" data-id="${n.id}" data-d="1" data-fk="down:${n.id}" aria-label="Move ${esc(n.title)} down" ${i === list.length - 1 ? 'disabled' : ''}>↓</button>`)).join('') + '</section>';
+  }).join('');
+  return `<p class="hint">Dashed "suggested" tags are my proposal. Change anything: pick a priority, then use the arrows to rank inside a column. Top of a column means first.</p>${warn}<div class="board">${cols}</div>`;
+}
+
+function viewRoadmap() {
+  const want = n => prio(n) === 'must' || (S.withShould && prio(n) === 'should');
+  const inc = new Map();
+  const pull = (n, pulled) => { if (inc.has(n.id)) { if (!pulled) inc.set(n.id, false); return; } inc.set(n.id, pulled); for (const d of deps(n)) pull(byId.get(d), !want(byId.get(d))); };
+  for (const n of P.nodes) if (want(n)) pull(n, false);
+  const waveMemo = new Map();
+  const wave = id => { if (!waveMemo.has(id)) { waveMemo.set(id, 1); waveMemo.set(id, 1 + deps(byId.get(id)).filter(d => inc.has(d)).reduce((m, d) => Math.max(m, wave(d)), 0)); } return waveMemo.get(id); };
+  const waves = new Map();
+  for (const id of inc.keys()) { const w = wave(id); if (!waves.has(w)) waves.set(w, []); waves.get(w).push(byId.get(id)); }
+  const html = [...waves.keys()].sort((a, b) => a - b).map(w => {
+    const list = ordered(waves.get(w));
+    const pts = list.reduce((s, n) => s + (EFFORT[n.effort] || 0), 0);
+    return `<section class="wave"><h2>Wave ${w} <span>${list.length} items, about ${pts} effort points</span></h2><div class="wavegrid">` +
+      list.map(n => card(n, 'road', inc.get(n.id) ? '<span class="tag" style="color:var(--warn);border-color:var(--warn)">pulled in by a dependency</span>' : '')).join('') + '</div></section>';
+  }).join('');
+  return `<p class="hint">Build order that follows from your priorities. A wave can start when the waves before it are done. Effort points: S 1, M 3, L 8, XL 20.</p>
+<p><label><input type="checkbox" data-act="withshould" data-fk="withshould" ${S.withShould ? 'checked' : ''}> Include Should items</label></p>${html || '<p>Nothing is marked Must yet.</p>'}`;
+}
+
+function fitScore(tool) {
+  let got = 0, max = 0;
+  for (const n of P.nodes) { if (!n.support) continue; const w = WEIGHT[prio(n)]; max += w; got += w * (n.support[tool.id] ?? 0) / 2; }
+  return max ? Math.round(100 * got / max) : 0;
+}
+function viewFit() {
+  const sym = v => v === 2 ? '<span class="s2" title="yes">●</span>' : v === 1 ? '<span class="s1" title="partial">◐</span>' : v === 0 ? '<span class="s0" title="no">○</span>' : '<span class="s0" title="unknown">·</span>';
+  const head = P.tools.map(t => { const s = fitScore(t); return `<th scope="col" title="${esc(t.note || '')}">${esc(t.name)}<br><small>${esc(t.license || '')}</small><div class="bar" role="img" aria-label="Fit ${s} percent"><i style="width:${s}%"></i></div><small>fit ${s}%</small></th>`; }).join('');
+  let rows = '';
+  for (const a of P.areas) {
+    const ns = P.nodes.filter(n => n.area === a.id && n.support && visible(n));
+    if (!ns.length) continue;
+    rows += `<tr class="area"><td colspan="${P.tools.length + 2}">${esc(a.name)}</td></tr>` + ns.map(n =>
+      `<tr><td><button class="title" data-act="open" data-id="${n.id}" data-fk="fit:${n.id}">${esc(n.title)}</button></td><td>${PNAME[prio(n)]}</td>${P.tools.map(t => `<td>${sym(n.support[t.id])}</td>`).join('')}</tr>`).join('');
+  }
+  return `<p class="hint">What each existing tool already covers. The fit bar weighs every feature by your priority (Must 3, Should 2, Later 1), so it moves as you prioritize. ● yes, ◐ partial, ○ no, · unknown.</p>
+<div class="tablewrap"><table><thead><tr><th scope="col">Feature</th><th scope="col">Your priority</th>${head}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function viewDecisions() {
+  return `<p class="hint">Open product decisions. My recommendation is marked. Pick one and leave a note. Your picks are part of the export.</p>` + P.decisions.map(d =>
+    `<section class="decision"><h2>${esc(d.title)}</h2><p>${esc(d.question)}</p>` + d.options.map(o =>
+      `<label class="opt"><input type="radio" name="dec-${d.id}" data-act="pick" data-id="${d.id}" data-o="${o.id}" data-fk="pick:${d.id}:${o.id}" ${S.picks[d.id] === o.id ? 'checked' : ''}><b>${esc(o.label)}${d.recommend === o.id ? '<small>recommended</small>' : ''}</b>${o.pros ? `<div>+ ${esc(o.pros)}</div>` : ''}${o.cons ? `<div>− ${esc(o.cons)}</div>` : ''}</label>`).join('') +
+    (d.why ? `<p><b>Why:</b> ${esc(d.why)}</p>` : '') +
+    `<label class="sr" for="dn-${d.id}">Note on ${esc(d.title)}</label><textarea id="dn-${d.id}" data-dnote="${d.id}" placeholder="Your note">${esc(S.dnotes[d.id] || '')}</textarea></section>`).join('');
+}
+
+/* ---------- detail dialog ---------- */
+const dlg = document.getElementById('detail');
+let openId = null;
+function renderDetail() {
+  const n = byId.get(openId);
+  if (!n) return;
+  const link = id => { const m = byId.get(id); return `<button class="chip" data-act="open" data-id="${id}" data-fk="dlg:link:${id}">${esc(m.title)} · ${PNAME[prio(m)]}</button>`; };
+  const up = deps(n), down = kids.get(n.id) || [];
+  const sup = n.support ? P.tools.filter(t => n.support[t.id] != null).map(t => `<span class="tag">${esc(t.name)}: ${['no', 'partial', 'yes'][n.support[t.id]]}</span>`).join(' ') : '';
+  dlg.innerHTML = `<h2 id="d-title">${esc(n.title)}</h2>${meta(n)}
+<p>${esc(n.desc || '')}</p>${n.why ? `<h3>Why it matters</h3><p>${esc(n.why)}</p>` : ''}
+<h3>Your priority</h3>${seg(n, 'dlg')}
+${up.length ? `<h3>Needs first</h3><div class="links">${up.map(link).join('')}</div>` : ''}
+${down.length ? `<h3>Unlocks</h3><div class="links">${down.map(link).join('')}</div>` : ''}
+${sup ? `<h3>Who has it today</h3><div class="meta">${sup}</div>` : ''}
+<h3><label for="note">Your note</label></h3><textarea id="note" data-note="${n.id}" placeholder="Taste, doubts, ideas">${esc(S.notes[n.id] || '')}</textarea>
+<form method="dialog" class="foot"><button class="btn" autofocus data-fk="dlg:close">Close</button></form>`;
+}
+function openDetail(id) { openId = id; renderDetail(); if (!dlg.open) dlg.showModal(); }
+dlg.addEventListener('close', () => { openId = null; });
+if (!('closedBy' in HTMLDialogElement.prototype)) {
+  const outside = e => { const r = dlg.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
+  let pressedOutside = false;
+  dlg.addEventListener('pointerdown', e => { pressedOutside = outside(e); });
+  dlg.addEventListener('pointerup', e => { if (pressedOutside && outside(e)) dlg.close(); });
+}
+
+/* ---------- chrome ---------- */
+function renderChrome() {
+  document.getElementById('tabs').innerHTML = VIEWS.map(([v, label]) => `<button role="tab" aria-selected="${S.view === v}" data-act="tab" data-v="${v}" data-fk="tab:${v}">${label}</button>`).join('');
+  const chips = (name, key, entries) => `<div class="chips" role="group" aria-label="${name}"><span>${name}</span>` + entries.map(([id, label]) => `<button class="chip" data-act="chip" data-k="${key}" data-id="${id}" data-fk="chip:${key}:${id}" aria-pressed="${F[key].has(id)}">${esc(label)}</button>`).join('') + '</div>';
+  document.getElementById('filters').innerHTML = S.view === 'decisions' ? '' :
+    `<label class="sr" for="q">Search</label><input type="search" id="q" placeholder="Search" value="${esc(F.q)}">` +
+    chips('Kind', 'kind', Object.entries(KINDS)) + chips('Origin', 'origin', Object.entries(ORIGINS)) + chips('Priority', 'prio', PRIOS) + chips('Area', 'area', P.areas.map(a => [a.id, a.name]));
+  const set = P.nodes.filter(isSet).length;
+  document.getElementById('progress').innerHTML = `<b>${set}</b> of ${P.nodes.length} set by you · <b>${Object.keys(S.picks).length}</b> of ${P.decisions.length} decisions picked`;
+}
+function render(keepFocus = true) {
+  const fk = keepFocus ? document.activeElement?.dataset?.fk : null;
+  const wrap = document.querySelector('.mapwrap, .tablewrap');
+  const scroll = wrap ? [wrap.scrollLeft, wrap.scrollTop] : null;
+  renderChrome();
+  document.getElementById('main').innerHTML = { map: viewMap, board: viewBoard, roadmap: viewRoadmap, fit: viewFit, decisions: viewDecisions }[S.view]();
+  if (dlg.open) renderDetail();
+  const wrap2 = document.querySelector('.mapwrap, .tablewrap');
+  if (wrap2 && scroll) { wrap2.scrollLeft = scroll[0]; wrap2.scrollTop = scroll[1]; }
+  if (fk) document.querySelector(`[data-fk="${CSS.escape(fk)}"]`)?.focus({ preventScroll: true });
+}
+function say(msg) { const l = document.getElementById('live'); l.textContent = ''; setTimeout(() => { l.textContent = msg; }, 50); }
+
+function exportData() {
+  return {
+    format: 'bossilighty-priorities', version: 1, exportedAt: new Date().toISOString(),
+    items: ordered(P.nodes).map(n => ({ id: n.id, title: n.title, kind: n.kind, priority: prio(n), setByUser: isSet(n), note: S.notes[n.id] || undefined })),
+    decisions: P.decisions.map(d => ({ id: d.id, title: d.title, pick: S.picks[d.id] || null, recommended: d.recommend, note: S.dnotes[d.id] || undefined })),
+    state: S,
+  };
+}
+const actions = {
+  tab: el => { S.view = el.dataset.v; },
+  chip: el => { const s = F[el.dataset.k]; s.has(el.dataset.id) ? s.delete(el.dataset.id) : s.add(el.dataset.id); },
+  open: el => { openDetail(el.dataset.id); return false; },
+  setprio: el => { S.prio[el.dataset.id] = el.dataset.p; say(`${byId.get(el.dataset.id).title}: ${PNAME[el.dataset.p]}`); },
+  raise: el => { S.prio[el.dataset.id] = el.dataset.p; },
+  move: el => {
+    const n = byId.get(el.dataset.id), dir = +el.dataset.d;
+    if (S.rank.length !== P.nodes.length) S.rank = ordered(P.nodes).map(x => x.id);
+    const col = ordered(P.nodes.filter(x => prio(x) === prio(n) && visible(x))).map(x => x.id);
+    const j = col.indexOf(n.id) + dir;
+    if (j < 0 || j >= col.length) return false;
+    const a = S.rank.indexOf(n.id), b = S.rank.indexOf(col[j]);
+    [S.rank[a], S.rank[b]] = [S.rank[b], S.rank[a]];
+    say(`${n.title} moved to position ${j + 1} of ${col.length}`);
+  },
+  pick: el => { S.picks[el.dataset.id] = el.dataset.o; },
+  withshould: el => { S.withShould = el.checked; },
+  zoom: el => { S.zoom = Math.min(1.6, Math.max(0.3, +(S.zoom + +el.dataset.d).toFixed(2))); },
+  fit: () => {
+    const wrap = document.querySelector('.mapwrap'), c = document.getElementById('canvas');
+    S.zoom = Math.min(1, Math.max(0.3, +((wrap.clientWidth - 4) / parseFloat(c.style.width)).toFixed(2)));
+  },
+  export: () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(exportData(), null, 2)], { type: 'application/json' }));
+    a.download = 'priorities.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    return false;
+  },
+  copy: async el => {
+    const text = JSON.stringify(exportData(), null, 2);
+    try { await navigator.clipboard.writeText(text); el.textContent = 'Copied'; } catch { el.textContent = 'Copy blocked, use Export'; }
+    setTimeout(() => { el.textContent = 'Copy as JSON'; }, 1800);
+    return false;
+  },
+  import: () => { document.getElementById('file').click(); return false; },
+  reset: el => {
+    if (el.dataset.armed) { S = blank(); delete el.dataset.armed; el.textContent = 'Reset'; return; }
+    el.dataset.armed = '1'; el.textContent = 'Click again to reset';
+    setTimeout(() => { delete el.dataset.armed; el.textContent = 'Reset'; }, 3000);
+    return false;
+  },
+};
+document.addEventListener('click', async e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled || el.matches('input[type=checkbox], input[type=radio]')) return;
+  if (await actions[el.dataset.act](el) === false) return;
+  save(); render();
+});
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (el.id === 'file' && el.files[0]) {
+    el.files[0].text().then(t => {
+      S = readState(JSON.parse(t));
+      save(); render(); say('Priorities imported');
+    }).catch(() => say('That file is not a priorities export'));
+    el.value = '';
+  } else if (el.matches('[data-act=pick], [data-act=withshould]')) { actions[el.dataset.act](el); save(); render(); }
+});
+document.addEventListener('input', e => {
+  const el = e.target;
+  if (el.id === 'q') { F.q = el.value.trim().toLowerCase(); const main = document.getElementById('main'); main.innerHTML = { map: viewMap, board: viewBoard, roadmap: viewRoadmap, fit: viewFit, decisions: viewDecisions }[S.view](); }
+  else if (el.dataset.note) { S.notes[el.dataset.note] = el.value; if (!el.value) delete S.notes[el.dataset.note]; save(); }
+  else if (el.dataset.dnote) { S.dnotes[el.dataset.dnote] = el.value; if (!el.value) delete S.dnotes[el.dataset.dnote]; save(); }
+});
+function light(id) {
+  const c = document.getElementById('canvas');
+  if (!c) return;
+  const rel = id ? related(id) : null;
+  c.classList.toggle('dim', !!rel);
+  c.querySelectorAll('.node').forEach(n => n.classList.toggle('hot', !!rel && rel.has(n.dataset.id)));
+  c.querySelectorAll('.edge').forEach(p => p.classList.toggle('hot', !!rel && rel.has(p.dataset.from) && rel.has(p.dataset.to)));
+}
+for (const [on, off] of [['mouseover', 'mouseout'], ['focusin', 'focusout']]) {
+  document.addEventListener(on, e => { const n = e.target.closest?.('.canvas .node'); if (n) light(n.dataset.id); });
+  document.addEventListener(off, e => { if (e.target.closest?.('.canvas .node')) light(null); });
+}
+render(false);
+</script>
+</body>
+</html>

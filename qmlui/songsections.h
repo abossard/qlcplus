@@ -88,5 +88,7 @@ QList<SongSection> effectiveSections(const EdmAnalysis &analysis, const SectionE
  *  the edits unchanged and says why in error */
 SectionEdits applySectionAction(const EdmAnalysis &analysis, const SectionEdits &edits,
                                 const SectionAction &action, QString *error = nullptr);
+SectionEdits applySectionAction(const EdmAnalysis &analysis, const SectionEdits &edits, const SectionAction &action,
+                                QString *error, const QList<SongSection> &sections);
 
 #endif
