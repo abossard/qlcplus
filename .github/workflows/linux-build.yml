@@ -1,0 +1,585 @@
+name: Linux Build
+
+# Produces self-contained AppImages for QLC+ (qlcplus-qml / v5) on:
+#   • x86_64  — native GitHub runner, Qt installed via jurplel/install-qt-action
+#   • aarch64 — GitHub-hosted ARM64 runner (ubuntu-22.04-arm), system Qt 6 from apt
+#
+# armv7 is NOT built automatically: GitHub has no armv7 runners, Qt 6 for armv7
+# is only available as Qt 6.2.x via apt on Ubuntu 22.04, and full QEMU emulation
+# of a Qt 6 build takes 45–90 minutes which is impractical for CI.  If you need
+# an armv7 artifact, set the `build_armv7` workflow_dispatch input to true; the
+# job will run but may time out on free-tier runners.
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_armv7:
+        description: 'Also attempt armv7 (slow QEMU cross-build, may time-out)'
+        type: boolean
+        default: false
+
+  push:
+    tags:
+      - 'v*'
+
+  pull_request:
+    paths:
+      - '**.cpp'
+      - '**.h'
+      - '**.qml'
+      - '**/CMakeLists.txt'
+      - 'variables.cmake'
+      - 'coverage.cmake'
+      - '.github/workflows/linux-build.yml'
+      - 'platforms/linux/**'
+
+# Cancel in-progress runs for the same ref on PRs so we don't waste runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Default to read-only token; individual jobs that publish releases override.
+permissions:
+  contents: read
+
+# ---------------------------------------------------------------------------
+# Shared setup steps are inlined per job because GitHub Actions does not
+# allow the `matrix` context in job-level `if` conditions, so we cannot use
+# a single matrix entry with a per-row skip flag.  Two separate jobs keep
+# the conditional logic simple and explicit.
+# ---------------------------------------------------------------------------
+
+jobs:
+  # ── x86_64 ──────────────────────────────────────────────────────────────────
+  # Runs on every trigger (PR, tag, dispatch, branch push).
+  # Qt installed via jurplel/install-qt-action (prebuilt binaries, known paths).
+  # Unit tests executed here.
+  build-x86_64:
+    name: Build (x86_64)
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write  # needed by softprops/action-gh-release
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libusb-1.0-0-dev \
+            libftdi1-dev \
+            libasound2-dev \
+            libudev-dev \
+            libfftw3-dev \
+            libmad0-dev \
+            libsndfile1-dev \
+            liblo-dev \
+            libpulse-dev \
+            libfuse2 \
+            patchelf \
+            shared-mime-info \
+            wget \
+            file
+
+      - name: Install Qt via install-qt-action (x86_64)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.9.3'
+          cache: true
+          modules: 'qt3d qtimageformats qtmultimedia qtserialport qtwebsockets'
+
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: Linux-x86_64-cmake-${{ hashFiles('**/CMakeLists.txt', 'variables.cmake') }}
+          restore-keys: Linux-x86_64-cmake-
+
+      - name: Set build environment variables
+        run: |
+          set -euxo pipefail
+          APPVERSION=$(awk -F'"' '/set\(APPVERSION "5\./{print $2; exit}' variables.cmake \
+                       | tr ' ' '-')
+          GIT_REV=$(git rev-parse --short HEAD)
+          {
+            echo "APPVERSION=${APPVERSION}-${GIT_REV}"
+            echo "GIT_REV=${GIT_REV}"
+            echo "INSTALL_ROOT=$(pwd)/AppDir"
+            # install-qt-action exports QT_ROOT_DIR (not QTDIR)
+            echo "QMAKE=${QT_ROOT_DIR}/bin/qmake"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure CMake
+        run: |
+          set -euxo pipefail
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dqmlui=ON \
+            -Dmcp_server=ON \
+            -Dappimage=ON \
+            "-DINSTALL_ROOT=${INSTALL_ROOT}" \
+            "-DCMAKE_PREFIX_PATH=${QT_ROOT_DIR}/lib/cmake"
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cmake --build build -j"$(nproc)"
+
+      - name: Run unit tests
+        run: |
+          set -euxo pipefail
+          QT_QPA_PLATFORM=offscreen build/mcp/test/mcp_vc_query_filter_test
+          QT_QPA_PLATFORM=offscreen build/mcp/test/mcp_vc_validation_test
+
+      - name: Install to AppDir
+        run: |
+          set -euxo pipefail
+          cmake --install build
+
+      - name: Download linuxdeploy and plugin-qt
+        run: |
+          set -euxo pipefail
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+               -O linuxdeploy.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage \
+               -O linuxdeploy-plugin-qt.AppImage
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+               -O appimagetool.AppImage
+          chmod +x linuxdeploy.AppImage linuxdeploy-plugin-qt.AppImage appimagetool.AppImage
+
+      # linuxdeploy uses ldd to find all shared-library dependencies and copies
+      # them to AppDir/usr/lib.  linuxdeploy-plugin-qt additionally copies Qt
+      # platform plugins, image-format plugins, QML imports, and creates a
+      # qt.conf so Qt finds its plugins at runtime inside the AppImage.
+      # LD_LIBRARY_PATH must include AppDir/usr/lib so linuxdeploy can resolve
+      # libqlcplusengine.so and other QLC+ libraries installed by cmake --install.
+      - name: Bundle dependencies with linuxdeploy
+        env:
+          QMAKE: ${{ env.QMAKE }}
+          QML_SOURCES_PATHS: ${{ github.workspace }}/qmlui
+          LD_LIBRARY_PATH: ${{ github.workspace }}/AppDir/usr/lib
+        run: |
+          set -euxo pipefail
+          ./linuxdeploy.AppImage \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/qlcplus-qml \
+            --desktop-file platforms/linux/qlcplus5.desktop \
+            --icon-file resources/icons/png/qlcplus.png \
+            --plugin qt \
+            --verbosity 1
+
+      # QLC+ compiles data paths as relative strings (e.g. "../share/qlcplus")
+      # resolved against the process CWD.  -Dappimage=ON installs data under
+      # AppDir/share/ and the binary under AppDir/usr/bin/.  Setting CWD to
+      # AppDir/usr before exec makes those "../…" paths resolve correctly.
+      - name: Write custom AppRun
+        run: |
+          set -euxo pipefail
+          cat > AppDir/AppRun << 'APPRUN_EOF'
+          #!/bin/bash
+          set -e
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export APPDIR="$HERE"
+          export QT_PLUGIN_PATH="${HERE}/usr/plugins${QT_PLUGIN_PATH:+:${QT_PLUGIN_PATH}}"
+          export QML2_IMPORT_PATH="${HERE}/usr/qml${QML2_IMPORT_PATH:+:${QML2_IMPORT_PATH}}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          cd "${HERE}/usr"
+          exec "${HERE}/usr/bin/qlcplus-qml" "$@"
+          APPRUN_EOF
+          sed -i 's/^[[:space:]]*//' AppDir/AppRun
+          chmod +x AppDir/AppRun
+
+      - name: Build AppImage
+        run: |
+          set -euxo pipefail
+          OUTPUT="QLC+-${APPVERSION}-x86_64.AppImage"
+          ./appimagetool.AppImage -v AppDir "$OUTPUT"
+          echo "APPIMAGE_PATH=${OUTPUT}" >> "$GITHUB_ENV"
+
+      - name: Generate SHA256 checksum
+        run: |
+          set -euxo pipefail
+          sha256sum "${APPIMAGE_PATH}" > "${APPIMAGE_PATH}.sha256"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QLC+-${{ env.APPVERSION }}-x86_64
+          path: |
+            ${{ env.APPIMAGE_PATH }}
+            ${{ env.APPIMAGE_PATH }}.sha256
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.APPIMAGE_PATH }}
+            ${{ env.APPIMAGE_PATH }}.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── aarch64 ─────────────────────────────────────────────────────────────────
+  # Skipped on pull_request events to keep PR CI fast (ARM builds are ~2x slower).
+  # Uses system Qt 6 from Ubuntu 22.04 apt because jurplel/install-qt-action does
+  # not ship Linux/ARM desktop Qt prebuilts.
+  # Runner: ubuntu-22.04-arm (GitHub-hosted ARM64).  If that label is unavailable,
+  # replace with "ubuntu-22.04" and add docker/setup-qemu-action for emulation.
+  build-aarch64:
+    name: Build (aarch64)
+    runs-on: ubuntu-22.04-arm
+    permissions:
+      contents: write
+    if: ${{ github.event_name != 'pull_request' }}
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libusb-1.0-0-dev \
+            libftdi1-dev \
+            libasound2-dev \
+            libudev-dev \
+            libfftw3-dev \
+            libmad0-dev \
+            libsndfile1-dev \
+            liblo-dev \
+            libpulse-dev \
+            libfuse2 \
+            patchelf \
+            shared-mime-info \
+            wget \
+            file
+
+      - name: Install Qt via apt (aarch64)
+        run: |
+          set -euxo pipefail
+          # Ensure the 'universe' repository is enabled (ARM runners may ship
+          # with a minimal sources.list that omits it).
+          sudo apt-add-repository universe -y
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            qt6-base-dev \
+            qt6-base-private-dev \
+            qt6-declarative-dev \
+            qt6-declarative-private-dev \
+            qt6-multimedia-dev \
+            libqt6websockets6-dev \
+            libqt6svg6-dev \
+            qt6-3d-dev \
+            libqt6serialport6-dev \
+            qt6-tools-dev \
+            qt6-tools-dev-tools \
+            qt6-l10n-tools \
+            qt6-image-formats-plugins \
+            libqt6opengl6-dev \
+            qml6-module-qtquick \
+            qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts \
+            qml6-module-qtquick-window \
+            qml6-module-qtmultimedia \
+            libgl1-mesa-dev
+
+      - name: Add Qt tools to PATH (aarch64)
+        run: |
+          set -euxo pipefail
+          echo "/usr/lib/qt6/bin" >> "$GITHUB_PATH"
+
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: Linux-aarch64-cmake-${{ hashFiles('**/CMakeLists.txt', 'variables.cmake') }}
+          restore-keys: Linux-aarch64-cmake-
+
+      - name: Set build environment variables
+        run: |
+          set -euxo pipefail
+          APPVERSION=$(awk -F'"' '/set\(APPVERSION "5\./{print $2; exit}' variables.cmake \
+                       | tr ' ' '-')
+          GIT_REV=$(git rev-parse --short HEAD)
+          QMAKE=$(command -v qmake6 || command -v qmake)
+          {
+            echo "APPVERSION=${APPVERSION}-${GIT_REV}"
+            echo "GIT_REV=${GIT_REV}"
+            echo "INSTALL_ROOT=$(pwd)/AppDir"
+            echo "QMAKE=${QMAKE}"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure CMake
+        run: |
+          set -euxo pipefail
+          # Ubuntu arm64 packaging: Qt6LinguistToolsTargets.cmake expects
+          # lprodump in /usr/lib/qt6/libexec/ but it may be in /usr/lib/qt6/bin/.
+          # Check for the binary, not the directory.
+          sudo mkdir -p /usr/lib/qt6/libexec
+          if [ ! -x /usr/lib/qt6/libexec/lprodump ] && [ -d /usr/lib/qt6/bin ]; then
+            for f in /usr/lib/qt6/bin/*; do
+              [ -f "$f" ] && sudo ln -sf "$f" "/usr/lib/qt6/libexec/$(basename "$f")"
+            done
+          fi
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -Dqmlui=ON \
+            -Dmcp_server=ON \
+            -Dappimage=ON \
+            "-DINSTALL_ROOT=${INSTALL_ROOT}"
+
+      - name: Build
+        run: |
+          set -euxo pipefail
+          cmake --build build -j"$(nproc)"
+
+      - name: Install to AppDir
+        run: |
+          set -euxo pipefail
+          cmake --install build
+
+      - name: Download linuxdeploy and plugin-qt
+        run: |
+          set -euxo pipefail
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-aarch64.AppImage \
+               -O linuxdeploy.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-aarch64.AppImage \
+               -O linuxdeploy-plugin-qt.AppImage
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-aarch64.AppImage \
+               -O appimagetool.AppImage
+          chmod +x linuxdeploy.AppImage linuxdeploy-plugin-qt.AppImage appimagetool.AppImage
+
+      - name: Bundle dependencies with linuxdeploy
+        env:
+          QMAKE: ${{ env.QMAKE }}
+          QML_SOURCES_PATHS: ${{ github.workspace }}/qmlui
+          LD_LIBRARY_PATH: ${{ github.workspace }}/AppDir/usr/lib
+        run: |
+          set -euxo pipefail
+          ./linuxdeploy.AppImage \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/qlcplus-qml \
+            --desktop-file platforms/linux/qlcplus5.desktop \
+            --icon-file resources/icons/png/qlcplus.png \
+            --plugin qt \
+            --verbosity 1
+
+      - name: Write custom AppRun
+        run: |
+          set -euxo pipefail
+          cat > AppDir/AppRun << 'APPRUN_EOF'
+          #!/bin/bash
+          set -e
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export APPDIR="$HERE"
+          export QT_PLUGIN_PATH="${HERE}/usr/plugins${QT_PLUGIN_PATH:+:${QT_PLUGIN_PATH}}"
+          export QML2_IMPORT_PATH="${HERE}/usr/qml${QML2_IMPORT_PATH:+:${QML2_IMPORT_PATH}}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+          cd "${HERE}/usr"
+          exec "${HERE}/usr/bin/qlcplus-qml" "$@"
+          APPRUN_EOF
+          sed -i 's/^[[:space:]]*//' AppDir/AppRun
+          chmod +x AppDir/AppRun
+
+      - name: Build AppImage
+        run: |
+          set -euxo pipefail
+          OUTPUT="QLC+-${APPVERSION}-aarch64.AppImage"
+          ./appimagetool.AppImage -v AppDir "$OUTPUT"
+          echo "APPIMAGE_PATH=${OUTPUT}" >> "$GITHUB_ENV"
+
+      - name: Generate SHA256 checksum
+        run: |
+          set -euxo pipefail
+          sha256sum "${APPIMAGE_PATH}" > "${APPIMAGE_PATH}.sha256"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QLC+-${{ env.APPVERSION }}-aarch64
+          path: |
+            ${{ env.APPIMAGE_PATH }}
+            ${{ env.APPIMAGE_PATH }}.sha256
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.APPIMAGE_PATH }}
+            ${{ env.APPIMAGE_PATH }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # armv7 — optional, workflow_dispatch only
+  # ---------------------------------------------------------------------------
+  # armv7 is gated behind a manual input because:
+  #   1. GitHub does not offer native armv7 (32-bit ARM) hosted runners.
+  #   2. QEMU emulation of a full Qt 6 CMake build takes 45–90 minutes,
+  #      which exceeds typical free-tier job time limits.
+  #   3. Qt 6 for Linux/armhf is only available as Qt 6.2.x via Ubuntu 22.04
+  #      apt (no official Qt prebuilts for Linux armhf desktop).
+  # If you need armv7 artifacts, consider a dedicated self-hosted armhf runner
+  # or a Raspberry Pi build farm instead.
+  build-armv7:
+    name: Build (armv7) [manual only]
+    runs-on: ubuntu-22.04
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_armv7 == true }}
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 0
+
+      - name: Set up QEMU for armv7
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - name: Build inside armv7 Docker container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: arm32v7/ubuntu:22.04
+          options: >-
+            --platform linux/arm/v7
+            -v ${{ github.workspace }}:/workspace
+            -e DEBIAN_FRONTEND=noninteractive
+          run: |
+            set -euxo pipefail
+            apt-get update -q
+            apt-get install -y --no-install-recommends \
+              build-essential cmake ninja-build pkg-config \
+              qt6-base-dev qt6-base-private-dev \
+              qt6-declarative-dev qt6-declarative-private-dev \
+              qt6-multimedia-dev qt6-websockets-dev qt6-svg-dev \
+              qt6-3d-dev qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools \
+              libusb-1.0-0-dev libftdi1-dev libasound2-dev libudev-dev \
+              libfftw3-dev libmad0-dev libsndfile1-dev liblo-dev libpulse-dev \
+              patchelf wget file git
+            # Fix Qt6 libexec layout if lprodump is missing
+            mkdir -p /usr/lib/qt6/libexec
+            if [ ! -x /usr/lib/qt6/libexec/lprodump ] && [ -d /usr/lib/qt6/bin ]; then
+              for f in /usr/lib/qt6/bin/*; do
+                [ -f "$f" ] && ln -sf "$f" "/usr/lib/qt6/libexec/$(basename "$f")"
+              done
+            fi
+            cd /workspace
+            APPVERSION=$(awk -F'"' '/set\(APPVERSION "5\./{print $2; exit}' variables.cmake \
+                         | tr ' ' '-')
+            GIT_REV=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            APPVERSION="${APPVERSION}-${GIT_REV}"
+            cmake -S . -B build -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -Dqmlui=ON \
+              -Dmcp_server=ON \
+              -Dappimage=ON \
+              "-DINSTALL_ROOT=/workspace/AppDir-armv7"
+            cmake --build build -j"$(nproc)"
+            cmake --install build
+            tar -czf "QLC+-${APPVERSION}-armv7.tar.gz" -C /workspace AppDir-armv7
+            sha256sum "QLC+-${APPVERSION}-armv7.tar.gz" \
+              > "QLC+-${APPVERSION}-armv7.tar.gz.sha256"
+            echo "APPVERSION=${APPVERSION}" >> /workspace/.armv7_env
+
+      - name: Read armv7 env
+        run: |
+          set -euxo pipefail
+          source .armv7_env
+          {
+            echo "APPVERSION=${APPVERSION}"
+            echo "TARBALL=QLC+-${APPVERSION}-armv7.tar.gz"
+          } >> "$GITHUB_ENV"
+
+      - name: Upload armv7 tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QLC+-${{ env.APPVERSION }}-armv7
+          path: |
+            ${{ env.TARBALL }}
+            ${{ env.TARBALL }}.sha256
+          if-no-files-found: error
+
+      - name: Attach armv7 tarball to GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.TARBALL }}
+            ${{ env.TARBALL }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Aggregation job — branch protection can require this single check
+  # ---------------------------------------------------------------------------
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-22.04
+    needs: [build-x86_64, build-aarch64]
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Check required build jobs
+        run: |
+          x86_result="${{ needs.build-x86_64.result }}"
+          arm_result="${{ needs.build-aarch64.result }}"
+          if [[ "${x86_result}" != "success" ]]; then
+            echo "❌  x86_64 build ${x86_result}."
+            exit 1
+          fi
+          # aarch64 is intentionally skipped on pull_request events; only fail
+          # if it actually ran and failed.
+          if [[ "${arm_result}" == "failure" ]]; then
+            echo "❌  aarch64 build failed."
+            exit 1
+          fi
+          echo "✅  x86_64=${x86_result}, aarch64=${arm_result}."

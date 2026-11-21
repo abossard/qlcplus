@@ -155,23 +155,29 @@ if(appimage)
         set(PLUGINS_DESTINATION ${INSTALLROOT}/${LIBSDIR}/qt5/plugins)
     endif()
 
+    # OPTIONAL on all Qt plugin installs so that builds using system Qt on non-x86_64
+    # architectures (where paths may differ) do not fail — linuxdeploy handles
+    # bundling the missing Qt plugins in those cases.
     install(
         FILES
             ${QT_PLUGINS_PATH}/platforms/libqlinuxfb.so
             ${QT_PLUGINS_PATH}/platforms/libqxcb.so
             ${QT_PLUGINS_PATH}/platforms/libqwayland.so
             ${QT_PLUGINS_PATH}/platforms/libqminimal.so
+        OPTIONAL
         DESTINATION ${PLUGINS_DESTINATION}/platforms
     )
 
     install(
         FILES ${QT_PLUGINS_PATH}/xcbglintegrations/libqxcb-glx-integration.so
+        OPTIONAL
         DESTINATION ${PLUGINS_DESTINATION}/xcbglintegrations
     )
 
     if (QT_VERSION_MAJOR GREATER 5)
         install(
             FILES ${QT_PLUGINS_PATH}/multimedia/libffmpegmediaplugin.so
+            OPTIONAL
             DESTINATION ${PLUGINS_DESTINATION}/multimedia
         )
         get_filename_component(LIBAVFORMAT_REAL "${QT_LIBS_PATH}/libavformat.so" REALPATH)
@@ -180,6 +186,7 @@ if(appimage)
                 ${QT_LIBS_PATH}/libavformat.so
                 ${QT_LIBS_PATH}/libavformat.so.61
                 ${LIBAVFORMAT_REAL}
+            OPTIONAL
             DESTINATION ${INSTALLROOT}/${LIBSDIR}
         )
     else()
@@ -187,6 +194,7 @@ if(appimage)
             FILES
                 ${QT_PLUGINS_PATH}/audio/libqtaudio_alsa.so
                 ${QT_PLUGINS_PATH}/audio/libqtmedia_pulse.so
+            OPTIONAL
             DESTINATION ${PLUGINS_DESTINATION}/audio
         )
 
@@ -194,6 +202,7 @@ if(appimage)
             FILES
                 ${QT_PLUGINS_PATH}/mediaservice/libgstaudiodecoder.so
                 ${QT_PLUGINS_PATH}/mediaservice/libgstmediaplayer.so
+            OPTIONAL
             DESTINATION ${PLUGINS_DESTINATION}/mediaservice
         )
     endif()
@@ -201,6 +210,7 @@ if(appimage)
     install(
         FILES
             ${QT_PLUGINS_PATH}/imageformats/libqsvg.so
+        OPTIONAL
         DESTINATION ${PLUGINS_DESTINATION}/imageformats
     )
 
@@ -208,6 +218,7 @@ if(appimage)
         install(
             FILES
                 ${QT_PLUGINS_PATH}/printsupport/libcupsprintersupport.so
+            OPTIONAL
             DESTINATION ${PLUGINS_DESTINATION}/printsupport
         )
 
@@ -220,11 +231,12 @@ if(appimage)
         install(
             FILES
                 ${QT_PLUGINS_PATH}/geometryloaders/libdefaultgeometryloader.so
+            OPTIONAL
             DESTINATION ${PLUGINS_DESTINATION}/geometryloaders
         )
 
         if(QT_VERSION VERSION_GREATER_EQUAL 5.15.0)
-            install(FILES ${QT_PLUGINS_PATH}/renderers/libopenglrenderer.so DESTINATION ${PLUGINS_DESTINATION}/renderers)
+            install(FILES ${QT_PLUGINS_PATH}/renderers/libopenglrenderer.so OPTIONAL DESTINATION ${PLUGINS_DESTINATION}/renderers)
         endif()
 
         set(qmldeps_files
@@ -234,7 +246,13 @@ if(appimage)
             ${QT_QML_PATH}/Qt3D
             ${QT_QML_PATH}/QtMultimedia
         )
-        install(DIRECTORY ${qmldeps_files} DESTINATION ${INSTALLROOT}/bin)
+        # Use EXISTS check instead of OPTIONAL (OPTIONAL on DIRECTORY requires CMake 3.22,
+        # but cmake_minimum_required is 3.16; CI runners have 3.22+ but protect older builds)
+        foreach(_qml_dir ${qmldeps_files})
+            if(EXISTS "${_qml_dir}")
+                install(DIRECTORY "${_qml_dir}" DESTINATION ${INSTALLROOT}/bin)
+            endif()
+        endforeach()
 
     endif()
 
