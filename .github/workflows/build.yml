@@ -323,6 +323,8 @@ jobs:
     continue-on-error: true
     runs-on: windows-latest
     name: QLCplus Windows ${{matrix.task}}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
