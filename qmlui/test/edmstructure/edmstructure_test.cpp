@@ -571,7 +571,7 @@ void EdmStructure_Test::mappingXmlRoundTrip()
     QVERIFY(reader.readNextStartElement());
     QVERIFY(loaded.loadXML(reader));
 
-    for (const QString &label : {"intro", "buildup", "drop", "breakdown", "groove", "outro", "chorus"})
+    for (const QString label : {"intro", "buildup", "drop", "breakdown", "groove", "outro", "chorus"})
         QCOMPARE(loaded.function(label), mapping.function(label));
     QCOMPARE(loaded.function("chorus"), 9u);
     QCOMPARE(loaded.functionId("none"), -1);

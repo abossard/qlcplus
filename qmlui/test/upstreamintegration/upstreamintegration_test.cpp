@@ -4788,7 +4788,7 @@ void UpstreamIntegration_Test::upstreamTrackHistory_data()
 {
     QTest::addColumn<QString>("operation");
     QTest::addColumn<bool>("readOnly");
-    for (const QString &operation : {"mute-id", "mute-pointer", "solo", "move"})
+    for (const QString operation : {"mute-id", "mute-pointer", "solo", "move"})
         for (bool readOnly : {false, true})
             QTest::newRow(qPrintable(operation + (readOnly ? "-read-only" : "-editable")))
                 << operation << readOnly;
@@ -6164,7 +6164,7 @@ void UpstreamIntegration_Test::stoppedCueNavigation()
 void UpstreamIntegration_Test::tardisHistory_data()
 {
     QTest::addColumn<QString>("operation");
-    for (const QString &operation : {"roundtrip", "branch", "refused-undo", "refused-redo", "queued"})
+    for (const QString operation : {"roundtrip", "branch", "refused-undo", "refused-redo", "queued"})
         QTest::newRow(qPrintable(operation)) << operation;
 }
 
@@ -6269,7 +6269,7 @@ void UpstreamIntegration_Test::tardisHistory()
 void UpstreamIntegration_Test::tardisRecordingHistory_data()
 {
     QTest::addColumn<QString>("operation");
-    for (const QString &operation : {"roundtrip", "stale", "capacity", "perform-guard"})
+    for (const QString operation : {"roundtrip", "stale", "capacity", "perform-guard"})
         QTest::newRow(qPrintable(operation)) << operation;
 }
 

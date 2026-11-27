@@ -567,7 +567,7 @@ double ShowManager::snapSongTime(double timeMs, double afterMs, double beforeMs)
         return -1;
     const EdmAnalysis analysis = m_analysisReader.analysis(EdmAnalysisReader::firstAudioFile(m_doc, m_currentShow));
     const double bar = analysis.grid.barMs;
-    if (analysis.valid == false || bar > 0 == false)
+    if (analysis.valid == false || (bar > 0) == false)
         return -1;
     const double offset = EdmAudioClip(m_doc, clip).offset;
     double at = snapToBar(analysis.grid, timeMs - offset) + offset;

@@ -40,7 +40,7 @@ bool sectionActionType(const QString &name, SectionAction::Type *type)
 
 double snapToBar(const EdmGrid &grid, double ms)
 {
-    if (grid.barMs > 0 == false)
+    if ((grid.barMs > 0) == false)
         return ms;
     return grid.firstDownbeatMs + qRound64((ms - grid.firstDownbeatMs) / grid.barMs) * grid.barMs;
 }

@@ -141,7 +141,7 @@ EdmAnalysis parseEdmAnalysis(const QByteArray &bytes)
     const QJsonObject grid = root.value("grid").toObject();
     const double period = grid.contains("period") ? grid.value("period").toDouble() : 60.0 / grid.value("bpm").toDouble();
     const QJsonArray sections = root.value("sections").toArray();
-    if (period > 0 == false || qIsFinite(period) == false || sections.isEmpty())
+    if (period <= 0 || qIsFinite(period) == false || sections.isEmpty())
         return result;
 
     result.grid.beatsPerBar = grid.value("beats_per_bar").toInt(4);

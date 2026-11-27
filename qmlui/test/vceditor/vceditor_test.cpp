@@ -967,7 +967,7 @@ void VCEditor_Test::doubleClickOpensProperties()
 void VCEditor_Test::widgetMenu_data()
 {
     QTest::addColumn<QString>("entry");
-    for (const QString &entry : {"Properties", "Cut", "Copy", "Duplicate", "Delete"})
+    for (const QString entry : {"Properties", "Cut", "Copy", "Duplicate", "Delete"})
         QTest::newRow(qPrintable(entry)) << entry;
 }
 
@@ -1158,7 +1158,7 @@ void VCEditor_Test::frameCheckboxes_data()
 {
     QTest::addColumn<QString>("property");
     QTest::addColumn<QString>("type");
-    for (const QString &property : {"showHeader", "showEnable", "multiPageMode", "pagesLoop"})
+    for (const QString property : {"showHeader", "showEnable", "multiPageMode", "pagesLoop"})
         QTest::newRow(qPrintable(property)) << property << QString("Frame");
     QTest::newRow("excludeMonitoredFunctions") << QString("excludeMonitoredFunctions") << QString("Solo frame");
 }
@@ -1956,7 +1956,7 @@ void VCEditor_Test::editErrorsDoNotBlock()
 void VCEditor_Test::functionDropsOnlyWhileEditing_data()
 {
     QTest::addColumn<QString>("type");
-    for (const QString &type : {"Button", "Slider", "Animation", "Speed"})
+    for (const QString type : {"Button", "Slider", "Animation", "Speed"})
         QTest::newRow(qPrintable(type)) << type;
 }
 
