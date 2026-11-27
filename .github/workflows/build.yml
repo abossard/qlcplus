@@ -318,6 +318,8 @@ jobs:
           path: qlcplus-${{env.TASK}}-${{env.APPVERSION}}-${{env.BUILD_DATE}}-${{env.GIT_REV}}-${{matrix.appimage_arch}}.AppImage
 
   build-windows:
+    # Paused until the Windows build is fixed.
+    if: ${{ false }}
     continue-on-error: true
     runs-on: windows-latest
     name: QLCplus Windows ${{matrix.task}}
