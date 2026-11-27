@@ -1,4 +1,4 @@
-﻿/*
+/*
   Q Light Controller
   hpmprivate-win32.h
 
@@ -35,14 +35,14 @@ class HPMPrivate final : public QObject
     Q_OBJECT
 
 public:
-    HPMPrivate(HotPlugMonitor* parent);
+    explicit HPMPrivate(HotPlugMonitor* parent);
     virtual ~HPMPrivate();
 
     void start();
     void stop();
 
     void setWinId(WId id);
-    bool processWinEvent(MSG* message, long* result);
+    bool processWinEvent(MSG* message);
 
 protected:
     static bool extractVidPid(const QString& dbccName, uint* vid, uint* pid);

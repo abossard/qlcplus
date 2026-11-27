@@ -89,7 +89,7 @@ public:
     enum LayoutMode { LayoutFree = 0, LayoutGrid = 1 };
     Q_ENUM(LayoutMode)
 
-    VCFrame(Doc* doc = nullptr, VirtualConsole *vc = nullptr, QObject *parent = nullptr);
+    explicit VCFrame(Doc* doc = nullptr, VirtualConsole *vc = nullptr, QObject *parent = nullptr);
     virtual ~VCFrame();
 
     virtual void initializeProperties();

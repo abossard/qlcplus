@@ -137,9 +137,35 @@ Rectangle
             clientAccessPopup.close()
     }
 
+    /** Shared by QML shortcuts and ContextManager's key handling for detached views. */
+    function newProject()
+    {
+        if (projectShortcutsAllowed())
+            actionsMenu.handleNewAction()
+    }
+
+    function openProject()
+    {
+        if (projectShortcutsAllowed())
+            actionsMenu.handleOpenAction()
+    }
+
     function saveProject()
     {
-        actionsMenu.handleSaveAction()
+        if (projectShortcutsAllowed())
+            actionsMenu.handleSaveAction()
+    }
+
+    function saveProjectAs()
+    {
+        if (projectShortcutsAllowed())
+            actionsMenu.handleSaveAsAction()
+    }
+
+    function toggleFullscreenShortcut()
+    {
+        if (!shortcutsBlocked())
+            actionsMenu.handleFullscreenAction()
     }
 
     function saveBeforeExit()
@@ -184,7 +210,7 @@ Rectangle
     function projectShortcutsAllowed()
     {
         return !shortcutsBlocked()
-            && qlcplus.accessMask !== App.AC_VCControl
+            && qlcplus.projectActionsAllowed
     }
 
     function showScalingInfo()
@@ -813,21 +839,28 @@ Rectangle
     {
         sequence: StandardKey.New
         enabled: mainView.projectShortcutsAllowed()
-        onActivated: actionsMenu.handleNewAction()
+        onActivated: mainView.newProject()
     }
 
     Shortcut
     {
         sequence: StandardKey.Open
         enabled: mainView.projectShortcutsAllowed()
-        onActivated: actionsMenu.handleOpenAction()
+        onActivated: mainView.openProject()
     }
 
     Shortcut
     {
         sequence: StandardKey.Save
         enabled: mainView.projectShortcutsAllowed()
-        onActivated: actionsMenu.handleSaveAction()
+        onActivated: mainView.saveProject()
+    }
+
+    Shortcut
+    {
+        sequence: StandardKey.SaveAs
+        enabled: mainView.projectShortcutsAllowed()
+        onActivated: mainView.saveProjectAs()
     }
 
     Shortcut
@@ -857,7 +890,7 @@ Rectangle
     {
         sequences: ["F11", "Ctrl+F11"]
         enabled: !mainView.shortcutsBlocked()
-        onActivated: actionsMenu.handleFullscreenAction()
+        onActivated: mainView.toggleFullscreenShortcut()
     }
 
     Shortcut { sequence: "Alt+1"; enabled: !mainView.shortcutsBlocked() && fnfEntry.visible; onActivated: fnfEntry.checked = true }

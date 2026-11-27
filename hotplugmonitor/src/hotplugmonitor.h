@@ -45,7 +45,7 @@ public:
 
 #if defined(WIN32) || defined(Q_OS_WIN)
     static void setWinId(WId id);
-    static bool parseWinEvent(void * message, long * result);
+    static bool parseWinEvent(void * message);
 #endif
 
     /** Destructor */
@@ -66,7 +66,7 @@ private slots:
     void stop();
 
 private:
-    HotPlugMonitor(QObject* parent);
+    explicit HotPlugMonitor(QObject* parent);
     static HotPlugMonitor* instance();
 
     void emitDeviceAdded(uint vid, uint pid);

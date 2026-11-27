@@ -49,7 +49,7 @@ class Collection final : public Function
      * Initialization
      *********************************************************************/
 public:
-    Collection(Doc* doc);
+    explicit Collection(Doc* doc);
     virtual ~Collection();
 
     /** @reimp */

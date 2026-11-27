@@ -29,6 +29,7 @@
 
 /* External control IDs, as defined in vcxypad.cpp */
 #define INPUT_PAN_ID    0
+#define INPUT_PRESETS_BASE_ID 30
 
 void VCXYPad_Test::init()
 {
@@ -265,6 +266,13 @@ void VCXYPad_Test::saveLoad()
     src->setID(INPUT_PAN_ID);
     pad.addInputSource(src);
 
+    const quint32 presetControlId = INPUT_PRESETS_BASE_ID + p1;
+    QSharedPointer<QLCInputSource> presetSource(new QLCInputSource(0, 4));
+    presetSource->setID(presetControlId);
+    pad.addInputSource(presetSource);
+    const QKeySequence presetKey("K");
+    pad.addKeySequence(presetKey, presetControlId);
+
     /* VCXYPad::saveXML is private: call it through the base class */
     QByteArray data = vcSaveXML(static_cast<const VCWidget *>(&pad));
     VCXMLReader xml(data);
@@ -291,9 +299,10 @@ void VCXYPad_Test::saveLoad()
     QCOMPARE(list.at(1).toMap().value("type").toInt(), int(VCXYPadPreset::EFX));
     QCOMPARE(list.at(1).toMap().value("functionID").toUInt(), efx->id());
 
-    QCOMPARE(pad2.inputSources().count(), 1);
-    QCOMPARE(pad2.inputSources().first()->id(), quint32(INPUT_PAN_ID));
-    QCOMPARE(pad2.inputSources().first()->channel(), quint32(3));
+    QCOMPARE(pad2.inputSources().count(), 2);
+    QVERIFY(pad2.inputSource(INPUT_PAN_ID, 0, 3));
+    QVERIFY(pad2.inputSource(presetControlId, 0, 4));
+    QCOMPARE(pad2.keySequenceMap().value(presetKey), presetControlId);
 
     /* Wrong tag */
     VCXMLReader wrongXml(QByteArray("<Button/>"));

@@ -42,7 +42,7 @@ class Audio final : public Function
      * Initialization
      *********************************************************************/
 public:
-    Audio(Doc* doc);
+    explicit Audio(Doc* doc);
     virtual ~Audio();
 
     /** @reimp */

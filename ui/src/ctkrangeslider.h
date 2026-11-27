@@ -179,8 +179,8 @@ protected Q_SLOTS:
     void onRangeChanged(int minimum, int maximum);
 
 protected:
-    ctkRangeSlider(ctkRangeSliderPrivate *impl, Qt::Orientation o, QWidget *par= 0);
-    ctkRangeSlider(ctkRangeSliderPrivate *impl, QWidget *par = 0);
+    explicit ctkRangeSlider(ctkRangeSliderPrivate *impl, Qt::Orientation o, QWidget *par= 0);
+    explicit ctkRangeSlider(ctkRangeSliderPrivate *impl, QWidget *par = 0);
 
     // Description:
     // Standard Qt UI events
@@ -191,8 +191,8 @@ protected:
     // Description:
     // Rendering is done here.
     virtual void paintEvent(QPaintEvent *ev) override;
-    virtual void initMinimumSliderStyleOption(QStyleOptionSlider *option) const;
-    virtual void initMaximumSliderStyleOption(QStyleOptionSlider *option) const;
+    void initMinimumSliderStyleOption(QStyleOptionSlider *option) const;
+    void initMaximumSliderStyleOption(QStyleOptionSlider *option) const;
 
     // Description:
     // Reimplemented for the tooltips

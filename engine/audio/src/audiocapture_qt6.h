@@ -61,7 +61,7 @@ public:
         virtual qint64 queuedBytes() const { return -1; }
     };
 
-    AudioCaptureQt6(QObject * parent = 0);
+    explicit AudioCaptureQt6(QObject *parent = nullptr);
     AudioCaptureQt6(std::unique_ptr<InputBackend> backend, QObject *parent = nullptr);
     ~AudioCaptureQt6();
 

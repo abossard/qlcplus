@@ -106,7 +106,7 @@ class RGBMatrix : public Function
      * Initialization
      *********************************************************************/
 public:
-    RGBMatrix(Doc* parent);
+    explicit RGBMatrix(Doc* parent);
     ~RGBMatrix();
 
     /** @reimp */
