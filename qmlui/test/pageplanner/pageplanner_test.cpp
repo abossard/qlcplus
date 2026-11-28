@@ -1288,7 +1288,7 @@ void PagePlanner_Test::engineRig_data()
     QTest::newRow("G2-engine-5-mixed-intersection") << "main" << "Mixed" << int(PagePlanner::Intersection) << int(PagePlanner::HeadStrips);
     QTest::newRow("G2-engine-5-mixed-union") << "main" << "Mixed" << int(PagePlanner::Union) << int(PagePlanner::HeadStrips);
     QTest::newRow("G2-engine-5-mixed-master") << "main" << "Mixed" << int(PagePlanner::MasterAndModels) << int(PagePlanner::HeadStrips);
-    for (const QString &group : { "RGB", "Hex", "Spots", "Back Spots", "Gobo mix" })
+    for (const QString group : { "RGB", "Hex", "Spots", "Back Spots", "Gobo mix" })
         QTest::newRow(qPrintable("G2-engine-gaps-" + group.toLower().replace(' ', '-')))
             << "gaps" << group << int(PagePlanner::Union) << int(PagePlanner::HeadStrips);
 }

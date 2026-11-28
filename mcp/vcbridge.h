@@ -806,7 +806,8 @@ public:
                                       TargetRow, SourceRow, ProfileRow, ProfileChannelRow, ProfileFeedbackTableRow,
                                       RecordingReferenceRow, RecordingCommandRow>;
 
-        TypedRow row;
+        // Avoid GCC's default-construction check on the first nested alternative.
+        TypedRow row{SetupPageRow{}};
         QList<AuthoringLimitation> limitations;
     };
 

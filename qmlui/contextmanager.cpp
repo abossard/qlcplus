@@ -552,6 +552,12 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
 
     qDebug() << "Key press event received:" << e->text();
 
+    /* The view this manager was built on is the application window itself.
+     * Detached contexts forward their key presses here, so the shortcuts
+     * below work from any window */
+    App *app = qobject_cast<App *>(m_view);
+    QObject *root = app ? m_view->rootObject() : nullptr;
+
     if (e->modifiers() & Qt::ControlModifier)
     {
         switch(e->key())
@@ -572,16 +578,32 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
                 selectNextFixtureGroup();
                 e->accept();
                 return;
+            case Qt::Key_N:
+            case Qt::Key_O:
+            case Qt::Key_S:
+                if (root && app->projectActionsAllowed())
+                {
+                    const char *action = "saveProject";
+                    if (e->key() == Qt::Key_N)
+                        action = "newProject";
+                    else if (e->key() == Qt::Key_O)
+                        action = "openProject";
+                    else if (e->modifiers() & Qt::ShiftModifier)
+                        action = "saveProjectAs";
+
+                    if (QMetaObject::invokeMethod(root, action))
+                    {
+                        e->accept();
+                        return;
+                    }
+                }
+            break;
             case Qt::Key_P:
                 setPositionPicking(true);
                 e->accept();
                 return;
             case Qt::Key_R:
                 resetDumpValues();
-                e->accept();
-                return;
-            case Qt::Key_S:
-                QMetaObject::invokeMethod(m_view->rootObject(), "saveProject");
                 e->accept();
                 return;
             case Qt::Key_Z:
@@ -591,6 +613,13 @@ void ContextManager::handleKeyPress(QKeyEvent *e)
                     Tardis::instance()->undoAction();
                 e->accept();
                 return;
+            case Qt::Key_F11:
+                if (root && QMetaObject::invokeMethod(root, "toggleFullscreenShortcut"))
+                {
+                    e->accept();
+                    return;
+                }
+            break;
             default:
             break;
         }

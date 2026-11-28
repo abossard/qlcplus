@@ -30,21 +30,19 @@ add_library(${module_name}
 if(WIN32)
     target_link_libraries(${module_name} PRIVATE winmm)
     set(FTD2XXDIR "C:/projects/D2XXSDK")
-    if (DEFINED ENV{MSYSTEM_CARCH})
-        set(SYSTEM_ARCH "$ENV{MSYSTEM_CARCH}")
-        if (SYSTEM_ARCH STREQUAL "x86_64")
-            target_link_libraries(${module_name} PRIVATE ${FTD2XXDIR}/amd64/libftd2xx.a)
-        endif()
-    else()
-        target_link_libraries(${module_name} PRIVATE ${FTD2XXDIR}/i386/libftd2xx.a)
-
-    endif()
+    target_link_libraries(${module_name} PRIVATE ${FTD2XXDIR}/amd64/libftd2xx.a)
     target_include_directories(${module_name} PRIVATE ${FTD2XXDIR})
     message("Building with FTD2xx support.")
     set(WITH_D2XX TRUE)
 endif()
 
-if(UNIX)
+if(ANDROID)
+    target_sources(${module_name} PRIVATE
+        android-ftdi-interface.cpp android-ftdi-interface.h
+        android-cdc-interface.cpp android-cdc-interface.h
+        ../../interfaces/qlcandroidusb.cpp ../../interfaces/qlcandroidusb.h
+    )
+elseif(UNIX)
     pkg_check_modules(LIBFTDI1 IMPORTED_TARGET libftdi1 libusb-1.0)
     pkg_check_modules(LIBFTDI IMPORTED_TARGET libftdi libusb)
 
@@ -141,20 +139,22 @@ if(APPLE)
     )
 endif()
 
-# always include QtSerialPort
-target_sources(${module_name} PUBLIC
-    qtserial-interface.cpp qtserial-interface.h
-)
+# always include QtSerialPort (except on Android where serial ports are not accessible)
+if(NOT ANDROID)
+    target_sources(${module_name} PUBLIC
+        qtserial-interface.cpp qtserial-interface.h
+    )
 
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
+    find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS SerialPort)
 
-target_compile_definitions(${module_name} PRIVATE
-    QTSERIAL
-)
+    target_compile_definitions(${module_name} PRIVATE
+        QTSERIAL
+    )
 
-target_link_libraries(${module_name} PRIVATE
-    Qt${QT_MAJOR_VERSION}::SerialPort
-)
+    target_link_libraries(${module_name} PRIVATE
+        Qt${QT_MAJOR_VERSION}::SerialPort
+    )
+endif()
 
 if(WITH_D2XX)
     target_sources(${module_name} PUBLIC ftd2xx-interface.cpp ftd2xx-interface.h)
@@ -165,19 +165,14 @@ if(WITH_LIBFTDI)
     target_sources(${module_name} PUBLIC libftdi-interface.cpp libftdi-interface.h)
 endif()
 
-if (UNIX AND NOT APPLE)
+if (UNIX AND NOT APPLE AND NOT ANDROID)
    # Rules to make USB DMX devices readable & writable by normal users
    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/z65-dmxusb.rules"
            DESTINATION ${UDEVRULESDIR})
    install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/org.qlcplus.QLCPlus.dmxusb.metainfo.xml"
            DESTINATION ${METAINFODIR})
 elseif (WITH_D2XX)
-    if (DEFINED ENV{MSYSTEM_CARCH})
-        set(SYSTEM_ARCH "$ENV{MSYSTEM_CARCH}")
-        if (SYSTEM_ARCH STREQUAL "x86_64")
-            install(FILES ${FTD2XXDIR}/amd64/ftd2xx64.dll DESTINATION  ${INSTALLROOT}/${LIBSDIR})
-        endif()
-    endif()
+    install(FILES ${FTD2XXDIR}/amd64/ftd2xx64.dll DESTINATION ${INSTALLROOT}/${LIBSDIR})
 endif()
 
 install(TARGETS ${module_name}

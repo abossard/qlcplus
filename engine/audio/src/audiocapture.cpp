@@ -15,6 +15,10 @@
 #include <QDebug>
 #include <QElapsedTimer>
 #include <qmath.h>
+#if defined(Q_OS_ANDROID)
+#include <QCoreApplication>
+#include <QPermissions>
+#endif
 
 #include "audiocapture.h"
 #include "audioanalyzer.h"
@@ -177,8 +181,8 @@ void AudioCapture::restart()
     {
         invalidate(Starting, QStringLiteral("Waiting for input"));
         QMutexLocker locker(&m_mutex);
-        if (m_registerCount > 0)
-            start();
+        if (m_registerCount > 0 && !isRunning())
+            startWithPermission();
     }
 }
 
@@ -266,9 +270,47 @@ void AudioCapture::reconcileSubscribers()
     }
     m_requestedBufferMs = request;
     if (count > 0 && previousCount == 0)
-        start();
+        startWithPermission();
     else if (count == 0 && previousCount > 0)
         stop();
+}
+
+void AudioCapture::startWithPermission()
+{
+#if defined(Q_OS_ANDROID)
+    // Queue on the main-thread QObject to avoid re-entering the subscriber lock.
+    QMetaObject::invokeMethod(this, [this]()
+    {
+        if (m_microphonePermissionPending)
+            return;
+
+        {
+            QMutexLocker subscribers(&m_subscriptionMutex);
+            if (m_registerCount == 0 || isRunning())
+                return;
+        }
+
+        m_microphonePermissionPending = true;
+        qApp->requestPermission(QMicrophonePermission{}, this, [this](const QPermission &permission)
+        {
+            m_microphonePermissionPending = false;
+            QMutexLocker subscribers(&m_subscriptionMutex);
+            if (m_registerCount == 0 || isRunning())
+                return;
+
+            if (permission.status() == Qt::PermissionStatus::Granted)
+                start();
+            else
+            {
+                subscribers.unlock();
+                qWarning() << "[AudioCapture] Microphone permission denied";
+                setStatus(Unavailable, QStringLiteral("Microphone permission denied"));
+            }
+        });
+    }, Qt::QueuedConnection);
+#else
+    start();
+#endif
 }
 
 void AudioCapture::stop()

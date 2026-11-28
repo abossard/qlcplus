@@ -15077,9 +15077,10 @@ void ShowCommandRecorder_Test::holdPairs_showSurvivesSaveAndReload()
         {
             // the first hold, as one editor step
             QVariantList ids;
-            for (const ShowCommand &cmd : show->commandTrack().commands())
+            const auto snapshot = show->commandTrack();
+            for (const ShowCommand &cmd : snapshot.commands())
             {
-                if (cmd.pairId != show->commandTrack().commands().first().pairId)
+                if (cmd.pairId != snapshot.commands().first().pairId)
                     continue;
                 ids.append(cmd.id);
                 ShowCommandEditEntry entry;
@@ -15488,7 +15489,8 @@ void ShowCommandRecorder_Test::liveInput_doubleTapBehindAReplay()
     QVERIFY(recorder.setRecording(false));
     tickAndDeliver(&doc, 3);
     ShowCommandTrack mine;
-    for (const ShowCommand &cmd : show->commandTrack().commands())
+    const auto snapshot = show->commandTrack();
+    for (const ShowCommand &cmd : snapshot.commands())
     {
         if (cmd.controlId == flash->recordingId())
             QVERIFY(mine.insert(cmd));
@@ -15578,7 +15580,8 @@ void ShowCommandRecorder_Test::liveInput_takeChangesWhileAReleaseWaits()
     }
     QVERIFY(recorder.setRecording(false));
     ShowCommandTrack mine;
-    for (const ShowCommand &cmd : show->commandTrack().commands())
+    const auto snapshot = show->commandTrack();
+    for (const ShowCommand &cmd : snapshot.commands())
         if (cmd.controlId == flash->recordingId())
             QVERIFY(mine.insert(cmd));
     show->stop(FunctionParent::master());
@@ -15783,7 +15786,8 @@ void ShowCommandRecorder_Test::liveInput_touchBelongsToItsPass()
     tickAndDeliver(&doc, 3);
     const int after = slider->value();
     QStringList times;
-    for (const ShowCommand &cmd : show->commandTrack().commands())
+    const auto snapshot = show->commandTrack();
+    for (const ShowCommand &cmd : snapshot.commands())
         times.append(QString::number(cmd.time));
 
     QVERIFY(recorder.setRecording(false));

@@ -1269,6 +1269,8 @@ void FunctionManager::setFolderPath(QString oldAbsPath, QString newPath, bool is
 
     if (isRelative)
     {
+        // path separators are not allowed in folder names
+        newPath.replace('/', '-').replace(TreeModel::separator(), '-');
         tokens.removeLast();
         tokens.append(newPath);
         newAbsPath = tokens.join(TreeModel::separator());
@@ -1380,6 +1382,9 @@ bool FunctionManager::createFolder(QString folderName)
 {
     QString basePath;
     QString compPath;
+
+    // path separators are not allowed in folder names
+    folderName.replace('/', '-').replace(TreeModel::separator(), '-');
 
     // check if there is some selected folder
     if (m_selectedFolderList.count())

@@ -77,7 +77,7 @@ public:
      *
      * @param fixtureDef The parent fixture definition
      */
-    QLCFixtureMode(QLCFixtureDef *fixtureDef);
+    explicit QLCFixtureMode(QLCFixtureDef *fixtureDef);
 
     /**
      * Create a copy of the given mode, taking channels from the given
@@ -90,7 +90,7 @@ public:
     QLCFixtureMode(QLCFixtureDef *fixtureDef, const QLCFixtureMode *mode);
 
     /** Destructor */
-    virtual ~QLCFixtureMode();
+    ~QLCFixtureMode();
 
     /** Assignment operator */
     QLCFixtureMode& operator=(const QLCFixtureMode& mode);

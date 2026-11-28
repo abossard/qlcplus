@@ -112,31 +112,31 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                     if (!geo[g]) geoErr = mcp::integerError(geoFields[g], kMinInt, kMaxInt);
                 }
                 const auto widgetID = item.contains("widgetID")
-                    ? mcp::jsonInteger(item["widgetID"], 0, mcp::kMaxId) : std::nullopt;
+                    ? mcp::jsonInteger(item["widgetID"], 0, mcp::kMaxId).value_or(-1) : -1;
                 const auto newParentID = item.contains("newParentID")
-                    ? mcp::jsonInteger(item["newParentID"], 0, mcp::kMaxId) : std::nullopt;
+                    ? mcp::jsonInteger(item["newParentID"], 0, mcp::kMaxId).value_or(-1) : -1;
                 if (!item.contains("widgetID")) geoErr = "widgetID is required";
                 else if (!item.contains("newParentID")) geoErr = "newParentID is required";
-                else if (!widgetID) geoErr = mcp::integerError("widgetID", 0, mcp::kMaxId);
-                else if (!newParentID) geoErr = mcp::integerError("newParentID", 0, mcp::kMaxId);
+                else if (widgetID < 0) geoErr = mcp::integerError("widgetID", 0, mcp::kMaxId);
+                else if (newParentID < 0) geoErr = mcp::integerError("newParentID", 0, mcp::kMaxId);
                 if (!geoErr.empty()) { results.push_back(mcp::itemError(i, geoErr)); continue; }
 
-                const int wid = int(*widgetID);
-                const int newParent = int(*newParentID);
+                const int wid = int(widgetID);
+                const int newParent = int(newParentID);
                 const auto d = vcBridge->getWidgetDetails(wid);
                 const auto target = vcBridge->getWidgetDetails(newParent);
                 std::string reject;
                 if (d.id == -1)
-                    reject = "widget " + std::to_string(*widgetID) + " not found";
+                    reject = "widget " + std::to_string(widgetID) + " not found";
                 else if (target.id == -1)
-                    reject = "newParentID " + std::to_string(*newParentID) + " not found";
+                    reject = "newParentID " + std::to_string(newParentID) + " not found";
                 else if (target.machineType != QStringLiteral("frame") &&
                          target.machineType != QStringLiteral("soloframe"))
                     reject = "newParentID must be a frame or soloframe";
                 else if (d.parentID == -1)
                     reject = "widget has no parent frame and cannot be moved";
                 else if (d.parentID == newParent)
-                    reject = "widget is already in frame " + std::to_string(*newParentID);
+                    reject = "widget is already in frame " + std::to_string(newParentID);
                 else
                 {
                     for (int p = newParent; p != -1; p = vcBridge->getWidgetDetails(p).parentID)
@@ -148,8 +148,8 @@ void registerVCLayoutTools(fastmcpp::tools::ToolManager &tm, Doc *doc, VCBridge 
                                  int(geo[2].value_or(d.geometry.width())),
                                  int(geo[3].value_or(d.geometry.height())));
                 if (vcBridge->reparentWidget(wid, newParent, rect))
-                    results.push_back(mcp::itemOk(i, {{"outcome", "moved"}, {"widgetID", *widgetID},
-                                                      {"newParentID", *newParentID}}));
+                    results.push_back(mcp::itemOk(i, {{"outcome", "moved"}, {"widgetID", widgetID},
+                                                      {"newParentID", newParentID}}));
                 else
                     results.push_back(mcp::itemError(i, "could not move widget"));
             }

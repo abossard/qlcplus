@@ -601,6 +601,11 @@ int App::defaultMask() const
             AC_ShowManager | AC_SimpleDesk | AC_VCControl | AC_VCEditing;
 }
 
+bool App::projectActionsAllowed() const
+{
+    return m_accessMask == defaultMask();
+}
+
 void App::keyPressEvent(QKeyEvent *e)
 {
     auto held = m_keyOwners.find(e->key());

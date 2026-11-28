@@ -575,7 +575,8 @@ void WebAccessQml::slotHandleHTTPRequest(QHttpRequest *req, QHttpResponse *resp)
                 break;
             if (!frames.contains(uni))
                 frames.insert(uni, universes.at(uni)->publishedPreGMValues());
-            const QByteArray &frame = frames.constFind(uni).value();
+            const auto frameIt = frames.constFind(uni);
+            const QByteArray &frame = frameIt.value();
             const int address = int(absolute & 511);
             values.append(address < frame.size() ? int(uchar(frame.at(address))) : 0);
         }

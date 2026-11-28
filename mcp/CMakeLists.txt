@@ -2,7 +2,8 @@ include(FetchContent)
 FetchContent_Declare(
     fastmcpp
     GIT_REPOSITORY https://github.com/0xeb/fastmcpp.git
-    GIT_TAG main
+    # v4.2.6.5 uses floating-point std::to_chars, which requires macOS 13.3.
+    GIT_TAG de8ad35147d2d1df36ddd55f6a7471bf98fdc2f2 # v4.2.6.4
 )
 set(FASTMCPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(FASTMCPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

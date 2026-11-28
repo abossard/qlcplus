@@ -58,6 +58,11 @@ Popup
             openDialog(App.SaveAsMode)
     }
 
+    function handleSaveAsAction()
+    {
+        openDialog(App.SaveAsMode)
+    }
+
     /** Replacing or closing the workspace asks first: it has unsaved changes,
       * or a recording is armed even when everything is saved */
     function replacementNeedsConfirmation()
@@ -515,11 +520,12 @@ Popup
                 id: fileSaveAs
                 imgSource: "qrc:/filesaveas.svg"
                 entryText: qsTr("Save project as...")
+                shortcutText: ShortcutUtils.display("Ctrl+Shift+S")
                 onEntered: fileEntryEntered(null)
 
                 onClicked:
                 {
-                    openDialog(App.SaveMode)
+                    handleSaveAsAction()
                     menuRoot.close()
                 }
             }

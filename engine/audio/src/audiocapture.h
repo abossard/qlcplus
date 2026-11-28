@@ -48,7 +48,7 @@ public:
     enum Status { Stopped, Starting, Available, Unavailable, Error };
     Q_ENUM(Status)
 
-    AudioCapture(QObject* parent = 0);
+    explicit AudioCapture(QObject *parent = nullptr);
     ~AudioCapture();
 
     int defaultBarsNumber() const;
@@ -147,6 +147,10 @@ protected:
 
 private:
     void reconcileSubscribers();
+    void startWithPermission();
+#if defined(Q_OS_ANDROID)
+    bool m_microphonePermissionPending = false;
+#endif
     QMutex m_subscriptionMutex;
     QHash<const void *, int> m_subscribers;
     int m_globalSubscribers = 0;

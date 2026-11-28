@@ -139,7 +139,7 @@ fi
 
 if [ "$TARGET" == "qmlui" ]; then
 
-ctest --test-dir qmlui/test --output-on-failure
+QT_QPA_PLATFORM=offscreen ctest --test-dir qmlui/test --output-on-failure
 RESULT=${?}
 if [ ${RESULT} != 0 ]; then
     echo "${RESULT} QML UI unit tests failed. Please fix before commit."

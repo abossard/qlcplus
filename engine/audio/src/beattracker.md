@@ -24,9 +24,10 @@ contract: interleaved int16 input where `bufferSize` is the **total** sample
 count (frames × channels), a boolean per-block "beat occurred" return that
 drives `beatDetected()`, and a `bpm()` getter for the UI.
 
-Everything is plain C++ with an internal radix-2 FFT — no Qt, no fftw3.
-This is deliberate: fftw3 is an optional engine dependency (`HAS_FFTW3`),
-so a tracker relying on it silently disappears from builds without it.
+Everything is plain C++ with an internal radix-2 FFT and does not depend on
+Qt or an external FFT backend. The fork's `AudioCapture` resamples PCM and
+passes it to the profile-based `AudioAnalyzer`, rather than using upstream's
+KissFFT/vDSP capture path.
 CPU cost is ~1.3% of one core at 44.1 kHz.
 
 ## Onset front end (`BeatOnsetExtractor`)
